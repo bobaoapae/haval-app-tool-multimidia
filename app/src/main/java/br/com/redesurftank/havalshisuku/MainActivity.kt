@@ -1960,7 +1960,10 @@ fun InformacoesTab() {
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAdvancedDialog = false }) {
+                TextButton(onClick = { 
+                    showAdvancedDialog = false 
+                    prefs.edit { putBoolean(SharedPreferencesKeys.ADVANCE_USE.key, false) }
+                }) {
                     Text("Cancelar")
                 }
             }
