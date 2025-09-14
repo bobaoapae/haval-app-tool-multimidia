@@ -310,6 +310,7 @@ fun BasicSettingsTab() {
     var closeSunroofOnSpeed by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_SPEED.key, false)) }
     var speedThreshold by remember { mutableFloatStateOf(prefs.getFloat(SharedPreferencesKeys.SPEED_THRESHOLD.key, 15f)) }
     var closeSunroofSpeedThreshold by remember { mutableFloatStateOf(prefs.getFloat(SharedPreferencesKeys.SUNROOF_SPEED_THRESHOLD.key, 15f)) }
+    var enableDisplayAutoBrightness by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_DISPLAY_AUTO_BRIGHTNESS.key, false)) }
     var enableAutoBrightness by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_AUTO_BRIGHTNESS.key, false)) }
     var nightStartHour by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.NIGHT_START_HOUR.key, 20)) }
     var nightStartMinute by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.NIGHT_START_MINUTE.key, 0)) }
@@ -471,6 +472,18 @@ fun BasicSettingsTab() {
                     prefs.edit { putBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.key, it) }
                 }
             ),
+
+            SettingItem(
+                title = "Ativar brilho automático ao ligar",
+                description = "Ativar o ajuste de brilho automático ao ligar",
+                checked = enableDisplayAutoBrightness,
+                onCheckedChange = {
+                    enableDisplayAutoBrightness = it
+                    prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_DISPLAY_AUTO_BRIGHTNESS.key, it) }
+                    ServiceManager.getInstance().setDisplayAutoBrightnessEnabled(it)
+                }
+            ),
+
             SettingItem(
                 title = "Ativar modo noturno automático",
                 description = "Ajusta o brilho da tela automaticamente",

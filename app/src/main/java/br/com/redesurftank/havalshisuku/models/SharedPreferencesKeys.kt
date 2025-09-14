@@ -38,4 +38,5 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     DISABLE_BLUETOOTH_ON_POWER_OFF("disableBluetoothOnPowerOff", "Desativar Bluetooth ao desligar o veículo"),
     DISABLE_HOTSPOT_ON_POWER_OFF("disableHotspotOnPowerOff", "Desativar ponto de acesso ao desligar o veículo"),
     BLUETOOTH_STATE_ON_POWER_OFF("bluetoothStateOnPowerOff", "Estado do Bluetooth ao desligar o veículo"),
+    ENABLE_DISPLAY_AUTO_BRIGHTNESS("enableDisplayAutoBrightness", "Ativar brilho automático ao ligar"),
 }

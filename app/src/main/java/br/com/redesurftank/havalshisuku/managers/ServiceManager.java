@@ -541,6 +541,11 @@ public class ServiceManager {
                 setAvasEnabled(false);
                 Log.w(TAG, "AVAS disabled by user preference");
             }
+            boolean isForceEnableDisplayAutoBrightness = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_DISPLAY_AUTO_BRIGHTNESS.getKey(), false);
+            if (isForceEnableDisplayAutoBrightness) {
+                setDisplayAutoBrightnessEnabled(true);
+                Log.w(TAG, "Display auto brightness enabled by user preference");
+            }
             if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_AUTO_BRIGHTNESS.getKey(), false)) {
                 AutoBrightnessManager.Companion.getInstance().setEnabled(true);
             }
@@ -840,6 +845,12 @@ public class ServiceManager {
                         enableBluetooth();
                     }
                 }
+            } else if (key.equals(CarConstants.SYS_SETTINGS_DISPLAY_AUTO_BRIGHTNESS_ENABLE.getValue()) && value.equals("0")) {
+                boolean isForceEnableDisplayAutoBrightness = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_DISPLAY_AUTO_BRIGHTNESS.getKey(), false);
+                if (isForceEnableDisplayAutoBrightness) {
+                    setDisplayAutoBrightnessEnabled(true);
+                    Log.w(TAG, "Display auto brightness enabled by user preference");
+                }
             }
         } catch (Exception e) {
             Log.e(TAG, "Error in OnDataChanged", e);
@@ -915,6 +926,19 @@ public class ServiceManager {
             Log.w(TAG, "AVAS enabled: " + b);
         } catch (RemoteException e) {
             Log.e(TAG, "Error setting AVAS", e);
+        }
+    }
+
+    public void setDisplayAutoBrightnessEnabled(boolean b) {
+        if (controlService == null) {
+            Log.e(TAG, "ControlService not initialized");
+            return;
+        }
+        try {
+            controlService.request("cmd.common.request.set", CarConstants.SYS_SETTINGS_DISPLAY_AUTO_BRIGHTNESS_ENABLE.getValue(), b ? "1" : "0");
+            Log.w(TAG, "Display Auto Brightness enabled: " + b);
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error setting Display Auto Brightness", e);
         }
     }
 
