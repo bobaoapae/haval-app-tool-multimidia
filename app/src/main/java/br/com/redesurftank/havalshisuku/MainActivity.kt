@@ -474,7 +474,7 @@ fun BasicSettingsTab() {
             ),
 
             SettingItem(
-                title = "Ativar brilho automático ao ligar",
+                title = "Ativar brilho automático ao ligar o veículo",
                 description = "Ativar o ajuste de brilho automático ao ligar",
                 checked = enableDisplayAutoBrightness,
                 onCheckedChange = {
