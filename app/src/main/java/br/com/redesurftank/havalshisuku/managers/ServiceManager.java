@@ -707,8 +707,6 @@ public class ServiceManager {
     public void disableNativeSteeringWheelButton1() {
         try {
             var originalConfig = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL.getKey(), "0");
-            if (originalConfig.equals("99"))
-                return;
             Log.w(TAG, "Restoring steering wheel button 1 config to: " + originalConfig);
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key1_config", originalConfig});
         } catch (Exception e) {
@@ -719,8 +717,6 @@ public class ServiceManager {
     public void disableNativeSteeringWheelButton2() {
         try {
             var originalConfig = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL.getKey(), "0");
-            if (originalConfig.equals("99"))
-                return;
             Log.w(TAG, "Restoring steering wheel button 2 config to: " + originalConfig);
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key2_config", originalConfig});
         } catch (Exception e) {
