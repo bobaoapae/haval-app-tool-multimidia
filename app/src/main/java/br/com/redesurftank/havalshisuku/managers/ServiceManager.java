@@ -582,6 +582,19 @@ public class ServiceManager {
     }
 
     public void ensureSteeringWheelButtonIntegration() {
+        // Capture current system config to preserve factory settings
+        var button1currentConfig = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "system", "bean_sw_custom_key1_config"}).trim();
+        var button2currentConfig = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "system", "bean_sw_custom_key2_config"}).trim();
+        Log.w(TAG, "Current steering wheel button config. Button 1: " + button1currentConfig + ", Button 2: " + button2currentConfig);
+        
+        // Save original config only if it's not already custom (not "99")
+        if (!button1currentConfig.equals("99")) {
+            sharedPreferences.edit().putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL.getKey(), button1currentConfig).apply();
+        }
+        if (!button2currentConfig.equals("99")) {
+            sharedPreferences.edit().putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL.getKey(), button2currentConfig).apply();
+        }
+
         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
             var button1Action = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.getKey());
             var button2Action = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.getKey());
@@ -601,7 +614,6 @@ public class ServiceManager {
             disableNativeSteeringWheelButton1();
             disableNativeSteeringWheelButton2();
         }
-
     }
 
     private void handleSteeringWheelCustomButton(String string, int button) {
@@ -684,23 +696,17 @@ public class ServiceManager {
 
     public void enableSteeringWheelButton1Integration() {
         try {
-            var currentConfig = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "system", "bean_sw_custom_key1_config"}).trim();
-            Log.w(TAG, "Current steering wheel button 1 config: " + currentConfig);
-            sharedPreferences.edit().putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL.getKey(), currentConfig).apply();
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key1_config", "99"});
         } catch (Exception e) {
-            Log.e(TAG, "Error disabling native steering wheel custom buttons", e);
+            Log.e(TAG, "Error enabling steering wheel button 1 integration", e);
         }
     }
 
     public void enableSteeringWheelButton2Integration() {
         try {
-            var currentConfig = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "system", "bean_sw_custom_key2_config"}).trim();
-            Log.w(TAG, "Current steering wheel button 2 config: " + currentConfig);
-            sharedPreferences.edit().putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL.getKey(), currentConfig).apply();
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key2_config", "99"});
         } catch (Exception e) {
-            Log.e(TAG, "Error disabling native steering wheel custom buttons", e);
+            Log.e(TAG, "Error enabling steering wheel button 2 integration", e);
         }
     }
 
