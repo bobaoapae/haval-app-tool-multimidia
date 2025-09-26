@@ -101,6 +101,10 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                         evaluateJsIfReady(webViewAc, "control('auto', $value)")
                     }
 
+                    CarConstants.CAR_HVAC_ANION_ENABLE.value -> {
+                        evaluateJsIfReady(webViewAc, "control('aion', $value)")
+                    }
+
                     else -> {}
                 }
             }

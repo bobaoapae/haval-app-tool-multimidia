@@ -4,6 +4,7 @@
     <string name='app_splash_title'>HAVAL</string>
     <string name='app_splash_subtitle'>IMPULSE</string>
     <string name='app_splash_init'>Inicializando Sistema…</string>
+    <string name='app_splash_support'>Com o Apoio dos Havaleiros Brasil</string>
     <string name="title_activity_instrument_projector_kt">InstrumentProjectorKt</string>
     <string name="open_android_settings">Abrir Configurações do Android</string>
     <string name="accessibility_description">Serviço de Acessibilidade Haval</string>

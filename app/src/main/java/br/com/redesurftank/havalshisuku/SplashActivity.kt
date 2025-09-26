@@ -133,7 +133,18 @@ fun SplashScreen(onComplete: () -> Unit) {
                 letterSpacing = 12.sp
             )
             
-            Spacer(modifier = Modifier.height(80.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+            
+            // Support Text
+            Text(
+                stringResource(R.string.app_splash_support),
+                color = Color(0xFFB0B8C4),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal,
+                letterSpacing = 2.sp
+            )
+            
+            Spacer(modifier = Modifier.height(60.dp))
             
             // Loading dots
             Row(

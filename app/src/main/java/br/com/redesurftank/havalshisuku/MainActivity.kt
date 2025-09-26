@@ -44,6 +44,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DeveloperMode
@@ -102,6 +103,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
 import androidx.core.content.FileProvider
 import androidx.core.content.edit
 import br.com.redesurftank.App
@@ -2064,7 +2066,8 @@ fun InformacoesTab() {
                                 if (latest != null && dlUrl != null) {
                                     val currentClean = version.removePrefix("v")
                                     val latestClean = latest.removePrefix("v")
-                                    if (compareVersions(latestClean, currentClean) > 0) {
+                                    // Se a versão atual for 99.99, sempre permitir instalação da versão mais recente
+                                    if (currentClean == "99.99" || compareVersions(latestClean, currentClean) > 0) {
                                         latestVersion = latest
                                         downloadUrl = dlUrl
                                         updateAvailable = true
@@ -2123,6 +2126,64 @@ fun InformacoesTab() {
                         Text("Abrir Configurações do Android", color = Color.White)
                     }
                 }
+            }
+        }
+
+        // Seção de Contribuição
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF13151A)
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "Contribua para o Desenvolvimento",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center
+                )
+
+                HorizontalDivider(color = Color(0xFF1D2430))
+
+                Text(
+                    "Ajude a manter este projeto ativo! Sua contribuição é muito importante para o desenvolvimento contínuo do app.",
+                    fontSize = 14.sp,
+                    color = Color(0xFFB0B8C4),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
+                )
+
+                // QR Code
+                Image(
+                    painter = painterResource(id = R.drawable.qrcode),
+                    contentDescription = "QR Code para contribuição",
+                    modifier = Modifier
+                        .size(200.dp)
+                        .padding(8.dp),
+                    contentScale = ContentScale.Fit
+                )
+
+                Text(
+                    "Escaneie o QR Code ou use a chave PIX: joaovitorbor@gmail.com",
+                    fontSize = 16.sp,
+                    color = Color(0xFFB0B8C4),
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    "Obrigado pelo seu apoio! 🙏",
+                    fontSize = 14.sp,
+                    color = Color(0xFF4ADE80),
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
+                )
             }
         }
     }
