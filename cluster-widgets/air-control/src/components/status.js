@@ -10,7 +10,7 @@ var recycleOut = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAAA8BAMAAADI
 
 export function createStatusElement() {
     const isAutoOn = stateManager.get('auto') === 1;
-    const isRecycleIn = stateManager.get('recycle') === 0;
+    const isRecycleIn = stateManager.get('recycle') === 1;
 
     var autoModeIconElement = img({
         src: autoModeIcon(isAutoOn ? '#2563eb' : '#9ca3af'),
