@@ -1,0 +1,27 @@
+.main-container {
+    background-color: transparent;
+    color: #000000;
+}
+
+.circle-container {
+    background: linear-gradient(180deg, #B3BED2 0%, #D0D6DD 100%);
+    background: -webkit-linear-gradient(180deg, #B3BED2 0%, #D0D6DD 100%);
+    background: -moz-linear-gradient(180deg, #B3BED2 0%, #D0D6DD 100%);
+    background: -o-linear-gradient(180deg, #B3BED2 0%, #D0D6DD 100%);
+}
+
+.text-white {
+    color: #000;
+}
+
+.text-gray {
+    color: #777;
+}
+
+button span.text-white {
+    color: #fff;
+}
+
+.status-element .text-blue {
+    color: #333;
+}
