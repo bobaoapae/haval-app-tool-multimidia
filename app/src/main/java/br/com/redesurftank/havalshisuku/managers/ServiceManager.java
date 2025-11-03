@@ -989,22 +989,33 @@ public class ServiceManager {
             } else if (key.equals(CarConstants.SYS_AVM_PREVIEW_STATUS.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_AVM_CAR_STOPPED.getKey(), false) && value.equals("1") && Float.parseFloat(getData(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue())) <= 0f && !getData(CarConstants.CAR_BASIC_GEAR_STATUS.getValue()).equals("4")) {
                 dvr.setAVM(0);
             } else if (key.equals(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue())) {
-                if ((value.equals("-1") || value.equals("0"))) {
+                if (value.equals("-1")) {
                     boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
-                    boolean currentBluetoothState = currentBluetoothState();
-                    if (currentBluetoothState && disableBluetoothOnPowerOff) {
+                    if (disableBluetoothOnPowerOff && currentBluetoothState()) {
                         sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), true).apply();
                         disableBluetooth();
                     }
+
                     boolean disableHotspotOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false);
-                    if (disableHotspotOnPowerOff) {
+                    if (disableHotspotOnPowerOff && isWifiTetherEnabled()) {
+                        sharedPreferences.edit().putBoolean(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey(), true).apply();
                         disableWifiTether();
                     }
                 } else {
-                    boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
                     boolean bluetoothStateOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false);
-                    if (disableBluetoothOnPowerOff && bluetoothStateOnPowerOff && !currentBluetoothState()) {
-                        enableBluetooth();
+                    if (bluetoothStateOnPowerOff) {
+                        if (!currentBluetoothState()) {
+                            enableBluetooth();
+                        }
+                        sharedPreferences.edit().remove(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey()).apply();
+                    }
+
+                    boolean hotspotStateOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey(), false);
+                    if (hotspotStateOnPowerOff) {
+                        if (!isWifiTetherEnabled()) {
+                            enableWifiTether();
+                        }
+                        sharedPreferences.edit().remove(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey()).apply();
                     }
                 }
             } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("1") && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
@@ -1138,6 +1149,16 @@ public class ServiceManager {
             connectivityManager.startTethering(0, receiver, false, "br.com.redesurftank.havalshisuku");
         } catch (Exception e) {
             Log.e(TAG, "Error enabling Wi-Fi", e);
+        }
+    }
+
+    public boolean isWifiTetherEnabled() {
+        try {
+            String[] tetheredIfaces = connectivityManager.getTetheredIfaces();
+            return tetheredIfaces != null && tetheredIfaces.length > 0;
+        } catch (Exception e) {
+            Log.e(TAG, "Error checking Wi-Fi tethering state", e);
+            return false;
         }
     }
 
