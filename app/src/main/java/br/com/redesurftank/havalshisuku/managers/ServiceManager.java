@@ -953,7 +953,9 @@ public class ServiceManager {
                         closeSunroofDueToeSpeed = true;
                     }
                 }
-                if (currentSpeed <= 10 && (closeWindowDueToeSpeed || closeSunroofDueToeSpeed)) {
+                float speedThreshold = sharedPreferences.getFloat(SharedPreferencesKeys.SPEED_THRESHOLD.getKey(), 15f);
+
+                if (currentSpeed < (speedThreshold - 5f) && (closeWindowDueToeSpeed || closeSunroofDueToeSpeed)) {
                     closeWindowDueToeSpeed = false;
                     closeSunroofDueToeSpeed = false;
                 }
