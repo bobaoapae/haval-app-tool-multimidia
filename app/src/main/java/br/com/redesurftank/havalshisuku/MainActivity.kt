@@ -86,6 +86,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.asImageBitmap
+import android.graphics.drawable.BitmapDrawable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -593,30 +597,118 @@ fun BasicSettingsTab() {
                 },
                 customContent = if (enableCustomSteeringWheelButtons) {
                     {
-                        var action1 by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.key, SteeringWheelCustomActionType.DEFAULT.key)!!) }
-                        var action2 by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.key, SteeringWheelCustomActionType.DEFAULT.key)!!) }
-                        var package1 by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1.key, "")!!) }
-                        var package2 by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2.key, "")!!) }
+                        val pm = context.packageManager
+
+                        fun getLaunchableApps(): List<Pair<String, String>> {
+                            val intent = Intent(Intent.ACTION_MAIN, null).apply {
+                                addCategory(Intent.CATEGORY_LAUNCHER)
+                            }
+                            return pm.queryIntentActivities(intent, 0)
+                                .map {
+                                    val label = it.loadLabel(pm).toString()
+                                    val pkg = it.activityInfo.packageName
+                                    label to pkg
+                                }
+                                .sortedBy { it.first.lowercase() }
+                        }
+
+                        val apps = remember { getLaunchableApps() }
+
+                        var action1 by remember {
+                            mutableStateOf(
+                                prefs.getString(
+                                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.key,
+                                    SteeringWheelCustomActionType.DEFAULT.key
+                                )!!
+                            )
+                        }
+
+                        var action2 by remember {
+                            mutableStateOf(
+                                prefs.getString(
+                                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.key,
+                                    SteeringWheelCustomActionType.DEFAULT.key
+                                )!!
+                            )
+                        }
+
+                        var package1 by remember {
+                            mutableStateOf(
+                                prefs.getString(
+                                    SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1.key,
+                                    ""
+                                )!!
+                            )
+                        }
+
+                        var package2 by remember {
+                            mutableStateOf(
+                                prefs.getString(
+                                    SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2.key,
+                                    ""
+                                )!!
+                            )
+                        }
+
                         var expanded1 by remember { mutableStateOf(false) }
                         var expanded2 by remember { mutableStateOf(false) }
+                        var showPicker1 by remember { mutableStateOf(false) }
+                        var showPicker2 by remember { mutableStateOf(false) }
+
+                        // limpeza automática se app for removido
+                        LaunchedEffect(package1) {
+                            if (package1.isNotBlank()) {
+                                try { pm.getApplicationInfo(package1, 0) }
+                                catch (_: Exception) {
+                                    package1 = ""
+                                    prefs.edit {
+                                        putString(
+                                            SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1.key,
+                                            ""
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        LaunchedEffect(package2) {
+                            if (package2.isNotBlank()) {
+                                try { pm.getApplicationInfo(package2, 0) }
+                                catch (_: Exception) {
+                                    package2 = ""
+                                    prefs.edit {
+                                        putString(
+                                            SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2.key,
+                                            ""
+                                        )
+                                    }
+                                }
+                            }
+                        }
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+
                             HorizontalDivider(color = Color(0xFF3A3F47), thickness = 1.dp)
 
+                            // ===================== BOTÃO 1 =====================
                             Text("Botão 1", color = Color.White, fontSize = 16.sp)
+
                             ExposedDropdownMenuBox(
                                 expanded = expanded1,
                                 onExpandedChange = { expanded1 = !expanded1 }
                             ) {
                                 TextField(
-                                    value = SteeringWheelCustomActionType.entries.find { it.key == action1 }?.description ?: "",
+                                    value = SteeringWheelCustomActionType.entries
+                                        .find { it.key == action1 }?.description ?: "",
                                     onValueChange = {},
                                     readOnly = true,
                                     label = { Text("Tipo de Ação") },
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded1) },
-                                    colors = ExposedDropdownMenuDefaults.textFieldColors(),
+                                    trailingIcon = {
+                                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded1)
+                                    },
                                     modifier = Modifier.menuAnchor()
                                 )
+
                                 ExposedDropdownMenu(
                                     expanded = expanded1,
                                     onDismissRequest = { expanded1 = false }
@@ -626,7 +718,12 @@ fun BasicSettingsTab() {
                                             text = { Text(type.description) },
                                             onClick = {
                                                 action1 = type.key
-                                                prefs.edit { putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.key, type.key) }
+                                                prefs.edit {
+                                                    putString(
+                                                        SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.key,
+                                                        type.key
+                                                    )
+                                                }
                                                 expanded1 = false
                                                 ServiceManager.getInstance().ensureSteeringWheelButtonIntegration()
                                             }
@@ -634,41 +731,45 @@ fun BasicSettingsTab() {
                                     }
                                 }
                             }
+
                             if (action1 == SteeringWheelCustomActionType.OPEN_APP.key) {
                                 TextField(
-                                    value = package1,
-                                    onValueChange = { newPkg ->
-                                        package1 = newPkg
-                                        prefs.edit { putString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1.key, newPkg) }
-                                    },
-                                    label = { Text("Pacote do App") },
-                                    colors = TextFieldDefaults.colors(
-                                        focusedContainerColor = Color(0xFF2A2F37),
-                                        unfocusedContainerColor = Color(0xFF2A2F37),
-                                        focusedTextColor = Color.White,
-                                        unfocusedTextColor = Color(0xFFB0B8C4),
-                                        focusedIndicatorColor = Color(0xFF4A9EFF),
-                                        unfocusedIndicatorColor = Color(0xFF3A3F47)
-                                    )
+                                    value = if (package1.isBlank()) "Nenhum aplicativo selecionado"
+                                    else pm.getApplicationLabel(pm.getApplicationInfo(package1, 0)).toString(),
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Aplicativo") }
                                 )
+
+                                Button(
+                                    onClick = { showPicker1 = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)
+                                ) {
+                                    Text("Selecionar aplicativo", color = Color.White)
+                                }
                             }
 
                             HorizontalDivider(color = Color(0xFF3A3F47), thickness = 1.dp)
 
+                            // ===================== BOTÃO 2 =====================
                             Text("Botão 2", color = Color.White, fontSize = 16.sp)
+
                             ExposedDropdownMenuBox(
                                 expanded = expanded2,
                                 onExpandedChange = { expanded2 = !expanded2 }
                             ) {
                                 TextField(
-                                    value = SteeringWheelCustomActionType.entries.find { it.key == action2 }?.description ?: "",
+                                    value = SteeringWheelCustomActionType.entries
+                                        .find { it.key == action2 }?.description ?: "",
                                     onValueChange = {},
                                     readOnly = true,
                                     label = { Text("Tipo de Ação") },
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded2) },
-                                    colors = ExposedDropdownMenuDefaults.textFieldColors(),
+                                    trailingIcon = {
+                                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded2)
+                                    },
                                     modifier = Modifier.menuAnchor()
                                 )
+
                                 ExposedDropdownMenu(
                                     expanded = expanded2,
                                     onDismissRequest = { expanded2 = false }
@@ -678,7 +779,12 @@ fun BasicSettingsTab() {
                                             text = { Text(type.description) },
                                             onClick = {
                                                 action2 = type.key
-                                                prefs.edit { putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.key, type.key) }
+                                                prefs.edit {
+                                                    putString(
+                                                        SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.key,
+                                                        type.key
+                                                    )
+                                                }
                                                 expanded2 = false
                                                 ServiceManager.getInstance().ensureSteeringWheelButtonIntegration()
                                             }
@@ -686,24 +792,134 @@ fun BasicSettingsTab() {
                                     }
                                 }
                             }
+
                             if (action2 == SteeringWheelCustomActionType.OPEN_APP.key) {
                                 TextField(
-                                    value = package2,
-                                    onValueChange = { newPkg ->
-                                        package2 = newPkg
-                                        prefs.edit { putString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2.key, newPkg) }
-                                    },
-                                    label = { Text("Pacote do App") },
-                                    colors = TextFieldDefaults.colors(
-                                        focusedContainerColor = Color(0xFF2A2F37),
-                                        unfocusedContainerColor = Color(0xFF2A2F37),
-                                        focusedTextColor = Color.White,
-                                        unfocusedTextColor = Color(0xFFB0B8C4),
-                                        focusedIndicatorColor = Color(0xFF4A9EFF),
-                                        unfocusedIndicatorColor = Color(0xFF3A3F47)
-                                    )
+                                    value = if (package2.isBlank()) "Nenhum aplicativo selecionado"
+                                    else pm.getApplicationLabel(pm.getApplicationInfo(package2, 0)).toString(),
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Aplicativo") }
                                 )
+
+                                Button(
+                                    onClick = { showPicker2 = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)
+                                ) {
+                                    Text("Selecionar aplicativo", color = Color.White)
+                                }
                             }
+                        }
+
+                        // ===================== PICKERS =====================
+                        if (showPicker1) {
+                            AlertDialog(
+                                onDismissRequest = { showPicker1 = false },
+                                title = { Text("Escolher aplicativo") },
+                                text = {
+                                    LazyColumn {
+                                        items(apps) { (label, pkg) ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        package1 = pkg
+                                                        prefs.edit {
+                                                            putString(
+                                                                SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1.key,
+                                                                pkg
+                                                            )
+                                                        }
+                                                        showPicker1 = false
+                                                        ServiceManager.getInstance().ensureSteeringWheelButtonIntegration()
+                                                    }
+                                                    .padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                val appIconPainter: Painter? = remember(pkg) {
+                                                    try {
+                                                        val drawable = pm.getApplicationIcon(pkg)
+                                                        if (drawable is BitmapDrawable) {
+                                                            BitmapPainter(drawable.bitmap.asImageBitmap())
+                                                        } else {
+                                                            null
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        null
+                                                    }
+                                                }
+
+                                                if (appIconPainter != null) {
+                                                    Icon(
+                                                        painter = appIconPainter,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(32.dp),
+                                                        tint = Color.Unspecified
+                                                    )
+                                                }
+                                                Spacer(Modifier.width(12.dp))
+                                                Text(label, color = Color.White)
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = {}
+                            )
+                        }
+
+                        if (showPicker2) {
+                            AlertDialog(
+                                onDismissRequest = { showPicker2 = false },
+                                title = { Text("Escolher aplicativo") },
+                                text = {
+                                    LazyColumn {
+                                        items(apps) { (label, pkg) ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        package2 = pkg
+                                                        prefs.edit {
+                                                            putString(
+                                                                SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2.key,
+                                                                pkg
+                                                            )
+                                                        }
+                                                        showPicker2 = false
+                                                        ServiceManager.getInstance().ensureSteeringWheelButtonIntegration()
+                                                    }
+                                                    .padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                val appIconPainter: Painter? = remember(pkg) {
+                                                    try {
+                                                        val drawable = pm.getApplicationIcon(pkg)
+                                                        if (drawable is BitmapDrawable) {
+                                                            BitmapPainter(drawable.bitmap.asImageBitmap())
+                                                        } else {
+                                                            null
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        null
+                                                    }
+                                                }
+
+                                                if (appIconPainter != null) {
+                                                    Icon(
+                                                        painter = appIconPainter,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(32.dp),
+                                                        tint = Color.Unspecified
+                                                    )
+                                                }
+                                                Spacer(Modifier.width(12.dp))
+                                                Text(label, color = Color.White)
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = {}
+                            )
                         }
                     }
                 } else null
