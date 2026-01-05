@@ -333,7 +333,8 @@ fun BasicSettingsTab() {
     var disableHotspotOnPowerOff by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.key, false)) }
     var nightBrightnessLevel by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.AUTO_BRIGHTNESS_LEVEL_NIGHT.key, 1)) }
     var dayBrightnessLevel by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.AUTO_BRIGHTNESS_LEVEL_DAY.key, 10)) }
-    var enableSeatVentilationOnAcOn by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.key, false)) }
+    var enableDriverSeatVentilationOnAcOn by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_DRIVER_SEAT_VENTILATION_ON_AC_ON.key, false)) }
+    var enablePassengerSeatVentilationOnAcOn by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_PASSENGER_SEAT_VENTILATION_ON_AC_ON.key,false)) }
     var enableCustomSteeringWheelButtons by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.key, false)) }
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
@@ -671,12 +672,26 @@ fun BasicSettingsTab() {
                 }
             ),
             SettingItem(
-                title = "Ligar ventilação dos bancos com A/C ligado",
-                description = SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.description,
-                checked = enableSeatVentilationOnAcOn,
+                title = "Ligar ventilação do banco do motorista com A/C ligado",
+                description = SharedPreferencesKeys.ENABLE_DRIVER_SEAT_VENTILATION_ON_AC_ON.description,
+                checked = enableDriverSeatVentilationOnAcOn,
                 onCheckedChange = {
-                    enableSeatVentilationOnAcOn = it
-                    prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.key, it) }
+                    enableDriverSeatVentilationOnAcOn = it
+                    prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_DRIVER_SEAT_VENTILATION_ON_AC_ON.key, it) }
+                }
+            ),
+            SettingItem(
+                title = "Ligar ventilação do banco do passageiro com A/C ligado",
+                description = SharedPreferencesKeys.ENABLE_PASSENGER_SEAT_VENTILATION_ON_AC_ON.description,
+                checked = enablePassengerSeatVentilationOnAcOn,
+                onCheckedChange = {
+                    enablePassengerSeatVentilationOnAcOn = it
+                    prefs.edit {
+                        putBoolean(
+                            SharedPreferencesKeys.ENABLE_PASSENGER_SEAT_VENTILATION_ON_AC_ON.key,
+                            it
+                        )
+                    }
                 }
             ),
             SettingItem(

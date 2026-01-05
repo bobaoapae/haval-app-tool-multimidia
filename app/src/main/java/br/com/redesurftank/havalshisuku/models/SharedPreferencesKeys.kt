@@ -40,7 +40,14 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     DISABLE_BLUETOOTH_ON_POWER_OFF("disableBluetoothOnPowerOff", "Desativar Bluetooth ao desligar o veículo"),
     DISABLE_HOTSPOT_ON_POWER_OFF("disableHotspotOnPowerOff", "Desativar ponto de acesso ao desligar o veículo"),
     BLUETOOTH_STATE_ON_POWER_OFF("bluetoothStateOnPowerOff", "Estado do Bluetooth ao desligar o veículo"),
-    ENABLE_SEAT_VENTILATION_ON_AC_ON("enableSeatVentilationOnAcOn", "Habilitar ventilação do banco do motorista ao ligar o ar-condicionado"),
+    ENABLE_DRIVER_SEAT_VENTILATION_ON_AC_ON(
+        "enableDriverSeatVentilationOnAcOn",
+        "Habilitar ventilação do banco do motorista ao ligar o ar-condicionado"
+    ),
+    ENABLE_PASSENGER_SEAT_VENTILATION_ON_AC_ON(
+        "enablePassengerSeatVentilationOnAcOn",
+        "Habilitar ventilação do banco do passageiro ao ligar o ar-condicionado"
+    ),
     ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS("enableSteeringWheelCustomButtons", "Habilitar botões personalizados no volante"),
     STEERING_WHEEL_CUSTOM_BUTON_1_ACTION("steeringWheelCustomButon1Action", "Ação do botão personalizado 1 do volante"),
     STEERING_WHEEL_CUSTOM_BUTON_2_ACTION("steeringWheelCustomButon2Action", "Ação do botão personalizado 2 do volante"),

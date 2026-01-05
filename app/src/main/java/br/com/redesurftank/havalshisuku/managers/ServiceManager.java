@@ -529,8 +529,13 @@ public class ServiceManager {
             if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_FRIDA_HOOKS.getKey(), false)) {
                 pendingTasks.add(this::initializeFrida);
             }
-            if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false) && getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue()).equals("1")) {
+            if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_DRIVER_SEAT_VENTILATION_ON_AC_ON.getKey(), false)
+                    && getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue()).equals("1")) {
                 updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
+            }
+
+            if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_PASSENGER_SEAT_VENTILATION_ON_AC_ON.getKey(), false)
+                    && getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue()).equals("1")) {
                 updateData(CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL.getValue(), "3");
             }
 
@@ -1215,12 +1220,24 @@ public class ServiceManager {
                         if (!isMaxAcActive) enableMaxAcOn();
                     }
                 }
-            } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("1") && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
-                updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
-                updateData(CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL.getValue(), "3");
-            } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("0") && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
-                updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "0");
-                updateData(CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL.getValue(), "0");
+            } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("1")) {
+
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_DRIVER_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
+                    updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
+                }
+
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_PASSENGER_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
+                    updateData(CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL.getValue(), "3");
+                }
+            } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("0")) {
+
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_DRIVER_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
+                    updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "0");
+                }
+
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_PASSENGER_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
+                    updateData(CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL.getValue(), "0");
+                }
             } else if (key.equals(CarConstants.CAR_BASIC_INSIDE_TEMP.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), true)) {
                 if (isMaxAcActive) updateMaxAcSmoothing();
             }
