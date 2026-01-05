@@ -198,8 +198,21 @@ public class ServiceManager {
     private int clusterHeartBeatCount = 0;
     private int clusterCardView = 0;
     private final Map<String, String> previousAcState = new HashMap<>();
+
     private boolean isMaxAcActive = false;
     private Runnable maxAcTimeoutRunnable;
+
+    // ===== SOCIMPULSE STATE =====
+    private static final long SOCIMPULSE_MIN_CORRECTION_INTERVAL_MS = 10_000L;
+    private static final long SOCIMPULSE_CORRECTION_WINDOW_MS = 5 * 60_000L;
+    private static final int SOCIMPULSE_MAX_CORRECTIONS_PER_WINDOW = 3;
+
+    private long savesocimpulselastImpulseWriteTime = 0L;
+    private int savesocimpulselastImpulseWriteValue = -1;
+    private long savesocimpulselastCorrectionTime = 0L;
+    private long savesocimpulsecorrectionWindowStart = 0L;
+    private int savesocimpulsecorrectionCount = 0;
+    private int savesocimpulsetarget = -1;
 
 
     private ServiceManager() {
@@ -484,6 +497,15 @@ public class ServiceManager {
                 }
             }, wifiFilter);
             dispatchAllData();
+            if (isSocImpulseEnabled()) {
+                int target = getSocImpulseTarget();
+                if (target >= 20 && target <= 80) {
+                    dispatchServiceManagerEvent(
+                        ServiceManagerEventType.SAVE_SOC_IMPULSE_CHANGED,
+                        target
+                    );
+                }
+            }
             if (sharedPreferences.getBoolean(SharedPreferencesKeys.SET_STARTUP_VOLUME.getKey(), false)) {
                 int startupVolume = sharedPreferences.getInt(SharedPreferencesKeys.STARTUP_VOLUME.getKey(), -1);
                 if (startupVolume != -1) {
@@ -509,6 +531,7 @@ public class ServiceManager {
             }
             if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false) && getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue()).equals("1")) {
                 updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
+                updateData(CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL.getValue(), "3");
             }
 
             ensureSteeringWheelButtonIntegration();
@@ -534,7 +557,7 @@ public class ServiceManager {
         }
     }
 
-    public void ensureSteeringWheelButtonIntegration() {
+        public void ensureSteeringWheelButtonIntegration() {
         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
             var button1Action = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.getKey());
             var button2Action = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.getKey());
@@ -796,6 +819,124 @@ public class ServiceManager {
         }
     }
 
+
+    public void setSaveSocImpulseEnabled(boolean enabled) {
+        sharedPreferences.edit()
+                .putBoolean(SharedPreferencesKeys.SAVE_SOC_IMPULSE_ENABLED.getKey(), enabled)
+                .apply();
+
+        dispatchServiceManagerEvent(
+                ServiceManagerEventType.SAVE_SOC_IMPULSE_CHANGED
+        );
+    }
+
+    public void applySaveSocImpulseTarget(int target) {
+
+        // ============================
+        // VALIDAÇÃO BÁSICA
+        // ============================
+        if (target < 20 || target > 80) {
+            Log.w(TAG, "SOCIMPULSE: target fora do range permitido: " + target);
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+
+        // ============================
+        // SALVA ESTADO INTERNO
+        // ============================
+        savesocimpulsetarget = target;
+        savesocimpulselastImpulseWriteValue = target;
+        savesocimpulselastImpulseWriteTime = now;
+
+        // Persist to SharedPreferences
+        sharedPreferences.edit()
+                .putInt(SharedPreferencesKeys.SAVE_SOC_IMPULSE_TARGET.getKey(), target)
+                .apply();
+
+        // Reset de ciclo
+        savesocimpulsecorrectionCount = 0;
+        savesocimpulsecorrectionWindowStart = now;
+        savesocimpulselastCorrectionTime = 0;
+
+        Log.i(TAG, "SOCIMPULSE: Aplicado alvo " + target + "%");
+        dispatchServiceManagerEvent(
+                ServiceManagerEventType.SAVE_SOC_IMPULSE_CHANGED
+        );
+
+        // ============================
+        // CONDIÇÕES DE ATIVAÇÃO
+        // ============================
+
+        // 1. Função precisa estar habilitada
+        if (!isSocImpulseEnabled()) {
+            Log.d(TAG, "SOCIMPULSE: função desativada");
+            return;
+        }
+
+        // 2. Carro precisa estar em partida (DRIVING_READY_STATE == 1)
+        String drivingReady = getData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
+        if (!"1".equals(drivingReady)) {
+            Log.d(TAG, "SOCIMPULSE: carro não está em partida");
+            return;
+        }
+
+        // 3. Modo precisa ser HEV
+        String powerMode = getData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.getValue());
+        if (!"0".equals(powerMode)) {
+            Log.d(TAG, "SOCIMPULSE: não está em HEV (power_model=" + powerMode + ")");
+            return;
+        }
+
+        // 4. Precisa estar em HEV PRIORITÁRIO
+        String reserveMode = getData(CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG.getValue());
+        if (!"2".equals(reserveMode)) {
+            Log.d(TAG, "SOCIMPULSE: não está em HEV prioritário (reserve=" + reserveMode + ")");
+            return;
+        }
+
+        // ============================
+        // VERIFICA SAVE SOC ATUAL
+        // ============================
+        String currentSaveSocStr = getData(
+                CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.getValue()
+        );
+
+        if (currentSaveSocStr == null) {
+            Log.w(TAG, "SOCIMPULSE: save SOC atual não disponível");
+            return;
+        }
+
+        int currentSaveSoc;
+        try {
+            currentSaveSoc = Integer.parseInt(currentSaveSocStr);
+        } catch (Exception e) {
+            Log.e(TAG, "SOCIMPULSE: erro ao parsear save SOC", e);
+            return;
+        }
+
+        // ============================
+        // CORREÇÃO IMEDIATA (SE NECESSÁRIO)
+        // ============================
+        if (currentSaveSoc != target) {
+
+            Log.i(TAG, "SOCIMPULSE: corrigindo imediatamente "
+                    + currentSaveSoc + "% → " + target + "%");
+
+            updateData(
+                    CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.getValue(),
+                    String.valueOf(target)
+            );
+            dispatchServiceManagerEvent(
+                ServiceManagerEventType.SAVE_SOC_IMPULSE_CHANGED
+            );
+
+            savesocimpulsecorrectionCount = 1;
+            savesocimpulselastCorrectionTime = now;
+        } else {
+            Log.d(TAG, "SOCIMPULSE: valor já está correto, nenhuma ação necessária");
+        }
+    }
     public void addServiceManagerEventListener(IServiceManagerEvent listener) {
         if (listener == null) {
             Log.e(TAG, "Cannot add null service manager event listener");
@@ -882,6 +1023,58 @@ public class ServiceManager {
     }
 
     private void OnDataChanged(String key, String value) {
+        // ===== SOCIMPULSE CORE LOGIC =====
+        try {
+            if (key.equals(CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.getValue())) {
+
+                int currentValue = Integer.parseInt(value);
+                int target = getSocImpulseTarget();
+
+                // Detect if change came from car (not echo of our own write)
+                boolean changeCameFromCar =
+                        currentValue != savesocimpulselastImpulseWriteValue;
+
+                if (isSocImpulseActive() && target >= 20 && target <= 80) {
+
+                    long now = SystemClock.uptimeMillis();
+
+                    if (currentValue == target) {
+                        // carro obedeceu
+                        return;
+                    }
+
+                    // Cooldown only applies to self-written echoes
+                    if (!changeCameFromCar && isSocImpulseCooldown()) {
+                        return;
+                    }
+
+                    if (now - savesocimpulsecorrectionWindowStart > SOCIMPULSE_CORRECTION_WINDOW_MS) {
+                        resetSocImpulseWindow();
+                    }
+
+                    if (savesocimpulsecorrectionCount >= SOCIMPULSE_MAX_CORRECTIONS_PER_WINDOW) {
+                        return;
+                    }
+
+                    updateData(
+                        CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.getValue(),
+                        String.valueOf(target)
+                    );
+                    // After writing, update last impulse write value/time
+                    savesocimpulselastImpulseWriteValue = target;
+                    savesocimpulselastImpulseWriteTime = now;
+                    dispatchServiceManagerEvent(
+                        ServiceManagerEventType.SAVE_SOC_IMPULSE_CHANGED
+                    );
+
+                    savesocimpulselastCorrectionTime = now;
+                    savesocimpulsecorrectionCount++;
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "SOCIMPULSE error", e);
+        }
+
         Intent broadcastIntent = new Intent("android.intent.haval." + key);
         broadcastIntent.putExtra("value", value);
         App.getContext().sendBroadcast(broadcastIntent);
@@ -953,7 +1146,9 @@ public class ServiceManager {
                         closeSunroofDueToeSpeed = true;
                     }
                 }
-                if (currentSpeed <= 10 && (closeWindowDueToeSpeed || closeSunroofDueToeSpeed)) {
+                float speedThreshold = sharedPreferences.getFloat(SharedPreferencesKeys.SPEED_THRESHOLD.getKey(), 15f);
+
+                if (currentSpeed < (speedThreshold - 5f) && (closeWindowDueToeSpeed || closeSunroofDueToeSpeed)) {
                     closeWindowDueToeSpeed = false;
                     closeSunroofDueToeSpeed = false;
                 }
@@ -967,6 +1162,38 @@ public class ServiceManager {
                     delayNextAVM = false;
                 }
             } else if (key.equals(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue())) {
+                // ===== SOCIMPULSE STARTUP LOGIC =====
+                if (value.equals("1")) {
+                    backgroundHandler.postDelayed(() -> {
+                        try {
+                            if (!isSocImpulseActive()) return;
+
+                            int target = getSocImpulseTarget();
+                            if (target < 20 || target > 80) return;
+
+                            String current = getUpdatedData(
+                                CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.getValue()
+                            );
+                            if (current == null) return;
+
+                            if (!current.equals(String.valueOf(target))) {
+                                resetSocImpulseWindow();
+                                updateData(
+                                    CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.getValue(),
+                                    String.valueOf(target)
+                                );
+                                dispatchServiceManagerEvent(
+                                    ServiceManagerEventType.SAVE_SOC_IMPULSE_CHANGED,
+                                    target
+                                );
+                                savesocimpulselastCorrectionTime = SystemClock.uptimeMillis();
+                                savesocimpulsecorrectionCount++;
+                            }
+                        } catch (Exception e) {
+                            Log.e(TAG, "SOCIMPULSE startup correction error", e);
+                        }
+                    }, 60_000L);
+                }
                 if ((value.equals("-1") || value.equals("0"))) {
                     boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
                     boolean currentBluetoothState = currentBluetoothState();
@@ -990,8 +1217,10 @@ public class ServiceManager {
                 }
             } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("1") && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
                 updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
+                updateData(CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL.getValue(), "3");
             } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("0") && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
                 updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "0");
+                updateData(CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL.getValue(), "0");
             } else if (key.equals(CarConstants.CAR_BASIC_INSIDE_TEMP.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), true)) {
                 if (isMaxAcActive) updateMaxAcSmoothing();
             }
@@ -1184,7 +1413,7 @@ public class ServiceManager {
                 updateData(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), "1");
 
                 isMaxAcActive = true;
-                
+
                 int timeoutMinutes = sharedPreferences.getInt(SharedPreferencesKeys.MAX_AC_TIMEOUT.getKey(), 0);
                  if (timeoutMinutes > 0) {
                     if (maxAcTimeoutRunnable != null) {
@@ -1197,7 +1426,7 @@ public class ServiceManager {
                     backgroundHandler.postDelayed(maxAcTimeoutRunnable, timeoutMinutes * 60 * 1000L);
                     Log.w(TAG, "Max AC timeout scheduled for " + timeoutMinutes + " minutes");
                 }
-                
+
                 Log.w(TAG, "Max AC activated power on and high temp: " + currentTemp);
             }
         } catch (Exception e) {
@@ -1530,4 +1759,50 @@ public class ServiceManager {
     public SharedPreferences getSharedPreferences() {
         return sharedPreferences;
     }
-}
+
+// ===== SOCIMPULSE HELPERS =====
+
+    private boolean isSocImpulseEnabled() {
+        return sharedPreferences.getBoolean(
+                SharedPreferencesKeys.SAVE_SOC_IMPULSE_ENABLED.getKey(),
+                false
+        );
+    }
+
+    private int getSocImpulseTarget() {
+        return sharedPreferences.getInt(
+                SharedPreferencesKeys.SAVE_SOC_IMPULSE_TARGET.getKey(),
+                -1
+        );
+    }
+
+    private boolean isSocImpulseCooldown() {
+        long now = SystemClock.uptimeMillis();
+        return (now - savesocimpulselastCorrectionTime)
+                < SOCIMPULSE_MIN_CORRECTION_INTERVAL_MS;
+    }
+
+    private void resetSocImpulseWindow() {
+        savesocimpulsecorrectionWindowStart = SystemClock.uptimeMillis();
+        savesocimpulsecorrectionCount = 0;
+    }
+
+    private boolean isSocImpulseActive() {
+        if (!isSocImpulseEnabled()) return false;
+
+        String drivingReady =
+                getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
+        if (!"1".equals(drivingReady)) return false;
+
+        String powerMode =
+                getUpdatedData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.getValue());
+        if (!"0".equals(powerMode)) return false; // HEV
+
+        String reserveMode =
+                getUpdatedData(CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG.getValue());
+        if (!"2".equals(reserveMode)) return false; // HEV PRIORITÁRIO
+
+        return true;
+    }
+
+} // <<< FECHA A CLASSE ServiceManager

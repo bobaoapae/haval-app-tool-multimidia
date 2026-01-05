@@ -53,6 +53,14 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ENABLE_MAX_AC_ON_UNLOCK("enableMaxAcOnUnlock", "Habilitar A/C no máximo ao ligar o veículo se temperatura acima do configurado"),
     MAX_AC_ON_UNLOCK_THRESHOLD("maxAcOnUnlockThreshold", "Temperatura limite para ativar Max AC ao destravar"),
     MAX_AC_TARGET_TEMP("maxAcTargetTemp", "Temperatura alvo para o Max AC"),
-    MAX_AC_TIMEOUT("maxAcTimeout", "Tempo limite para desativar o Max AC (em minutos)")
+    MAX_AC_TIMEOUT("maxAcTimeout", "Tempo limite para desativar o Max AC (em minutos)"),
+    SAVE_SOC_IMPULSE_ENABLED("saveSocImpulseEnabled","Habilitar correção automática do Save SOC (SOC Impulse)"),
+    SAVE_SOC_IMPULSE_TARGET("saveSocImpulseTarget", "Percentual alvo de SOC a ser mantido pelo SOC Impulse"),
+
+    SAVE_SOC_IMPULSE_LAST_WRITE_VALUE("saveSocImpulseLastWriteValue","Último valor de SOC escrito automaticamente pelo SOC Impulse"),
+    SAVE_SOC_IMPULSE_LAST_WRITE_TIME("saveSocImpulseLastWriteTime","Timestamp da última escrita automática de SOC pelo SOC Impulse"),
+    SAVE_SOC_IMPULSE_LAST_CORRECTION_TIME("saveSocImpulseLastCorrectionTime","Timestamp da última correção de SOC aplicada pelo SOC Impulse"),
+    SAVE_SOC_IMPULSE_CORRECTION_COUNT("saveSocImpulseCorrectionCount","Quantidade de correções aplicadas pelo SOC Impulse na janela atual"),
+    SAVE_SOC_IMPULSE_CORRECTION_WINDOW_START("saveSocImpulseCorrectionWindowStart","Início da janela de correção do SOC Impulse")
 
 }

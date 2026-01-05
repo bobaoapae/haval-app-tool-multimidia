@@ -259,6 +259,10 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                         evaluateJsIfReady(webView, "control('maxauto', $maxauto)")
                     }
 
+                    ServiceManagerEventType.SAVE_SOC_IMPULSE_CHANGED -> {
+                        // Nada a fazer no cluster por enquanto
+                    }
+
                 }
             }
 

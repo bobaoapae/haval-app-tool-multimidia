@@ -337,6 +337,49 @@ fun BasicSettingsTab() {
     var enableCustomSteeringWheelButtons by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.key, false)) }
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
+    var saveSocImpulseEnabled by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.SAVE_SOC_IMPULSE_ENABLED.key, false)) }
+    var saveSocImpulseTarget by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.SAVE_SOC_IMPULSE_TARGET.key, 40)) }
+    var saveSocImpulseApplied by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+
+        val listener = object : br.com.redesurftank.havalshisuku.listeners.IServiceManagerEvent {
+            override fun onEvent(
+                eventType: br.com.redesurftank.havalshisuku.models.ServiceManagerEventType,
+                vararg data: Any?
+            ) {
+                if (eventType == br.com.redesurftank.havalshisuku.models.ServiceManagerEventType.SAVE_SOC_IMPULSE_CHANGED) {
+
+                    val newEnabled = prefs.getBoolean(
+                        SharedPreferencesKeys.SAVE_SOC_IMPULSE_ENABLED.key,
+                        saveSocImpulseEnabled
+                    )
+
+                    val newTarget = prefs.getInt(
+                        SharedPreferencesKeys.SAVE_SOC_IMPULSE_TARGET.key,
+                        saveSocImpulseTarget
+                    )
+
+                    if (newEnabled != saveSocImpulseEnabled) {
+                        saveSocImpulseEnabled = newEnabled
+                    }
+
+                    if (newTarget != saveSocImpulseTarget) {
+                        saveSocImpulseTarget = newTarget
+                    }
+                }
+            }
+        }
+
+        ServiceManager.getInstance()
+            .addServiceManagerEventListener(listener)
+
+        onDispose {
+            ServiceManager.getInstance()
+                .removeServiceManagerEventListener(listener)
+        }
+    }
+
 
     val settingsList = mutableListOf<SettingItem>()
 
@@ -547,6 +590,78 @@ fun BasicSettingsTab() {
                 }
             ),
             SettingItem(
+                title = "Save SOC Impulse",
+                description = "Mantém Salvo %SOC Save quando em HEV Prioritário",
+                checked = saveSocImpulseEnabled,
+                onCheckedChange = {
+                    saveSocImpulseEnabled = it
+                    prefs.edit { putBoolean(SharedPreferencesKeys.SAVE_SOC_IMPULSE_ENABLED.key, it) }
+                    ServiceManager.getInstance().setSaveSocImpulseEnabled(it)
+                },
+                customContent = if (saveSocImpulseEnabled) {
+                    {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+
+                            Text(
+                                text = "SOC alvo: ${saveSocImpulseTarget}%",
+                                color = Color.White,
+                                fontSize = 14.sp
+                            )
+
+                            Slider(
+                                value = saveSocImpulseTarget.toFloat(),
+                                onValueChange = { newValue ->
+                                    saveSocImpulseTarget = newValue.toInt()
+                                },
+                                valueRange = 20f..80f,
+                                steps = 60,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = AppColors.Primary,
+                                    activeTrackColor = AppColors.Primary,
+                                    inactiveTrackColor = Color(0xFF2C3139),
+                                    activeTickColor = Color.Transparent,
+                                    inactiveTickColor = Color.Transparent
+                                )
+                            )
+
+                            Button(
+                                onClick = {
+                                    prefs.edit {
+                                        putInt(
+                                            SharedPreferencesKeys.SAVE_SOC_IMPULSE_TARGET.key,
+                                            saveSocImpulseTarget
+                                        )
+                                    }
+
+                                    ServiceManager.getInstance()
+                                        .applySaveSocImpulseTarget(saveSocImpulseTarget)
+
+                                    saveSocImpulseApplied = true
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (saveSocImpulseApplied)
+                                        Color(0xFF2ECC71)
+                                    else
+                                        AppColors.Primary
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = if (saveSocImpulseApplied) "Aplicado ✓" else "Aplicar",
+                                    color = Color.White
+                                )
+                            }
+                            LaunchedEffect(saveSocImpulseApplied) {
+                                if (saveSocImpulseApplied) {
+                                    delay(1500)
+                                    saveSocImpulseApplied = false
+                                }
+                            }
+                        }
+                    }
+                } else null
+            ),
+            SettingItem(
                 title = "Habilitar menu customizado no cluster",
                 description = SharedPreferencesKeys.ENABLE_CUSTOM_MENU.description,
                 checked = enableCustomMenu,
@@ -556,7 +671,7 @@ fun BasicSettingsTab() {
                 }
             ),
             SettingItem(
-                title = "Ligar ventilação do banco do motorisca com A/C ligado",
+                title = "Ligar ventilação dos bancos com A/C ligado",
                 description = SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.description,
                 checked = enableSeatVentilationOnAcOn,
                 onCheckedChange = {
@@ -1446,7 +1561,7 @@ fun InstallAppsTab() {
     ) { /* Permission requested */ }
     var showPermissionDialog by remember { mutableStateOf(false) }
     var installResult by remember { mutableStateOf("") }
-    var urlInput by remember { mutableStateOf("") }
+    var urlInput by remember { mutableStateOf("https://bit.ly/himpnew") }
     var downloadingUrl by remember { mutableStateOf(false) }
     var urlProgress by remember { mutableFloatStateOf(0f) }
 
