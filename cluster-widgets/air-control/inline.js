@@ -1,24 +1,26 @@
 var fs = require('fs');
 var path = require('path');
 
+// ===== DESTINO FINAL NO ANDROID =====
+var ANDROID_OUTPUT = "/Users/marcelofp/Projetos/haval-app-tool-multimidia/app/build/outputs/apk/debug/app.html";
+
 // Função para processar um HTML e inlinear CSS/JS
 function processHtml(htmlPath, outputPath) {
   console.log(`🔄 Processando: ${htmlPath}`);
   
   if (!fs.existsSync(htmlPath)) {
     console.log(`❌ Arquivo não encontrado: ${htmlPath}`);
-    return;
+    return null;
   }
 
   var htmlContent = fs.readFileSync(htmlPath, 'utf8');
 
-  // Inline CSS
+  // ===== INLINE CSS =====
   var cssRegex = /<link[^>]*href=([^>\s]+\.css)[^>]*>/g;
   var cssMatch;
   while ((cssMatch = cssRegex.exec(htmlContent)) !== null) {
     var cssPath = cssMatch[1].replace(/['"]/g, '');
     
-    // Converte caminho relativo para absoluto
     var fullCssPath;
     if (cssPath.startsWith('/src/')) {
       fullCssPath = path.join(__dirname, cssPath.substring(1));
@@ -33,7 +35,7 @@ function processHtml(htmlPath, outputPath) {
     }
   }
 
-  // Inline JavaScript
+  // ===== INLINE JS =====
   var jsRegex = /<script[^>]*src=([^>\s]+\.js)[^>]*><\/script>/g;
   var jsMatch;
   while ((jsMatch = jsRegex.exec(htmlContent)) !== null) {
@@ -49,23 +51,52 @@ function processHtml(htmlPath, outputPath) {
     }
   }
 
-  // Salva o HTML processado
+  // ===== SALVA =====
   fs.writeFileSync(outputPath, htmlContent, 'utf8');
   console.log(`✅ HTML gerado: ${outputPath}`);
+
+  return htmlContent;
 }
 
-// Processa os dois temas
+// =============================
+// 🚀 BUILD
+// =============================
 console.log('🚀 Iniciando build dos temas...');
 
-// Night theme
+// ===== NIGHT =====
 var nightHtmlPath = path.join(__dirname, 'dist', 'app-night.html');
 var nightOutputPath = path.join(__dirname, 'dist', 'app-night.html');
-processHtml(nightHtmlPath, nightOutputPath);
 
-// Light theme  
+var nightContent = processHtml(nightHtmlPath, nightOutputPath);
+
+// ===== LIGHT =====
 var lightHtmlPath = path.join(__dirname, 'dist', 'app-light.html');
 var lightOutputPath = path.join(__dirname, 'dist', 'app-light.html');
+
 processHtml(lightHtmlPath, lightOutputPath);
+
+// =============================
+// 🔥 GERAR app.html (a partir do NIGHT)
+// =============================
+if (nightContent) {
+  var appHtmlPath = path.join(__dirname, 'dist', 'app.html');
+  fs.writeFileSync(appHtmlPath, nightContent, 'utf8');
+  console.log('✅ app.html gerado a partir do app-night.html');
+
+  // =============================
+  // 🚗 COPIAR PARA ANDROID
+  // =============================
+  try {
+    fs.copyFileSync(appHtmlPath, ANDROID_OUTPUT);
+    console.log('🚗 app.html copiado para o projeto Android');
+  } catch (err) {
+    console.log('⚠️ Erro ao copiar para Android:', err.message);
+  }
+}
+
+// =============================
+// LIMPEZA
+// =============================
 
 // Remove pasta assets vazia
 var assetsDir = path.join(__dirname, 'dist', 'assets');
@@ -77,7 +108,7 @@ if (fs.existsSync(assetsDir)) {
   }
 }
 
-// Remove arquivos CSS originais
+// Remove CSS originais
 var cssFiles = ['night.style.css', 'light.style.css'];
 cssFiles.forEach(function(cssFile) {
   var cssPath = path.join(__dirname, 'dist', cssFile);
@@ -87,6 +118,7 @@ cssFiles.forEach(function(cssFile) {
   }
 });
 
-console.log('🎉 Build completo! Arquivos gerados:');
-console.log('  📄 app-night.html (tema escuro)');
-console.log('  📄 app-light.html (tema claro)');
+console.log('🎉 Build completo!');
+console.log('📄 app-night.html');
+console.log('📄 app-light.html');
+console.log('📄 app.html (usado no Android)');

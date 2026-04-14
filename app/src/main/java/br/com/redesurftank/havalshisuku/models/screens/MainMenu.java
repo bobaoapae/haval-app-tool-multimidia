@@ -106,6 +106,9 @@ public class MainMenu implements Screen {
             Screen graphScreen = new GraphicsScreen();
             graphScreen.setReturnScreen(this);
             graphScreen.initialize();
+            Screen speedScreen = new SpeedScreen();
+            speedScreen.setReturnScreen(this);
+            speedScreen.initialize();
 
             // Define menu structure and options available
             menuItems = Arrays.asList(
@@ -140,6 +143,10 @@ public class MainMenu implements Screen {
                     new MenuItem(
                             MenuItem.MENU_ID_STATS,
                             new MenuAction.NavigateTo(graphScreen)
+                    ),
+                    new MenuItem(
+                            MenuItem.MENU_ID_SPEED,
+                            new MenuAction.NavigateTo(speedScreen)
                     )
             );
         }
@@ -255,6 +262,7 @@ public class MainMenu implements Screen {
         public static final String MENU_ID_STEER_MODE = "option_5";
         public static final String MENU_ID_REGENERATION_MODE = "option_6";
         public static final String MENU_ID_STATS = "option_7";
+        public static final String MENU_ID_SPEED = "option_8";
         private final String id;
         private final MenuAction action;
 

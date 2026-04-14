@@ -3,6 +3,7 @@ import {createMainMenu} from './components/mainMenu.js';
 import {createAcControlScreen, updateProgressRings as updateProgressRingsAC} from "./components/aircon/mainAcControl.js";
 import {createRegenScreen, updateProgressRings as updateProgressRingsRegen } from "./components/regen/regenControl.js";
 import {createGraphScreen } from "./components/graphs/graphs.js";
+import {createSpeedometerScreen} from "./components/speedometer/speedometer.js";
 import { div } from './utils/createElement.js';
 
 if (process.env.NODE_ENV === 'development') {
@@ -31,6 +32,8 @@ function render() {
         currentComponent = createRegenScreen();
     } else if (screen === 'graph') {
         currentComponent = createGraphScreen();
+    } else if (screen === 'speedometer') {
+        currentComponent = createSpeedometerScreen();
     }
 
     if (currentComponent) {

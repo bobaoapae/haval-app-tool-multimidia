@@ -3,9 +3,9 @@
   "private": true,
   "version": "0.0.3",
   "scripts": {
-    "dev-controls": "parcel index.html",
-    "dev": "parcel app-night.html",
-    "dev:light": "parcel app-light.html",
+    "dev-controls": "parcel index.html --no-cache",
+    "dev": "parcel app-night.html --no-cache",
+    "dev:light": "parcel app-light.html --no-cache",
     "clear": "rimraf dist",
     "build:night": "parcel build app-night.html --dist-dir dist --public-url ./ && node inline.js",
     "build:light": "parcel build app-light.html --dist-dir dist --public-url ./ && node inline.js",

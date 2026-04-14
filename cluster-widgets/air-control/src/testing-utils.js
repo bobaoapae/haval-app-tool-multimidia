@@ -5,7 +5,8 @@ const focusableAreas = {
     main_menu: menuItems.map(item => item.id),
     ac_control: ['fan', 'temp'],
     regen: ['Baixo', 'Normal', 'Alto'],
-    graph: ['evConsumption', 'gasConsumption', 'carSpeed']
+    graph: ['evConsumption', 'gasConsumption', 'carSpeed'],
+    speedometer: []
 };
 
 document.addEventListener('keydown', (e) => {
@@ -64,6 +65,8 @@ document.addEventListener('keydown', (e) => {
                 window.showScreen('regen');
             } else if (currentState.focusedMenuItem === 'option_7') {
                 window.showScreen('graph');
+            } else if (currentState.focusedMenuItem === 'option_8') {
+                window.showScreen('speedometer');
             }
 
 
@@ -156,7 +159,7 @@ let lastValue = 0;
 const smoothingFactor = 0.1;
 let timeToModeChange = 10;
 let simulationPhase = 'idle';
-let currentSpeed = 0.0;
+let currentSpeed = 152;
 let steadyTimeCounter = 0;
 const SIMULATION_INTERVAL = 100;
 
@@ -166,10 +169,10 @@ if (window.simulationInterval) clearInterval(window.simulationInterval);
 window.simulationInterval = setInterval(() => {
     switch (simulationPhase) {
         case 'accelerating':
-            if (currentSpeed < 150) {
+            if (currentSpeed < 200) {
                 currentSpeed += 2.0;
             } else {
-                currentSpeed = 150;
+                currentSpeed = 200;
                 simulationPhase = 'decelerating';
             }
             break;

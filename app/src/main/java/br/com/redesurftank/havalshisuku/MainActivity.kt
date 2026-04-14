@@ -2101,7 +2101,7 @@ fun InformacoesTab() {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    "Status do Sistema",
+                    "Status do Sistema - Versão MFP",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White

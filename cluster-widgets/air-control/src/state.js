@@ -63,7 +63,7 @@ StateManager.prototype._notifyListeners = function(key, value) {
 var stateManager = new StateManager({
     // Main Menu state
     screen: 'main_menu',
-    focusedMenuItem: 'option_4',
+    focusedMenuItem: 'option_8',
     espStatus: 'ON',
     drivingMode: 'Normal',
     steerMode: 'Conforto',

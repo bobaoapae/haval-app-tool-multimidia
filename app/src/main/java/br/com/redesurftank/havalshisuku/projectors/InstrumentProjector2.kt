@@ -34,6 +34,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
     private val webViewsLoaded = mutableMapOf<WebView, Boolean>()
     private val pendingJsQueues = mutableMapOf<WebView, MutableList<String>>()
     private lateinit var root: FrameLayout;
+    private var lastModified: Long = 0
 
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key in listOf(
@@ -288,7 +289,38 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                         }
                     }
                 }
-                loadDataWithBaseURL(null, readRawHtml(context), "text/html", "UTF-8", null)
+                val file = java.io.File("/data/local/tmp/app.html")
+
+                if (file.exists()) {
+                    println("🔥 Carregando HTML externo")
+                    loadUrl("file:///data/local/tmp/app.html")
+                    lastModified = file.lastModified()
+                } else {
+                    println("📦 Carregando HTML interno")
+                    loadDataWithBaseURL(null, readRawHtml(context), "text/html", "UTF-8", null)
+                }
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(object : Runnable {
+    override fun run() {
+        val file = java.io.File("/data/local/tmp/app.html")
+
+        if (file.exists()) {
+            val modified = file.lastModified()
+
+            if (modified != lastModified) {
+                lastModified = modified
+
+                println("🔥 HTML atualizado detectado")
+
+                this@apply.post {
+                    this@apply.loadUrl("file:///data/local/tmp/app.html")
+                }
+            }
+        }
+
+        android.os.Handler(android.os.Looper.getMainLooper())
+            .postDelayed(this, 2000)
+    }
+}, 2000)
             }
             circularView.addView(webView)
             webView?.isVisible = false;
@@ -317,6 +349,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
 
         val regenMode = ServiceManager.getInstance().getData(CarConstants.CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL.value)
         val espMode = ServiceManager.getInstance().getData(CarConstants.CAR_DRIVE_SETTING_ESP_ENABLE.value)
+        val currentCarSpeed = ServiceManager.getInstance().getData(CarConstants.CAR_BASIC_VEHICLE_SPEED.value)
         val insideTemp = ServiceManager.getInstance().getData(CarConstants.CAR_BASIC_INSIDE_TEMP.value).toFloat().roundToInt()
         val outsideTemp = ServiceManager.getInstance().getData(CarConstants.CAR_BASIC_OUTSIDE_TEMP.value).toFloat().roundToInt()
         val onePedal = ServiceManager.getInstance().getData(CarConstants.CAR_CONFIGURE_PEDAL_CONTROL_ENABLE.value) == "1"
@@ -330,6 +363,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
         evaluateJsIfReady(webView, "control('outside_temp', $outsideTemp)")
         evaluateJsIfReady(webView, "control('inside_temp', $insideTemp)")
         evaluateJsIfReady(webView, "control('onepedal', $onePedal)")
+        evaluateJsIfReady(webView, "control('${GraphicsScreen.GraphOptions.CAR_SPEED}', $currentCarSpeed)")
 
         evaluateJsIfReady(webView, "control('evMode', ${MainMenu.EvModeOptions.getLabel(currentEVMode)})")
         evaluateJsIfReady(webView, "control('drivingMode', ${MainMenu.DrivingModeOptions.getLabel(currentDrivingMode)})")
@@ -350,8 +384,27 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
     }
 
     fun readRawHtml(context: Context): String {
-        return context.resources.openRawResource(R.raw.app).bufferedReader().use { it.readText() }
+    return try {
+        val file = java.io.File("/data/local/tmp/app.html")
+
+        if (file.exists() && file.length() > 0) {
+            println("🔥 Usando HTML externo")
+            file.readText()
+        } else {
+            println("📦 Usando HTML interno")
+            context.resources.openRawResource(R.raw.app)
+                .bufferedReader()
+                .use { it.readText() }
+        }
+
+    } catch (e: Exception) {
+        e.printStackTrace()
+
+        context.resources.openRawResource(R.raw.app)
+            .bufferedReader()
+            .use { it.readText() }
     }
+}
 
     override fun carMainScreenOff() {
         ensureUi {
@@ -367,4 +420,3 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
 
 
 }
-

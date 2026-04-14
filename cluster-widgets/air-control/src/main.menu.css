@@ -163,9 +163,17 @@
 .menu-carousel.focus-5 .menu-item[data-index="4"] { transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -1)) scale(0.8); opacity: 0.8; z-index: 9; }
 .menu-carousel.focus-5 .menu-item[data-index="5"] { transform: translate(-50%, -50%) translateY(0) scale(1); opacity: 1; z-index: 10; }
 .menu-carousel.focus-5 .menu-item[data-index="6"] { transform: translate(-50%, -50%) translateY(calc(var(--item-gap) *  1)) scale(0.8); opacity: 0.8; z-index: 9; }
+.menu-carousel.focus-5 .menu-item[data-index="7"] { transform: translate(-50%, -50%) translateY(calc(var(--item-gap) *  1.5)) scale(0.6); opacity: 0.6; z-index: 8; }
 
 .menu-carousel.focus-6 .menu-item[data-index="2"] { transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -2)) scale(0.2); opacity: 0;   z-index: 6; }
 .menu-carousel.focus-6 .menu-item[data-index="3"] { transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -1.8)) scale(0.4); opacity: 0;   z-index: 7; }
 .menu-carousel.focus-6 .menu-item[data-index="4"] { transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -1.5)) scale(0.6); opacity: 0.6; z-index: 8; }
 .menu-carousel.focus-6 .menu-item[data-index="5"] { transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -1)) scale(0.8); opacity: 0.8; z-index: 9; }
 .menu-carousel.focus-6 .menu-item[data-index="6"] { transform: translate(-50%, -50%) translateY(0) scale(1); opacity: 1; z-index: 10; }
+.menu-carousel.focus-6 .menu-item[data-index="7"] { transform: translate(-50%, -50%) translateY(calc(var(--item-gap) *  1)) scale(0.8); opacity: 0.8; z-index: 9; }
+
+.menu-carousel.focus-7 .menu-item[data-index="3"] { transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -2)) scale(0.2); opacity: 0;   z-index: 6; }
+.menu-carousel.focus-7 .menu-item[data-index="4"] { transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -1.8)) scale(0.4); opacity: 0;   z-index: 7; }
+.menu-carousel.focus-7 .menu-item[data-index="5"] { transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -1.5)) scale(0.6); opacity: 0.6; z-index: 8; }
+.menu-carousel.focus-7 .menu-item[data-index="6"] { transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -1)) scale(0.8); opacity: 0.8; z-index: 9; }
+.menu-carousel.focus-7 .menu-item[data-index="7"] { transform: translate(-50%, -50%) translateY(0) scale(1); opacity: 1; z-index: 10; }
