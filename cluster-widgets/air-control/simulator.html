@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GWM Dev Simulator</title>
+    <link rel="stylesheet" href="./src/styles/night.style.css">
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        background: #0a0a0a;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+        font-family: system-ui, sans-serif;
+        color: #e5e7eb;
+      }
+
+      #settings-panel {
+        width: 270px;
+        flex-shrink: 0;
+      }
+
+      .sim-center {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        background: #111;
+        padding: 20px;
+        gap: 10px;
+        border-left: 1px solid #1f2937;
+        border-right: 1px solid #1f2937;
+      }
+
+      .cluster-label {
+        font-size: 10px;
+        color: #4b5563;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+      }
+
+      .cluster-circle {
+        width: 452px;
+        height: 452px;
+        border-radius: 50%;
+        overflow: hidden;
+        background: #000;
+        border: 2px solid #222;
+        flex-shrink: 0;
+      }
+
+      .cluster-circle #app {
+        width: 100%;
+        height: 100%;
+      }
+
+      #vehicle-panel {
+        flex: 1;
+        min-width: 280px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="settings-panel"></div>
+
+    <div class="sim-center">
+      <span class="cluster-label">Instrument Cluster · Display 1</span>
+      <div class="cluster-circle">
+        <div id="app"></div>
+      </div>
+    </div>
+
+    <div id="vehicle-panel"></div>
+
+    <script type="module" src="./src/core/main.js"></script>
+    <script type="module" src="./src/dev/vehicle-engine.js"></script>
+    <script type="module" src="./src/dev/vehicle-panel.js"></script>
+    <script type="module" src="./src/dev/settings-panel.js"></script>
+  </body>
+</html>
