@@ -28,6 +28,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.models.resolveLayoutScale
 import br.com.redesurftank.havalshisuku.ui.theme.HavalShisukuTheme
 import kotlinx.coroutines.delay
 
@@ -39,8 +41,11 @@ class SplashActivity : ComponentActivity() {
         // Force landscape orientation
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         
+        val prefs = App.getDeviceProtectedContext()
+            .getSharedPreferences("haval_prefs", android.content.Context.MODE_PRIVATE)
+        val layoutScale = resolveLayoutScale(prefs)
         setContent {
-            HavalShisukuTheme {
+            HavalShisukuTheme(layoutScale = layoutScale) {
                 SplashScreen {
                     // Navigate to MainActivity
                     startActivity(Intent(this@SplashActivity, MainActivity::class.java))

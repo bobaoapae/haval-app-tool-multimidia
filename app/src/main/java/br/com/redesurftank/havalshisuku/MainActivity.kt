@@ -2,6 +2,7 @@
 
 package br.com.redesurftank.havalshisuku
 
+import android.app.Activity
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.ComponentName
@@ -78,8 +79,11 @@ class MainActivity : ComponentActivity() {
         override fun onCreate(savedInstanceState: Bundle?) {
                 super.onCreate(savedInstanceState)
                 enableEdgeToEdge()
+                val prefs = App.getDeviceProtectedContext()
+                        .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+                val layoutScale = resolveLayoutScale(prefs)
                 setContent {
-                        HavalShisukuTheme {
+                        HavalShisukuTheme(layoutScale = layoutScale) {
                                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                                         MainScreen(modifier = Modifier.padding(innerPadding))
                                 }
@@ -515,7 +519,154 @@ fun BasicSettingsTab() {
                 )
         }
 
+        // Layout Size (Tamanho do Layout) state
+        var layoutSizeMode by remember {
+                mutableStateOf(
+                        LayoutSizeMode.fromValue(
+                                prefs.getString(
+                                        SharedPreferencesKeys.LAYOUT_SIZE_MODE.key,
+                                        LayoutSizeMode.SMALL.value
+                                )
+                        )
+                )
+        }
+        var layoutSizeCustomScale by remember {
+                mutableFloatStateOf(
+                        prefs.getFloat(
+                                SharedPreferencesKeys.LAYOUT_SIZE_CUSTOM_SCALE.key,
+                                LayoutSizeMode.DEFAULT_CUSTOM_SCALE
+                        )
+                )
+        }
+        var layoutSizeExpanded by remember { mutableStateOf(false) }
+
         val settingsList = mutableListOf<SettingItem>()
+
+        settingsList.add(
+                SettingItem(
+                        title = "Tamanho do Layout",
+                        description = "Escala o layout e as fontes do app (não afeta o cluster)",
+                        checked = true,
+                        onCheckedChange = {},
+                        hideSwitch = true,
+                        customContent = {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        ExposedDropdownMenuBox(
+                                                expanded = layoutSizeExpanded,
+                                                onExpandedChange = {
+                                                        layoutSizeExpanded = !layoutSizeExpanded
+                                                }
+                                        ) {
+                                                TextField(
+                                                        value = layoutSizeMode.label,
+                                                        onValueChange = {},
+                                                        readOnly = true,
+                                                        label = { Text("Tamanho") },
+                                                        trailingIcon = {
+                                                                ExposedDropdownMenuDefaults
+                                                                        .TrailingIcon(
+                                                                                expanded =
+                                                                                        layoutSizeExpanded
+                                                                        )
+                                                        },
+                                                        colors =
+                                                                ExposedDropdownMenuDefaults
+                                                                        .textFieldColors(),
+                                                        modifier =
+                                                                Modifier.menuAnchor(
+                                                                        MenuAnchorType
+                                                                                .PrimaryNotEditable
+                                                                )
+                                                                        .fillMaxWidth()
+                                                )
+                                                ExposedDropdownMenu(
+                                                        expanded = layoutSizeExpanded,
+                                                        onDismissRequest = {
+                                                                layoutSizeExpanded = false
+                                                        }
+                                                ) {
+                                                        LayoutSizeMode.values().forEach { mode ->
+                                                                DropdownMenuItem(
+                                                                        text = { Text(mode.label) },
+                                                                        onClick = {
+                                                                                layoutSizeMode =
+                                                                                        mode
+                                                                                prefs.edit {
+                                                                                        putString(
+                                                                                                SharedPreferencesKeys
+                                                                                                        .LAYOUT_SIZE_MODE
+                                                                                                        .key,
+                                                                                                mode.value
+                                                                                        )
+                                                                                }
+                                                                                layoutSizeExpanded =
+                                                                                        false
+                                                                                if (mode !=
+                                                                                                LayoutSizeMode
+                                                                                                        .CUSTOM
+                                                                                ) {
+                                                                                        (context
+                                                                                                        as?
+                                                                                                        Activity)
+                                                                                                ?.recreate()
+                                                                                }
+                                                                        }
+                                                                )
+                                                        }
+                                                }
+                                        }
+
+                                        if (layoutSizeMode == LayoutSizeMode.CUSTOM) {
+                                                val pct =
+                                                        (layoutSizeCustomScale * 100).toInt()
+                                                Text(
+                                                        text = "Escala: $pct%",
+                                                        color = AppColors.TextPrimary,
+                                                        fontSize = 14.sp
+                                                )
+                                                Slider(
+                                                        value = layoutSizeCustomScale,
+                                                        onValueChange = { newVal ->
+                                                                layoutSizeCustomScale =
+                                                                        (Math.round(newVal * 20f) /
+                                                                                        20f)
+                                                                                .coerceIn(
+                                                                                        LayoutSizeMode
+                                                                                                .MIN_SCALE,
+                                                                                        LayoutSizeMode
+                                                                                                .MAX_SCALE
+                                                                                )
+                                                        },
+                                                        onValueChangeFinished = {
+                                                                prefs.edit {
+                                                                        putFloat(
+                                                                                SharedPreferencesKeys
+                                                                                        .LAYOUT_SIZE_CUSTOM_SCALE
+                                                                                        .key,
+                                                                                layoutSizeCustomScale
+                                                                        )
+                                                                }
+                                                                (context as? Activity)?.recreate()
+                                                        },
+                                                        valueRange =
+                                                                LayoutSizeMode.MIN_SCALE..LayoutSizeMode
+                                                                                .MAX_SCALE,
+                                                        steps = 19,
+                                                        colors =
+                                                                SliderDefaults.colors(
+                                                                        thumbColor =
+                                                                                AppColors.Primary,
+                                                                        activeTrackColor =
+                                                                                AppColors.Primary,
+                                                                        inactiveTrackColor =
+                                                                                Color(0xFF2C3139)
+                                                                )
+                                                )
+                                        }
+                                }
+                        }
+                )
+        )
 
         if (isAdvancedUse && !selfInstallationCheck) {
                 settingsList.add(
