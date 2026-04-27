@@ -501,6 +501,11 @@ public class ServiceManager {
                 setAvasEnabled(false);
                 Log.w(TAG, "AVAS disabled by user preference");
             }
+            boolean isForceDisableVehicleWarningTts = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_VEHICLE_WARNING_TTS.getKey(), false);
+            if (isForceDisableVehicleWarningTts) {
+                setVehicleWarningTtsEnabled(false);
+                Log.w(TAG, "Vehicle warning TTS disabled by user preference");
+            }
             if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_AUTO_BRIGHTNESS.getKey(), false)) {
                 AutoBrightnessManager.Companion.getInstance().setEnabled(true);
             }
@@ -909,6 +914,12 @@ public class ServiceManager {
                     setAvasEnabled(false);
                     Log.w(TAG, "AVAS disabled by user preference");
                 }
+            } else if (key.equals(CarConstants.SYS_SETTINGS_AUDIO_VEHICLE_WARNING_TTS_ENABLE.getValue()) && value.equals("1")) {
+                boolean isForceDisableVehicleWarningTts = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_VEHICLE_WARNING_TTS.getKey(), false);
+                if (isForceDisableVehicleWarningTts) {
+                    setVehicleWarningTtsEnabled(false);
+                    Log.w(TAG, "Vehicle warning TTS disabled by user preference");
+                }
             } else if ((key.equals(CarConstants.CAR_DMS_WORK_STATE.getValue()) && value.equals("0"))) {
                 boolean closeWindowOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_WINDOW_ON_POWER_OFF.getKey(), false);
                 if (closeWindowOnPowerOff) {
@@ -1069,6 +1080,19 @@ public class ServiceManager {
             Log.w(TAG, "AVAS enabled: " + b);
         } catch (RemoteException e) {
             Log.e(TAG, "Error setting AVAS", e);
+        }
+    }
+
+    public void setVehicleWarningTtsEnabled(boolean b) {
+        if (controlService == null) {
+            Log.e(TAG, "ControlService not initialized");
+            return;
+        }
+        try {
+            controlService.request("cmd.common.request.set", CarConstants.SYS_SETTINGS_AUDIO_VEHICLE_WARNING_TTS_ENABLE.getValue(), b ? "1" : "0");
+            Log.w(TAG, "Vehicle warning TTS enabled: " + b);
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error setting vehicle warning TTS", e);
         }
     }
 

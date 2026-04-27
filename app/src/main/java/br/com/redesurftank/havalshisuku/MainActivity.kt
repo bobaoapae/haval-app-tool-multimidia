@@ -307,6 +307,7 @@ fun BasicSettingsTab() {
     var bypassSelfInstallationCheck by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.BYPASS_SELF_INSTALLATION_INTEGRITY_CHECK.key, false)) }
     var disableMonitoring by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.DISABLE_MONITORING.key, false)) }
     var disableAvas by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.DISABLE_AVAS.key, false)) }
+    var disableVehicleWarningTts by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.DISABLE_VEHICLE_WARNING_TTS.key, false)) }
     var disableAvmCarStopped by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.DISABLE_AVM_CAR_STOPPED.key, false)) }
     var closeWindowOnPowerOff by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_WINDOW_ON_POWER_OFF.key, false)) }
     var closeWindowOnFoldMirror by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_WINDOW_ON_FOLD_MIRROR.key, false)) }
@@ -535,6 +536,16 @@ fun BasicSettingsTab() {
                     disableAvas = it
                     prefs.edit { putBoolean(SharedPreferencesKeys.DISABLE_AVAS.key, it) }
                     ServiceManager.getInstance().setAvasEnabled(!it)
+                }
+            ),
+            SettingItem(
+                title = "Desativar avisos de voz do veículo",
+                description = "Suprime as falas TTS (ACC ativado, atenção ao conduzir, alertas de pista, etc.). Avisos visuais e bipes continuam ativos",
+                checked = disableVehicleWarningTts,
+                onCheckedChange = {
+                    disableVehicleWarningTts = it
+                    prefs.edit { putBoolean(SharedPreferencesKeys.DISABLE_VEHICLE_WARNING_TTS.key, it) }
+                    ServiceManager.getInstance().setVehicleWarningTtsEnabled(!it)
                 }
             ),
             SettingItem(

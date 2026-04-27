@@ -27,6 +27,7 @@
 |---------|------|-----------|
 | Manter desativado monitoramento de distrações | Toggle | Força desativação do DMS (Driver Monitoring System). Re-desativa automaticamente se o sistema tentar reativar |
 | Desativar AVAS | Toggle | Força desativação do AVAS (Acoustic Vehicle Alerting System - som do carro elétrico). Re-desativa se o sistema tentar reativar |
+| Desativar avisos de voz do veículo | Toggle | Suprime as falas TTS de avisos do veículo (ACC ativado, "atenção ao conduzir" ao ultrapassar caminhão, alertas de pista, etc.). Avisos visuais no painel e bipes sonoros permanecem ativos. Re-desativa automaticamente se o sistema tentar reativar |
 | Desativar câmera AVM quando parado | Toggle | Desliga automaticamente a câmera de visão 360° quando o veículo está parado (velocidade ≤ 0 e marcha ≠ Ré) |
 
 ### Cluster (Painel de Instrumentos)

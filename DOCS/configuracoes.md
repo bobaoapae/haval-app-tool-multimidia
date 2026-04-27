@@ -59,6 +59,7 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
 | `INSTRUMENT_REVISION_KM` | `instrumentRevisionKm` | Int | Km da próxima revisão |
 | `INSTRUMENT_REVISION_NEXT_DATE` | `instrumentRevisionNextDate` | Long | Data da próxima revisão (millis) |
 | `DISABLE_AVAS` | `disableAvas` | Boolean | Desativar AVAS |
+| `DISABLE_VEHICLE_WARNING_TTS` | `disableVehicleWarningTts` | Boolean | Suprimir avisos de voz do veículo (ACC, atenção ao conduzir, etc.) |
 | `DISABLE_AVM_CAR_STOPPED` | `disableAvmCarStopped` | Boolean | Desativar câmera quando parado |
 | `CAR_MONITOR_PROPERTIES` | `carMonitorProperties` | StringSet | Propriedades extras monitoradas |
 | `BYPASS_SELF_INSTALLATION_INTEGRITY_CHECK` | `bypassSelfInstallationIntegrityCheck` | Boolean | Bypass da verificação de UID |

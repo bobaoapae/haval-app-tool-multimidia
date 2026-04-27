@@ -27,7 +27,7 @@ Sequência de inicialização:
 11. Conecta ao ConnectivityManager (via ShizukuBinderWrapper)
 12. Registra receivers de Bluetooth e Wi-Fi
 13. Dispara dispatchAllData() - busca valores atuais de todas as keys
-14. Aplica configurações iniciais (volume, monitoramento, AVAS, brilho, Frida, etc.)
+14. Aplica configurações iniciais (volume, monitoramento, AVAS, avisos TTS do veículo, brilho, Frida, etc.)
 15. Inicializa MainUiManager
 16. Inicializa ProjectorManager
 ```
