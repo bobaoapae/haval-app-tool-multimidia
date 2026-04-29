@@ -863,6 +863,15 @@ public class ServiceManager {
         }
     }
 
+    /**
+     * Injects a vehicle data value directly into the cache and notifies all listeners.
+     * Used by EmulatorVehicleBridge to feed VHAL/CarPropertyManager data on the emulator
+     * without requiring IIntelligentVehicleControlService.
+     */
+    public void injectData(String key, String value) {
+        OnDataChanged(key, value);
+    }
+
     public void updateData(String key, String value) {
         if (controlService == null) {
             Log.e(TAG, "ControlService not initialized");
@@ -954,6 +963,7 @@ public class ServiceManager {
             }
         }
         dataCache.put(key, value);
+        if (sharedPreferences == null) return; // emulator path: services not initialized, skip side-effects
         try {
             if (key.equals(CarConstants.CAR_FRS_SETTING_DISTRACTION_DETECTION_ENABLE.getValue()) && value.equals("1")) {
                 boolean isForceDisableMonitoring = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_MONITORING.getKey(), false);

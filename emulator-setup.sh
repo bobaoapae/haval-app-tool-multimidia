@@ -49,6 +49,14 @@ for PKG in com.android.car.cluster.osdouble com.android.car.cluster.home; do
 done
 
 echo ""
+echo "==> Granting AAOS Car API runtime permissions (user 10)..."
+PKG="br.com.redesurftank.havalshisuku"
+for PERM in android.car.permission.CAR_SPEED android.car.permission.CAR_ENERGY; do
+    RESULT=$($ADB shell pm grant --user 10 "$PKG" "$PERM" 2>&1 || true)
+    echo "    $PERM: ${RESULT:-OK}"
+done
+
+echo ""
 echo "==> Launching the Haval Shisuku app..."
 $ADB shell am start -n br.com.redesurftank.havalshisuku/.MainActivity
 echo "    App launched."
@@ -59,7 +67,10 @@ echo " Emulator setup complete."
 echo ""
 echo " Cluster overlay: Display $OVERLAY_ID (1920x720)"
 echo " ClusterHome:     disabled"
+echo " VHAL bridge:     active (speed / gear / ignition / EPB / fuel / battery / temp)"
 echo ""
+echo " Use Extended Controls → Car sensor data to drive the cluster."
+echo " Monitor live state:  adb logcat -s VehicleStatus:I"
 echo " The app will auto-detect the overlay display by name."
 echo " To re-run at any time: ./emulator-setup.sh"
 echo "================================================================"

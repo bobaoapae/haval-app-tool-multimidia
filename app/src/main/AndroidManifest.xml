@@ -13,6 +13,13 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- AAOS Car API permissions for VHAL / CarPropertyManager access on emulator -->
+    <uses-permission android:name="android.car.permission.CAR_SPEED" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.car.permission.CAR_ENGINE_DETAILED" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.car.permission.CAR_INFO" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.car.permission.CAR_ENERGY" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.car.permission.CAR_EXTERIOR_ENVIRONMENT" tools:ignore="ProtectedPermissions" />
 
     <application
         android:name="br.com.redesurftank.App"
@@ -29,6 +36,8 @@
             android:exported="true"
             android:screenOrientation="landscape"
             android:configChanges="orientation|keyboardHidden|screenSize"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:theme="@style/Theme.HavalShisuku">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -36,12 +45,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        
+
         <activity
             android:name=".MainActivity"
             android:exported="false"
             android:screenOrientation="landscape"
             android:configChanges="orientation|keyboardHidden|screenSize"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:label="@string/title_activity_main"
             android:theme="@style/Theme.HavalShisuku">
         </activity>

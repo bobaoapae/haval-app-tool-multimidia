@@ -27,6 +27,7 @@ import java.util.regex.Pattern;
 import br.com.redesurftank.App;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.DispatchAllDatasReceiver;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.RestartReceiver;
+import br.com.redesurftank.havalshisuku.managers.EmulatorVehicleBridge;
 import br.com.redesurftank.havalshisuku.managers.ProjectorManager;
 import br.com.redesurftank.havalshisuku.managers.ServiceManager;
 import br.com.redesurftank.havalshisuku.models.CommandListener;
@@ -112,6 +113,13 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                     Log.w(TAG, "ProjectorManager initialized for emulator cluster simulation.");
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to initialize ProjectorManager on emulator: " + e.getMessage(), e);
+                }
+                try {
+                    EmulatorVehicleBridge vehicleBridge = new EmulatorVehicleBridge(getApplicationContext());
+                    vehicleBridge.start();
+                    Log.w(TAG, "EmulatorVehicleBridge started — VHAL data will feed the cluster.");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to start EmulatorVehicleBridge: " + e.getMessage(), e);
                 }
                 return START_STICKY;
             }

@@ -78,6 +78,8 @@ dependencies {
     implementation(libs.material.icons.extended)
     annotationProcessor(libs.annotation.processor)
     compileOnly(libs.annotation)
+    // AAOS Car API — system-provided at runtime, needed for CarPropertyManager / VHAL access
+    compileOnly(files("libs/android.car.jar"))
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
 }
