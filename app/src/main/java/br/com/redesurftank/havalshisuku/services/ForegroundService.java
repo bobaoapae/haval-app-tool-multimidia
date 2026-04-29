@@ -27,6 +27,7 @@ import java.util.regex.Pattern;
 import br.com.redesurftank.App;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.DispatchAllDatasReceiver;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.RestartReceiver;
+import br.com.redesurftank.havalshisuku.managers.ProjectorManager;
 import br.com.redesurftank.havalshisuku.managers.ServiceManager;
 import br.com.redesurftank.havalshisuku.models.CommandListener;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
@@ -96,6 +97,25 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                 }
             }
 
+            // On emulator hardware, Telnet/Shizuku infrastructure is unavailable.
+            // Skip ALL hardware-specific checks (UID, Shizuku, Telnet) to prevent freezing the VM.
+            // This guard runs first, before anything that touches real-hardware-only paths.
+            boolean isEmulator = android.os.Build.FINGERPRINT.startsWith("generic")
+                    || android.os.Build.FINGERPRINT.startsWith("unknown")
+                    || android.os.Build.PRODUCT.startsWith("sdk")
+                    || android.os.Build.HARDWARE.equals("goldfish")
+                    || android.os.Build.HARDWARE.equals("ranchu");
+            if (isEmulator) {
+                Log.w(TAG, "Running on emulator — skipping Shizuku/Telnet initialization.");
+                try {
+                    ProjectorManager.getInstance().initialize();
+                    Log.w(TAG, "ProjectorManager initialized for emulator cluster simulation.");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to initialize ProjectorManager on emulator: " + e.getMessage(), e);
+                }
+                return START_STICKY;
+            }
+
             // Checar se precisa resetar dados (rollback preview→estável)
             var pendingResetTarget = sharedPreferences.getString(SharedPreferencesKeys.PENDING_RESET_TARGET_VERSION.getKey(), "");
             if (pendingResetTarget != null && !pendingResetTarget.isEmpty()) {
@@ -141,7 +161,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                     try {
                         var sharedPreferences = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
                         String shizukuLibLocation = sharedPreferences.getString("shizuku_lib_location", "");
-                        
+
                         var telnetClient = new TelnetClientWrapper();
                         
                         

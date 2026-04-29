@@ -25,7 +25,9 @@ public class RegenScreen implements Screen {
         public static final String REGEN_GRAPH_STATE_NAME = "lastRegenValue";
 
         public static String getLabel(String value) {
-            int val = Integer.parseInt(value);
+            if (value == null) return "--";
+            int val;
+            try { val = Integer.parseInt(value); } catch (NumberFormatException e) { return "--"; }
             switch (val) {
                 case 2: return "Baixo";
                 case 0: return "Normal";

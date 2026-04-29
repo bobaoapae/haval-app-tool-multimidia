@@ -1716,6 +1716,14 @@ public class ServiceManager {
     public boolean isMainScreenOn() {
         try {
             String engineState = getData(CarConstants.CAR_BASIC_ENGINE_STATE.getValue());
+            // On the emulator there is no real CAN bus, so engineState is always null.
+            // Treat missing/null engine state as "screen on" for development/testing.
+            boolean isEmulator = android.os.Build.FINGERPRINT.startsWith("generic")
+                    || android.os.Build.FINGERPRINT.startsWith("unknown")
+                    || android.os.Build.PRODUCT.startsWith("sdk")
+                    || android.os.Build.HARDWARE.equals("goldfish")
+                    || android.os.Build.HARDWARE.equals("ranchu");
+            if (isEmulator && engineState == null) return true;
             return engineState != null && !engineState.equals("-1") && !engineState.equals("15");
         } catch (Exception e) {
             return false;
