@@ -37,7 +37,7 @@ $ADB shell "settings put global overlay_display_devices '1920x720/160'"
 sleep 2
 
 # Print the display ID that was assigned (for reference)
-OVERLAY_ID=$($ADB shell "dumpsys display | grep '\"Overlay #1\"' | grep -o 'displayId [0-9]*' | awk '{print \$2}'" 2>/dev/null || echo "unknown")
+OVERLAY_ID=$($ADB shell "dumpsys display | grep '\"Overlay #1\"' | grep -o 'displayId [0-9]*' | awk '{print \$2}' | head -1" 2>/dev/null || echo "unknown")
 echo "    Overlay display ID: $OVERLAY_ID"
 
 echo ""
