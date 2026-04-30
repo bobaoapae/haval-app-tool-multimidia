@@ -27,6 +27,7 @@ import java.util.regex.Pattern;
 import br.com.redesurftank.App;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.DispatchAllDatasReceiver;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.RestartReceiver;
+import br.com.redesurftank.havalshisuku.managers.EmulatorInputBridge;
 import br.com.redesurftank.havalshisuku.managers.EmulatorVehicleBridge;
 import br.com.redesurftank.havalshisuku.managers.ProjectorManager;
 import br.com.redesurftank.havalshisuku.managers.ServiceManager;
@@ -108,6 +109,16 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                     || android.os.Build.HARDWARE.equals("ranchu");
             if (isEmulator) {
                 Log.w(TAG, "Running on emulator — skipping Shizuku/Telnet initialization.");
+                // The full ServiceManager.initializeServices() is too heavy for the
+                // emulator (it binds proprietary Beantechs/Autolink services that
+                // don't exist), but a few of its side-effects ARE needed here:
+                // attach the shared SharedPreferences instance so screens that
+                // read prefs in processKey() don't NPE on the simulated key path.
+                try {
+                    ServiceManager.getInstance().ensureSharedPreferencesForEmulator();
+                } catch (Exception e) {
+                    Log.e(TAG, "ensureSharedPreferencesForEmulator failed: " + e.getMessage(), e);
+                }
                 try {
                     ProjectorManager.getInstance().initialize();
                     Log.w(TAG, "ProjectorManager initialized for emulator cluster simulation.");
@@ -120,6 +131,13 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                     Log.w(TAG, "EmulatorVehicleBridge started — VHAL data will feed the cluster.");
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to start EmulatorVehicleBridge: " + e.getMessage(), e);
+                }
+                try {
+                    EmulatorInputBridge inputBridge = new EmulatorInputBridge(getApplicationContext());
+                    inputBridge.start();
+                    Log.w(TAG, "EmulatorInputBridge started — steering-wheel keys can be driven via ADB broadcast.");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to start EmulatorInputBridge: " + e.getMessage(), e);
                 }
                 return START_STICKY;
             }

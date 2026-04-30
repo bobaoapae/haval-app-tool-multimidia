@@ -850,8 +850,10 @@ public class ServiceManager {
 
     public String getUpdatedData(String key) {
         if (controlService == null) {
-            Log.e(TAG, "ControlService not initialized");
-            return null;
+            // Emulator path: serve the cached value (set by EmulatorVehicleBridge
+            // and the seeded defaults) instead of returning null, which would
+            // otherwise NPE on the AcControlScreen Float/Integer.parseFloat path.
+            return dataCache.get(key);
         }
         try {
             String value = controlService.fetchData(key);
@@ -874,7 +876,17 @@ public class ServiceManager {
 
     public void updateData(String key, String value) {
         if (controlService == null) {
-            Log.e(TAG, "ControlService not initialized");
+            // Emulator path: no proprietary control service is available, so
+            // route the write into our local data cache and fire the same
+            // OnDataChanged listeners that the real service callback would
+            // trigger on hardware. This makes Screen.processKey() actually
+            // visible on the cluster even though no IPC happens.
+            Log.w(TAG, "updateData (emulator fallback): " + key + " = " + value);
+            try {
+                OnDataChanged(key, value);
+            } catch (Exception e) {
+                Log.e(TAG, "OnDataChanged emulator fallback failed: " + e.getMessage(), e);
+            }
             return;
         }
 
@@ -1779,5 +1791,137 @@ public class ServiceManager {
 
     public SharedPreferences getSharedPreferences() {
         return sharedPreferences;
+    }
+
+    /**
+     * Emulator-only bring-up: stand in for the parts of
+     * {@link #initializeServices(Context)} that would otherwise be skipped.
+     *
+     * Specifically:
+     *   1. Attach SharedPreferences so screens that read prefs during
+     *      processKey/initialize don't NPE.
+     *   2. Seed sensible default values into the data cache for the
+     *      CarConstants that {@link MainMenu#initialize()} and
+     *      {@link br.com.redesurftank.havalshisuku.models.screens.RegenScreen#initialize()}
+     *      pass to {@code Integer.parseInt(...)}. Without these the first
+     *      access to {@link MainUiManager#getInstance()} crashes.
+     *   3. Eagerly construct {@code MainUiManager} so any further init
+     *      problems surface in the log at app start, not on first keypress.
+     *   4. Force the cluster card to 1 (menu) so the simulated steering-wheel
+     *      keys actually drive the UI — on real hardware the cluster service
+     *      sets this; on the emulator nothing else does.
+     *
+     * No-op on real hardware (sharedPreferences is already non-null).
+     */
+    public synchronized void ensureSharedPreferencesForEmulator() {
+        if (sharedPreferences != null) return;
+        sharedPreferences = App.getDeviceProtectedContext()
+                .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
+        Log.w(TAG, "ensureSharedPreferencesForEmulator: SharedPreferences attached.");
+
+        // Force MainMenu as the starting screen on every emulator launch.
+        // Without this, MainMenu.setInitialScreen() restores the user to
+        // whatever sub-screen they were last on, so restarting the app drops
+        // the user into (e.g.) GraphicsScreen with no obvious way out other
+        // than BACK — and HOME does nothing without the MainUiManager fix.
+        sharedPreferences.edit()
+                .putString(SharedPreferencesKeys.LAST_CLUSTER_SCREEN.getKey(), "main_menu")
+                .apply();
+
+        // (2) Seed parseable defaults for the data cache keys read at screen-init
+        // time. Values match the menu enums in MainMenu.java (ESP=1=ON,
+        // EV mode=0=HEV, drive=0=NORMAL, steer=0=NORMAL, regen=0=NORMAL).
+        String[][] defaults = {
+                { CarConstants.CAR_DRIVE_SETTING_ESP_ENABLE.getValue(),                 "1" },
+                { CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.getValue(),            "0" },
+                { CarConstants.CAR_DRIVE_SETTING_DRIVE_MODE.getValue(),                 "0" },
+                { CarConstants.CAR_DRIVE_SETTING_STEERING_WHEEL_ASSIST_MODE.getValue(), "0" },
+                { CarConstants.CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL.getValue(),         "0" },
+                { CarConstants.CAR_CONFIGURE_PEDAL_CONTROL_ENABLE.getValue(),           "0" },
+                // HVAC defaults so AcControlScreen UP/DOWN don't NPE on parseFloat/parseInt
+                { CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),                  "22.0" },
+                { CarConstants.CAR_HVAC_FAN_SPEED.getValue(),                           "3" },
+                { CarConstants.CAR_HVAC_POWER_MODE.getValue(),                          "1" },
+        };
+        int seeded = 0;
+        for (String[] kv : defaults) {
+            if (dataCache.get(kv[0]) == null) {
+                dataCache.put(kv[0], kv[1]);
+                seeded++;
+            }
+        }
+        Log.w(TAG, "ensureSharedPreferencesForEmulator: seeded " + seeded + " menu defaults into dataCache.");
+
+        // (3) Eagerly init MainUiManager and (4) force card 1 so the dispatch
+        // loop has somewhere to deliver UP/DOWN/ENTER. Wrap defensively because
+        // any screen.initialize() failure would otherwise leak past app start.
+        try {
+            MainUiManager.getInstance().handleCardChange(1);
+            // Notify the projector so the WebView shows card 1 too.
+            dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, 1);
+            Log.w(TAG, "ensureSharedPreferencesForEmulator: MainUiManager warmed, currentCard=1.");
+        } catch (Exception e) {
+            Log.e(TAG, "ensureSharedPreferencesForEmulator: MainUiManager warm-up failed", e);
+        }
+    }
+
+    /**
+     * Emulator-side entry point that simulates a Beantechs IInputService key event.
+     *
+     * On real hardware, com.beantechs.inputservice delivers steering-wheel button
+     * events to {@code inputListener.dispatchKeyEvent} above. The emulator does
+     * not have that proprietary service, so the listener never fires. This method
+     * applies the same dispatch — for both menu navigation (1024..1039) and the
+     * two custom buttons (517 and 1031) — when invoked from a host-side broadcast.
+     *
+     * Unlike the real-hardware path, this does NOT gate on
+     * {@code ENABLE_CUSTOM_MENU} / {@code ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS};
+     * the caller (EmulatorInputBridge) is implicitly an opt-in test harness.
+     */
+    public void dispatchSimulatedInputKey(int keycode) {
+        Log.w(TAG, "dispatchSimulatedInputKey: " + keycode);
+
+        // Custom buttons — fall back to DEFAULT action when sharedPreferences is
+        // not initialized (which is the normal emulator state).
+        if (keycode == 517 || keycode == 1031) {
+            int buttonIndex = (keycode == 517) ? 1 : 2;
+            String prefKey = (buttonIndex == 1)
+                    ? SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.getKey()
+                    : SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.getKey();
+            String action = sharedPreferences != null
+                    ? sharedPreferences.getString(prefKey, SteeringWheelCustomActionType.DEFAULT.name())
+                    : SteeringWheelCustomActionType.DEFAULT.name();
+            try {
+                handleSteeringWheelCustomButton(action, buttonIndex);
+            } catch (Exception e) {
+                Log.w(TAG, "Custom button " + buttonIndex + " action failed (likely needs car service): " + e.getMessage());
+            }
+            return;
+        }
+
+        // Menu navigation
+        Screen.Key key = null;
+        switch (keycode) {
+            case 1024: key = Screen.Key.UP; break;
+            case 1025: key = Screen.Key.DOWN; break;
+            case 1028: key = Screen.Key.ENTER; break;
+            case 1029: key = Screen.Key.HOME; break;
+            case 1030: key = Screen.Key.BACK; break;
+            case 1033: key = Screen.Key.UP_LONG; break;
+            case 1034: key = Screen.Key.DOWN_LONG; break;
+            case 1037: key = Screen.Key.ENTER_LONG; break;
+            case 1039: key = Screen.Key.BACK_LONG; break;
+            default:
+                Log.w(TAG, "Unknown simulated key code: " + keycode);
+                return;
+        }
+        try {
+            MainUiManager.getInstance().handleGeneralKeyEvents(key);
+            if (key == Screen.Key.BACK) {
+                dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "MainUiManager dispatch failed: " + e.getMessage(), e);
+        }
     }
 }

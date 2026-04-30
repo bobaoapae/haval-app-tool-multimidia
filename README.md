@@ -4,6 +4,11 @@
 
 For developer-specific documentation and ADB commands, see [DEVELOPER_NOTES.md](file:///c:/Users/vanes/StudioProjects/haval-app-tool-multimidia/DEVELOPER_NOTES.md).
 
+Para rodar o app em um emulador AAOS (sem hardware Haval), incluindo
+simulação do cluster, dados VHAL e botões do volante: ver
+[`EMULADOR.md`](EMULADOR.md). Início rápido: `./launch.sh` e
+`./cluster-keys.sh`.
+
 This project is an unofficial educational initiative related to the Haval GWM multimedia system. It is not affiliated with, endorsed by, or connected to Haval, GWM, or any related entities.
 
 **Disclaimer (English):**  
