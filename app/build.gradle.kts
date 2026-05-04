@@ -38,6 +38,17 @@ android {
         }
     }
 
+    flavorDimensions += "target"
+    productFlavors {
+        create("production") {
+            dimension = "target"
+            isDefault = true
+        }
+        create("emulator") {
+            dimension = "target"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -78,8 +89,8 @@ dependencies {
     implementation(libs.material.icons.extended)
     annotationProcessor(libs.annotation.processor)
     compileOnly(libs.annotation)
-    // AAOS Car API — system-provided at runtime, needed for CarPropertyManager / VHAL access
-    compileOnly(files("libs/android.car.jar"))
+    // AAOS Car API — system-provided on the emulator; excluded from production builds
+    "emulatorCompileOnly"(files("libs/android.car.jar"))
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
 }

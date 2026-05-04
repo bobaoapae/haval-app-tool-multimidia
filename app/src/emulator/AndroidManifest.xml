@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Emulator-flavor manifest: declares AAOS Car API permissions required by
+     EmulatorVehicleBridge to access VHAL properties via CarPropertyManager.
+     These permissions are intentionally absent from the production flavor. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.car.permission.CAR_SPEED" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.car.permission.CAR_ENGINE_DETAILED" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.car.permission.CAR_INFO" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.car.permission.CAR_ENERGY" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.car.permission.CAR_EXTERIOR_ENVIRONMENT" tools:ignore="ProtectedPermissions" />
+
+</manifest>
