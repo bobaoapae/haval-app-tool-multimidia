@@ -24,6 +24,33 @@ public class DisplaySelectionScreen implements Screen {
 
     private static final String[] DISPLAYS = {"Normal", "Esportivo", "Reduzido", "Clean"};
 
+    private int getDisplayIndex(String display) {
+        for (int i = 0; i < DISPLAYS.length; i++) {
+            if (DISPLAYS[i].equals(display)) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private String getCurrentDisplay() {
+        return DISPLAYS[focusedDisplayIndex];
+    }
+
+    private void persistCurrentDisplay() {
+        serviceManager.getSharedPreferences()
+                .edit()
+                .putString(SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.getKey(), getCurrentDisplay())
+                .apply();
+    }
+
+    private void dispatchCurrentDisplay() {
+        serviceManager.dispatchServiceManagerEvent(
+                ServiceManagerEventType.DISPLAY_SCREEN_SELECTION,
+                "control('display', '" + getCurrentDisplay() + "')"
+        );
+    }
+
     @Override
     public String getJsName() {
         return "display_selection";
@@ -84,12 +111,14 @@ public class DisplaySelectionScreen implements Screen {
                     }
                     break;
             }
-            serviceManager.dispatchServiceManagerEvent(ServiceManagerEventType.DISPLAY_SCREEN_SELECTION, "control('display', '" + DISPLAYS[focusedDisplayIndex] + "')");
+            persistCurrentDisplay();
+            dispatchCurrentDisplay();
         } else {
             // if in clean mode, any key exits
             if (focusedDisplayIndex == 3) {
                 focusedDisplayIndex = 0;
-                serviceManager.dispatchServiceManagerEvent(ServiceManagerEventType.DISPLAY_SCREEN_SELECTION, "control('display', '" + DISPLAYS[focusedDisplayIndex] + "')");
+                persistCurrentDisplay();
+                dispatchCurrentDisplay();
 
             }
         }
@@ -98,7 +127,14 @@ public class DisplaySelectionScreen implements Screen {
     @Override
     public void initialize() {
         this.serviceManager = ServiceManager.getInstance();
+        String savedDisplay = serviceManager.getSharedPreferences().getString(
+                SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.getKey(),
+                DISPLAYS[focusedDisplayIndex]
+        );
+        focusedDisplayIndex = getDisplayIndex(savedDisplay);
+        focusedTemplateIndex = focusedDisplayIndex;
         serviceManager.dispatchServiceManagerEvent(ServiceManagerEventType.UPDATE_SCREEN, this);
+        dispatchCurrentDisplay();
         updateFocus();
     }
 

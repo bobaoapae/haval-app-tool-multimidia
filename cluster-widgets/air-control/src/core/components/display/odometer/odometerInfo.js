@@ -28,11 +28,12 @@ export function createOdometerInfo() {
     textWrapper.classList.add('startup-flash');
 
     const updateDisplay = () => {
+        const testMode = window.__AIR_CONTROL_TEST_MODE === true;
         const odometerEnabled = getState('enableOdometer');
-        const warningEnabled = getState('enableRevisionWarning');
+        const warningEnabled = getState('enableRevisionWarning') || testMode;
         const currentKm = getState('odometer') || 0;
-        const nextKm = getState('nextRevisionKm') || 0;
-        const nextDateMillis = getState('nextRevisionDate') || 0;
+        const nextKm = getState('nextRevisionKm') || (testMode ? 12000 : 0);
+        const nextDateMillis = getState('nextRevisionDate') || (testMode ? Date.now() + 15 * 24 * 60 * 60 * 1000 : 0);
 
         if (!odometerEnabled && !warningEnabled) {
             container.style.display = 'none';
@@ -53,7 +54,7 @@ export function createOdometerInfo() {
 
             const isNearMaintenance = (remainingKm < 1000 || remainingDays < 30);
             
-            if (showDoubleLine || isNearMaintenance) {
+            if (testMode || showDoubleLine || isNearMaintenance) {
                 let text = `Manutenção em: ${remainingKm} Km`;
                 if (nextDateMillis > 0 && remainingDays > 0) {
                     text += ` ou ${remainingDays} dias`;

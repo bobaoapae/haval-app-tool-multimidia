@@ -563,6 +563,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         val updates = mutableMapOf<String, String>()
 
+        updates["display"] = getSavedClusterDisplay()
+
         // Gears
         updates["gearState"] = getGearLabel(sm.getData(CarConstants.CAR_BASIC_GEAR_STATUS.value))
 
@@ -963,6 +965,31 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         return finalSpeed.toInt().toString()
     }
 
+    private fun getSavedClusterDisplay(): String {
+        val savedDisplay =
+                preferences.getString(
+                        SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key,
+                        "Normal"
+                ) ?: "Normal"
+
+        return normalizeClusterDisplay(savedDisplay)
+    }
+
+    private fun normalizeClusterDisplay(display: String): String {
+        return when (display) {
+            "Normal", "Esportivo", "Reduzido", "Clean" -> display
+            else -> "Normal"
+        }
+    }
+
+    private fun saveClusterDisplay(display: String) {
+        val normalizedDisplay = normalizeClusterDisplay(display)
+        preferences.edit()
+                .putString(SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key, normalizedDisplay)
+                .apply()
+        Log.d(TAG, "Cluster display saved: $normalizedDisplay")
+    }
+
     private fun updateWarningUI(anyWarningActive: Boolean) {
         isWarningActive = anyWarningActive
         lastAppliedConfigs.clear() // Invalidate cache on warning toggle to force re-sync
@@ -995,6 +1022,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             currentCard = cardId
             Log.d(TAG, "Card ID updated to $cardId")
             syncSecondaryDisplayApps(3)
+        }
+
+        @JavascriptInterface
+        fun saveSetting(key: String, value: String) {
+            when (key) {
+                SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key -> saveClusterDisplay(value)
+                else -> Log.w(TAG, "Ignoring unsupported WebView setting: $key")
+            }
         }
     }
 }

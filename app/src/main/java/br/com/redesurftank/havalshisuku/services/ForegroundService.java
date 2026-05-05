@@ -27,6 +27,9 @@ import java.util.regex.Pattern;
 import br.com.redesurftank.App;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.DispatchAllDatasReceiver;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.RestartReceiver;
+import br.com.redesurftank.havalshisuku.managers.EmulatorInputBridge;
+import br.com.redesurftank.havalshisuku.managers.EmulatorVehicleBridge;
+import br.com.redesurftank.havalshisuku.managers.ProjectorManager;
 import br.com.redesurftank.havalshisuku.managers.ServiceManager;
 import br.com.redesurftank.havalshisuku.models.CommandListener;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
@@ -96,6 +99,49 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                 }
             }
 
+            // On emulator hardware, Telnet/Shizuku infrastructure is unavailable.
+            // Skip ALL hardware-specific checks (UID, Shizuku, Telnet) to prevent freezing the VM.
+            // This guard runs first, before anything that touches real-hardware-only paths.
+            boolean isEmulator = android.os.Build.FINGERPRINT.startsWith("generic")
+                    || android.os.Build.FINGERPRINT.startsWith("unknown")
+                    || android.os.Build.PRODUCT.startsWith("sdk")
+                    || android.os.Build.HARDWARE.equals("goldfish")
+                    || android.os.Build.HARDWARE.equals("ranchu");
+            if (isEmulator) {
+                Log.w(TAG, "Running on emulator — skipping Shizuku/Telnet initialization.");
+                // The full ServiceManager.initializeServices() is too heavy for the
+                // emulator (it binds proprietary Beantechs/Autolink services that
+                // don't exist), but a few of its side-effects ARE needed here:
+                // attach the shared SharedPreferences instance so screens that
+                // read prefs in processKey() don't NPE on the simulated key path.
+                try {
+                    ServiceManager.getInstance().ensureSharedPreferencesForEmulator();
+                } catch (Exception e) {
+                    Log.e(TAG, "ensureSharedPreferencesForEmulator failed: " + e.getMessage(), e);
+                }
+                try {
+                    ProjectorManager.getInstance().initialize();
+                    Log.w(TAG, "ProjectorManager initialized for emulator cluster simulation.");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to initialize ProjectorManager on emulator: " + e.getMessage(), e);
+                }
+                try {
+                    EmulatorVehicleBridge vehicleBridge = new EmulatorVehicleBridge(getApplicationContext());
+                    vehicleBridge.start();
+                    Log.w(TAG, "EmulatorVehicleBridge started — VHAL data will feed the cluster.");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to start EmulatorVehicleBridge: " + e.getMessage(), e);
+                }
+                try {
+                    EmulatorInputBridge inputBridge = new EmulatorInputBridge(getApplicationContext());
+                    inputBridge.start();
+                    Log.w(TAG, "EmulatorInputBridge started — steering-wheel keys can be driven via ADB broadcast.");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to start EmulatorInputBridge: " + e.getMessage(), e);
+                }
+                return START_STICKY;
+            }
+
             // Checar se precisa resetar dados (rollback preview→estável)
             var pendingResetTarget = sharedPreferences.getString(SharedPreferencesKeys.PENDING_RESET_TARGET_VERSION.getKey(), "");
             if (pendingResetTarget != null && !pendingResetTarget.isEmpty()) {
@@ -141,7 +187,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                     try {
                         var sharedPreferences = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
                         String shizukuLibLocation = sharedPreferences.getString("shizuku_lib_location", "");
-                        
+
                         var telnetClient = new TelnetClientWrapper();
                         
                         

@@ -24,7 +24,9 @@ public class MainMenu implements Screen {
         public static final int ON = 1;
         public static final int OFF = 0;
         public static String getLabel(String value) {
-            int val = Integer.parseInt(value);
+            if (value == null) return "--";
+            int val;
+            try { val = Integer.parseInt(value); } catch (NumberFormatException e) { return "--"; }
             switch (val) {
                 case 1: return "ON";
                 case 0: return "OFF";
@@ -39,7 +41,9 @@ public class MainMenu implements Screen {
         public static final int EV = 3;
 
         public static String getLabel(String value) {
-            int val = Integer.parseInt(value);
+            if (value == null) return "--";
+            int val;
+            try { val = Integer.parseInt(value); } catch (NumberFormatException e) { return "--"; }
             switch (val) {
                 case 0:
                     return "HEV";
@@ -57,7 +61,9 @@ public class MainMenu implements Screen {
         public static final int ECO = 2;
         public static final int SPORT = 1;
         public static String getLabel(String value) {
-            int val = Integer.parseInt(value);
+            if (value == null) return "--";
+            int val;
+            try { val = Integer.parseInt(value); } catch (NumberFormatException e) { return "--"; }
             switch (val) {
                 case 0: return "Normal";
                 case 1: return "Sport";
@@ -76,7 +82,9 @@ public class MainMenu implements Screen {
         public static final int NORMAL = 0;
         public static final int SPORT = 1;
         public static String getLabel(String value) {
-            int val = Integer.parseInt(value);
+            if (value == null) return "--";
+            int val;
+            try { val = Integer.parseInt(value); } catch (NumberFormatException e) { return "--"; }
             switch (val) {
                 case 2: return "Conforto";
                 case 0: return "Normal";

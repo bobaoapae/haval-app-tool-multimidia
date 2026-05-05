@@ -33,6 +33,14 @@ const nativeMockEnabled =
     urlParams.get('nativeMocks') === '1' ||
     window.__ENABLE_NATIVE_MOCKS === true;
 
+if (nativeMockEnabled) {
+    window.__AIR_CONTROL_TEST_MODE = true;
+    setState('enableOdometer', true);
+    setState('enableRevisionWarning', true);
+    setState('odometer', get('odometer') || 11450);
+    setState('nextRevisionKm', get('nextRevisionKm') || 12000);
+    setState('nextRevisionDate', get('nextRevisionDate') || Date.now() + 15 * 24 * 60 * 60 * 1000);
+}
 
 function initializeLayout() {
     logger.enter('initializeLayout');

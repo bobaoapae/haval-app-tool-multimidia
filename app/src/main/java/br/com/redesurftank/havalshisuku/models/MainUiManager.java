@@ -17,6 +17,9 @@ public class MainUiManager {
     // Estado atual da tela (MainMenu ou um sub-menu)
     private Screen currentScreenCard1;
     private Screen currentScreenCard3;
+    // Kept around so HOME can always navigate the user back to the top-level
+    // menu regardless of how deep into a sub-screen they currently are.
+    private MainMenu rootMenuCard1;
 
     private int currentCard = 1;
 
@@ -24,6 +27,7 @@ public class MainUiManager {
     private MainUiManager() {
         MainMenu initialMenu = new MainMenu();
         initialMenu.initialize();
+        this.rootMenuCard1 = initialMenu;
         Screen acScreen = new AcControlScreen();
         acScreen.initialize();
         this.currentScreenCard1 = initialMenu.setInitialScreen(this);
@@ -69,6 +73,14 @@ public class MainUiManager {
     }
 
     public void handleGeneralKeyEvents(Screen.Key key) {
+        // HOME is universal: always pops you back to the top-level menu on
+        // card 1, regardless of how deep into a sub-screen you currently are.
+        // No screen's processKey() implements HOME today, so without this
+        // intercept the key would be a no-op once the user enters a submenu.
+        if (key == Screen.Key.HOME && this.currentCard == 1 && this.rootMenuCard1 != null) {
+            updateScreen(this.rootMenuCard1);
+            return;
+        }
         if (this.currentCard == 1) this.currentScreenCard1.processKey(key);
         else if (this.currentCard == 3) this.currentScreenCard3.processKey(key);
     }

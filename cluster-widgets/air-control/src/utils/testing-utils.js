@@ -1,6 +1,13 @@
 import { setState, stateManager } from '../core/state.js';
 import { menuItems } from '../core/components/mainMenu.js';
 
+window.__AIR_CONTROL_TEST_MODE = true;
+setState('enableOdometer', true);
+setState('enableRevisionWarning', true);
+setState('odometer', 11450);
+setState('nextRevisionKm', 12000);
+setState('nextRevisionDate', Date.now() + 15 * 24 * 60 * 60 * 1000);
+
 const focusableAreas = {
     main_menu: menuItems.map(item => item.id),
     ac_control: ['fan', 'temp'],
@@ -325,7 +332,7 @@ let lastValue = 0;
 const smoothingFactor = 0.05; // Less dramatic changes
 let timeToModeChange = 10;
 let simulationPhase = 'idle';
-let currentSpeed = 20;
+let currentSpeed = 0;
 let steadyTimeCounter = 0;
 const SIMULATION_INTERVAL = 100;
 
@@ -494,4 +501,3 @@ window.simulationInterval = setInterval(() => {
 setTimeout(() => {
     simulationPhase = 'accelerating';
 }, 5000);
-
