@@ -1878,7 +1878,7 @@ public class ServiceManager {
      * {@code ENABLE_CUSTOM_MENU} / {@code ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS};
      * the caller (EmulatorInputBridge) is implicitly an opt-in test harness.
      */
-    public void dispatchSimulatedInputKey(int keycode) {
+    void dispatchSimulatedInputKey(int keycode) {
         Log.w(TAG, "dispatchSimulatedInputKey: " + keycode);
 
         // Custom buttons — fall back to DEFAULT action when sharedPreferences is
