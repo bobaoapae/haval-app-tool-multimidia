@@ -1,12 +1,9 @@
 import { setState, stateManager } from '../core/state.js';
 import { menuItems } from '../core/components/mainMenu.js';
 
-window.__AIR_CONTROL_TEST_MODE = true;
-setState('enableOdometer', true);
-setState('enableRevisionWarning', true);
-setState('odometer', 11450);
-setState('nextRevisionKm', 12000);
-setState('nextRevisionDate', Date.now() + 15 * 24 * 60 * 60 * 1000);
+// Test-mode flag and initial state are seeded by main.js before this module
+// is dynamically imported — do not re-seed here to avoid overwriting defaults
+// that main.js may have preserved from existing state (get(key) || fallback).
 
 const focusableAreas = {
     main_menu: menuItems.map(item => item.id),

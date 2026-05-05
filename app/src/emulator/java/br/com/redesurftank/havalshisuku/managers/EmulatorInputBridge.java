@@ -61,7 +61,12 @@ public class EmulatorInputBridge {
         };
         IntentFilter filter = new IntentFilter(ACTION_SIM_KEY);
         // RECEIVER_EXPORTED so `adb shell am broadcast` can reach us.
-        context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
+        // The signature permission restricts delivery to identically-signed apps;
+        // ADB shell bypasses permission checks so host scripts still work.
+        context.registerReceiver(receiver, filter,
+                "br.com.redesurftank.havalshisuku.EMULATOR_BROADCAST",
+                null,
+                Context.RECEIVER_EXPORTED);
         Log.w(TAG, "EmulatorInputBridge listening on action " + ACTION_SIM_KEY);
     }
 

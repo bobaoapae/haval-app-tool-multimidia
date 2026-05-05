@@ -9,7 +9,6 @@ import br.com.redesurftank.havalshisuku.models.screens.Screen;
 
 public class MainUiManager {
 
-    // These fields are not declared in the original file. I'm declaring them here to make the code compile.
     private SharedPreferences sharedPreferences;
 
     private static volatile MainUiManager INSTANCE;

@@ -92,7 +92,12 @@ $ADB shell "killall -9 com.android.systemui" 2>/dev/null || true
 echo ""
 echo "==> Granting AAOS Car API runtime permissions (user 10)..."
 PKG="br.com.redesurftank.havalshisuku"
-for PERM in android.car.permission.CAR_SPEED android.car.permission.CAR_ENERGY; do
+for PERM in android.car.permission.CAR_SPEED \
+            android.car.permission.CAR_ENGINE_DETAILED \
+            android.car.permission.CAR_INFO \
+            android.car.permission.CAR_POWERTRAIN \
+            android.car.permission.CAR_ENERGY \
+            android.car.permission.CAR_EXTERIOR_ENVIRONMENT; do
     RESULT=$($ADB shell pm grant --user 10 "$PKG" "$PERM" 2>&1 || true)
     echo "    $PERM: ${RESULT:-OK}"
 done

@@ -4,6 +4,7 @@ import android.car.Car;
 import android.car.hardware.CarPropertyValue;
 import android.car.hardware.property.CarPropertyManager;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -159,7 +160,8 @@ public class EmulatorVehicleBridge {
                 case PROP_ENGINE_RPM:      injectRpm(((Number) v).floatValue());     break;
                 case PROP_CURRENT_GEAR:    injectGear(((Number) v).intValue());      break;
                 case PROP_IGNITION_STATE:  injectIgnition(((Number) v).intValue());  break;
-                case PROP_PARKING_BRAKE:   injectParkingBrake((Boolean) v);         break;
+                case PROP_PARKING_BRAKE:   injectParkingBrake(v instanceof Boolean ? (Boolean) v : ((Number) v).intValue() != 0); break;
+                case PROP_NIGHT_MODE:      injectNightMode(v instanceof Boolean ? (Boolean) v : ((Number) v).intValue() != 0);    break;
                 case PROP_EV_BATTERY:      injectBattery(((Number) v).floatValue()); break;
                 case PROP_FUEL_LEVEL:      injectFuel(((Number) v).floatValue());    break;
                 case PROP_OUTSIDE_TEMP:    injectOutsideTemp(((Number) v).floatValue()); break;
@@ -208,6 +210,13 @@ public class EmulatorVehicleBridge {
         String v = on ? "1" : "0";
         serviceManager.injectData(CarConstants.CAR_BASIC_EPB_STATE.getValue(), v);
         serviceManager.injectData(CarConstants.CAR_BASIC_HAND_BRAKE_STATUS.getValue(), v);
+    }
+
+    private void injectNightMode(boolean nightMode) {
+        Intent intent = new Intent("br.com.redesurftank.havalshisuku.NIGHT_MODE_CHANGED");
+        intent.putExtra("night_mode", nightMode);
+        context.sendBroadcast(intent);
+        Log.w(TAG, "Night mode changed → " + nightMode);
     }
 
     private void injectBattery(float wh) {

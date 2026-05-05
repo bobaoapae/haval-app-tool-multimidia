@@ -33,6 +33,7 @@ import br.com.redesurftank.havalshisuku.managers.ProjectorManager;
 import br.com.redesurftank.havalshisuku.managers.ServiceManager;
 import br.com.redesurftank.havalshisuku.models.CommandListener;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
+import br.com.redesurftank.havalshisuku.utils.BuildUtils;
 import br.com.redesurftank.havalshisuku.utils.IPTablesUtils;
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils;
 import br.com.redesurftank.havalshisuku.utils.TelnetClientWrapper;
@@ -49,6 +50,8 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     private Handler backgroundHandler;
     private Boolean isShizukuInitialized = false;
     private Boolean isServiceRunning = false;
+    private EmulatorVehicleBridge emulatorVehicleBridge;
+    private EmulatorInputBridge emulatorInputBridge;
 
     private final Runnable timeoutRunnable = () -> {
         if (!isShizukuInitialized) {
@@ -102,12 +105,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
             // On emulator hardware, Telnet/Shizuku infrastructure is unavailable.
             // Skip ALL hardware-specific checks (UID, Shizuku, Telnet) to prevent freezing the VM.
             // This guard runs first, before anything that touches real-hardware-only paths.
-            boolean isEmulator = android.os.Build.FINGERPRINT.startsWith("generic")
-                    || android.os.Build.FINGERPRINT.startsWith("unknown")
-                    || android.os.Build.PRODUCT.startsWith("sdk")
-                    || android.os.Build.HARDWARE.equals("goldfish")
-                    || android.os.Build.HARDWARE.equals("ranchu");
-            if (isEmulator) {
+            if (BuildUtils.isEmulator()) {
                 Log.w(TAG, "Running on emulator — skipping Shizuku/Telnet initialization.");
                 // The full ServiceManager.initializeServices() is too heavy for the
                 // emulator (it binds proprietary Beantechs/Autolink services that
@@ -126,15 +124,15 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                     Log.e(TAG, "Failed to initialize ProjectorManager on emulator: " + e.getMessage(), e);
                 }
                 try {
-                    EmulatorVehicleBridge vehicleBridge = new EmulatorVehicleBridge(getApplicationContext());
-                    vehicleBridge.start();
+                    emulatorVehicleBridge = new EmulatorVehicleBridge(getApplicationContext());
+                    emulatorVehicleBridge.start();
                     Log.w(TAG, "EmulatorVehicleBridge started — VHAL data will feed the cluster.");
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to start EmulatorVehicleBridge: " + e.getMessage(), e);
                 }
                 try {
-                    EmulatorInputBridge inputBridge = new EmulatorInputBridge(getApplicationContext());
-                    inputBridge.start();
+                    emulatorInputBridge = new EmulatorInputBridge(getApplicationContext());
+                    emulatorInputBridge.start();
                     Log.w(TAG, "EmulatorInputBridge started — steering-wheel keys can be driven via ADB broadcast.");
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to start EmulatorInputBridge: " + e.getMessage(), e);
@@ -449,6 +447,14 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
             handlerThread.quitSafely();
         }
         isServiceRunning = false;
+        if (emulatorVehicleBridge != null) {
+            try { emulatorVehicleBridge.stop(); } catch (Exception ignored) {}
+            emulatorVehicleBridge = null;
+        }
+        if (emulatorInputBridge != null) {
+            try { emulatorInputBridge.stop(); } catch (Exception ignored) {}
+            emulatorInputBridge = null;
+        }
         Shizuku.removeBinderReceivedListener(this::shizukuBinderReceived);
         Shizuku.removeBinderDeadListener(this);
         Log.w(TAG, "Service destroyed");
