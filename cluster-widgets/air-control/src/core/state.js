@@ -110,6 +110,7 @@ var stateManager = new StateManager({
     brightness: 100,
     fuelRange: 0,
     fuelPercent: 0,
+    fuelDisplayUnit: 'liters',
     batteryRange: 0,
     batteryPercent: 0,
     clockTime: '--:--',
@@ -125,6 +126,8 @@ var stateManager = new StateManager({
     warningActive: false,
     bsdLeft: false,
     bsdRight: false,
+    tripAnalysisActive: false,
+    tripAnalysisScore: null,
 });
 
 var getState = function (key) { return stateManager.get(key); };

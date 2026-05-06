@@ -2275,17 +2275,21 @@ canvas.graph-chart {
 }
 
 .cluster-mask-bg {
+ 
   position: absolute;
   top: 0;
   left: 0;
   width: 1920px;
   height: 720px;
+  
   pointer-events: none;
-  z-index: 50;
+  z-index: 1;
+  /*background-position-y: 140%;*/
   /* Below content */
 }
 
 .cluster-mask {
+  
   position: absolute;
   top: 0;
   left: 0;
@@ -2298,6 +2302,7 @@ canvas.graph-chart {
 }
 
 .no-app-mask-l {
+  
   position: absolute;
   top: var(--mask-center-y);
   left: calc(var(--mask-left-x) - var(--display-left-offset));
@@ -2469,6 +2474,103 @@ canvas.graph-chart {
   color: var(--dashboard-text-color);
   z-index: 140;
   /* Above content (100) but below blue rings (150) */
+}
+
+.trip-analysis-indicator {
+  position: absolute;
+  top: 10px;
+  left: 58px;
+  min-width: 200px;
+  height: 90px;
+  padding: 10px 28px 10px 24px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  z-index: 280;
+  pointer-events: none;
+  border-radius: 20px 8px 20px 8px;
+  border: 1.5px solid rgba(82, 162, 255, 0.76);
+  background:
+    linear-gradient(105deg, rgba(3, 13, 28, 0.92), rgba(2, 7, 16, 0.72)),
+    radial-gradient(circle at 20% 52%, rgba(0, 190, 255, 0.24), transparent 66%);
+  box-shadow:
+    0 0 22px rgba(0, 150, 255, 0.30),
+    inset 0 0 18px rgba(82, 162, 255, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(2px);
+}
+
+.trip-analysis-indicator-status {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 74px;
+}
+
+.trip-analysis-indicator-icon {
+  width: 52px;
+  height: 52px;
+  border: 2px solid rgba(102, 185, 255, 0.96);
+  border-radius: 50%;
+  box-sizing: border-box;
+  position: relative;
+  flex: 0 0 auto;
+  box-shadow:
+    0 0 14px rgba(0, 160, 255, 0.45),
+    inset 0 0 8px rgba(0, 160, 255, 0.18);
+}
+
+.trip-analysis-indicator-icon::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #32ff72;
+  box-shadow: 0 0 14px rgba(50, 255, 114, 0.92);
+}
+
+.trip-analysis-indicator-icon::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -7px;
+  width: 4px;
+  height: 26px;
+  transform-origin: 50% 27px;
+  transform: translateX(-50%) rotate(42deg);
+  border-radius: 2px;
+  background: linear-gradient(180deg, #d9ffe4, #32ff72);
+  box-shadow: 0 0 12px rgba(50, 255, 114, 0.78);
+}
+
+.trip-analysis-indicator-label {
+  color: rgba(173, 211, 255, 0.78);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 2.4px;
+  line-height: 0.9;
+  text-shadow: 0 0 10px rgba(0, 160, 255, 0.42);
+}
+
+.trip-analysis-indicator-value {
+  color: #ffffff;
+  flex: 1 1 auto;
+  margin-left: -30px;
+  margin-top:10px;
+  min-width: 100px;
+  font-size: 72px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  line-height: 0.9;
+  text-align: right;
+  text-shadow: 0 0 16px rgba(0, 160, 255, 0.88);
 }
 
 /* Top Center (Clock, Gear, Mode) */
@@ -2879,6 +2981,7 @@ canvas.graph-chart {
 }
 
 .fuel-percent,
+.fuel-liters,
 .battery-percent {
   position: absolute;
   right: 40px;
@@ -2889,9 +2992,25 @@ canvas.graph-chart {
   text-align: left;
 }
 
+.fuel-liters {
+  right: 23px;
+  top: 5px;
+  font-size: 26px;
+  font-weight: 300;
+  color: var(--menu-text);
+  min-width: 96px;
+  text-align: right;
+  letter-spacing: -1px;
+}
+
+.fuel-liters .dashboard-unit {
+  font-size: 26px;
+  margin-left: 0px;
+}
+
 .dashboard-unit {
   font-size: 26px;
-  font-weight: 500;
+  font-weight: 300;
   color: var(--menu-text);
   margin-left: 4px;
 }
@@ -3128,7 +3247,7 @@ canvas.graph-chart {
 }
 
 .odometer-line {
-  
+ 
   font-size: 26px;
   font-weight: 300;
   color: var(--text-main);
@@ -3136,6 +3255,9 @@ canvas.graph-chart {
   align-items: baseline;
   gap: 6px;
   text-shadow: 0 4px 8px var(--bg-black-100);
+}
+.display-esportivo .odometer-line{
+  margin-bottom: 10px;
 }
 
 .odometer-label {
@@ -3168,8 +3290,9 @@ canvas.graph-chart {
   transform: translateY(-4px);
 }
 
-#app.display-esportivo .revision-line {
-  margin-top: -10px;
+.display-esportivo .revision-line {
+  top:-20px !important;
+  position: relative;
 }
 
 .odometer-text-wrapper.single-line {

@@ -91,6 +91,7 @@ dependencies {
     compileOnly(libs.annotation)
     // AAOS Car API — system-provided on the emulator; excluded from production builds
     "emulatorCompileOnly"(files("libs/android.car.jar"))
+    testImplementation(libs.junit)
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
 }

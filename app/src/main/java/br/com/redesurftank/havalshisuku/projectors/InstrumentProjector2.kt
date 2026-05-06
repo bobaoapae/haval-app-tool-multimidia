@@ -3,6 +3,7 @@ package br.com.redesurftank.havalshisuku.projectors
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
@@ -38,6 +39,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         BaseProjector(outerContext, display) {
 
     private val TAG = "InstrumentProjector2"
+    private val DEBUG_EXTERNAL_APP_HTML = "/data/local/tmp/app.html"
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val clockRunnable =
             object : Runnable {
@@ -123,6 +125,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                         SharedPreferencesKeys.VIRTUAL_CLUSTER_DISPLAY_ID.key,
                                         SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key,
                                         SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key,
+                                        SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key,
+                                        SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_ACTIVE.key,
+                                        SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_SCORE.key,
                                         SharedPreferencesKeys
                                                 .ENABLE_INSTRUMENT_ODOMETER_AND_REVISION
                                                 .key
@@ -153,6 +158,27 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     "text/html",
                                     "UTF-8",
                                     null
+                            )
+                        }
+                        if (key == SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key) {
+                            val unit = getClusterFuelDisplayUnit()
+                            Log.d(TAG, "[HavalDev] Cluster fuel display unit changed: $unit")
+                            evaluateJsIfReady(webView, "control('fuelDisplayUnit', '$unit')")
+                        }
+                        if (key == SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_ACTIVE.key) {
+                            val active = preferences.getBoolean(key, false)
+                            evaluateJsIfReady(webView, "control('tripAnalysisActive', $active)")
+                        }
+                        if (key == SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_SCORE.key) {
+                            val score =
+                                    preferences.getInt(
+                                            SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_SCORE
+                                                    .key,
+                                            -1
+                                    )
+                            evaluateJsIfReady(
+                                    webView,
+                                    "control('tripAnalysisScore', ${if (score >= 0) score else "null"})"
                             )
                         }
                         root.isVisible =
@@ -611,6 +637,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 sm.getData(CarConstants.CAR_EV_INFO_FUEL_MODE_REMAIN_ODOMETER.value) ?: "0"
         updates["batteryRange"] =
                 sm.getData(CarConstants.CAR_EV_INFO_ELECTRIC_MODE_REMAIN_ODOMETER.value) ?: "0"
+        updates["fuelDisplayUnit"] = getClusterFuelDisplayUnit()
+        val tripAnalysisActive =
+                preferences.getBoolean(
+                        SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_ACTIVE.key,
+                        false
+                )
+        val tripAnalysisScore =
+                preferences.getInt(SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_SCORE.key, -1)
+        updates["tripAnalysisActive"] = tripAnalysisActive.toString()
+        updates["tripAnalysisScore"] = if (tripAnalysisScore >= 0) tripAnalysisScore.toString() else "null"
 
         // Speed and Engine
         val speedStr = getAdjustedSpeed(sm.getData(CarConstants.CAR_BASIC_VEHICLE_SPEED.value))
@@ -663,11 +699,27 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         batchEvaluateJs(webView, updates)
     }
 
+    private fun getClusterFuelDisplayUnit(): String {
+        val unit =
+                preferences.getString(
+                        SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key,
+                        "liters"
+                ) ?: "liters"
+        return if (unit == "percent") "percent" else "liters"
+    }
+
     private fun batchEvaluateJs(view: WebView?, updates: Map<String, String>) {
         if (view == null || updates.isEmpty()) return
         val jsBuilder = StringBuilder("(function(){")
         updates.forEach { (key, value) ->
-            val formattedValue = if (value == "true" || value == "false") value else "'$value'"
+            val formattedValue =
+                    if (value == "true" ||
+                                    value == "false" ||
+                                    value == "null" ||
+                                    value.toDoubleOrNull() != null
+                    )
+                            value
+                    else "'$value'"
             jsBuilder.append("control('$key', $formattedValue);")
         }
         jsBuilder.append("})()")
@@ -829,6 +881,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun readAppContent(context: Context): String {
+        if (isDebuggableApp()) {
+            tryLoadExternalDebugHtml()?.let { externalHtml ->
+                return externalHtml
+            }
+        }
+
         val customThemeName =
                 preferences.getString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
         if (customThemeName.isNotEmpty()) {
@@ -855,6 +913,35 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         Log.d(TAG, "Loading base HTML from resource: app.html")
         return context.resources.openRawResource(R.raw.app).bufferedReader().use { it.readText() }
+    }
+
+    private fun tryLoadExternalDebugHtml(): String? {
+        val externalFile = File(DEBUG_EXTERNAL_APP_HTML)
+        if (!externalFile.exists() || !externalFile.isFile || !externalFile.canRead()) {
+            Log.d(TAG, "[HavalDev] External debug HTML not available at $DEBUG_EXTERNAL_APP_HTML")
+            return null
+        }
+
+        val html = externalFile.readText()
+        val normalized = html.lowercase(Locale.ROOT)
+        val isValidHtml =
+                html.isNotBlank() &&
+                        (normalized.contains("<html") || normalized.contains("<!doctype html"))
+
+        if (!isValidHtml) {
+            Log.w(
+                    TAG,
+                    "[HavalDev] External debug HTML exists but is invalid. Falling back to packaged app.html"
+            )
+            return null
+        }
+
+        Log.i(TAG, "[HavalDev] Loading external debug HTML from $DEBUG_EXTERNAL_APP_HTML")
+        return html
+    }
+
+    private fun isDebuggableApp(): Boolean {
+        return (outerContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     }
 
     override fun carMainScreenOff() {

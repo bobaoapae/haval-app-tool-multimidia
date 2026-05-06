@@ -16,3 +16,10 @@ This project is for educational and study purposes only, with no commercial inte
 
 **Isenção de Responsabilidade (Português):**  
 Este projeto é apenas para fins educacionais e de estudo, sem intenção comercial. Envolve engenharia reversa para aprendizado; os usuários assumem todos os riscos. Sem garantia ou responsabilidade. Não distribui materiais originais protegidos por direitos autorais. O uso pode violar os termos do fabricante—prossiga por sua conta e risco.
+
+## Headunit Dev Toolkit
+
+O projeto inclui um toolkit em `tools/headunit-dev/` para acelerar deploy, hot deploy do frontend, logs e diagnóstico da central.
+
+- Visão geral e benefícios: `tools/headunit-dev/README.md`
+- Fluxos operacionais: `tools/headunit-dev/WORKFLOW.md`
