@@ -55,7 +55,8 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
 
     private final Runnable timeoutRunnable = () -> {
         if (!isShizukuInitialized) {
-            Log.e(TAG, "Shizuku initialization timed out. Retrying...");
+            Log.w(TAG, "Shizuku initialization timed out. Restarting service...");
+            restart();
         }
     };
 

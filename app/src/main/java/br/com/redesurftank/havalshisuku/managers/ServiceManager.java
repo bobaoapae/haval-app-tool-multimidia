@@ -269,6 +269,11 @@ public class ServiceManager {
     }
 
     public synchronized boolean initializeServices(Context context) {
+        if (timeBootReceived <= 0) {
+            timeBootReceived = SystemClock.uptimeMillis();
+            Log.w(TAG, "[HavalDev] timeBootReceived fallback set during initializeServices");
+        }
+
         try {
             if (controlService != null) {
                 if (controlService.asBinder().isBinderAlive()) {
@@ -510,6 +515,7 @@ public class ServiceManager {
             }
             ensureSteeringWheelButtonIntegration();
             ensureSystemApps();
+            TripConsistencyManager.Companion.getInstance().initialize();
         } catch (RemoteException e) {
             Log.e(TAG, "Error during initialization", e);
             return false;
@@ -659,7 +665,11 @@ public class ServiceManager {
         try {
             String currentConfig = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "system", "bean_sw_custom_key1_config"}).trim();
             Log.w(TAG, "Current steering wheel button 1 config: " + currentConfig);
-            sharedPreferences.edit().putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL.getKey(), currentConfig).apply();
+            saveOriginalSteeringWheelButtonConfig(
+                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL,
+                    currentConfig,
+                    "1"
+            );
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key1_config", "99"});
         } catch (Exception e) {
             Log.e(TAG, "Error disabling native steering wheel custom buttons", e);
@@ -670,7 +680,11 @@ public class ServiceManager {
         try {
             String currentConfig = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "system", "bean_sw_custom_key2_config"}).trim();
             Log.w(TAG, "Current steering wheel button 2 config: " + currentConfig);
-            sharedPreferences.edit().putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL.getKey(), currentConfig).apply();
+            saveOriginalSteeringWheelButtonConfig(
+                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL,
+                    currentConfig,
+                    "2"
+            );
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key2_config", "99"});
         } catch (Exception e) {
             Log.e(TAG, "Error disabling native steering wheel custom buttons", e);
@@ -679,8 +693,11 @@ public class ServiceManager {
 
     public void disableNativeSteeringWheelButton1() {
         try {
-            String originalConfig = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL.getKey(), "0");
-            if (originalConfig.equals("99"))
+            String originalConfig = getOriginalSteeringWheelButtonConfig(
+                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL,
+                    "1"
+            );
+            if (originalConfig == null)
                 return;
             Log.w(TAG, "Restoring steering wheel button 1 config to: " + originalConfig);
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key1_config", originalConfig});
@@ -691,13 +708,60 @@ public class ServiceManager {
 
     public void disableNativeSteeringWheelButton2() {
         try {
-            String originalConfig = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL.getKey(), "0");
-            if (originalConfig.equals("99"))
+            String originalConfig = getOriginalSteeringWheelButtonConfig(
+                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL,
+                    "2"
+            );
+            if (originalConfig == null)
                 return;
             Log.w(TAG, "Restoring steering wheel button 2 config to: " + originalConfig);
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key2_config", originalConfig});
         } catch (Exception e) {
             Log.e(TAG, "Error restoring native steering wheel custom button 2", e);
+        }
+    }
+
+    private void saveOriginalSteeringWheelButtonConfig(
+            SharedPreferencesKeys key,
+            String currentConfig,
+            String buttonLabel
+    ) {
+        if (!isNativeSteeringWheelButtonConfig(currentConfig)) {
+            Log.w(TAG, "Skipping original steering wheel button " + buttonLabel + " capture for integration config: " + currentConfig);
+            return;
+        }
+
+        sharedPreferences.edit().putString(key.getKey(), currentConfig).apply();
+        Log.w(TAG, "Saved original steering wheel button " + buttonLabel + " config: " + currentConfig);
+    }
+
+    private String getOriginalSteeringWheelButtonConfig(SharedPreferencesKeys key, String buttonLabel) {
+        if (!sharedPreferences.contains(key.getKey())) {
+            Log.w(TAG, "No original steering wheel button " + buttonLabel + " config saved; keeping current native setting");
+            return null;
+        }
+
+        String originalConfig = sharedPreferences.getString(key.getKey(), null);
+        if (!isNativeSteeringWheelButtonConfig(originalConfig)) {
+            Log.w(TAG, "Ignoring invalid original steering wheel button " + buttonLabel + " config: " + originalConfig);
+            return null;
+        }
+
+        return originalConfig;
+    }
+
+    private boolean isNativeSteeringWheelButtonConfig(String config) {
+        if (config == null) return false;
+
+        String normalized = config.trim();
+        if (normalized.isEmpty() || normalized.equals("99")) return false;
+        if (normalized.equalsIgnoreCase("null") || normalized.equalsIgnoreCase("undefined")) return false;
+
+        try {
+            int value = Integer.parseInt(normalized);
+            return value >= 0 && value < 99;
+        } catch (NumberFormatException e) {
+            return false;
         }
     }
 
@@ -1739,12 +1803,18 @@ public class ServiceManager {
     public boolean isMainScreenOn() {
         try {
             String engineState = getData(CarConstants.CAR_BASIC_ENGINE_STATE.getValue());
-            // On the emulator there is no real CAN bus, so engineState is always null.
-            // Treat missing/null engine state as "screen on" for development/testing.
-            if (BuildUtils.isEmulator() && engineState == null) return true;
-            return engineState != null && !engineState.equals("-1") && !engineState.equals("15");
+            if (engineState == null || engineState.isEmpty()) {
+                Log.w(TAG, "[HavalDev] Engine state unavailable during visibility check; defaulting main screen to ON");
+                return true;
+            }
+
+            return !engineState.equals("-1") &&
+                    !engineState.equals("10") &&
+                    !engineState.equals("14") &&
+                    !engineState.equals("15");
         } catch (Exception e) {
-            return false;
+            Log.w(TAG, "[HavalDev] Failed to read engine state during visibility check; defaulting main screen to ON", e);
+            return true;
         }
     }
 
@@ -1788,6 +1858,7 @@ public class ServiceManager {
     public SharedPreferences getSharedPreferences() {
         return sharedPreferences;
     }
+
 
     /**
      * Emulator-only bring-up: stand in for the parts of

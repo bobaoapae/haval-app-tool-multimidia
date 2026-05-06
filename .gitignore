@@ -2,6 +2,7 @@
 .gradle/
 build/
 DOCS/
+tools/headunit-dev/output/
 
 # Local configuration file (sdk path, etc)
 local.properties

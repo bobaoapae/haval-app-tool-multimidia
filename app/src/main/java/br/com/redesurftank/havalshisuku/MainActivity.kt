@@ -97,13 +97,14 @@ fun MainScreen(modifier: Modifier = Modifier) {
         val advancedUse = prefs.getBoolean(SharedPreferencesKeys.ADVANCE_USE.key, false)
 
         val menuItems = buildList {
-                add(DrawerMenuItem("Configurações", Icons.Default.Settings))
-                add(DrawerMenuItem("Telas", Icons.Default.SmartDisplay))
-                add(DrawerMenuItem("Valores Atuais", Icons.Default.DeveloperMode))
-                add(DrawerMenuItem("Instalar Apps", Icons.Default.ShoppingCart))
-                add(DrawerMenuItem("Informações", Icons.Default.Info))
+                add(DrawerMenuItem("Configurações", Icons.Default.Settings, "settings"))
+                add(DrawerMenuItem("Telas", Icons.Default.SmartDisplay, "screens"))
+                add(DrawerMenuItem("Valores Atuais", Icons.Default.DeveloperMode, "values"))
+                add(DrawerMenuItem("Instalar Apps", Icons.Default.ShoppingCart, "apps"))
+                add(DrawerMenuItem("Recursos", Icons.Default.Apps, "features"))
+                add(DrawerMenuItem("Informações", Icons.Default.Info, "info"))
                 if (advancedUse) {
-                        add(DrawerMenuItem("Frida Hooks", Icons.Default.Build))
+                        add(DrawerMenuItem("Frida Hooks", Icons.Default.Build, "frida"))
                 }
         }
 
@@ -261,13 +262,15 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 ) {
                         // Content Area
                         ContentArea {
-                                when (selectedItem) {
-                                        0 -> BasicSettingsTab()
-                                        1 -> TelasTab()
-                                        2 -> CurrentValuesTab()
-                                        3 -> InstallAppsTab()
-                                        4 -> InformacoesTab()
-                                        5 -> FridaHooksTab()
+                                when (menuItems.getOrNull(selectedItem)?.route) {
+                                        "settings" -> BasicSettingsTab()
+                                        "screens" -> TelasTab()
+                                        "values" -> CurrentValuesTab()
+                                        "apps" -> InstallAppsTab()
+                                        "features" -> FeaturesHubScreen()
+                                        "info" -> InformacoesTab()
+                                        "frida" -> FridaHooksTab()
+                                        else -> BasicSettingsTab()
                                 }
                         }
                 }
@@ -276,7 +279,8 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
 data class DrawerMenuItem(
         val title: String,
-        val icon: androidx.compose.ui.graphics.vector.ImageVector
+        val icon: androidx.compose.ui.graphics.vector.ImageVector,
+        val route: String
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2742,6 +2746,14 @@ fun TelasTab() {
         var allClusterFunctionsEnabled by remember {
                 mutableStateOf(enableProjector || enableCustomIntegration || enableCustomMenu)
         }
+        var clusterFuelDisplayUnit by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key,
+                                "liters"
+                        ) ?: "liters"
+                )
+        }
 
         // Revision History States
         var revisionHistory by remember { mutableStateOf(getRevisionHistory(prefs)) }
@@ -2996,6 +3008,126 @@ fun TelasTab() {
                                                                 .clip(RoundedCornerShape(8.dp)),
                                                 contentScale = ContentScale.Fit
                                         )
+                                }
+                        }
+                }
+
+                val personalizationAlpha = if (allClusterFunctionsEnabled) 1f else 0.4f
+                StyledCard(
+                        modifier = Modifier.padding(horizontal = 8.dp).alpha(personalizationAlpha)
+                ) {
+                        Column(
+                                modifier = Modifier.padding(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                                Text(
+                                        "Personalizações",
+                                        color = Color.White,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                        "Ajustes visuais usados no cluster quando as funções estão habilitadas",
+                                        color = Color(0xFFB0B8C4),
+                                        fontSize = 14.sp
+                                )
+
+                                HorizontalDivider(color = Color(0xFF3A3F47), thickness = 1.dp)
+
+                                Text(
+                                        "Exibição do combustível",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Medium
+                                )
+
+                                Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                        listOf("liters" to "Litros", "percent" to "Percentual")
+                                                .forEach { (value, label) ->
+                                                        Row(
+                                                                modifier =
+                                                                        Modifier.weight(1f)
+                                                                                .clip(
+                                                                                        RoundedCornerShape(
+                                                                                                12.dp
+                                                                                        )
+                                                                                )
+                                                                                .background(
+                                                                                        if (clusterFuelDisplayUnit ==
+                                                                                                        value
+                                                                                        )
+                                                                                                Color(0xFF2563EB)
+                                                                                                        .copy(
+                                                                                                                alpha =
+                                                                                                                        0.25f
+                                                                                                        )
+                                                                                        else Color(
+                                                                                                0xFF1F2430
+                                                                                        )
+                                                                                )
+                                                                                .clickable(
+                                                                                        enabled =
+                                                                                                allClusterFunctionsEnabled
+                                                                                ) {
+                                                                                        clusterFuelDisplayUnit =
+                                                                                                value
+                                                                                        prefs.edit {
+                                                                                                putString(
+                                                                                                        SharedPreferencesKeys
+                                                                                                                .CLUSTER_FUEL_DISPLAY_UNIT
+                                                                                                                .key,
+                                                                                                        value
+                                                                                                )
+                                                                                        }
+                                                                                        Log.d(
+                                                                                                "TelasTab",
+                                                                                                "[HavalDev] Cluster fuel display unit set to $value"
+                                                                                        )
+                                                                                }
+                                                                                .padding(
+                                                                                        horizontal =
+                                                                                                12.dp,
+                                                                                        vertical =
+                                                                                                10.dp
+                                                                                ),
+                                                                verticalAlignment =
+                                                                        Alignment.CenterVertically
+                                                        ) {
+                                                                RadioButton(
+                                                                        selected =
+                                                                                clusterFuelDisplayUnit ==
+                                                                                        value,
+                                                                        enabled =
+                                                                                allClusterFunctionsEnabled,
+                                                                        onClick = {
+                                                                                clusterFuelDisplayUnit =
+                                                                                        value
+                                                                                prefs.edit {
+                                                                                        putString(
+                                                                                                SharedPreferencesKeys
+                                                                                                        .CLUSTER_FUEL_DISPLAY_UNIT
+                                                                                                        .key,
+                                                                                                value
+                                                                                        )
+                                                                                }
+                                                                                Log.d(
+                                                                                        "TelasTab",
+                                                                                        "[HavalDev] Cluster fuel display unit set to $value"
+                                                                                )
+                                                                        }
+                                                                )
+                                                                Text(
+                                                                        label,
+                                                                        color = Color.White,
+                                                                        fontSize = 15.sp,
+                                                                        fontWeight =
+                                                                                FontWeight.Medium
+                                                                )
+                                                        }
+                                                }
                                 }
                         }
                 }

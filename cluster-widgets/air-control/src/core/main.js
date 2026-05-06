@@ -40,6 +40,8 @@ if (nativeMockEnabled) {
     setState('odometer', get('odometer') || 11450);
     setState('nextRevisionKm', get('nextRevisionKm') || 12000);
     setState('nextRevisionDate', get('nextRevisionDate') || Date.now() + 15 * 24 * 60 * 60 * 1000);
+    setState('tripAnalysisActive', get('tripAnalysisActive') ?? true);
+    setState('tripAnalysisScore', get('tripAnalysisScore') || 82);
 }
 
 function initializeLayout() {

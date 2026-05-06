@@ -1,9 +1,9 @@
 import { setState, stateManager } from '../core/state.js';
 import { menuItems } from '../core/components/mainMenu.js';
 
-// Test-mode flag and initial state are seeded by main.js before this module
-// is dynamically imported — do not re-seed here to avoid overwriting defaults
-// that main.js may have preserved from existing state (get(key) || fallback).
+// Test-mode flag and common initial state are seeded by main.js before this
+// module is dynamically imported — do not re-seed here to avoid overwriting
+// defaults that main.js may have preserved from existing state (get(key) || fallback).
 
 const focusableAreas = {
     main_menu: menuItems.map(item => item.id),
@@ -393,6 +393,7 @@ window.simulationInterval = setInterval(() => {
     }
 
     setState('carSpeed', Math.max(0, currentSpeed.toFixed(1)));
+    setState('tripAnalysisScore', Math.max(74, Math.min(99, Math.round(88 - (lastValue / 12) + (currentSpeed / 30)))));
 
     const randomTarget = Math.floor(Math.random() * 101);
     lastValue = (lastValue * (1 - smoothingFactor)) + (randomTarget * smoothingFactor);
