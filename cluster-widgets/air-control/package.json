@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "dev": "parcel index.html",
-    "dev-controls": "npm run dev",
+    "dev-controls": "parcel simulator.html",
     "clear": "rimraf dist .parcel-cache",
     "build": "bun run clear && parcel build index.html --dist-dir dist --public-url ./ --no-source-maps && node inline.js",
     "prerelease": "bun run build"

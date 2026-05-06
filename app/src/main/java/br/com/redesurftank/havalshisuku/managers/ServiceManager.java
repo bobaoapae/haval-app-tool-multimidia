@@ -63,6 +63,7 @@ import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
 import br.com.redesurftank.havalshisuku.models.SteeringWheelCustomActionType;
 import br.com.redesurftank.havalshisuku.models.screens.Screen;
+import br.com.redesurftank.havalshisuku.utils.BuildUtils;
 import br.com.redesurftank.havalshisuku.utils.FridaUtils;
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils;
 import rikka.shizuku.Shizuku;
@@ -1740,12 +1741,7 @@ public class ServiceManager {
             String engineState = getData(CarConstants.CAR_BASIC_ENGINE_STATE.getValue());
             // On the emulator there is no real CAN bus, so engineState is always null.
             // Treat missing/null engine state as "screen on" for development/testing.
-            boolean isEmulator = android.os.Build.FINGERPRINT.startsWith("generic")
-                    || android.os.Build.FINGERPRINT.startsWith("unknown")
-                    || android.os.Build.PRODUCT.startsWith("sdk")
-                    || android.os.Build.HARDWARE.equals("goldfish")
-                    || android.os.Build.HARDWARE.equals("ranchu");
-            if (isEmulator && engineState == null) return true;
+            if (BuildUtils.isEmulator() && engineState == null) return true;
             return engineState != null && !engineState.equals("-1") && !engineState.equals("15");
         } catch (Exception e) {
             return false;

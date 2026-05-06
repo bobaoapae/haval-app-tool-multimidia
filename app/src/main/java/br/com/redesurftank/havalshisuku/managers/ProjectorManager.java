@@ -20,6 +20,7 @@ import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
 import br.com.redesurftank.havalshisuku.projectors.InstrumentProjector;
 import br.com.redesurftank.havalshisuku.projectors.InstrumentProjector2;
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher;
+import br.com.redesurftank.havalshisuku.utils.BuildUtils;
 
 public class ProjectorManager {
     private static final String TAG = "ProjectorManager";
@@ -32,6 +33,7 @@ public class ProjectorManager {
     private InstrumentProjector2 instrumentProjector2;
 
     private final Map<Integer, BiConsumer<android.content.Context, Display>> projectorCreators = new HashMap<>();
+    private DisplayManager.DisplayListener pendingOverlayListener;
 
     public static synchronized ProjectorManager getInstance() {
         if (instance == null) {
@@ -40,18 +42,10 @@ public class ProjectorManager {
         return instance;
     }
 
-    private static boolean isEmulator() {
-        return android.os.Build.FINGERPRINT.startsWith("generic")
-                || android.os.Build.FINGERPRINT.startsWith("unknown")
-                || android.os.Build.PRODUCT.startsWith("sdk")
-                || android.os.Build.HARDWARE.equals("goldfish")
-                || android.os.Build.HARDWARE.equals("ranchu");
-    }
-
     private ProjectorManager() {
         sharedPreferences = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
 
-        if (!isEmulator()) {
+        if (!BuildUtils.isEmulator()) {
             // Real hardware: Display 3 is the physical 1280×480 cluster.
             int maskDisplayId = 3;
             projectorCreators.put(maskDisplayId, (ctx, disp) -> {
@@ -83,7 +77,7 @@ public class ProjectorManager {
                 Log.w(TAG, "Display found: " + display.getName() + " (ID: " + display.getDisplayId() + ")");
             }
 
-            if (isEmulator()) {
+            if (BuildUtils.isEmulator()) {
                 // On emulator the overlay display ID changes whenever overlay_display_devices
                 // is updated. Find it dynamically by type instead of hardcoding an ID.
                 Display overlayDisplay = findOverlayDisplay();
@@ -151,6 +145,10 @@ public class ProjectorManager {
 
     public void stopProjectors() {
         Log.w(TAG, "Stopping all projectors");
+        if (pendingOverlayListener != null) {
+            try { displayManager.unregisterDisplayListener(pendingOverlayListener); } catch (Exception ignored) {}
+            pendingOverlayListener = null;
+        }
         if (instrumentProjector != null) {
             try {
                 instrumentProjector.dismiss();
@@ -175,7 +173,7 @@ public class ProjectorManager {
         stopProjectors();
 
         // Real-hardware creators are re-populated here; emulator resolves dynamically in initialize().
-        if (!isEmulator()) {
+        if (!BuildUtils.isEmulator()) {
             projectorCreators.put(3, (ctx, disp) -> {
                 instrumentProjector2 = new InstrumentProjector2(ctx, disp);
                 instrumentProjector2.show();
@@ -217,7 +215,11 @@ public class ProjectorManager {
      * Used on the emulator when the overlay virtual display hasn't been created yet.
      */
     private void registerOverlayDisplayListener() {
-        DisplayManager.DisplayListener listener = new DisplayManager.DisplayListener() {
+        if (pendingOverlayListener != null) {
+            displayManager.unregisterDisplayListener(pendingOverlayListener);
+            pendingOverlayListener = null;
+        }
+        pendingOverlayListener = new DisplayManager.DisplayListener() {
             @Override
             public void onDisplayAdded(int displayId) {
                 Display display = displayManager.getDisplay(displayId);
@@ -225,6 +227,7 @@ public class ProjectorManager {
                     Log.w(TAG, "Overlay display added dynamically: " + displayId);
                     new Handler(Looper.getMainLooper()).post(() -> initializeClusterOnDisplay(display));
                     displayManager.unregisterDisplayListener(this);
+                    pendingOverlayListener = null;
                 }
             }
 
@@ -238,7 +241,7 @@ public class ProjectorManager {
                 Log.w(TAG, "Display changed: " + displayId);
             }
         };
-        displayManager.registerDisplayListener(listener, new Handler(Looper.getMainLooper()));
+        displayManager.registerDisplayListener(pendingOverlayListener, new Handler(Looper.getMainLooper()));
         Log.w(TAG, "Registered overlay display listener (waiting for TYPE_OVERLAY)");
     }
 

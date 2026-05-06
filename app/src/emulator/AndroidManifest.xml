@@ -5,6 +5,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Signature-level guard for the ADB steering-wheel key broadcast.
+         Only apps signed with the same key (or the shell via adb) can send it. -->
+    <permission
+        android:name="br.com.redesurftank.havalshisuku.EMULATOR_BROADCAST"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="br.com.redesurftank.havalshisuku.EMULATOR_BROADCAST" />
+
     <uses-permission android:name="android.car.permission.CAR_SPEED" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.car.permission.CAR_ENGINE_DETAILED" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.car.permission.CAR_INFO" tools:ignore="ProtectedPermissions" />

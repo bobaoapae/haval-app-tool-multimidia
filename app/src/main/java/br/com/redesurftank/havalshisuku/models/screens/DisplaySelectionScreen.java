@@ -113,14 +113,6 @@ public class DisplaySelectionScreen implements Screen {
             }
             persistCurrentDisplay();
             dispatchCurrentDisplay();
-        } else {
-            // if in clean mode, any key exits
-            if (focusedDisplayIndex == 3) {
-                focusedDisplayIndex = 0;
-                persistCurrentDisplay();
-                dispatchCurrentDisplay();
-
-            }
         }
     }
 
