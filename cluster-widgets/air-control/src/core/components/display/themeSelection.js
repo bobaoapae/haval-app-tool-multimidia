@@ -105,7 +105,7 @@ export function createDisplaySelectionScreen() {
             { id: 'mode_normal', label: 'Normal', type: 'mode', value: 'Normal', iconSrc: getIconNormal(themeBlue) },
             { id: 'mode_esportivo', label: 'Esportivo', type: 'mode', value: 'Esportivo', iconSrc: getIconSport(themeBlue) },
             { id: 'mode_reduzido', label: 'Reduzido', type: 'mode', value: 'Reduzido', iconSrc: getIconReduced(themeBlue) },
-            { id: 'mode_clean', label: 'Clean', type: 'mode', value: 'Clean', iconSrc: getIconClean(themeBlue) }
+            { id: 'mode_clean', label: 'Clean', type: 'mode', value: 'Clean', iconSrc: getIconClean(themeBlue) },
         ];
 
         const itemElements = {};

@@ -2754,6 +2754,11 @@ fun TelasTab() {
                         ) ?: "liters"
                 )
         }
+        var clusterMediaBarEnabled by remember {
+                mutableStateOf(
+                        prefs.getBoolean(SharedPreferencesKeys.CLUSTER_MEDIA_BAR_ENABLED.key, true)
+                )
+        }
 
         // Revision History States
         var revisionHistory by remember { mutableStateOf(getRevisionHistory(prefs)) }
@@ -3128,6 +3133,41 @@ fun TelasTab() {
                                                                 )
                                                         }
                                                 }
+                                }
+
+                                HorizontalDivider(color = Color(0xFF3A3F47), thickness = 1.dp)
+
+                                Text(
+                                        "Mini Bar de Mídia",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Medium
+                                )
+                                Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                        "Exibir mini bar de mídia no cluster",
+                                                        color = Color(0xFFB0B8C4),
+                                                        fontSize = 14.sp
+                                                )
+                                        }
+                                        Switch(
+                                                checked = clusterMediaBarEnabled,
+                                                enabled = allClusterFunctionsEnabled,
+                                                onCheckedChange = {
+                                                        clusterMediaBarEnabled = it
+                                                        prefs.edit {
+                                                                putBoolean(
+                                                                        SharedPreferencesKeys.CLUSTER_MEDIA_BAR_ENABLED.key,
+                                                                        it
+                                                                )
+                                                        }
+                                                }
+                                        )
                                 }
                         }
                 }

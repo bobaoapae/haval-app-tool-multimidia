@@ -128,6 +128,14 @@ var stateManager = new StateManager({
     bsdRight: false,
     tripAnalysisActive: false,
     tripAnalysisScore: null,
+
+    // Media screen states
+    mediaSource: '',
+    mediaTitle: '',
+    mediaArtist: '',
+    mediaIsPlaying: false,
+    mediaFavorites: [],
+    mediaBarEnabled: true,
 });
 
 var getState = function (key) { return stateManager.get(key); };

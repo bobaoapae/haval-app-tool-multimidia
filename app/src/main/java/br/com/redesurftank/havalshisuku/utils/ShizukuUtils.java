@@ -187,6 +187,25 @@ public class ShizukuUtils {
         }
     }
 
+    public static IRemoteProcess startStreamingProcess(String[] command) {
+        IBinder binder = Shizuku.getBinder();
+        if (binder == null) {
+            Log.e(TAG, "Shizuku binder is null");
+            return null;
+        }
+        IShizukuService shizukuService = IShizukuService.Stub.asInterface(binder);
+        if (shizukuService == null) {
+            Log.e(TAG, "Shizuku service is null");
+            return null;
+        }
+        try {
+            return shizukuService.newProcess(command, null, null);
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting streaming process: " + String.join(" ", command), e);
+            return null;
+        }
+    }
+
     public static void runCommandOnBackground(String[] command, CommandListener listener) {
         IBinder binder = Shizuku.getBinder();
         if (binder == null) {

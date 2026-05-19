@@ -148,7 +148,11 @@ public class ServiceManager {
             CarConstants.CAR_IPK_LIGHT_TPMS_WARNING,
             CarConstants.CAR_BASIC_ENGINE_SPEED,
             CarConstants.CAR_EV_INFO_INSTANT_ENERGY_CONSUMPTION,
-            CarConstants.CAR_IPK_LIGHT_FUEL_LOW
+            CarConstants.CAR_IPK_LIGHT_FUEL_LOW,
+            CarConstants.SYS_BASIC_AUDIO_SOURCE_APP,
+            CarConstants.SYS_RADIO_CUR_CHANNEL_INFO,
+            CarConstants.SYS_RADIO_PLAY_STATE,
+            CarConstants.SYS_RADIO_FM_FAVORITES_STATION_LIST
     };
 
     private static final CarConstants[] KEYS_TO_SAVE = {
@@ -461,6 +465,12 @@ public class ServiceManager {
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "enabled_accessibility_services", "br.com.redesurftank.havalshisuku/.services.AccessibilityService"});
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "accessibility_enabled", "1"});
             ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "grant", context.getPackageName(), "android.permission.WRITE_SECURE_SETTINGS"});
+            String nlComponent = context.getPackageName() + "/br.com.redesurftank.havalshisuku.services.MediaNotificationListenerService";
+            String existingNl = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "secure", "enabled_notification_listeners"}).trim();
+            if (!existingNl.contains(context.getPackageName())) {
+                String newNl = (existingNl.isEmpty() || existingNl.equals("null")) ? nlComponent : existingNl + ":" + nlComponent;
+                ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "enabled_notification_listeners", newNl});
+            }
             controlService.registerDataChangedListener(context.getPackageName(), listener);
             controlService.addListenerKey(App.getContext().getPackageName(), getCombinedKeys());
 
@@ -946,6 +956,23 @@ public class ServiceManager {
 
         if (shouldSuspend) {
             scheduleHvacResumption();
+        }
+    }
+
+    public void injectCarKeyEvent(int keyCode, int injectMode) {
+        if (inputService == null) {
+            Log.e(TAG, "InputService not initialized, cannot inject key event");
+            return;
+        }
+        try {
+            long now = android.os.SystemClock.uptimeMillis();
+            android.view.KeyEvent down = new android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_DOWN, keyCode, 0);
+            inputService.injectKeyEvent(down, injectMode);
+            android.view.KeyEvent up = new android.view.KeyEvent(now, now + 50, android.view.KeyEvent.ACTION_UP, keyCode, 0);
+            inputService.injectKeyEvent(up, injectMode);
+            Log.w(TAG, "Injected car key event: " + keyCode);
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error injecting key event", e);
         }
     }
 

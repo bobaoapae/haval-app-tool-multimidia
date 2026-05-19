@@ -4,6 +4,7 @@ import { createAcControlScreen } from './components/aircon/mainAcControl.js';
 import { createRegenScreen } from './components/regen/regenControl.js';
 import { createDisplaySelectionScreen } from './components/display/themeSelection.js';
 import { createMainMenu } from './components/mainMenu.js';
+import { createMediaScreen } from './components/media/mediaControl.js';
 import { createMask } from './components/display/mask.js';
 import { createGraphScreen } from './components/graphs/graphs.js';
 import { div } from '../utils/createElement.js';
@@ -167,6 +168,8 @@ function render() {
                 componentResult = createDisplaySelectionScreen();
             } else if (screen === 'graph' || screen === 'graphs') {
                 componentResult = createGraphScreen();
+            } else if (screen === 'media') {
+                componentResult = createMediaScreen();
             }
         } catch (e) {
             logger.log('[Error] Failed to create screen component ' + screen + ': ' + e.message);
@@ -268,9 +271,11 @@ window.control = function (key, value) {
         }
         logger.enter('window.control', { key, value });
         let val = value;
-        // Automatically convert numeric strings to numbers for compatibility with components
         if (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) {
             val = Number(value);
+        }
+        if (key === 'mediaFavorites' && typeof value === 'string') {
+            try { val = JSON.parse(value); } catch (_) { val = []; }
         }
         setState(key, val);
         // warningActive has its own subscription to render() at line 184, so no need for manual trigger here

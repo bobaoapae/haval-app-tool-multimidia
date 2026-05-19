@@ -4,6 +4,58 @@ import { logger } from '../../utils/logger.js';
 import { createOdometerInfo } from './display/odometer/odometerInfo.js';
 import { createSpeedometerScreen } from './speedometer/speedometer.js';
 
+function createMediaBar() {
+    const bar = div({ className: 'dashboard-media-bar' });
+    const icon = span({ className: 'dashboard-media-icon', children: ['♪'] });
+    const wrap = div({ className: 'dashboard-media-text-wrap' });
+    const text = span({ className: 'dashboard-media-text' });
+    wrap.appendChild(text);
+    bar.appendChild(icon);
+    bar.appendChild(wrap);
+
+    var marqueeTimer = null;
+
+    function update() {
+        var source = getState('mediaSource') || '';
+        var title = getState('mediaTitle') || '';
+        var artist = getState('mediaArtist') || '';
+        var label = '';
+        if (title && title !== 'Sem mídia') {
+            label = title;
+            if (artist) label += ' — ' + artist;
+        }
+
+        if (marqueeTimer) clearTimeout(marqueeTimer);
+        text.classList.remove('marquee');
+        text.textContent = label || '—';
+        var enabled = getState('mediaBarEnabled') !== false;
+        bar.style.display = (enabled && label) ? 'flex' : 'none';
+
+        if (label.length > 22) {
+            marqueeTimer = setTimeout(function() { text.classList.add('marquee'); }, 1000);
+        }
+    }
+
+    function updateVisibility() {
+        var enabled = getState('mediaBarEnabled') !== false;
+        bar.style.display = enabled ? (getState('mediaTitle') ? 'flex' : 'none') : 'none';
+    }
+
+    update();
+    var subs = [
+        subscribe('mediaSource', update),
+        subscribe('mediaTitle', update),
+        subscribe('mediaArtist', update),
+        subscribe('mediaBarEnabled', updateVisibility),
+    ];
+
+    bar.cleanup = function() {
+        if (marqueeTimer) clearTimeout(marqueeTimer);
+        subs.forEach(function(u) { u(); });
+    };
+    return bar;
+}
+
 const fuelIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xLDEyTDUsOVYxNVoiLz48cGF0aCBkPSJNMjIsMTBWOGEyLDIsMCwwLDAtMi0yaC0zVjRhMiwyLDAsMCwwLTItMkg5QTIsMiwwLDAsMCw3LDR2MTZhMiwyLDAsMCwwLDIsMmg4YTIsMiwwLDAsMCwyLTJWMTJoMXY0YTIsMiwwLDAsMCw0LDBWMTBaTTksNGg4djZIOVptOCwxNkg5VjEyaDhaIi8+PC9zdmc+";
 const batteryIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjwhLS0gQm9keSAtLT48cGF0aCBkPSJNMyw2aDE4YzEuMSwwLDIsMC45LDIsMnYxMGMwLDEuMS0wLjksMi0yLDJIM2MtMS4xLDAtMi0wLjktMi0yVjhDMSw2LjksMS45LDYsMyw2eiBNMyw4djEwaDE4VjhIM3oiLz48IS0tIFBvbGVzIC0tPjxyZWN0IHg9IjUiIHk9IjMiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48cmVjdCB4PSIxNSIgeT0iMyIgd2lkdGg9IjQiIGhlaWdodD0iMyIvPjwhLS0gTWludXMgc2lnbiAoLSkgLS0+PHJlY3QgeD0iNiIgeT0iMTIiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48IS0tIFBsdXMgc2lnbiAoKykgLS0+PHBhdGggZD0iTTE2LDEwaC0ydjJoLTJ2MmgydjJoMnYtMmgydi0yaC0yVjEweiIvPjwvc3ZnPg==";
 const FUEL_TANK_CAPACITY_LITERS = 55;
@@ -307,6 +359,8 @@ export function createDashboardInfo() {
 
     bottomGauges.appendChild(batteryContainer);
 
+    const mediaBar = createMediaBar();
+
     container.appendChild(topCenter);
     container.appendChild(speedContainer);
 
@@ -314,6 +368,7 @@ export function createDashboardInfo() {
     bottomGauges.appendChild(odometerElement);
     bottomGauges.appendChild(batteryContainer);
     container.appendChild(bottomGauges);
+    container.appendChild(mediaBar);
     container.appendChild(externalTempContainer);
     container.appendChild(internalTempContainer);
     container.appendChild(bottomEvMode);
@@ -427,6 +482,7 @@ export function createDashboardInfo() {
         subscriptions.forEach(unsubscribe => unsubscribe());
         if (sportSpeedometer?.cleanup) sportSpeedometer.cleanup();
         if (odometerCleanup) odometerCleanup();
+        if (mediaBar?.cleanup) mediaBar.cleanup();
     };
 
     return { element: container, menuWrapper, cleanup };

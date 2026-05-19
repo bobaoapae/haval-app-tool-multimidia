@@ -5,6 +5,10 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
 import android.graphics.Color
+import android.media.MediaMetadata
+import android.media.session.MediaController
+import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
 import android.os.Bundle
 import android.util.Log
 import android.view.Display
@@ -25,6 +29,7 @@ import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.SteeringWheelAcControlType
 import br.com.redesurftank.havalshisuku.models.screens.GraphicsScreen
+import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import br.com.redesurftank.havalshisuku.models.screens.MainMenu
 import br.com.redesurftank.havalshisuku.models.screens.RegenScreen
 import br.com.redesurftank.havalshisuku.models.screens.Screen
@@ -67,6 +72,18 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var hasAutoLaunched = false
     private val lastAppliedConfigs =
             mutableMapOf<String, br.com.redesurftank.havalshisuku.models.DisplayAppConfig>()
+
+    private var currentMediaController: MediaController? = null
+    private var mediaCallback: MediaController.Callback? = null
+    private var mediaSessionListener: MediaSessionManager.OnActiveSessionsChangedListener? = null
+    private var radioFavorites: List<Long> = emptyList()  // kHz
+    private var currentFreqKhz: Long = 0L
+    private var isRadioPlaying: Boolean = false
+    private var lastNavTime: Long = 0L
+    private var lastAaMediaId: String = ""
+    private var isRadioSource: Boolean = false  // true when FM/AM is active audio source
+
+    private var aaLogcatJob: Job? = null
 
     private var lastHeartbeatTime = System.currentTimeMillis()
     private val watchdogRunnable =
@@ -250,6 +267,38 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                 evaluateJsIfReady(webView, "control('acAction', '$action')")
                             }
                         }
+                        ServiceManagerEventType.RADIO_NAVIGATE -> {
+                            val now = System.currentTimeMillis()
+                            if (now - lastNavTime < 800L) return@ensureUi
+                            lastNavTime = now
+                            val direction = args.getOrNull(0) as? String ?: "next"
+                            val sm = ServiceManager.getInstance()
+                            // 4 = next preset?, 5 = prev preset? (test)
+                            // 6 = seek next (confirmed), 7 = seek prev (confirmed)
+                            val action = if (direction == "next") "4" else "5"
+                            sm.updateData(CarConstants.SYS_RADIO_PLAY_CONTROL_ACTION.value, action)
+                        }
+                        ServiceManagerEventType.RADIO_PLAY_PAUSE -> {
+                            // Always toggle: query current playing state fresh
+                            val action = if (isRadioPlaying) "0" else "1"
+                            isRadioPlaying = !isRadioPlaying
+                            ServiceManager.getInstance().updateData(CarConstants.SYS_RADIO_PLAY_CONTROL_ACTION.value, action)
+                        }
+                        ServiceManagerEventType.MEDIA_NOTIFICATION_UPDATE -> {
+                            if (isRadioPlaying) return@ensureUi
+                            val source = (args.getOrNull(0) as? String) ?: ""
+                            val title = (args.getOrNull(1) as? String) ?: ""
+                            val artist = (args.getOrNull(2) as? String) ?: ""
+                            val playing = (args.getOrNull(3) as? Boolean) ?: false
+                            if (playing) {
+                                evaluateJsIfReady(webView, "control('mediaSource', '${source.escapeForJs()}')")
+                                evaluateJsIfReady(webView, "control('mediaTitle', '${title.escapeForJs()}')")
+                                evaluateJsIfReady(webView, "control('mediaArtist', '${artist.escapeForJs()}')")
+                                evaluateJsIfReady(webView, "control('mediaIsPlaying', true)")
+                            } else {
+                                evaluateJsIfReady(webView, "control('mediaIsPlaying', false)")
+                            }
+                        }
                         ServiceManagerEventType.GRAPH_SCREEN_NAVIGATION -> {
                             val screen = args[0]
                             if (screen is String) {
@@ -344,6 +393,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         updateValuesWebView() // Queue initial values for state sync
         updateVirtualClusterVisibility()
         setupDataListeners()
+        setupMediaSessionListener()
+        startAaLogcatWatch()
 
         root.isVisible = shouldShowProjector() && ServiceManager.getInstance().isMainScreenOn
     }
@@ -352,9 +403,21 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         Log.w(TAG, "onStop: Cleaning up resources")
         handler.removeCallbacks(clockRunnable)
         handler.removeCallbacks(watchdogRunnable)
+        aaLogcatJob?.cancel()
         scope.cancel()
         preferences.unregisterOnSharedPreferenceChangeListener(prefsListener)
         ServiceManager.getInstance().removeServiceManagerEventListener(eventListener)
+
+        mediaCallback?.let { currentMediaController?.unregisterCallback(it) }
+        mediaCallback = null
+        currentMediaController = null
+        mediaSessionListener?.let {
+            try {
+                (context.getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager)
+                    ?.removeOnActiveSessionsChangedListener(it)
+            } catch (_: Exception) {}
+        }
+        mediaSessionListener = null
 
         // Hardening: Explicitly destroy WebView to prevent leaks and broken channels
         webView?.let { wv: WebView ->
@@ -499,6 +562,94 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     CarConstants.CAR_EV_INFO_INSTANT_ENERGY_CONSUMPTION.value -> {
                         evaluateJsIfReady(webView, "control('instantEVConsumption', '$value')")
                     }
+                    CarConstants.SYS_BASIC_AUDIO_SOURCE_APP.value -> {
+                        val sourceName = getMediaSourceName(value.toString())
+                        evaluateJsIfReady(webView, "control('mediaSource', '${sourceName.escapeForJs()}')")
+                        if (sourceName == "FM" || sourceName == "AM") {
+                            // Switched to radio — read current frequency
+                            val ch = ServiceManager.getInstance().getData(CarConstants.SYS_RADIO_CUR_CHANNEL_INFO.value)
+                            if (!ch.isNullOrEmpty()) {
+                                val parts = ch.trim('{', '}').split(",")
+                                val freqKhz = parts.getOrNull(0)?.trim()?.toLongOrNull() ?: 0L
+                                if (freqKhz > 0) {
+                                    val title = "${"%.1f".format(freqKhz / 1000.0)} $sourceName"
+                                    evaluateJsIfReady(webView, "control('mediaTitle', '${title.escapeForJs()}')")
+                                    evaluateJsIfReady(webView, "control('mediaArtist', '')")
+                                }
+                            }
+                        } else {
+                            // Switched to BT/AA — clear radio title and fetch current AA track
+                            evaluateJsIfReady(webView, "control('mediaTitle', '')")
+                            evaluateJsIfReady(webView, "control('mediaArtist', '')")
+                            lastAaMediaId = ""
+                            val avrcpInfo = ServiceManager.getInstance().getData(CarConstants.SYS_BLUETOOTH_AVRCP_MUSIC_INFO.value)
+                            if (!avrcpInfo.isNullOrEmpty()) parseAvrcpMusicInfo(avrcpInfo)
+                            scope.launch(Dispatchers.IO) { pollAndroidAutoTrack() }
+                        }
+                    }
+                    CarConstants.SYS_BLUETOOTH_AVRCP_MUSIC_INFO.value -> {
+                        Log.w(TAG, "avrcp_music_info raw: $value")
+                        parseAvrcpMusicInfo(value.toString())
+                    }
+                    CarConstants.SYS_BLUETOOTH_AVRCP_PLAY_STATE.value -> {
+                        Log.w(TAG, "avrcp_play_state raw: $value")
+                    }
+                    CarConstants.SYS_RADIO_CUR_CHANNEL_INFO.value -> {
+                        // Format: {freqKhz,?,rdsStatus,playing} e.g. {106300,0,1,1}
+                        val raw = value.toString().trim('{', '}')
+                        val parts = raw.split(",")
+                        val freqKhz = parts.getOrNull(0)?.trim()?.toLongOrNull() ?: 0L
+                        if (freqKhz > 0) {
+                            currentFreqKhz = freqKhz
+                            val playing = parts.getOrNull(3)?.trim() == "1"
+                            isRadioPlaying = playing
+                            val band = if (freqKhz >= 76000) "FM" else "AM"
+                            val title = "${"%.1f".format(freqKhz / 1000.0)} $band"
+                            // Only update display when radio is actually playing (playing=1)
+                            // prevents overwriting BT/AA track when radio is idle
+                            if (playing) {
+                                evaluateJsIfReady(webView, "control('mediaSource', '$band')")
+                                evaluateJsIfReady(webView, "control('mediaTitle', '${title.escapeForJs()}')")
+                                evaluateJsIfReady(webView, "control('mediaArtist', '')")
+                                evaluateJsIfReady(webView, "control('mediaIsPlaying', true)")
+                            }
+                        }
+                    }
+                    CarConstants.SYS_RADIO_PLAY_STATE.value -> {
+                        val playing = value == "1" || value.toString().equals("playing", ignoreCase = true)
+                        isRadioPlaying = playing
+                        evaluateJsIfReady(webView, "control('mediaIsPlaying', $playing)")
+                        if (playing) {
+                            // Radio started — show current frequency
+                            val ch = ServiceManager.getInstance().getData(CarConstants.SYS_RADIO_CUR_CHANNEL_INFO.value)
+                            if (!ch.isNullOrEmpty()) {
+                                val parts = ch.trim('{', '}').split(",")
+                                val freqKhz = parts.getOrNull(0)?.trim()?.toLongOrNull() ?: 0L
+                                if (freqKhz > 0) {
+                                    val band = if (freqKhz >= 76000) "FM" else "AM"
+                                    val title = "${"%.1f".format(freqKhz / 1000.0)} $band"
+                                    evaluateJsIfReady(webView, "control('mediaSource', '$band')")
+                                    evaluateJsIfReady(webView, "control('mediaTitle', '${title.escapeForJs()}')")
+                                    evaluateJsIfReady(webView, "control('mediaArtist', '')")
+                                }
+                            }
+                        } else {
+                            // Radio stopped — clear title and fetch current AA track
+                            evaluateJsIfReady(webView, "control('mediaTitle', '')")
+                            evaluateJsIfReady(webView, "control('mediaArtist', '')")
+                            lastAaMediaId = ""
+                            val avrcpInfo = ServiceManager.getInstance().getData(CarConstants.SYS_BLUETOOTH_AVRCP_MUSIC_INFO.value)
+                            if (!avrcpInfo.isNullOrEmpty()) parseAvrcpMusicInfo(avrcpInfo)
+                            scope.launch(Dispatchers.IO) { pollAndroidAutoTrack() }
+                        }
+                    }
+                    CarConstants.SYS_RADIO_FM_FAVORITES_STATION_LIST.value -> {
+                        val raw = value.toString().trim('{', '}')
+                        val freqList = raw.split(",").mapNotNull { it.trim().toLongOrNull() }.filter { it > 0 }
+                        radioFavorites = freqList
+                        val jsArr = freqList.map { "\"${"%.1f".format(it / 1000.0)} FM\"" }
+                        evaluateJsIfReady(webView, "control('mediaFavorites', JSON.stringify([${jsArr.joinToString(",")}]))")
+                    }
                 }
 
                 // --- Warning Management Logic ---
@@ -590,6 +741,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val updates = mutableMapOf<String, String>()
 
         updates["display"] = getSavedClusterDisplay()
+        updates["mediaBarEnabled"] = preferences.getBoolean(SharedPreferencesKeys.CLUSTER_MEDIA_BAR_ENABLED.key, true).toString()
 
         // Gears
         updates["gearState"] = getGearLabel(sm.getData(CarConstants.CAR_BASIC_GEAR_STATUS.value))
@@ -697,6 +849,42 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 sm.getData(CarConstants.CAR_EV_INFO_INSTANT_ENERGY_CONSUMPTION.value) ?: "0"
 
         batchEvaluateJs(webView, updates)
+
+        // Media initial values — only show radio if it's actually playing
+        val channelInfo = sm.getData(CarConstants.SYS_RADIO_CUR_CHANNEL_INFO.value)
+        val radioPlaying = channelInfo?.trim('{','}')?.split(",")?.getOrNull(3)?.trim() == "1"
+        if (!channelInfo.isNullOrEmpty() && radioPlaying) {
+            val raw = channelInfo.trim('{', '}')
+            val parts = raw.split(",")
+            val freqKhz = parts.getOrNull(0)?.trim()?.toLongOrNull() ?: 0L
+            if (freqKhz > 0) {
+                val band = if (freqKhz >= 76000) "FM" else "AM"
+                val title = "${"%.1f".format(freqKhz / 1000.0)} $band"
+                evaluateJsIfReady(webView, "control('mediaSource', '$band')")
+                evaluateJsIfReady(webView, "control('mediaTitle', '${title.escapeForJs()}')")
+                evaluateJsIfReady(webView, "control('mediaArtist', '')")
+                val playing = parts.getOrNull(3)?.trim() == "1"
+                evaluateJsIfReady(webView, "control('mediaIsPlaying', $playing)")
+            }
+        } else {
+            val audioSource = sm.getData(CarConstants.SYS_BASIC_AUDIO_SOURCE_APP.value)
+            if (!audioSource.isNullOrEmpty()) {
+                evaluateJsIfReady(webView, "control('mediaSource', '${getMediaSourceName(audioSource).escapeForJs()}')")
+            }
+            // Try BT/AA track from AVRCP ITS property
+            val avrcpInfo = sm.getData(CarConstants.SYS_BLUETOOTH_AVRCP_MUSIC_INFO.value)
+            if (!avrcpInfo.isNullOrEmpty()) {
+                Log.w(TAG, "avrcp_music_info init: $avrcpInfo")
+                parseAvrcpMusicInfo(avrcpInfo)
+            }
+        }
+        val favList = sm.getData(CarConstants.SYS_RADIO_FM_FAVORITES_STATION_LIST.value)
+        if (!favList.isNullOrEmpty()) {
+            val freqs = favList.trim('{', '}').split(",")
+                .mapNotNull { it.trim().toLongOrNull() }.filter { it > 0 }
+                .map { "\"${"%.1f".format(it / 1000.0)} FM\"" }
+            evaluateJsIfReady(webView, "control('mediaFavorites', JSON.stringify([${freqs.joinToString(",")}]))")
+        }
     }
 
     private fun getClusterFuelDisplayUnit(): String {
@@ -852,6 +1040,162 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     )
                 }
             }
+        }
+    }
+
+    private fun String.escapeForJs() = replace("\\", "\\\\").replace("'", "\\'")
+
+    private fun getMediaSourceName(value: String): String {
+        return when {
+            value.contains("spotify", ignoreCase = true) -> "Spotify"
+            value.contains("youtube", ignoreCase = true) -> "YouTube"
+            value.contains("bluetooth", ignoreCase = true) || value == "3" -> "BT"
+            value.contains("fm", ignoreCase = true) || value == "1" || value == "10" -> "FM"
+            value.contains("am", ignoreCase = true) || value == "2" || value == "11" -> "AM"
+            value.contains("usb", ignoreCase = true) || value == "5" -> "USB"
+            value == "4" -> "CarLife"
+            value.contains(".") -> value.substringAfterLast('.').take(10).uppercase()
+            value.isNotBlank() -> value.take(10).uppercase()
+            else -> "—"
+        }
+    }
+
+    private fun startAaLogcatWatch() {
+        aaLogcatJob?.cancel()
+        aaLogcatJob = scope.launch(Dispatchers.IO) {
+            var process: moe.shizuku.server.IRemoteProcess? = null
+            try {
+                val startMs = System.currentTimeMillis()
+                process = ShizukuUtils.startStreamingProcess(arrayOf("logcat"))
+                if (process == null) {
+                    Log.e(TAG, "AA logcat: Shizuku process failed to start")
+                    return@launch
+                }
+                val reader = java.io.BufferedReader(
+                    java.io.InputStreamReader(java.io.FileInputStream(process.inputStream.fileDescriptor))
+                )
+                val sdf = java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US)
+                val nowCal = java.util.Calendar.getInstance()
+                while (isActive) {
+                    val line = reader.readLine() ?: break
+                    if (!line.contains("savePlayMediaInfo json")) continue
+                    try {
+                        val parsed = sdf.parse(line.substring(0, 18).trim()) ?: continue
+                        val cal = java.util.Calendar.getInstance()
+                        cal.time = parsed
+                        cal.set(java.util.Calendar.YEAR, nowCal.get(java.util.Calendar.YEAR))
+                        if (cal.timeInMillis < startMs) continue
+                    } catch (_: Exception) { continue }
+                    parseAaLogLine(line)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "AA logcat watch error: $e")
+            } finally {
+                try { process?.destroy() } catch (_: Exception) {}
+            }
+        }
+    }
+
+    private fun pollAndroidAutoTrack() {
+        try {
+            val out = ShizukuUtils.runCommandAndGetOutput(
+                arrayOf("sh", "-c", "logcat -t 200 | grep 'savePlayMediaInfo json' | tail -1")
+            ) ?: return
+            if (out.isBlank()) return
+            parseAaLogLine(out)
+        } catch (e: Exception) {
+            Log.e(TAG, "AA poll error: $e")
+        }
+    }
+
+    private fun parseAaLogLine(line: String) {
+        try {
+            val jsonStart = line.indexOf('{')
+            if (jsonStart < 0) return
+            val json = line.substring(jsonStart)
+            if (!json.contains("ANDROID_AUTO")) return
+            val obj = org.json.JSONObject(json)
+            val mediaId = obj.optString("mediaId")
+            if (mediaId == lastAaMediaId) return
+            lastAaMediaId = mediaId
+            val title = obj.optString("title").takeIf { it.isNotBlank() &&
+                !it.equals("not provided", ignoreCase = true) } ?: return
+            val author = obj.optString("author")
+            Log.w(TAG, "AA track: title=$title author=$author")
+            ensureUi {
+                evaluateJsIfReady(webView, "control('mediaSource', 'AA')")
+                evaluateJsIfReady(webView, "control('mediaTitle', '${title.escapeForJs()}')")
+                evaluateJsIfReady(webView, "control('mediaArtist', '${author.escapeForJs()}')")
+                evaluateJsIfReady(webView, "control('mediaIsPlaying', true)")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "AA parse error: $e")
+        }
+    }
+
+    private fun parseAvrcpMusicInfo(raw: String) {
+        if (raw.isBlank()) return
+        var title: String? = null
+        var artist: String? = null
+        try {
+            if (raw.trimStart().startsWith("{")) {
+                val obj = org.json.JSONObject(raw)
+                title = obj.optString("title").ifBlank { null }
+                artist = obj.optString("author").ifBlank { obj.optString("artist").ifBlank { null } }
+            } else {
+                title = Regex("title=([^,}]+)").find(raw)?.groupValues?.get(1)?.trim()
+                artist = Regex("(?:author|artist)=([^,}]+)").find(raw)?.groupValues?.get(1)?.trim()
+            }
+        } catch (_: Exception) {}
+        Log.w(TAG, "avrcp_music_info parsed: title=$title artist=$artist")
+        if (!title.isNullOrBlank() &&
+            !title.equals("not provided", ignoreCase = true) &&
+            !title.equals("null", ignoreCase = true)) {
+            evaluateJsIfReady(webView, "control('mediaSource', 'BT')")
+            evaluateJsIfReady(webView, "control('mediaTitle', '${title.escapeForJs()}')")
+            evaluateJsIfReady(webView, "control('mediaArtist', '${(artist ?: "").escapeForJs()}')")
+        }
+    }
+
+    private fun setupMediaSessionListener() {
+        try {
+            val mgr = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            mediaSessionListener = MediaSessionManager.OnActiveSessionsChangedListener { controllers ->
+                handleActiveSessionsChanged(controllers)
+            }
+            mgr.addOnActiveSessionsChangedListener(mediaSessionListener!!, null)
+            handleActiveSessionsChanged(mgr.getActiveSessions(null))
+        } catch (_: SecurityException) {
+            // MEDIA_CONTENT_CONTROL not granted — radio AIDL only
+        }
+    }
+
+    private fun handleActiveSessionsChanged(controllers: List<MediaController>?) {
+        mediaCallback?.let { currentMediaController?.unregisterCallback(it) }
+        mediaCallback = null
+        currentMediaController = null
+        val controller = controllers?.firstOrNull() ?: return
+        currentMediaController = controller
+        mediaCallback = object : MediaController.Callback() {
+            override fun onMetadataChanged(metadata: MediaMetadata?) { updateFromMetadata(metadata) }
+            override fun onPlaybackStateChanged(state: PlaybackState?) {
+                val playing = state?.state == PlaybackState.STATE_PLAYING
+                ensureUi { evaluateJsIfReady(webView, "control('mediaIsPlaying', $playing)") }
+            }
+        }
+        controller.registerCallback(mediaCallback!!)
+        updateFromMetadata(controller.metadata)
+        val playing = controller.playbackState?.state == PlaybackState.STATE_PLAYING
+        ensureUi { evaluateJsIfReady(webView, "control('mediaIsPlaying', $playing)") }
+    }
+
+    private fun updateFromMetadata(metadata: MediaMetadata?) {
+        val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)?.escapeForJs() ?: ""
+        val artist = (metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)
+            ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST))?.escapeForJs() ?: ""
+        ensureUi {
+            if (title.isNotEmpty()) evaluateJsIfReady(webView, "control('mediaTitle', '$title')")
+            evaluateJsIfReady(webView, "control('mediaArtist', '$artist')")
         }
     }
 
@@ -1115,6 +1459,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         fun saveSetting(key: String, value: String) {
             when (key) {
                 SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key -> saveClusterDisplay(value)
+                SharedPreferencesKeys.CLUSTER_MEDIA_BAR_ENABLED.key -> {
+                    val enabled = value == "true"
+                    preferences.edit().putBoolean(SharedPreferencesKeys.CLUSTER_MEDIA_BAR_ENABLED.key, enabled).apply()
+                    Log.d(TAG, "Media bar enabled saved: $enabled")
+                }
                 else -> Log.w(TAG, "Ignoring unsupported WebView setting: $key")
             }
         }
