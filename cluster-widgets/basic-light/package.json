@@ -1,0 +1,28 @@
+{
+  "name": "haval-basic-light",
+  "private": true,
+  "version": "0.0.4",
+  "browserslist": [
+    "last 3 versions",
+    "not dead",
+    "chrome 80",
+    "android >= 9"
+  ],
+  "scripts": {
+    "dev": "parcel index.html",
+    "dev-controls": "npm run dev",
+    "clear": "rimraf dist",
+    "build": "npm run clear && parcel build index.html --dist-dir dist --public-url ./ && node inline.js",
+    "prerelease": "npm run build"
+  },
+  "devDependencies": {
+    "baseline-browser-mapping": "^2.10.11",
+    "parcel": "^2.16.4",
+    "rimraf": "^6.0.1"
+  },
+  "dependencies": {
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "chartjs-plugin-streaming": "^2.0.0",
+    "date-fns": "^3.6.0"
+  }
+}

@@ -1,0 +1,13 @@
+<theme>
+    <name>Basico</name>
+    <description>A modern and clean theme for your cluster with glassmorphism effects and vibrant blue accents.</description>
+    <version>1.0.0</version>
+    <thumbnail>thumbnail.png</thumbnail>
+    <mainFile>index.html</mainFile>
+    <AppDefaultPosition>
+        <x>0</x>
+        <y>62</y>
+        <width>1920</width>
+        <height>596</height>
+    </AppDefaultPosition>
+</theme>

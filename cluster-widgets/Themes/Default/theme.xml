@@ -1,0 +1,7 @@
+<theme>
+    <name>Default</name>
+    <description>Tema principal com o novo design Sport.</description>
+    <version>1.1.0</version>
+    <thumbnail>thumbnail.png</thumbnail>
+    <mainFile>index.html</mainFile>
+</theme>
