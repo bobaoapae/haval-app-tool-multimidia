@@ -1063,35 +1063,41 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private fun startAaLogcatWatch() {
         aaLogcatJob?.cancel()
         aaLogcatJob = scope.launch(Dispatchers.IO) {
-            var process: moe.shizuku.server.IRemoteProcess? = null
-            try {
-                val startMs = System.currentTimeMillis()
-                process = ShizukuUtils.startStreamingProcess(arrayOf("logcat"))
-                if (process == null) {
-                    Log.e(TAG, "AA logcat: Shizuku process failed to start")
-                    return@launch
+            while (isActive) {
+                var process: moe.shizuku.server.IRemoteProcess? = null
+                try {
+                    val startMs = System.currentTimeMillis()
+                    process = ShizukuUtils.startStreamingProcess(arrayOf("logcat"))
+                    if (process == null) {
+                        Log.e(TAG, "AA logcat: Shizuku process failed to start, retrying in 5s")
+                        delay(5000)
+                        continue
+                    }
+                    Log.d(TAG, "AA logcat watcher started")
+                    val reader = java.io.BufferedReader(
+                        java.io.InputStreamReader(java.io.FileInputStream(process.inputStream.fileDescriptor))
+                    )
+                    val sdf = java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US)
+                    val nowCal = java.util.Calendar.getInstance()
+                    while (isActive) {
+                        val line = reader.readLine() ?: break
+                        if (!line.contains("savePlayMediaInfo json")) continue
+                        try {
+                            val parsed = sdf.parse(line.substring(0, 18).trim()) ?: continue
+                            val cal = java.util.Calendar.getInstance()
+                            cal.time = parsed
+                            cal.set(java.util.Calendar.YEAR, nowCal.get(java.util.Calendar.YEAR))
+                            if (cal.timeInMillis < startMs) continue
+                        } catch (_: Exception) { continue }
+                        parseAaLogLine(line)
+                    }
+                    Log.w(TAG, "AA logcat process ended, restarting in 2s")
+                } catch (e: Exception) {
+                    Log.e(TAG, "AA logcat watch error: $e, restarting in 2s")
+                } finally {
+                    try { process?.destroy() } catch (_: Exception) {}
                 }
-                val reader = java.io.BufferedReader(
-                    java.io.InputStreamReader(java.io.FileInputStream(process.inputStream.fileDescriptor))
-                )
-                val sdf = java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US)
-                val nowCal = java.util.Calendar.getInstance()
-                while (isActive) {
-                    val line = reader.readLine() ?: break
-                    if (!line.contains("savePlayMediaInfo json")) continue
-                    try {
-                        val parsed = sdf.parse(line.substring(0, 18).trim()) ?: continue
-                        val cal = java.util.Calendar.getInstance()
-                        cal.time = parsed
-                        cal.set(java.util.Calendar.YEAR, nowCal.get(java.util.Calendar.YEAR))
-                        if (cal.timeInMillis < startMs) continue
-                    } catch (_: Exception) { continue }
-                    parseAaLogLine(line)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "AA logcat watch error: $e")
-            } finally {
-                try { process?.destroy() } catch (_: Exception) {}
+                if (isActive) delay(2000)
             }
         }
     }
