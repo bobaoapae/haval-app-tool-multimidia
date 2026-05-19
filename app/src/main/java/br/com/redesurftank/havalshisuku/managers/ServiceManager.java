@@ -688,6 +688,7 @@ public class ServiceManager {
                                         dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
                                     }
                                 }
+                                dispatchServiceManagerEvent(ServiceManagerEventType.RAW_KEY_EVENT, key);
                             } else {
                                 Log.w(
                                         TAG,
@@ -874,6 +875,7 @@ public class ServiceManager {
 
     }
 
+<<<<<<< HEAD
     // ===== Toques nos botoes personalizados do volante: curto / duplo / longo =====
     private static final long STEERING_DOUBLE_WINDOW_MS = 350L;    // janela pra detectar o 2o toque
     private static final long STEERING_PRESS_DEBOUNCE_MS = 120L;   // ignora repique do mesmo toque
@@ -962,7 +964,11 @@ public class ServiceManager {
         }, STEERING_LONG_OPEN_DELAY_MS);
     }
 
-    private void handleSteeringWheelCustomButton(String string, int button, String tapType) {
+    public void handleSteeringWheelCustomButton(String string, int button) {
+        handleSteeringWheelCustomButton(string, button, "SHORT");
+    }
+
+    public void handleSteeringWheelCustomButton(String string, int button, String tapType) {
         SteeringWheelCustomActionType action = SteeringWheelCustomActionType.Companion.fromKey(string);
         if (action == null || action == SteeringWheelCustomActionType.DEFAULT) {
             return;

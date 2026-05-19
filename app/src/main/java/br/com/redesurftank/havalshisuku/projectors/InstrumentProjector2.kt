@@ -43,6 +43,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         BaseProjector(outerContext, display) {
 
     private val TAG = "InstrumentProjector2"
+    private val CURRENT_BRIDGE_VERSION = 1
     private val DEBUG_EXTERNAL_APP_HTML = "/data/local/tmp/app.html"
     private val FORCE_MAP_DISPLAY_AS_DEFAULT_FOR_TESTS = false
     private val MAP_DISPLAY_TEST_VALUE = "Mapa"
@@ -982,6 +983,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             logClusterPerfEvent("app_geometry_changed")
                             updateVirtualClusterVisibility(reason = "APP_GEOMETRY_CHANGED")
                             syncSecondaryDisplayApps(3)
+                        }
+                        ServiceManagerEventType.RAW_KEY_EVENT -> {
+                            val key = args[0] as br.com.redesurftank.havalshisuku.models.screens.Screen.Key
+                            evaluateJsIfReady(webView, "if (window.onKeyEvent) window.onKeyEvent('${key.name}');")
                         }
                         else -> {}
                     }
@@ -2194,6 +2199,41 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key -> saveClusterDisplay(value)
                 else -> Log.w(TAG, "Ignoring unsupported WebView setting: $key")
             }
+        }
+
+        @JavascriptInterface
+        fun updateCarData(key: String, value: String) {
+            ServiceManager.getInstance().updateData(key, value)
+        }
+
+        @JavascriptInterface
+        fun triggerSystemAction(action: String) {
+            when (action) {
+                "CANCEL_MAX_AC" -> ServiceManager.getInstance().cancelMaxAcMode()
+                "TRIGGER_AVM_CAMERA" -> {
+                    ServiceManager.getInstance().handleSteeringWheelCustomButton(
+                        br.com.redesurftank.havalshisuku.models.SteeringWheelCustomActionType.OPEN_AVM_ONCE.name,
+                        1
+                    )
+                }
+                "DISMISS_WARNINGS" -> {
+                    ensureUi { updateWarningUI(false) }
+                }
+                else -> {
+                    // Try to trigger as a general steering wheel button action if mapped
+                    ServiceManager.getInstance().handleSteeringWheelCustomButton(action, 1)
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun savePreference(key: String, value: String) {
+            preferences.edit().putString(key, value).apply()
+        }
+
+        @JavascriptInterface
+        fun getPreference(key: String, defaultValue: String): String {
+            return preferences.getString(key, defaultValue) ?: defaultValue
         }
     }
 }
