@@ -1,0 +1,653 @@
+import { getState as get, setState, subscribe, stateManager } from './state.js';
+import { createDashboardInfo } from './components/dashboardInfo.js';
+import { createAcControlScreen } from './components/aircon/mainAcControl.js';
+import { createRegenScreen } from './components/regen/regenControl.js';
+import { createDisplaySelectionScreen } from './components/display/themeSelection.js';
+import { createMainMenu, menuItems } from './components/mainMenu.js';
+import { createMask } from './components/display/mask.js';
+import { createGraphScreen } from './components/graphs/graphs.js';
+import { div } from '../../../shared/utils/createElement.js';
+import { logger } from '../../../shared/utils/logger.js';
+import { initializeConstants } from '../utils/constants.js';
+import { initWarningHandler } from './components/warningHandler.js';
+import { bridge } from '../../../shared/bridge/ThemeBridgeAdapter.js';
+import { bootstrapThemeFromManifest, themeEngine } from '../../../shared/runtime/clusterRuntime.js';
+import { KEYS, getLabel } from '../../../shared/car/carConstants.js';
+import { getAdjustedSpeed } from '../../../shared/car/carDerivations.js';
+import { initSimulationHarness } from '../../../shared/runtime/testing-utils.js';
+
+initializeConstants();
+initWarningHandler();
+
+if (process.env.NODE_ENV === 'development') {
+    document.body.style.backgroundColor = 'black';
+    initSimulationHarness(stateManager, menuItems);
+}
+
+const appContainer = document.getElementById('app');
+let currentComponent = null;
+let maskComponent = null;
+let menuWrapper = null;
+let dashboardCleanup = null;
+const screenCache = {};
+
+// Initial state from URL parameters
+const urlParams = new URLSearchParams(window.location.search);
+const nativeMockEnabled =
+    process.env.NODE_ENV === 'development' ||
+    urlParams.get('nativeMocks') === '1' ||
+    window.__ENABLE_NATIVE_MOCKS === true;
+
+if (nativeMockEnabled) {
+    window.__AIR_CONTROL_TEST_MODE = true;
+    setState('enableOdometer', true);
+    setState('enableRevisionWarning', true);
+    setState('odometer', get('odometer') || 11450);
+    setState('nextRevisionKm', get('nextRevisionKm') || 12000);
+    setState('nextRevisionDate', get('nextRevisionDate') || Date.now() + 15 * 24 * 60 * 60 * 1000);
+}
+
+function initializeLayout() {
+    logger.enter('initializeLayout');
+    if (!appContainer) {
+        logger.leave('initializeLayout');
+        return;
+    }
+    appContainer.innerHTML = '';
+
+    // Add mask background first (z-index: 50)
+    try {
+        const mask = createMask();
+        maskComponent = mask;
+        appContainer.appendChild(mask.background);
+    } catch (e) {
+        logger.log('[Error] Failed to create mask: ' + e.message);
+    }
+
+    // 1. Dashboard Info Layer
+    if (dashboardCleanup) dashboardCleanup();
+    try {
+        const dashboardInfo = createDashboardInfo;
+        const { element: dashElement, menuWrapper: newMenuWrapper, cleanup: dashCleanup } = dashboardInfo();
+        appContainer.appendChild(dashElement);
+
+        menuWrapper = newMenuWrapper;
+        dashboardCleanup = dashCleanup;
+
+        // Pre-load critical screens
+        if (menuWrapper) {
+            const cachedScreens = ['main_menu', 'aircon'];
+            cachedScreens.forEach(screen => {
+                try {
+                    let result = null;
+                    if (screen === 'main_menu') result = createMainMenu();
+                    else if (screen === 'aircon') result = createAcControlScreen();
+
+                    if (result) {
+                        const element = result.element || result;
+                        element.style.display = 'none';
+                        menuWrapper.appendChild(element);
+                        if (result.onMount) result.onMount();
+                        screenCache[screen] = result;
+                    }
+                } catch (e) {
+                    logger.log(`[Error] Failed to pre-load screen ${screen}: ${e.message}`);
+                }
+            });
+        }
+    } catch (e) {
+        logger.log('[Error] Failed to initialize dashboard info: ' + e.message);
+    }
+
+    // Add no app mask on top (z-index: 200)
+    if (maskComponent) {
+        appContainer.appendChild(maskComponent.noAppL);
+        appContainer.appendChild(maskComponent.noAppR);
+    }
+    logger.leave('initializeLayout');
+}
+
+
+function render() {
+    logger.enter('render', { screen: get('screen'), display: get('display') });
+    const screen = get('screen');
+    const displayMode = get('display') || 'Normal';
+
+    // Update app class based on display mode
+    if (appContainer) {
+        logger.log('Rendering screen:', screen);
+        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header');
+        classes.push('display-' + displayMode.toLowerCase());
+
+        if (get('clusterEnabled') === false) {
+            classes.push('cluster-disabled');
+        }
+
+        if (get('cardId') == 0 || get('warningActive') === true || displayMode === 'Clean') {
+            classes.push('warn-is-active');
+        }
+        if (nativeMockEnabled) {
+            classes.push('native-mock-enabled');
+        }
+        if (get('headerVisible') === false) {
+            classes.push('hide-header');
+        }
+
+        appContainer.className = classes.join(' ').trim();
+        logger.log('App classes:', appContainer.className);
+    }
+
+
+    // Hide all cached components
+    Object.values(screenCache).forEach(comp => {
+        const el = comp.element || comp;
+        el.style.display = 'none';
+    });
+
+    // Cleanup previous non-cached component
+    if (currentComponent && !Object.values(screenCache).includes(currentComponent)) {
+        if (currentComponent.cleanup) {
+            try {
+                currentComponent.cleanup();
+            } catch (e) {
+                logger.log('[Error] Failed during component cleanup: ' + e.message);
+            }
+        }
+        const el = currentComponent.element || currentComponent;
+        if (el && el.parentNode === menuWrapper) {
+            menuWrapper.removeChild(el);
+        }
+    }
+
+    if (screenCache[screen]) {
+        // Show cached component
+        const comp = screenCache[screen];
+        const el = comp.element || comp;
+        el.style.display = 'block';
+        currentComponent = comp;
+    } else {
+        // Create non-cached component
+        let componentResult = null;
+        try {
+            if (screen === 'regen') {
+                componentResult = createRegenScreen();
+            } else if (screen === 'display_selection') {
+                componentResult = createDisplaySelectionScreen();
+            } else if (screen === 'graph' || screen === 'graphs') {
+                componentResult = createGraphScreen();
+            }
+        } catch (e) {
+            logger.log('[Error] Failed to create screen component ' + screen + ': ' + e.message);
+        }
+
+        if (componentResult) {
+            const element = componentResult.element || componentResult;
+            const onMount = componentResult.onMount;
+
+            if (menuWrapper) {
+                menuWrapper.appendChild(element);
+            }
+
+            if (onMount) {
+                try {
+                    onMount();
+                } catch (e) {
+                    logger.log('[Error] Failed during component onMount: ' + e.message);
+                }
+            }
+
+            currentComponent = componentResult;
+        } else {
+            currentComponent = null;
+        }
+    }
+    logger.leave('render');
+}
+
+subscribe('warningActive', () => render());
+subscribe('cardId', () => render());
+initializeLayout();
+
+// Start rendering and subscribe to listen for screen changes thus triggering new render
+subscribe('screen', (screenName) => {
+    themeEngine.navigateTo(screenName);
+    render();
+});
+subscribe('display', render);
+subscribe('headerVisible', (val) => {
+    console.log(`[STATE TRACE] headerVisible changed to: ${val}`);
+    render();
+});
+
+subscribe('clusterEnabled', render);
+render();
+
+// Setup Decentralized Bridge & Key events
+const manifest = {
+    disableDefaultKeys: true,
+    menu: [
+        { id: 'option_1', action: 'cycle', key: 'car.drive_setting.esp_enable', values: ['1', '0'] },
+        { id: 'option_2', action: 'cycle', key: 'car.ev_setting.power_model_config', values: ['3', '1', '0'] },
+        { id: 'option_3', action: 'cycle', key: 'car.drive_setting.drive_mode', values: ['0', '2', '1'] },
+        { id: 'option_7', action: 'navigate', screen: 'graph' },
+        { id: 'option_5', action: 'cycle', key: 'car.drive_setting.steering_wheel_assist_mode', values: ['2', '0', '1'] },
+        { id: 'option_6', action: 'navigate', screen: 'regen' },
+        { id: 'option_4', action: 'navigate', screen: 'display_selection' }
+    ]
+};
+
+let focusController;
+let lastKeyTime = 0;
+const KEY_DEBOUNCE_MS = 50;
+
+function handleSteeringWheelKey(keyName) {
+    const now = Date.now();
+    if (now - lastKeyTime < KEY_DEBOUNCE_MS) {
+        logger.log(`[Steering Wheel] Debounced duplicate keyevent: ${keyName}`);
+        return;
+    }
+    lastKeyTime = now;
+
+    const screen = get('screen');
+    logger.log(`Steering wheel event received: ${keyName} on screen: ${screen}`);
+    
+    if (screen === 'main_menu') {
+        if (keyName === 'UP' && focusController) {
+            focusController.prev();
+            setState('focusedMenuItem', focusController.focusedId);
+        } else if (keyName === 'DOWN' && focusController) {
+            focusController.next();
+            setState('focusedMenuItem', focusController.focusedId);
+        } else if (keyName === 'ENTER' && focusController) {
+            const activeId = focusController.focusedId;
+            const menuItem = manifest.menu.find(item => item.id === activeId);
+            if (!menuItem) return;
+
+            if (menuItem.action === 'cycle') {
+                const currentVal = bridge.getCarData(menuItem.key);
+                const currentIndex = menuItem.values.indexOf(currentVal);
+                const nextIndex = (currentIndex + 1) % menuItem.values.length;
+                const nextValue = menuItem.values[nextIndex];
+                bridge.updateCarData(menuItem.key, nextValue);
+            } else if (menuItem.action === 'navigate' && menuItem.screen) {
+                setState('screen', menuItem.screen);
+            }
+        }
+    } else if (screen === 'aircon') {
+        const focusArea = get('focusArea') || 'fan';
+        if (keyName === 'LEFT' || keyName === 'RIGHT') {
+            setState('focusArea', focusArea === 'fan' ? 'temp' : 'fan');
+        } else if (keyName === 'UP' || keyName === 'DOWN') {
+            if (focusArea === 'fan') {
+                const currentFan = Number(get('fan')) || 0;
+                let nextFan = currentFan;
+                if (keyName === 'UP') {
+                    nextFan = Math.min(7, currentFan + 1);
+                } else {
+                    nextFan = Math.max(0, currentFan - 1);
+                }
+                if (currentFan === 0 && nextFan > 0) {
+                    bridge.updateCarData('car.hvac.power_mode', '1');
+                } else if (nextFan === 0) {
+                    bridge.updateCarData('car.hvac.power_mode', '0');
+                }
+                bridge.updateCarData('car.hvac.fan_speed', String(nextFan));
+            } else {
+                const currentTemp = Number(get('temp')) || 22;
+                let nextTemp = currentTemp;
+                if (keyName === 'UP') {
+                    if (currentTemp === 16) nextTemp = 17;
+                    else if (currentTemp >= 25) nextTemp = 32;
+                    else nextTemp = currentTemp + 1;
+                } else {
+                    if (currentTemp === 32) nextTemp = 25;
+                    else if (currentTemp <= 17) nextTemp = 16;
+                    else nextTemp = currentTemp - 1;
+                }
+                bridge.updateCarData('car.hvac.driver_temperature', String(nextTemp));
+            }
+        } else if (keyName === 'ENTER_LONG') {
+            bridge.triggerSystemAction('CANCEL_MAX_AC');
+        } else if (keyName === 'BACK') {
+            setState('screen', 'main_menu');
+        }
+    } else if (screen === 'regen') {
+        if (keyName === 'UP' || keyName === 'DOWN') {
+            const currentRegen = get('regenMode');
+            let nextVal = '1';
+            if (keyName === 'UP') {
+                if (currentRegen === 'Baixo') nextVal = '1';
+                else if (currentRegen === 'Normal') nextVal = '2';
+                else nextVal = '2';
+            } else {
+                if (currentRegen === 'Alto') nextVal = '1';
+                else if (currentRegen === 'Normal') nextVal = '0';
+                else nextVal = '0';
+            }
+            bridge.updateCarData('car.ev_setting.energy_recovery_level', nextVal);
+        } else if (keyName === 'ENTER' || keyName === 'ENTER_LONG') {
+            const onepedal = get('onepedal');
+            const nextVal = onepedal ? '0' : '1';
+            bridge.updateCarData('car.ev.setting.pedal_control_enable', nextVal);
+            setState('onepedal', !onepedal);
+        } else if (keyName === 'BACK') {
+            setState('screen', 'main_menu');
+        }
+    } else if (screen === 'display_selection') {
+        const displays = ['Normal', 'Esportivo', 'Reduzido', 'Clean'];
+        let currentIdx = displays.indexOf(get('display'));
+        if (currentIdx === -1) currentIdx = 0;
+        
+        if (keyName === 'UP') {
+            currentIdx = (currentIdx - 1 + displays.length) % displays.length;
+            setState('display', displays[currentIdx]);
+        } else if (keyName === 'DOWN') {
+            currentIdx = (currentIdx + 1) % displays.length;
+            setState('display', displays[currentIdx]);
+        } else if (keyName === 'ENTER') {
+            const activeDisplay = displays[currentIdx];
+            bridge.updateCarData('display', activeDisplay);
+            setState('screen', 'main_menu');
+        } else if (keyName === 'BACK') {
+            setState('screen', 'main_menu');
+        }
+    } else if (screen === 'graph' || screen === 'graphs') {
+        if (keyName === 'BACK') {
+            setState('screen', 'main_menu');
+        }
+    }
+}
+
+async function initDecentralizedBridge() {
+    if (typeof bridge.reset === 'function') bridge.reset();
+    if (typeof themeEngine.reset === 'function') themeEngine.reset();
+    await bridge.init();
+    
+    // Initialize focus cycle with bootstrap helper
+    const bootstrapper = bootstrapThemeFromManifest(manifest);
+    focusController = bootstrapper.focusController;
+    
+    // Synchronize focusController index when focusedMenuItem state changes programmatically
+    subscribe('focusedMenuItem', (id) => {
+        if (focusController) {
+            const itemIds = manifest.menu.map(item => item.id);
+            const idx = itemIds.indexOf(id);
+            if (idx !== -1 && focusController.index !== idx) {
+                focusController.setIndex(idx);
+            }
+        }
+    });
+
+    // Boot-time alignment of initial focus index
+    const startFocused = get('focusedMenuItem');
+    const startIdx = manifest.menu.map(item => item.id).indexOf(startFocused);
+    if (startIdx !== -1 && focusController) {
+        focusController.setIndex(startIdx);
+    }
+    
+    // Initialize preferences and initial states
+    bridge.bindThemeSetting('headerVisible', true, setState);
+    const enableAdj = bridge.getPreference('enableSpeedAdjustment', 'false') === 'true';
+    const speedOffset = parseFloat(bridge.getPreference('speedAdjustmentOffset', '0')) || 0.0;
+    const enableOdometer = bridge.getPreference('enableOdometer', 'true') === 'true';
+    const enableRevisionWarning = bridge.getPreference('enableRevisionWarning', 'false') === 'true';
+    const nextRevisionKm = Number(bridge.getPreference('nextRevisionKm', '0')) || 0;
+    const nextRevisionDate = Number(bridge.getPreference('nextRevisionDate', '0')) || 0;
+    const fuelUnit = bridge.getPreference('fuelDisplayUnit', 'liters');
+    
+    setState('enableOdometer', enableOdometer);
+    setState('enableRevisionWarning', enableRevisionWarning);
+    setState('nextRevisionKm', nextRevisionKm);
+    setState('nextRevisionDate', nextRevisionDate);
+    setState('fuelDisplayUnit', fuelUnit);
+    
+    // Sync initial cardId from JNI
+    const initialCardId = Number(bridge.getCarData('cardId')) || 1;
+    setState('cardId', initialCardId);
+
+    // Subscribe to CAN and virtual telemetry keys
+    const keysToSubscribe = [
+        "car.basic.vehicle_speed",
+        "car.basic.total_odometer",
+        "car.basic.gear_status",
+        "car.drive_setting.esp_enable",
+        "car.ev_setting.power_model_config",
+        "car.drive_setting.drive_mode",
+        "car.drive_setting.steering_wheel_assist_mode",
+        "car.ev_setting.energy_recovery_level",
+        "car.ev.setting.pedal_control_enable",
+        "car.hvac.power_mode",
+        "car.hvac.fan_speed",
+        "car.hvac.driver_temperature",
+        "car.hvac.cycle_mode",
+        "car.basic.inside_temp",
+        "car.basic.outside_temp",
+        "car.configure.default_temp_unit",
+        
+        "app.preferences.enableSpeedAdjustment",
+        "app.preferences.speedAdjustmentOffset",
+        "app.preferences.enableOdometer",
+        "app.preferences.enableRevisionWarning",
+        "app.preferences.nextRevisionKm",
+        "app.preferences.nextRevisionDate",
+        "app.preferences.fuelDisplayUnit",
+        
+        "app.display.1.active_app",
+        "app.display.1.active_app_label",
+        "app.display.1.active_app_icon",
+        "app.display.3.active_app",
+        "app.display.3.active_app_label",
+        "app.display.3.active_app_icon",
+        "app.launcher.apps",
+        "app.navigation.directions",
+        
+        "app.media.state",
+        "app.media.title",
+        "app.media.artist",
+        "app.media.album",
+        "app.media.duration",
+        "app.media.position",
+        "app.media.album_art",
+        "app.phone.state",
+        "app.phone.caller_name",
+        "app.phone.caller_number",
+        "app.phone.call_duration",
+        
+        "warningActive",
+        "bsdLeft",
+        "bsdRight"
+    ];
+    
+    bridge.subscribe(keysToSubscribe, (key, value) => {
+        let val = value;
+        if (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) {
+            val = Number(value);
+        }
+        
+        switch (key) {
+            case "car.basic.vehicle_speed": {
+                const enableAdj = bridge.getPreference('enableSpeedAdjustment', 'false') === 'true';
+                const offset = parseFloat(bridge.getPreference('speedAdjustmentOffset', '0')) || 0.0;
+                const speed = getAdjustedSpeed(value, enableAdj, offset);
+                setState('carSpeed', Number(speed));
+                break;
+            }
+            case "car.basic.total_odometer":
+                setState('odometer', val);
+                break;
+            case "car.basic.gear_status":
+                setState('gearState', getLabel("car.basic.gear_status", value));
+                break;
+            case "car.drive_setting.esp_enable":
+                setState('espStatus', getLabel("car.drive_setting.esp_enable", value));
+                break;
+            case "car.ev_setting.power_model_config":
+                setState('evMode', getLabel("car.ev_setting.power_model_config", value));
+                break;
+            case "car.drive_setting.drive_mode":
+                setState('drivingMode', getLabel("car.drive_setting.drive_mode", value));
+                break;
+            case "car.drive_setting.steering_wheel_assist_mode":
+                setState('steerMode', getLabel("car.drive_setting.steering_wheel_assist_mode", value));
+                break;
+            case "car.ev_setting.energy_recovery_level": {
+                let regenLabel = "Normal";
+                if (value === "0" || value === 0) regenLabel = "Baixo";
+                else if (value === "1" || value === 1) regenLabel = "Normal";
+                else if (value === "2" || value === 2) regenLabel = "Alto";
+                setState('regenMode', regenLabel);
+                break;
+            }
+            case "car.ev.setting.pedal_control_enable":
+                setState('onepedal', value === "1" || value === 1 || value === "true" || value === true);
+                break;
+            case "car.hvac.power_mode":
+                setState('power', val);
+                break;
+            case "car.hvac.fan_speed":
+                setState('fan', val);
+                break;
+            case "car.hvac.driver_temperature":
+                setState('temp', val);
+                break;
+            case "car.hvac.cycle_mode":
+                setState('recycle', val);
+                break;
+            case "car.basic.inside_temp":
+                setState('inside_temp', value);
+                break;
+            case "car.basic.outside_temp":
+                setState('outside_temp', value);
+                break;
+            case "car.configure.default_temp_unit":
+                setState('tempUnit', value === "1" ? "°F" : "°C");
+                break;
+            
+            // Preference updates
+            case "app.preferences.enableSpeedAdjustment": {
+                const rawSpeed = bridge.getCarData("car.basic.vehicle_speed");
+                const enableAdj = value === 'true';
+                const offset = parseFloat(bridge.getPreference('speedAdjustmentOffset', '0')) || 0.0;
+                setState('carSpeed', Number(getAdjustedSpeed(rawSpeed, enableAdj, offset)));
+                break;
+            }
+            case "app.preferences.speedAdjustmentOffset": {
+                const rawSpeed = bridge.getCarData("car.basic.vehicle_speed");
+                const enableAdj = bridge.getPreference('enableSpeedAdjustment', 'false') === 'true';
+                const offset = parseFloat(value) || 0.0;
+                setState('carSpeed', Number(getAdjustedSpeed(rawSpeed, enableAdj, offset)));
+                break;
+            }
+            case "app.preferences.enableOdometer":
+                setState('enableOdometer', value === 'true');
+                break;
+            case "app.preferences.enableRevisionWarning":
+                setState('enableRevisionWarning', value === 'true');
+                break;
+            case "app.preferences.nextRevisionKm":
+                setState('nextRevisionKm', val);
+                break;
+            case "app.preferences.nextRevisionDate":
+                setState('nextRevisionDate', val);
+                break;
+            case "app.preferences.fuelDisplayUnit":
+                setState('fuelDisplayUnit', value);
+                break;
+                
+            default:
+                setState(key, val);
+                break;
+        }
+    });
+    
+    // Register steering wheel physical key listeners
+    bridge.subscribeKeys((keyName) => {
+        handleSteeringWheelKey(keyName);
+    });
+}
+
+initDecentralizedBridge().catch(e => console.error("Bridge initialization failed:", e));
+
+
+
+// Handle Card ID transitions
+subscribe('cardId', (cardId) => {
+    logger.log('cardId change:', cardId);
+
+    // Sync with Android bridge for correct app resizing
+    if (window.Android && window.Android.setCardId) {
+        window.Android.setCardId(cardId);
+    }
+
+    // 0 = hide the right menu display
+    if (menuWrapper) {
+        menuWrapper.style.display = (cardId == 0) ? 'none' : 'block';
+    }
+
+    if (cardId == 1) {
+        // 1 = go to main regular menu
+        setState('screen', 'main_menu');
+    } else if (cardId == 3) {
+        // 3 = set to AC menu
+        setState('screen', 'aircon');
+    }
+});
+
+// Functions used by Kotlin to trigger interactions
+window.showScreen = function (screenName) {
+    try {
+        logger.enter('window.showScreen', screenName);
+        setState('screen', screenName);
+        logger.leave('window.showScreen');
+    } catch (e) {
+        console.error('[Error] Bridge showScreen failed:', e);
+    }
+};
+
+window.focus = function (item) {
+    try {
+        logger.enter('window.focus', item);
+        const screen = get('screen');
+        if (screen === 'main_menu') {
+            setState('focusedMenuItem', item);
+        } else if (screen === 'aircon') {
+            setState('focusArea', item);
+        } else if (screen === 'display_selection') {
+            setState('displayFocus', item);
+        }
+        logger.leave('window.focus');
+    } catch (e) {
+        console.error('[Error] Bridge focus failed:', e);
+    }
+};
+
+window.control = function (key, value) {
+    try {
+        if (key !== 'carSpeed' && key !== 'engineRPM') {
+            logger.log(`control('${key}', ${value})`);
+        }
+        logger.enter('window.control', { key, value });
+        let val = value;
+        // Automatically convert numeric strings to numbers for compatibility with components
+        if (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) {
+            val = Number(value);
+        }
+        setState(key, val);
+        // warningActive has its own subscription to render() at line 184, so no need for manual trigger here
+        logger.leave('window.control');
+    } catch (e) {
+        console.error('[Error] Bridge control failed for key ' + key + ':', e);
+    }
+};
+
+window.cleanup = function () {
+    try {
+        logger.enter('window.cleanup');
+        if (currentComponent && currentComponent.cleanup) {
+            currentComponent.cleanup();
+        }
+        logger.leave('window.cleanup');
+    } catch (e) {
+        console.error('[Error] Bridge cleanup failed:', e);
+    }
+};

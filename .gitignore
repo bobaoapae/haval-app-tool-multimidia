@@ -95,6 +95,7 @@ cluster-widgets/**/parcel-cache/
 cluster-widgets/**/.parcel-cache/
 cluster-widgets/**/dist/
 cluster-widgets/**/out/
+cluster-widgets/**/*.env
 
 .claude/settings.local.json
 

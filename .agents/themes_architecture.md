@@ -114,3 +114,33 @@ To allow seamless upgrades of the built-in sporty theme without requiring app up
 - The `ACTIVE_CUSTOM_THEME` preference is updated to `"Default"`, instructing `InstrumentProjector2` to load the custom HTML file from `files/themes/Default/index.html` instead of the raw resource.
 - A **Delete / Excluir** action is provided for the Default theme when it has been downloaded. Clicking it deletes the downloaded folder and resets `ACTIVE_CUSTOM_THEME` to `""`, cleanly falling back to the raw APK resource.
 
+---
+
+## Theme Configurations Metadata Schema (theme.xml)
+
+To support dynamic and flexible theme configuration without hardcoding options in the native app, a declarative `<configurations>` schema is supported inside the `theme.xml` descriptor. The Android app parses these options at discovery time and automatically generates a premium Jetpack Compose dialog containing custom controls.
+
+### XML Schema Layout:
+```xml
+<configurations>
+    <configuration>
+        <id>[unique_setting_id]</id>
+        <label>[Friendly display title in form]</label>
+        <type>[boolean | text | number | combo]</type>
+        <default>[default_fallback_value_string]</default>
+        <stateVariable>[javascript_reactive_state_variable]</stateVariable>
+        <options>[comma_separated_values_for_combo_types_only]</options>
+    </configuration>
+</configurations>
+```
+
+### Supported Variable Types:
+1. **`boolean`**: Renders as a native switch toggle.
+2. **`text`**: Renders as a standard text input field.
+3. **`number`**: Renders as a numeric-only input field.
+4. **`combo`**: Renders as a dropdown selection box. Dropdown options are defined as a comma-separated list under `<options>` (e.g. `<options>Eco,Normal,Sport</options>`).
+
+### JNI Scope Resolution:
+To prevent settings desynchronization between different themes sharing the same `stateVariable` names, settings are saved and sandboxed under key `"theme_config_[themeFolderName]_[stateVariable]"`. The JNI bridge resolves these transparently so the active theme can query using the simple `stateVariable` name.
+
+

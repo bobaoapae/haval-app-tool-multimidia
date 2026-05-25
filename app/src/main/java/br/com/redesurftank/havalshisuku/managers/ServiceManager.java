@@ -209,6 +209,8 @@ public class ServiceManager {
             CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG,
     };
     private static ServiceManager instance;
+    private volatile boolean isThemeDecentralized = false;
+    private final Set<String> dynamicallyRegisteredKeys = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final List<IDataChanged> dataChangedListeners;
     private final List<IServiceManagerEvent> serviceManagerEventListeners;
     private final Map<String, String> dataCache;
@@ -680,12 +682,14 @@ public class ServiceManager {
                             if (!duplicateClusterInput) {
                                 lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
                                 lastHandledClusterInputAtMs = now;
-                                if (key == Screen.Key.LEFT || key == Screen.Key.RIGHT) {
-                                    handleClusterCardNavigationKey(key);
-                                } else {
-                                    MainUiManager.getInstance().handleGeneralKeyEvents(key);
-                                    if (key == Screen.Key.BACK) {
-                                        dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
+                                if (!isThemeDecentralized) {
+                                    if (key == Screen.Key.LEFT || key == Screen.Key.RIGHT) {
+                                        handleClusterCardNavigationKey(key);
+                                    } else {
+                                        MainUiManager.getInstance().handleGeneralKeyEvents(key);
+                                        if (key == Screen.Key.BACK) {
+                                            dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
+                                        }
                                     }
                                 }
                                 dispatchServiceManagerEvent(ServiceManagerEventType.RAW_KEY_EVENT, key);
@@ -875,7 +879,6 @@ public class ServiceManager {
 
     }
 
-<<<<<<< HEAD
     // ===== Toques nos botoes personalizados do volante: curto / duplo / longo =====
     private static final long STEERING_DOUBLE_WINDOW_MS = 350L;    // janela pra detectar o 2o toque
     private static final long STEERING_PRESS_DEBOUNCE_MS = 120L;   // ignora repique do mesmo toque
@@ -2622,11 +2625,53 @@ public class ServiceManager {
         });
     }
 
+    public boolean isThemeDecentralized() {
+        return isThemeDecentralized;
+    }
+
+    public void setThemeDecentralized(boolean decentralized) {
+        this.isThemeDecentralized = decentralized;
+        Log.d(TAG, "Theme decentralization flag updated to: " + decentralized);
+    }
+
     public String[] getCombinedKeys() {
         List<String> keys = new ArrayList<>();
         keys.addAll(List.of(CarConstants.FromArray(DEFAULT_KEYS)));
         keys.addAll(sharedPreferences.getStringSet(SharedPreferencesKeys.CAR_MONITOR_PROPERTIES.getKey(), new HashSet<>()));
+        keys.addAll(dynamicallyRegisteredKeys);
         return keys.toArray(new String[0]);
+    }
+
+    public void ensureKeysMonitored(java.util.Collection<String> keys) {
+        if (keys == null || keys.isEmpty()) return;
+        if (!isControlServiceAlive()) {
+            Log.e(TAG, "ControlService not initialized; cannot add listener keys");
+            return;
+        }
+        try {
+            List<String> newKeys = new ArrayList<>();
+            String[] currentKeys = getCombinedKeys();
+            Set<String> currentKeysSet = new HashSet<>(Arrays.asList(currentKeys));
+            for (String key : keys) {
+                if (!currentKeysSet.contains(key)) {
+                    newKeys.add(key);
+                    dynamicallyRegisteredKeys.add(key);
+                }
+            }
+            if (!newKeys.isEmpty()) {
+                controlService.addListenerKey(App.getContext().getPackageName(), newKeys.toArray(new String[0]));
+                Log.d(TAG, "Added dynamic listener keys: " + newKeys);
+                
+                String[] fetchValues = controlService.fetchDatas(newKeys.toArray(new String[0]));
+                if (fetchValues != null) {
+                    for (int i = 0; i < newKeys.size() && i < fetchValues.length; i++) {
+                        dataCache.put(newKeys.get(i), fetchValues[i]);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "ensureKeysMonitored failed", e);
+        }
     }
 
     public void initializeFrida() {

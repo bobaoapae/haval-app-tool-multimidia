@@ -43,6 +43,7 @@ import br.com.redesurftank.havalshisuku.managers.ThemeManager
 import br.com.redesurftank.havalshisuku.models.DisplayAppConfig
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.ThemeMetadata
+import br.com.redesurftank.havalshisuku.models.ThemeConfig
 import br.com.redesurftank.havalshisuku.ui.components.StyledCard
 import br.com.redesurftank.havalshisuku.ui.components.StyledTextField
 import coil.compose.AsyncImage
@@ -233,6 +234,25 @@ fun CompactThemeCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    // Dynamic Theme Configuration Gear Icon
+                    if (theme.configurations.isNotEmpty() && isDownloaded) {
+                        var showSettingsDialog by remember { mutableStateOf(false) }
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Configurar Tema",
+                            tint = Color(0xFF4A9EFF),
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable { showSettingsDialog = true }
+                        )
+                        
+                        if (showSettingsDialog) {
+                            ThemeSettingsDialog(
+                                theme = theme,
+                                onDismiss = { showSettingsDialog = false }
+                            )
+                        }
+                    }
                     // Update Button in bottom right if update is available
                     if (hasUpdate && !isDownloading) {
                         Box(
@@ -3297,5 +3317,152 @@ private fun getSubstituteIconVector(
         "chat" -> Icons.Default.Chat
         "map_alt" -> Icons.Default.Map
         else -> null
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ThemeSettingsDialog(
+    theme: ThemeMetadata,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val prefs = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+    
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier.width(420.dp).padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2228)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.5.dp, Color(0xFF4A9EFF))
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Ajustes: ${theme.name}",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                HorizontalDivider(color = Color(0xFF2C3139))
+                
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    items(theme.configurations) { config ->
+                        val scopedKey = "theme_config_${theme.folderName}_${config.stateVariable}"
+                        
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(config.label, color = Color(0xFFB0B8C4), fontSize = 13.sp)
+                            
+                            when (config.type) {
+                                "boolean" -> {
+                                    var checked by remember {
+                                        mutableStateOf(prefs.getString(scopedKey, config.defaultValue) == "true")
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(if (checked) "Ativado" else "Desativado", color = Color.White, fontSize = 15.sp)
+                                        Switch(
+                                            checked = checked,
+                                            onCheckedChange = { newVal ->
+                                                checked = newVal
+                                                prefs.edit().putString(scopedKey, newVal.toString()).apply()
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = Color.White,
+                                                checkedTrackColor = Color(0xFF4A9EFF)
+                                            )
+                                        )
+                                    }
+                                }
+                                "text", "number" -> {
+                                    var textVal by remember {
+                                        mutableStateOf(prefs.getString(scopedKey, config.defaultValue) ?: "")
+                                    }
+                                    OutlinedTextField(
+                                        value = textVal,
+                                        onValueChange = { newVal ->
+                                            textVal = newVal
+                                            prefs.edit().putString(scopedKey, newVal).apply()
+                                        },
+                                        keyboardOptions = KeyboardOptions(
+                                            keyboardType = if (config.type == "number") KeyboardType.Number else KeyboardType.Text
+                                        ),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White,
+                                            focusedBorderColor = Color(0xFF4A9EFF),
+                                            unfocusedBorderColor = Color(0xFF2C3139)
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                "combo" -> {
+                                    var selectedOption by remember {
+                                        mutableStateOf(prefs.getString(scopedKey, config.defaultValue) ?: config.options.firstOrNull() ?: "")
+                                    }
+                                    var expanded by remember { mutableStateOf(false) }
+                                    
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        Button(
+                                            onClick = { expanded = true },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF13151A)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(selectedOption, color = Color.White)
+                                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color.White)
+                                            }
+                                        }
+                                        
+                                        DropdownMenu(
+                                            expanded = expanded,
+                                            onDismissRequest = { expanded = false },
+                                            modifier = Modifier.background(Color(0xFF1E2228))
+                                        ) {
+                                            config.options.forEach { option ->
+                                                DropdownMenuItem(
+                                                    text = { Text(option, color = Color.White) },
+                                                    onClick = {
+                                                        selectedOption = option
+                                                        expanded = false
+                                                        prefs.edit().putString(scopedKey, option).apply()
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                HorizontalDivider(color = Color(0xFF2C3139))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Fechar", color = Color(0xFF4A9EFF), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
     }
 }

@@ -6,6 +6,7 @@ import android.util.Xml
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.models.ThemeMetadata
 import br.com.redesurftank.havalshisuku.models.ThemeVersionInfo
+import br.com.redesurftank.havalshisuku.models.ThemeConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -29,7 +30,7 @@ class ThemeManager private constructor(val context: Context) {
 
     companion object {
         private const val TAG = "ThemeManager"
-        const val THEME_REPO_URL = "https://github.com/netseek/haval-app-tool-multimidia/tree/feature/new-screen-enhancements-v6/cluster-widgets/Themes"
+        const val THEME_REPO_URL = "https://github.com/netseek/haval-app-tool-multimidia/tree/themes-v1.0/cluster-widgets/Themes/v1.0"
         
         @Volatile
         private var instance: ThemeManager? = null
@@ -98,8 +99,20 @@ class ThemeManager private constructor(val context: Context) {
             var y: Int? = null
             var width: Int? = null
             var height: Int? = null
+            var decentralized = false
+            var minBridgeVersion: String? = null
+            val configurations = mutableListOf<ThemeConfig>()
             
+            var inConfigurations = false
+            var inConfiguration = false
             var inAppDefaultPosition = false
+            
+            var configId = ""
+            var configLabel = ""
+            var configType = ""
+            var configDefault = ""
+            var configStateVar = ""
+            var configOptions = ""
             
             while (parser.next() != XmlPullParser.END_DOCUMENT) {
                 val eventType = parser.eventType
@@ -117,10 +130,32 @@ class ThemeManager private constructor(val context: Context) {
                         "y" -> if (inAppDefaultPosition) y = parser.nextText().toIntOrNull()
                         "width" -> if (inAppDefaultPosition) width = parser.nextText().toIntOrNull()
                         "height" -> if (inAppDefaultPosition) height = parser.nextText().toIntOrNull()
+                        "decentralized" -> decentralized = parser.nextText().trim().lowercase() == "true"
+                        "minBridgeVersion" -> minBridgeVersion = parser.nextText().trim()
+                        
+                        "configurations" -> inConfigurations = true
+                        "configuration" -> {
+                            inConfiguration = true
+                            configId = ""; configLabel = ""; configType = ""; configDefault = ""; configStateVar = ""; configOptions = ""
+                        }
+                        "id" -> if (inConfiguration) configId = parser.nextText().trim()
+                        "label" -> if (inConfiguration) configLabel = parser.nextText().trim()
+                        "type" -> if (inConfiguration) configType = parser.nextText().trim().lowercase()
+                        "default" -> if (inConfiguration) configDefault = parser.nextText().trim()
+                        "stateVariable" -> if (inConfiguration) configStateVar = parser.nextText().trim()
+                        "options" -> if (inConfiguration) configOptions = parser.nextText().trim()
                     }
                 } else if (eventType == XmlPullParser.END_TAG) {
-                    if (tagName == "AppDefaultPosition") {
-                        inAppDefaultPosition = false
+                    when (tagName) {
+                        "AppDefaultPosition" -> inAppDefaultPosition = false
+                        "configurations" -> inConfigurations = false
+                        "configuration" -> {
+                            inConfiguration = false
+                            if (configId.isNotEmpty() && configStateVar.isNotEmpty()) {
+                                val opts = if (configOptions.isNotEmpty()) configOptions.split(",").map { it.trim() } else emptyList()
+                                configurations.add(ThemeConfig(configId, configLabel, configType, configDefault, configStateVar, opts))
+                            }
+                        }
                     }
                 }
             }
@@ -145,7 +180,10 @@ class ThemeManager private constructor(val context: Context) {
                 x = x,
                 y = y,
                 width = width,
-                height = height
+                height = height,
+                decentralized = decentralized,
+                minBridgeVersion = minBridgeVersion,
+                configurations = configurations
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing theme.xml in $folderName", e)
@@ -292,36 +330,46 @@ class ThemeManager private constructor(val context: Context) {
         }
     }
 
-    private fun convertToGithubApiUrl(webUrl: String): String {
-        // Handle webUrl examples:
-        // 1. https://github.com/user/repo
-        // 2. https://github.com/user/repo/tree/main/folder
-        // 3. https://github.com/user/repo/tree/master/folder/sub
-        
+    data class GithubRepoInfo(
+        val owner: String,
+        val repo: String,
+        val branch: String,
+        val path: String
+    )
+
+    fun parseGithubUrl(webUrl: String): GithubRepoInfo? {
         var url = webUrl.trim()
         if (url.endsWith("/")) url = url.substring(0, url.length - 1)
-        
-        if (!url.startsWith("https://github.com/")) return url // Already an API URL or invalid
+        if (!url.startsWith("https://github.com/")) return null
         
         val parts = url.replace("https://github.com/", "").split("/")
-        if (parts.size < 2) return url
+        if (parts.size < 2) return null
         
         val owner = parts[0]
         val repo = parts[1]
         
-        return if (parts.size >= 5 && parts[2] == "tree") {
-            // Check for branch patterns with slashes (e.g., feature/name)
+        var branch = "main"
+        var path = ""
+        
+        if (parts.size >= 5 && parts[2] == "tree") {
             if (parts.size >= 6 && (parts[3] == "feature" || parts[3] == "fix" || parts[3] == "release")) {
-                val branch = "${parts[3]}/${parts[4]}"
-                val path = parts.subList(5, parts.size).joinToString("/")
-                "https://api.github.com/repos/$owner/$repo/contents/$path?ref=$branch"
+                branch = "${parts[3]}/${parts[4]}"
+                path = parts.subList(5, parts.size).joinToString("/")
             } else {
-                val branch = parts[3]
-                val path = parts.subList(4, parts.size).joinToString("/")
-                "https://api.github.com/repos/$owner/$repo/contents/$path?ref=$branch"
+                branch = parts[3]
+                path = parts.subList(4, parts.size).joinToString("/")
             }
+        }
+        
+        return GithubRepoInfo(owner, repo, branch, path)
+    }
+
+    private fun convertToGithubApiUrl(webUrl: String): String {
+        val info = parseGithubUrl(webUrl) ?: return webUrl
+        return if (info.path.isNotEmpty()) {
+            "https://api.github.com/repos/${info.owner}/${info.repo}/contents/${info.path}?ref=${info.branch}"
         } else {
-            "https://api.github.com/repos/$owner/$repo/contents"
+            "https://api.github.com/repos/${info.owner}/${info.repo}/contents?ref=${info.branch}"
         }
     }
 
@@ -331,13 +379,28 @@ class ThemeManager private constructor(val context: Context) {
                 val destDir = File(themesDir, metadata.folderName)
                 if (!destDir.exists()) destDir.mkdirs()
                 
-                // 1. Get folder contents from GitHub API
-                val apiUrl = "https://api.github.com/repos/netseek/haval-app-tool-multimidia/contents/cluster-widgets/Themes/${metadata.folderName}?ref=feature/new-screen-enhancements-v6"
+                // Read preference for custom theme repo or use defaults
+                val sharedPrefs = context.getSharedPreferences("MainPrefs", Context.MODE_PRIVATE)
+                val customUrl = sharedPrefs.getString("customThemeRepoUrlProd", null)
+                val repoUrl = if (!customUrl.isNullOrBlank()) customUrl else THEME_REPO_URL
+                
+                val info = parseGithubUrl(repoUrl)
+                val apiUrl = if (info != null) {
+                    val fullPath = if (info.path.isNotEmpty()) "${info.path}/${metadata.folderName}" else metadata.folderName
+                    "https://api.github.com/repos/${info.owner}/${info.repo}/contents/$fullPath?ref=${info.branch}"
+                } else {
+                    "https://api.github.com/repos/netseek/haval-app-tool-multimidia/contents/cluster-widgets/Themes/${metadata.folderName}?ref=themes-v1.0"
+                }
+                
+                Log.d(TAG, "Downloading theme from API: $apiUrl")
                 val url = URL(apiUrl)
                 val conn = url.openConnection() as HttpURLConnection
                 conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
                 
-                if (conn.responseCode != 200) return@withContext false
+                if (conn.responseCode != 200) {
+                    Log.e(TAG, "Download failed with status: ${conn.responseCode}")
+                    return@withContext false
+                }
                 
                 val jsonString = conn.inputStream.bufferedReader().use { it.readText() }
                 val array = JSONArray(jsonString)

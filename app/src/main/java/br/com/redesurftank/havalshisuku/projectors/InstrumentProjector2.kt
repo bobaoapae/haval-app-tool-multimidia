@@ -32,6 +32,7 @@ import br.com.redesurftank.havalshisuku.models.screens.GraphicsScreen
 import br.com.redesurftank.havalshisuku.models.screens.MainMenu
 import br.com.redesurftank.havalshisuku.models.screens.RegenScreen
 import br.com.redesurftank.havalshisuku.models.screens.Screen
+import br.com.redesurftank.havalshisuku.bridge.IBridgeContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -40,7 +41,7 @@ import kotlin.collections.get
 import kotlinx.coroutines.*
 
 class InstrumentProjector2(private val outerContext: Context, display: Display) :
-        BaseProjector(outerContext, display) {
+        BaseProjector(outerContext, display), IBridgeContext {
 
     private val TAG = "InstrumentProjector2"
     private val CURRENT_BRIDGE_VERSION = 1
@@ -60,10 +61,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     handler.postDelayed(this, 30000) // Update every 30s
                 }
             }
-    private val preferences: SharedPreferences =
+    override val preferences: SharedPreferences =
             App.getDeviceProtectedContext()
                     .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
-    private var webView: WebView? = null
+    override var webView: WebView? = null
     private val webViewsLoaded = mutableMapOf<WebView, Boolean>()
     private val pendingJsQueues = mutableMapOf<WebView, MutableList<String>>()
     private lateinit var root: FrameLayout
@@ -74,6 +75,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     // DOM mutations + Chrome compositor renders. Cleared on full bootstrap
     // syncs where we intentionally re-establish the whole JS state.
     private val lastSentValues = java.util.concurrent.ConcurrentHashMap<String, String>()
+    override val subscribedKeys: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     // Cached EV power values for kW calculation
     private var batteryVoltage = 0f
@@ -101,6 +103,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var hasAutoLaunched = false
     private val lastAppliedConfigs =
             mutableMapOf<String, br.com.redesurftank.havalshisuku.models.DisplayAppConfig>()
+
+    private var activeThemeMetadata: br.com.redesurftank.havalshisuku.models.ThemeMetadata? = null
+    private var themeBridge: br.com.redesurftank.havalshisuku.bridge.ThemeBridgeImpl? = null
+    private var bridgePrefsListener: br.com.redesurftank.havalshisuku.bridge.PreferencePushListener? = null
 
     private var lastHeartbeatTime = System.currentTimeMillis()
     private var lastCarPlayInDash: Boolean? = null
@@ -943,6 +949,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             }
                             updateVirtualClusterVisibility(reason = "DISPLAY_3_APP_STATE_CHANGED")
                             syncSecondaryDisplayApps(3)
+                            pushVirtualDisplayState(3)
                         }
                         ServiceManagerEventType.DISPLAY_1_APP_STATE_CHANGED -> {
                             isAnyAppOnDisplay1 = args[0] as Boolean
@@ -955,6 +962,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     mapOf("active" to isAnyAppOnDisplay1)
                             )
                             updateVirtualClusterVisibility(reason = "DISPLAY_1_APP_STATE_CHANGED")
+                            pushVirtualDisplayState(1)
                         }
                         ServiceManagerEventType.DISMISS_WARNING -> {
                             val timeSinceWarning = System.currentTimeMillis() - lastWarningActiveTime
@@ -998,6 +1006,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         handler.post(clockRunnable)
         handler.post(watchdogRunnable)
         preferences.registerOnSharedPreferenceChangeListener(prefsListener)
+        bridgePrefsListener = br.com.redesurftank.havalshisuku.bridge.PreferencePushListener(this@InstrumentProjector2) { virtualKey, value ->
+            themeBridge?.pushOnDataChanged(virtualKey, value)
+        }
+        preferences.registerOnSharedPreferenceChangeListener(bridgePrefsListener)
         ServiceManager.getInstance().addServiceManagerEventListener(eventListener)
         window?.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
         window?.addFlags(
@@ -1034,6 +1046,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         handler.removeCallbacks(watchdogRunnable)
         scope.cancel()
         preferences.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        bridgePrefsListener?.let {
+            preferences.unregisterOnSharedPreferenceChangeListener(it)
+        }
         ServiceManager.getInstance().removeServiceManagerEventListener(eventListener)
 
         // Hardening: Explicitly destroy WebView to prevent leaks and broken channels
@@ -1083,6 +1098,25 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             lastSentValues[key] = value
 
             ensureUi {
+                // Symmetrical bridge push
+                val themeBridge = this.themeBridge
+                if (themeBridge != null) {
+                    val themeKey = br.com.redesurftank.havalshisuku.bridge.BridgeContractTranslator.translateCanonicalToThemeKey(key)
+                    if (subscribedKeys.contains(themeKey)) {
+                        themeBridge.pushOnDataChanged(themeKey, value)
+                    } else if (subscribedKeys.contains(key)) {
+                        themeBridge.pushOnDataChanged(key, value)
+                    }
+                }
+
+                // Gate legacy dispatch: if theme is decentralized, bypass the legacy hardcoded parsing!
+                if (ServiceManager.getInstance().isThemeDecentralized) {
+                    return@ensureUi
+                }
+
+                if (subscribedKeys.contains(key)) {
+                    evaluateJsIfReady(webView, "if (window.onDataChanged) window.onDataChanged('$key', '$value');")
+                }
                 when (key) {
                     CarConstants.CAR_BASIC_VEHICLE_SPEED.value -> {
                         val speedStr = getAdjustedSpeed(value)
@@ -1311,6 +1345,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                                     "setInterval(() => { if (window.Android && window.Android.heartbeat) window.Android.heartbeat(); }, 2000);",
                                                     null
                                             )
+                                            // Inject polyfills if necessary
+                                            br.com.redesurftank.havalshisuku.bridge.CompatTranslationLayer.injectPolyfillsIfNecessary(wv, activeThemeMetadata)
                                         }
                                     }
                                 }
@@ -1350,7 +1386,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                 "UTF-8",
                                 null
                         )
-                        addJavascriptInterface(WebAppInterface(), "Android")
+                        themeBridge = br.com.redesurftank.havalshisuku.bridge.ThemeBridgeImpl(this@InstrumentProjector2)
+                        addJavascriptInterface(themeBridge!!, "Android")
                     }
             parent.addView(webView)
         }
@@ -1909,6 +1946,13 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                 outerContext
                         )
                 val metadata = themeManager.getThemeMetadata(customThemeName)
+                activeThemeMetadata = metadata
+                
+                // Set theme decentralization flag in ServiceManager!
+                val decentralized = metadata?.decentralized ?: false
+                ServiceManager.getInstance().isThemeDecentralized = decentralized
+                Log.d(TAG, "Theme $customThemeName isThemeDecentralized = $decentralized")
+
                 val mainFile = metadata?.mainFile ?: "index.html"
 
                 val themeFile = themeManager.getThemeFile(customThemeName, mainFile)
@@ -1922,6 +1966,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             } catch (e: Exception) {
                 Log.e(TAG, "Error reading custom theme file, falling back to raw asset", e)
             }
+        } else {
+            activeThemeMetadata = null
+            ServiceManager.getInstance().isThemeDecentralized = false
         }
 
         Log.d(TAG, "Loading base HTML from resource: app.html")
@@ -2097,16 +2144,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         }
     }
 
-    private fun saveClusterDisplay(display: String) {
+    override fun saveClusterDisplay(value: String) {
         testDefaultDisplayOverrideActive = false
-        val normalizedDisplay = normalizeClusterDisplay(display)
+        val normalizedDisplay = normalizeClusterDisplay(value)
         preferences.edit()
                 .putString(SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key, normalizedDisplay)
                 .apply()
         Log.d(TAG, "Cluster display saved: $normalizedDisplay")
     }
 
-    private fun updateWarningUI(anyWarningActive: Boolean) {
+    override fun updateWarningUI(isActive: Boolean) {
         // State-change guard. The WebView's JS bridge (setWarningActive)
         // was observed firing every ~580ms while a warning is active,
         // producing a hot loop of cache invalidations, visibility
@@ -2114,73 +2161,52 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         // that pegged Impulse's main thread (~87% CPU). Doing real work
         // only on the actual boolean flip eliminates the loop without
         // changing semantics — the JS bridge can stay chatty; we no-op.
-        if (anyWarningActive == isWarningActive) return
+        if (isActive == isWarningActive) return
 
-        if (anyWarningActive && !isWarningActive) {
+        if (isActive && !isWarningActive) {
             lastWarningActiveTime = System.currentTimeMillis()
             Log.w(TAG, "updateWarningUI: warning transition to active, setting onset time")
         }
 
-        isWarningActive = anyWarningActive
+        isWarningActive = isActive
         lastAppliedConfigs.clear() // Invalidate cache on warning toggle to force re-sync
-        if (anyWarningActive) {
+        if (isActive) {
             Log.w(TAG, "Warning detected. currentCard=$currentCard. Triggering visibility update.")
         } else {
             Log.w(TAG, "Warnings cleared.")
         }
         logClusterPerfEvent(
                 "warning_state_changed",
-                mapOf("active" to anyWarningActive)
+                mapOf("active" to isActive)
         )
 
         updateVirtualClusterVisibility(reason = "WARNING_STATE_CHANGED")
         syncSecondaryDisplayApps(3)
 
         // Propagate current warning state
-        evaluateJsIfReady(webView, "control('warningActive', $anyWarningActive)")
+        evaluateJsIfReady(webView, "control('warningActive', $isActive)")
+        themeBridge?.pushOnDataChanged("warningActive", isActive.toString())
     }
 
-    inner class WebAppInterface {
-        @JavascriptInterface
-        fun heartbeat() {
-            lastHeartbeatTime = System.currentTimeMillis()
-            logPerfHeartbeatIfNeeded()
-        }
+    override fun runOnUiThread(action: Runnable) {
+        ensureUi { action.run() }
+    }
 
-        @JavascriptInterface
-        fun perfEvent(name: String, details: String?) {
-            logClusterPerfEvent(
-                    "js_$name",
-                    mapOf("details" to (details ?: ""))
-            )
+    override fun setCardId(cardId: Int) {
+        if (currentCard == cardId) {
+            Log.d(TAG, "Card ID bridge echo ignored: $cardId")
+            logClusterPerfEvent("js_card_echo", mapOf("cardId" to cardId))
+            return
         }
-
-        @JavascriptInterface
-        fun setWarningActive(isActive: Boolean) {
-            ensureUi {
-                val effectiveActive = isActive && hasCriticalTelemetryWarning()
-                if (isActive && !effectiveActive) {
-                    Log.d(TAG, "Ignoring JS warningActive=true without critical telemetry")
-                }
-                updateWarningUI(effectiveActive)
-            }
-        }
-
-        @JavascriptInterface
-        fun setCardId(cardId: Int) {
-            if (currentCard == cardId) {
-                Log.d(TAG, "Card ID bridge echo ignored: $cardId")
-                logClusterPerfEvent("js_card_echo", mapOf("cardId" to cardId))
-                return
-            }
-            val previousCard = currentCard
-            currentCard = cardId
-            updateKnownScreenForCard(cardId)
-            Log.d(TAG, "Card ID updated to $cardId")
-            logClusterPerfEvent(
-                    "js_card_update",
-                    mapOf("from" to previousCard, "to" to cardId)
-            )
+        val previousCard = currentCard
+        currentCard = cardId
+        updateKnownScreenForCard(cardId)
+        Log.d(TAG, "Card ID updated to $cardId")
+        logClusterPerfEvent(
+                "js_card_update",
+                mapOf("from" to previousCard, "to" to cardId)
+        )
+        ensureUi {
             if (
                     hasManagedSecondaryDisplayWork(3) &&
                             ClusterCardFlowPolicy.cardCanAffectManagedAppBounds(
@@ -2192,48 +2218,31 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 syncSecondaryDisplayApps(3)
             }
         }
+    }
 
-        @JavascriptInterface
-        fun saveSetting(key: String, value: String) {
-            when (key) {
-                SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key -> saveClusterDisplay(value)
-                else -> Log.w(TAG, "Ignoring unsupported WebView setting: $key")
-            }
+    override fun updateHeartbeat() {
+        lastHeartbeatTime = System.currentTimeMillis()
+    }
+
+    private fun pushVirtualDisplayState(displayId: Int) {
+        val themeBridge = this.themeBridge ?: return
+        val contextApp = outerContext.applicationContext
+        
+        val activeAppKey = "app.display.$displayId.active_app"
+        val activeAppLabelKey = "app.display.$displayId.active_app_label"
+        val activeAppIconKey = "app.display.$displayId.active_app_icon"
+        
+        if (subscribedKeys.contains(activeAppKey)) {
+            val value = br.com.redesurftank.havalshisuku.bridge.VirtualTelemetryManager.getVirtualValue(contextApp, activeAppKey)
+            themeBridge.pushOnDataChanged(activeAppKey, value)
         }
-
-        @JavascriptInterface
-        fun updateCarData(key: String, value: String) {
-            ServiceManager.getInstance().updateData(key, value)
+        if (subscribedKeys.contains(activeAppLabelKey)) {
+            val value = br.com.redesurftank.havalshisuku.bridge.VirtualTelemetryManager.getVirtualValue(contextApp, activeAppLabelKey)
+            themeBridge.pushOnDataChanged(activeAppLabelKey, value)
         }
-
-        @JavascriptInterface
-        fun triggerSystemAction(action: String) {
-            when (action) {
-                "CANCEL_MAX_AC" -> ServiceManager.getInstance().cancelMaxAcMode()
-                "TRIGGER_AVM_CAMERA" -> {
-                    ServiceManager.getInstance().handleSteeringWheelCustomButton(
-                        br.com.redesurftank.havalshisuku.models.SteeringWheelCustomActionType.OPEN_AVM_ONCE.name,
-                        1
-                    )
-                }
-                "DISMISS_WARNINGS" -> {
-                    ensureUi { updateWarningUI(false) }
-                }
-                else -> {
-                    // Try to trigger as a general steering wheel button action if mapped
-                    ServiceManager.getInstance().handleSteeringWheelCustomButton(action, 1)
-                }
-            }
-        }
-
-        @JavascriptInterface
-        fun savePreference(key: String, value: String) {
-            preferences.edit().putString(key, value).apply()
-        }
-
-        @JavascriptInterface
-        fun getPreference(key: String, defaultValue: String): String {
-            return preferences.getString(key, defaultValue) ?: defaultValue
+        if (subscribedKeys.contains(activeAppIconKey)) {
+            val value = br.com.redesurftank.havalshisuku.bridge.VirtualTelemetryManager.getVirtualValue(contextApp, activeAppIconKey)
+            themeBridge.pushOnDataChanged(activeAppIconKey, value)
         }
     }
 }

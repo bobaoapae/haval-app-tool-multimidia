@@ -16,5 +16,8 @@ data class ThemeMetadata(
     val height: Int? = null,
     val hasUpdate: Boolean = false,
     val remoteSha: String? = null,
-    val remoteSize: Long? = null
+    val remoteSize: Long? = null,
+    val decentralized: Boolean = false,
+    val minBridgeVersion: String? = null,
+    val configurations: List<ThemeConfig> = emptyList()
 )

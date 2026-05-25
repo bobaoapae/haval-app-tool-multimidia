@@ -2,9 +2,14 @@
 description: Build inlined html file for all themes, and updates the Themmes folder
 ---
 
-Review the cluster-widgets folder if there are changes in the files for any of the subfolders (each one is a specific theme).
-For each folder with changes do the following
-1. execute 'npm run build'
-2. copy the generated inlined html file from dist folder to the cluster-widgets/Themes/<<folder>> where <<folder> would be the respective folder for that theme (it matches the name)
-3. if the theme is 'default' we should also copy the generated inlined html file from dist folder to app\src\main\res\raw\app.html as the main theme
-4. update the cluster-widgets/Themes/<<folder>>/theme.xml and increase the version in 0.0.1
+Review the `cluster-widgets/source/` folder if there are changes in any theme:
+- **Non-contract (legacy) themes**: Source is under `cluster-widgets/source/noncontract/<<folder>>/`.
+- **v1.0 contract themes**: Source is under `cluster-widgets/source/v1.0/<<folder>>/`.
+
+For each folder with changes, execute the following:
+1. Run `npm run build` in the source directory of the theme.
+2. Copy the generated inlined HTML file from the `dist/` folder to the target output destination:
+   - For **non-contract** themes: `cluster-widgets/Themes/<<folder>>/` (retains the legacy root structure, e.g. `Basic`, `BasicLight`, `Default`).
+   - For **v1.0 contract** themes: `cluster-widgets/Themes/v1.0/<<folder>>/` (retains the versioned structure, e.g. `Default`).
+3. If the theme is `v1.0/default`, also copy the generated inlined HTML file to `app/src/main/res/raw/app.html` as the main APK theme.
+4. Update the `theme.xml` in the respective output folder and increase the version by 0.0.1.
