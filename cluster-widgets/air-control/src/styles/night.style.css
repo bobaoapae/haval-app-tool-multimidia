@@ -2242,8 +2242,8 @@ canvas.graph-chart {
 @keyframes media-marquee {
   0%     { transform: translateX(0); }
   10%    { transform: translateX(0); }
-  60%    { transform: translateX(calc(-100% + 300px)); }
-  85%    { transform: translateX(calc(-100% + 300px)); }
+  60%    { transform: translateX(min(0px, calc(-100% + 300px))); }
+  85%    { transform: translateX(min(0px, calc(-100% + 300px))); }
   85.01% { transform: translateX(0); }
   100%   { transform: translateX(0); }
 }
@@ -2317,7 +2317,7 @@ canvas.graph-chart {
 /* ── Dashboard Media Bar (fixed widget bottom-left) ── */
 .dashboard-media-bar {
   position: absolute;
-  bottom: 65px;
+  bottom: 45px;
   right: 460px;
   display: flex;
   align-items: center;
@@ -2331,10 +2331,10 @@ canvas.graph-chart {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.88);
-  -webkit-mask-image: linear-gradient(to right, transparent, black 18%, black 82%, transparent),
-                      linear-gradient(to bottom, transparent, black 25%, black 75%, transparent);
-  mask-image: linear-gradient(to right, transparent, black 18%, black 82%, transparent),
-              linear-gradient(to bottom, transparent, black 25%, black 75%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 18%, black 65%, transparent),
+                      linear-gradient(to bottom, transparent, black 20%, black 60%, transparent);
+  mask-image: linear-gradient(to right, transparent, black 18%, black 65%, transparent),
+              linear-gradient(to bottom, transparent, black 20%, black 60%, transparent);
   -webkit-mask-composite: source-in;
   mask-composite: intersect;
   border-radius: 8px;
@@ -2346,11 +2346,15 @@ canvas.graph-chart {
   flex-shrink: 0;
   line-height: 1;
   margin-right: 8px;
+  position: relative;
+  z-index: 1;
 }
 .dashboard-media-text-wrap {
   overflow: hidden;
   flex: 1;
   min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 .dashboard-media-text {
   font-size: 30px;
@@ -2365,8 +2369,8 @@ canvas.graph-chart {
 @keyframes media-bar-marquee {
   0%     { transform: translateX(0); }
   15%    { transform: translateX(0); }
-  65%    { transform: translateX(calc(-100% + 224px)); }
-  85%    { transform: translateX(calc(-100% + 224px)); }
+  65%    { transform: translateX(min(0px, calc(-100% + 224px))); }
+  85%    { transform: translateX(min(0px, calc(-100% + 224px))); }
   85.01% { transform: translateX(0); }
   100%   { transform: translateX(0); }
 }

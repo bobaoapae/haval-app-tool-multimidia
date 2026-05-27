@@ -112,6 +112,15 @@ class MediaNotificationListenerService : NotificationListenerService() {
             override fun onMetadataChanged(metadata: MediaMetadata?) {
                 dispatchFromMetadata(controller.packageName, metadata)
             }
+            override fun onPlaybackStateChanged(state: android.media.session.PlaybackState?) {
+                val playing = state?.state == android.media.session.PlaybackState.STATE_PLAYING
+                if (!playing) {
+                    ServiceManager.getInstance().dispatchServiceManagerEvent(
+                        ServiceManagerEventType.MEDIA_NOTIFICATION_UPDATE,
+                        "", "", "", false
+                    )
+                }
+            }
         }
         controller.registerCallback(mediaCallback!!)
         dispatchFromMetadata(controller.packageName, controller.metadata)

@@ -152,7 +152,8 @@ public class ServiceManager {
             CarConstants.SYS_BASIC_AUDIO_SOURCE_APP,
             CarConstants.SYS_RADIO_CUR_CHANNEL_INFO,
             CarConstants.SYS_RADIO_PLAY_STATE,
-            CarConstants.SYS_RADIO_FM_FAVORITES_STATION_LIST
+            CarConstants.SYS_RADIO_FM_FAVORITES_STATION_LIST,
+            CarConstants.SYS_RADIO_SEARCH_STATE
     };
 
     private static final CarConstants[] KEYS_TO_SAVE = {

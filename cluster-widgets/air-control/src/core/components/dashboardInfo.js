@@ -31,9 +31,11 @@ function createMediaBar() {
         var enabled = getState('mediaBarEnabled') !== false;
         bar.style.display = (enabled && label) ? 'flex' : 'none';
 
-        if (label.length > 22) {
-            marqueeTimer = setTimeout(function() { text.classList.add('marquee'); }, 1000);
-        }
+        marqueeTimer = setTimeout(function() {
+            if (text.scrollWidth > wrap.offsetWidth) {
+                text.classList.add('marquee');
+            }
+        }, 1000);
     }
 
     function updateVisibility() {

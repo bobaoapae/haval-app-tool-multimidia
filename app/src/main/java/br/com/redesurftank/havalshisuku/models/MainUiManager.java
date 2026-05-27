@@ -6,6 +6,7 @@ import br.com.redesurftank.havalshisuku.managers.ServiceManager;
 import br.com.redesurftank.havalshisuku.models.screens.AcControlScreen;
 import br.com.redesurftank.havalshisuku.models.screens.MainMenu;
 import br.com.redesurftank.havalshisuku.models.screens.Screen;
+import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType;
 
 public class MainUiManager {
 
@@ -71,6 +72,11 @@ public class MainUiManager {
     public void handleGeneralKeyEvents(Screen.Key key) {
         if (this.currentCard == 1) this.currentScreenCard1.processKey(key);
         else if (this.currentCard == 3) this.currentScreenCard3.processKey(key);
+        else if (key == Screen.Key.UP || key == Screen.Key.UP_LONG) {
+            ServiceManager.getInstance().dispatchServiceManagerEvent(ServiceManagerEventType.RADIO_NAVIGATE, "next");
+        } else if (key == Screen.Key.DOWN || key == Screen.Key.DOWN_LONG) {
+            ServiceManager.getInstance().dispatchServiceManagerEvent(ServiceManagerEventType.RADIO_NAVIGATE, "prev");
+        }
     }
 
 }

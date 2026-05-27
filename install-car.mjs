@@ -31,8 +31,14 @@ const APK_DEST    = '/data/local/tmp/haval-app.apk';
 
 // ── Detecta gateway e IP local ──────────────────────────────────────────────
 function getNetwork() {
+    const out = execSync('ipconfig', { encoding: 'buffer' }).toString('latin1');
+    // Allow manual override via CAR_IP env var
+    if (process.env.CAR_IP) {
+        const match = out.match(/IPv4[^\d]+([\d.]+)/);
+        const ip = process.env.LOCAL_IP || match?.[1] || '127.0.0.1';
+        return { gateway: process.env.CAR_IP, ip };
+    }
     try {
-        const out = execSync('ipconfig', { encoding: 'buffer' }).toString('latin1');
         const wifiSection = out.split(/Adaptador/).find(s => s.includes('Wi-Fi') && s.includes('Gateway'));
         if (!wifiSection) throw new Error('Wi-Fi não encontrado');
         const gateway = wifiSection.match(/Gateway[^\d]+([\d.]+)/)?.[1];
