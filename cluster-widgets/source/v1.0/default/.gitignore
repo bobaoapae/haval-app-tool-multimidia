@@ -13,6 +13,20 @@ dist-ssr
 *.local
 .parcel-cache
 
+# Parcel build intermediates (hashed filenames)
+basic.*.css
+basic.*.css.map
+basic.*.js
+basic.*.js.map
+testing-utils.*.js
+testing-utils.*.js.map
+
+# Temp build outputs
+inline_output.txt
+refactor.js
+bun.lock
+app.html
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

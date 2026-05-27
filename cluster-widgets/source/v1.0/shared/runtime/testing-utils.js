@@ -16,6 +16,8 @@ export function initSimulationHarness(stateManager, menuItems) {
     setState('odometer', 11450);
     setState('nextRevisionKm', 12000);
     setState('nextRevisionDate', Date.now() + 15 * 24 * 60 * 60 * 1000);
+    setState('inside_temp', 32);
+    setState('outside_temp', 28);
     setState('tripAnalysisActive', true);
     setState('tripAnalysisScore', 82);
 
@@ -223,6 +225,7 @@ export function initSimulationHarness(stateManager, menuItems) {
     if (window.simulationInterval) clearInterval(window.simulationInterval);
 
     window.simulationInterval = setInterval(() => {
+        if (window.__SIMULATION_ACTIVE__ === false) return;
         const mgr = window.__SIMULATION_STATE_MANAGER__ || stateManager;
         switch (simulationPhase) {
             case 'accelerating':
@@ -295,13 +298,13 @@ export function initSimulationHarness(stateManager, menuItems) {
             // Force 0 if speed is 0
             const playsRPM = currentSpeed > 0;
             const simulatedRPM = playsRPM ? 1000 + (currentSpeed * 40) + (Math.random() * 500) : 0;
-            setState('engineRPM', Math.min(Math.max(simulatedRPM, 0), 7000));
+            setState('engineRPM', Math.round(Math.min(Math.max(simulatedRPM, 0), 7000)));
         } else {
             setState('gasConsumption', 0);
             setState('gasConsumptionIdle', Math.round(lastValue) / 20);
             // If idle, RPM is 800 but ONLY if speed > 0
             const idleRPM = currentSpeed > 0 ? 800 : 0;
-            setState('engineRPM', idleRPM);
+            setState('engineRPM', Math.round(idleRPM));
         }
 
         // Simulate EV power factor: -100 to +100 % (for power ring)

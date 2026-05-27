@@ -1,7 +1,7 @@
 <theme>
     <name>Default</name>
     <description>Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.</description>
-    <version>1.3.0</version>
+    <version>1.4.6</version>
     <thumbnail>thumbnail.png</thumbnail>
     <mainFile>index.html</mainFile>
     <decentralized>true</decentralized>
@@ -39,6 +39,22 @@
             <type>boolean</type>
             <default>true</default>
             <stateVariable>headerVisible</stateVariable>
+        </configuration>
+        <configuration>
+            <id>theme_mode</id>
+            <label>Modo Visual</label>
+            <type>combo</type>
+            <options>Dark, Light</options>
+            <default>Dark</default>
+            <stateVariable>mode</stateVariable>
+        </configuration>
+        <configuration>
+            <id>gauge_style</id>
+            <label>Estilo dos Marcadores</label>
+            <type>combo</type>
+            <options>Esportivo, Clássico</options>
+            <default>Esportivo</default>
+            <stateVariable>gaugeStyle</stateVariable>
         </configuration>
     </configurations>
 </theme>
