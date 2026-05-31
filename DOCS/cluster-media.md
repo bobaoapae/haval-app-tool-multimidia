@@ -36,7 +36,9 @@ Leitura via ITS (beantechs pub/sub):
 1. ITS listener em tempo real (`sys.radio.fm_favorites_station_list`)
 2. `local_radio.xml` via Shizuku no startup: `cat /data/user_de/0/com.beantechs.mediacenter/shared_prefs/local_radio.xml`
 
-**Navegação por favoritos** via setas do cluster (keycodes 1024/1025): o `InstrumentProjector2` escreve `sys.radio.cur_channel_info = {freqKhz,0,0,0}` para sintonizar diretamente.
+**Navegação por favoritos** via setas do cluster (keycodes 1024/1025) ou via botões `|◄ ►|` do volante (keycodes 87/88, configurável em Settings): o `InstrumentProjector2` escreve `sys.radio.cur_channel_info = {freqKhz,0,0,0}` para sintonizar diretamente, com re-envio após 300ms para sobrepor o scan nativo dos botões de mídia.
+
+**Adicionar favorito:** long-press do botão O (keyevent_notify `{1004,0}`) enquanto rádio ativa grava a frequência no `local_radio.xml` via Shizuku (`sed -i`) e recarrega a lista em memória imediatamente.
 
 ### Bluetooth (AVRCP)
 
@@ -94,23 +96,33 @@ Flag booleana central que controla qual fonte está ativa:
 
 ---
 
-## Controles de mídia (teclas do cluster)
+## Controles de mídia (teclas do cluster e volante)
 
-| Keycode | Evento | Ação |
-|---|---|---|
-| 1024 | `RADIO_NAVIGATE "next"` | Próxima rádio favorita (ou seek fallback) |
-| 1025 | `RADIO_NAVIGATE "prev"` | Rádio favorita anterior |
-| 1028 | `RADIO_PLAY_PAUSE` | Desabilitado — botão "O" do hardware faz pause/play nativo |
+| Keycode | Via | Evento | Ação |
+|---|---|---|---|
+| 1024 | inputservice | `RADIO_NAVIGATE "next"` | Próxima rádio favorita (dentro do MediaScreen) |
+| 1025 | inputservice | `RADIO_NAVIGATE "prev"` | Rádio favorita anterior (dentro do MediaScreen) |
+| 1028 | inputservice | `RADIO_PLAY_PAUSE` | Desabilitado — botão "O" faz pause/play nativo |
+| 87 | inputservice | `RADIO_NAVIGATE "next"` | Botão `►|` do volante (opcional, via Settings) |
+| 88 | inputservice | `RADIO_NAVIGATE "prev"` | Botão `|◄` do volante (opcional, via Settings) |
+| 1003 | keyevent_notify | — | Botão O curto (play/pause nativo) |
+| 1004 | keyevent_notify | `addFavoriteToRadioXml` | Botão O longo → favorita estação atual |
 
 Guards ativos em `RADIO_NAVIGATE`: ignora se `!isRadioSource` ou se `isRadioSeeking`.
+
+> `SYS_OTHER_KEYEVENT_NOTIFY` está nos `DEFAULT_KEYS` para capturar eventos do botão O via ITS.
 
 ---
 
 ## Mini bar de mídia
 
-Posição: `bottom: 65px; right: 460px` (à esquerda do círculo do cluster).
+Posição: `bottom: 45px; right: 460px; width: 340px` (à esquerda do círculo do cluster).
 
 Ativado/desativado em tempo real via SharedPreferences (`mediaBarEnabled`) com `OnSharedPreferenceChangeListener`.
+
+**Ícone dinâmico:** `♪` para FM/AM, `▶` para AA/BT — atualiza via `mediaSource` state.
+
+**Contador X/Y:** exibe posição na lista de favoritas (ex: `5/9`) somente quando fonte é FM/AM e o título bate com uma entrada da lista. Oculto para AA/BT.
 
 **Marquee:** usa `translateX(min(0px, calc(-100% + 224px)))` — o `min()` impede que textos curtos se movam para a direita.
 
