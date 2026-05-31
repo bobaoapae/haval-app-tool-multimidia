@@ -1640,6 +1640,16 @@ fun BasicSettingsTab() {
                                                         var expanded2 by remember {
                                                                 mutableStateOf(false)
                                                         }
+                                                        var mediaArrowsNavigateFavorites by remember {
+                                                                mutableStateOf(
+                                                                        prefs.getBoolean(
+                                                                                SharedPreferencesKeys
+                                                                                        .STEERING_WHEEL_MEDIA_ARROWS_NAVIGATE_FAVORITES
+                                                                                        .key,
+                                                                                false
+                                                                        )
+                                                                )
+                                                        }
 
                                                         Column(
                                                                 verticalArrangement =
@@ -1932,6 +1942,42 @@ fun BasicSettingsTab() {
                                                                                                                         0xFF3A3F47
                                                                                                                 )
                                                                                                 )
+                                                                        )
+                                                                }
+                                                                HorizontalDivider(
+                                                                        color = Color(0xFF3A3F47),
+                                                                        thickness = 1.dp
+                                                                )
+                                                                Row(
+                                                                        modifier = Modifier.fillMaxWidth(),
+                                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                                        verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                        Column(modifier = Modifier.weight(1f)) {
+                                                                                Text(
+                                                                                        "Botões |◄ ►| navegam favoritas de rádio",
+                                                                                        color = Color.White,
+                                                                                        fontSize = 15.sp
+                                                                                )
+                                                                                Text(
+                                                                                        SharedPreferencesKeys.STEERING_WHEEL_MEDIA_ARROWS_NAVIGATE_FAVORITES.description,
+                                                                                        color = Color(0xFF8A9BB0),
+                                                                                        fontSize = 12.sp
+                                                                                )
+                                                                        }
+                                                                        Switch(
+                                                                                checked = mediaArrowsNavigateFavorites,
+                                                                                onCheckedChange = {
+                                                                                        mediaArrowsNavigateFavorites = it
+                                                                                        prefs.edit {
+                                                                                                putBoolean(
+                                                                                                        SharedPreferencesKeys
+                                                                                                                .STEERING_WHEEL_MEDIA_ARROWS_NAVIGATE_FAVORITES
+                                                                                                                .key,
+                                                                                                        it
+                                                                                                )
+                                                                                        }
+                                                                                }
                                                                         )
                                                                 }
                                                         }

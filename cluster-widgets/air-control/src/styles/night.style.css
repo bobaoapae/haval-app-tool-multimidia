@@ -2322,7 +2322,7 @@ canvas.graph-chart {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 300px;
+  width: 340px;
   z-index: 0;
   padding: 4px 10px;
 }
@@ -2365,6 +2365,16 @@ canvas.graph-chart {
 }
 .dashboard-media-text.marquee {
   animation: media-bar-marquee 12s linear infinite;
+}
+.dashboard-media-bar-counter {
+  font-size: 22px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.55);
+  flex-shrink: 0;
+  margin-left: 8px;
+  white-space: nowrap;
+  position: relative;
+  z-index: 1;
 }
 @keyframes media-bar-marquee {
   0%     { transform: translateX(0); }

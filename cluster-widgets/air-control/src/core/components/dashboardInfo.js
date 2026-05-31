@@ -9,11 +9,40 @@ function createMediaBar() {
     const icon = span({ className: 'dashboard-media-icon', children: ['♪'] });
     const wrap = div({ className: 'dashboard-media-text-wrap' });
     const text = span({ className: 'dashboard-media-text' });
+    const counter = span({ className: 'dashboard-media-bar-counter' });
     wrap.appendChild(text);
     bar.appendChild(icon);
     bar.appendChild(wrap);
+    bar.appendChild(counter);
 
     var marqueeTimer = null;
+
+    function getFavorites() {
+        var raw = getState('mediaFavorites');
+        if (!raw) return [];
+        if (Array.isArray(raw)) return raw;
+        try { return JSON.parse(raw); } catch(e) { return []; }
+    }
+
+    function updateCounter() {
+        var source = getState('mediaSource') || '';
+        var isRadio = source === 'FM' || source === 'AM';
+        if (!isRadio) {
+            counter.textContent = '';
+            counter.style.display = 'none';
+            return;
+        }
+        var title = getState('mediaTitle') || '';
+        var favs = getFavorites();
+        var idx = favs.indexOf(title);
+        if (idx >= 0 && favs.length > 0) {
+            counter.textContent = (idx + 1) + '/' + favs.length;
+            counter.style.display = '';
+        } else {
+            counter.textContent = '';
+            counter.style.display = 'none';
+        }
+    }
 
     function update() {
         var source = getState('mediaSource') || '';
@@ -24,6 +53,9 @@ function createMediaBar() {
             label = title;
             if (artist) label += ' — ' + artist;
         }
+
+        var isRadio = source === 'FM' || source === 'AM';
+        icon.textContent = isRadio ? '♪' : '▶';
 
         if (marqueeTimer) clearTimeout(marqueeTimer);
         text.classList.remove('marquee');
@@ -36,6 +68,8 @@ function createMediaBar() {
                 text.classList.add('marquee');
             }
         }, 1000);
+
+        updateCounter();
     }
 
     function updateVisibility() {
@@ -49,6 +83,8 @@ function createMediaBar() {
         subscribe('mediaTitle', update),
         subscribe('mediaArtist', update),
         subscribe('mediaBarEnabled', updateVisibility),
+        subscribe('mediaFavorites', updateCounter),
+        subscribe('mediaSource', updateCounter),
     ];
 
     bar.cleanup = function() {

@@ -153,7 +153,11 @@ public class ServiceManager {
             CarConstants.SYS_RADIO_CUR_CHANNEL_INFO,
             CarConstants.SYS_RADIO_PLAY_STATE,
             CarConstants.SYS_RADIO_FM_FAVORITES_STATION_LIST,
-            CarConstants.SYS_RADIO_SEARCH_STATE
+            CarConstants.SYS_RADIO_SEARCH_STATE,
+            CarConstants.SYS_RADIO_RDS_CUR_CHANNEL_INFO,
+            CarConstants.SYS_RADIO_RDS_REGIONAL_INFO,
+            CarConstants.SYS_RADIO_RDS_TRAFFIC_ANNOUNCEMENT_ACTIVE_STATE,
+            CarConstants.SYS_OTHER_KEYEVENT_NOTIFY
     };
 
     private static final CarConstants[] KEYS_TO_SAVE = {
@@ -406,6 +410,14 @@ public class ServiceManager {
             inputListener = new IInputListener.Stub() {
                 @Override
                 public void dispatchKeyEvent(KeyEvent keyEvent) {
+                    if (keyEvent.getAction() == KeyEvent.ACTION_UP &&
+                            sharedPreferences.getBoolean(SharedPreferencesKeys.STEERING_WHEEL_MEDIA_ARROWS_NAVIGATE_FAVORITES.getKey(), false)) {
+                        if (keyEvent.getKeyCode() == 87) {
+                            dispatchServiceManagerEvent(ServiceManagerEventType.RADIO_NAVIGATE, "next");
+                        } else if (keyEvent.getKeyCode() == 88) {
+                            dispatchServiceManagerEvent(ServiceManagerEventType.RADIO_NAVIGATE, "prev");
+                        }
+                    }
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
                         switch (keyEvent.getKeyCode()) {
                             case 517: handleSteeringWheelCustomButton(sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.name()), 1); break;

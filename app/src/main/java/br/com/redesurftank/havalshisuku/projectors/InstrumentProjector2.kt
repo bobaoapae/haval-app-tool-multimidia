@@ -339,6 +339,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                 val targetFreq = radioFavorites[nextIdx]
                                 Log.w(TAG, "RADIO_NAVIGATE $direction: tune to idx=$nextIdx freq=$targetFreq list=${radioFavorites.size} cur=$currentFreqKhz")
                                 ServiceManager.getInstance().updateData(CarConstants.SYS_RADIO_CUR_CHANNEL_INFO.value, "{$targetFreq,0,0,0}")
+                                // Re-send after 300ms to override any native scan still running
+                                handler.postDelayed({
+                                    ServiceManager.getInstance().updateData(CarConstants.SYS_RADIO_CUR_CHANNEL_INFO.value, "{$targetFreq,0,0,0}")
+                                }, 300)
                             } else {
                                 val action = "6"
                                 Log.w(TAG, "RADIO_NAVIGATE $direction: seek fallback action=$action favorites=${radioFavorites.size}")
@@ -350,7 +354,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             Log.d(TAG, "RADIO_PLAY_PAUSE: ignored (hardware O button handles this)")
                         }
                         ServiceManagerEventType.MEDIA_NOTIFICATION_UPDATE -> {
-                            if (isRadioPlaying) return@ensureUi
+                            if (isRadioSource) return@ensureUi
+                            // Startup guard: isRadioSource may not be set yet — confirm via ITS
+                            val srcNow = ServiceManager.getInstance().getData(CarConstants.SYS_BASIC_AUDIO_SOURCE_APP.value)
+                            val srcNameNow = if (!srcNow.isNullOrEmpty()) getMediaSourceName(srcNow) else ""
+                            if (srcNameNow == "FM" || srcNameNow == "AM") {
+                                isRadioSource = true
+                                Log.w(TAG, "MEDIA_NOTIFICATION_UPDATE: blocked — ITS confirms radio source='$srcNameNow'")
+                                return@ensureUi
+                            }
                             val source = (args.getOrNull(0) as? String) ?: ""
                             val title = (args.getOrNull(1) as? String) ?: ""
                             val artist = (args.getOrNull(2) as? String) ?: ""
@@ -813,6 +825,27 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     CarConstants.SYS_RADIO_SEARCH_STATE.value -> {
                         isRadioSeeking = value.toString() == "3"
                         Log.w(TAG, "search_state=$value isRadioSeeking=$isRadioSeeking")
+                    }
+                    CarConstants.SYS_OTHER_KEYEVENT_NOTIFY.value -> {
+                        val raw = value.toString().trim('{', '}')
+                        val parts = raw.split(",")
+                        val code = parts.getOrNull(0)?.trim()?.toIntOrNull() ?: return@ensureUi
+                        val action = parts.getOrNull(1)?.trim()?.toIntOrNull() ?: 0
+                        if (code == 1004 && action == 0 && isRadioSource && currentFreqKhz > 0) {
+                            Log.w(TAG, "FAVORITE: long-press O → salvando freq=$currentFreqKhz via Shizuku")
+                            scope.launch(Dispatchers.IO) {
+                                val ok = addFavoriteToRadioXml(currentFreqKhz)
+                                if (ok) {
+                                    val updated = loadFavoritesFromRadioXml()
+                                    withContext(Dispatchers.Main) {
+                                        radioFavorites = updated
+                                        val jsArr = updated.map { "\"${"%.1f".format(it / 1000.0)} FM\"" }
+                                        evaluateJsIfReady(webView, "control('mediaFavorites', JSON.stringify([${jsArr.joinToString(",")}]))")
+                                        Log.w(TAG, "FAVORITE: salvo! lista atualizada: ${updated.size}")
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1287,6 +1320,29 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun String.escapeForJs() = replace("\\", "\\\\").replace("'", "\\'")
+
+    private fun addFavoriteToRadioXml(freqKhz: Long): Boolean {
+        return try {
+            val path = "/data/user_de/0/com.beantechs.mediacenter/shared_prefs/local_radio.xml"
+            val xml = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "cat $path")) ?: return false
+            val line = xml.lines().firstOrNull { it.contains("fm_favorites_station_list") } ?: return false
+            val match = Regex("""\{([^}]+)\}""").find(line) ?: return false
+            val existing = match.groupValues[1].split(",").mapNotNull { it.trim().toLongOrNull() }.filter { it > 0 }
+            if (freqKhz in existing) {
+                Log.w(TAG, "FAVORITE: $freqKhz já está na lista")
+                return true
+            }
+            val newValue = "{${(existing + freqKhz).joinToString(",")}}"
+            val oldValue = match.value
+            val sed = "sed -i 's|$oldValue|$newValue|g' $path"
+            ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", sed))
+            Log.w(TAG, "FAVORITE: adicionado $freqKhz -> lista nova: $newValue")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "addFavoriteToRadioXml falhou: ${e.message}")
+            false
+        }
+    }
 
     private fun loadFavoritesFromRadioXml(): List<Long> {
         return try {
