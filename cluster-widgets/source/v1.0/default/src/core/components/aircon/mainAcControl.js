@@ -139,17 +139,28 @@ export function updateProgressRings() {
   const fanRing = document.getElementById('fan-progress-ring');
   const tempRing = document.getElementById('temp-progress-ring');
 
-  const fanValues = 7;
-  const currentFanIndex = stateManager.get('fan');
-  const fanAngle = parseInt(currentFanIndex) * 180 / fanValues;
+  const currentFan = parseInt(stateManager.get('fan')) || 0;
+  let fanAngle = 0;
+  if (currentFan > 0) {
+    fanAngle = 10 + (currentFan - 1) * (160 / 6);
+  }
   if (fanRing) {
     fanRing.style.setProperty('--progress-angle', `${fanAngle}deg`);
   }
 
-  const tempValues = 20;
   const currentTemp = stateManager.get('temp');
-  const currentTempIndex = (currentTemp > 16 + (tempValues / 2) ? 10 : currentTemp - 16);
-  const tempAngle = 360 - (2 * (parseFloat(currentTempIndex) * 180 / tempValues));
+  let tempIndex = 0;
+  if (currentTemp === 'LO' || currentTemp == 16) {
+    tempIndex = 0;
+  } else if (currentTemp === 'HI' || currentTemp == 32) {
+    tempIndex = 10;
+  } else {
+    const val = parseInt(currentTemp);
+    if (!isNaN(val)) {
+      tempIndex = Math.max(0, Math.min(10, val - 16));
+    }
+  }
+  const tempAngle = 350 - (tempIndex * 16);
   if (tempRing) {
     tempRing.style.setProperty('--progress-angle', `${tempAngle}deg`);
   }

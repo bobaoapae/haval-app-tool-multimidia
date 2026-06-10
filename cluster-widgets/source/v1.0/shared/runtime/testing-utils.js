@@ -45,8 +45,9 @@ export function initSimulationHarness(stateManager, menuItems) {
             const currentCardId = (currentState.cardId !== undefined) ? currentState.cardId : 1;
             const cards = [0, 1, 3];
 
-            // If in Clean mode, any key (except modifiers already handled) restores Normal mode
-            if (currentState.display === 'Clean') {
+            // If in Clean mode, any key (except menu keys and modifiers) restores Normal mode
+            const menuNavigationKeys = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'enter', 'escape', 'backspace', 'pageup', 'pagedown', '[', ']'];
+            if (currentState.display === 'Clean' && !menuNavigationKeys.includes(e.key.toLowerCase())) {
                 console.log('[Clean Mode] Exit via key press:', e.key);
                 window.control('display', 'Normal');
                 return;

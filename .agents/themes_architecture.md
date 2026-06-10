@@ -38,6 +38,30 @@ During this transition, the classic themes lost their top status bar backgrounds
   3. Changed the `.segment-track` background color to `rgba(0, 0, 0, 0.1)` so that empty progress bar tracks are clearly visible.
   4. Ported `.fuel-liters` CSS styles to `light.style.css` and updated `dashboardInfo.js` to utilize `.fuel-liters` instead of `.fuel-percent` for fuel display, making layouts completely identical across themes.
 
+### 4. Dynamic Visual Mode (Light/Dark Switch) Restoration
+- **Issue**: Toggling the visual mode dropdown to `Light` did not dynamically switch the dashboard background or gauges to light mode, despite the `.theme-light` class successfully appending to `#app`.
+- **Root Cause**: 
+  1. The main container `#app` lacked any default background-color styling in CSS. Because its children are absolutely positioned or fixed, its height collapsed to `0px`, and it had a completely transparent background.
+  2. In development mode, `main.js` hardcodes `document.body.style.backgroundColor = 'black'`, which showed through the transparent `#app` element.
+  3. The `.mask-circle.right` (used behind the menus/right-circle) used hardcoded dark colors (`var(--bg-black-70)`) in its radial gradient, creating a dark smudge on the right side of the screen when visual mode was light.
+  4. The circular dial background blockers (`.no-app-mask-l` and `.no-app-mask-r`) had a hardcoded background color (`var(--bg-black-100)`), keeping left and right circular areas solid black in light mode.
+- **Fixes**:
+  1. **Solid `#app` Canvas**: Explicitly styled `#app` in `night.style.css` to be a solid container (`position: absolute; top: 0; left: 0; width: 1920px; height: 720px; overflow: hidden;`) with `background-color: var(--bg-dark);` and a smooth 0.3s transition. When visual mode switches, the background transitions smoothly between black (`#000000`) and pure white (`#ffffff`).
+  2. **Right Radial Mask Harmonization**: Overrode `.mask-circle.right` under `#app.theme-light` to transition its radial gradient to a soft light background (`rgba(255, 255, 255, 0.7)` and `rgba(255, 255, 255, 0.85)`), blending seamlessly with the light theme.
+  3. **Solid Blockers Adaptation**: Overrode `.no-app-mask-l` and `.no-app-mask-r` under `#app.theme-light` to use `var(--mask-circle-bg)` (pure white) instead of solid black:
+     ```css
+     #app.theme-light .no-app-mask-l,
+     #app.theme-light .no-app-mask-r {
+       background: var(--mask-circle-bg) !important;
+       box-shadow: 0 0 40px 40px rgba(255, 255, 255, 0.5) !important;
+     }
+     ```
+  4. **High-Fidelity Dev Background Mockup**: 
+     * Injected a dynamic `.dev-background` div into `#app` in development mode (`nativeMockEnabled` is true).
+     * Sized and styled `.dev-background` using the realistic car cockpit cockpit asset `dev-bg.png` positioned at `z-index: 0` (behind all gauges and text).
+     * Programmed a hardware-accelerated opacity transition so `.dev-background` automatically fades out (`opacity: 0`) in light mode to reveal the clean, pure white dashboard background, and fades in (`opacity: 1`) in dark mode.
+     * Changed the dev-mode body background to a premium dark slate gray (`#111315`) so that the 1920x720 instrument cluster frame stands out cleanly in both dark and light visual modes during browser previews.
+
 ---
 
 ## Structural Integrity
@@ -142,5 +166,57 @@ To support dynamic and flexible theme configuration without hardcoding options i
 
 ### JNI Scope Resolution:
 To prevent settings desynchronization between different themes sharing the same `stateVariable` names, settings are saved and sandboxed under key `"theme_config_[themeFolderName]_[stateVariable]"`. The JNI bridge resolves these transparently so the active theme can query using the simple `stateVariable` name.
+
+---
+
+## Dynamic Visual Modes and Speedometer Customization
+
+In the Default / Sporty theme (`cluster-widgets/source/v1.0/default`), dynamic styling and speedometer layouts are resolved reactively on the fly:
+
+- **Modo Visual (mode)**: Pushes `"theme-light"` or `"theme-dark"` to the `#app` container. In Light mode (`#app.theme-light`), the stylesheet:
+  - Overrides canvas backgrounds to pure white (`#ffffff`).
+  - Darkens all top status bar header texts (clock, gear value, and EV/drive mode labels) and side labels to high-contrast black (`#0c0c0c`) by explicitly redefining `--dashboard-text-color`, `--text-light-blue`, and `--text-gray`.
+  - Disables all text shadows and glowing effects (setting `--text-glow-blue` to transparent and using `text-shadow: none !important` rules) to prevent glows on white backdrops for pristine text legibility.
+  - Sets SVG bottom gauge fills dynamically via CSS `--icon-color` to black (`#000000`).
+  - Changes progress bar tracks to translucent gray (`rgba(0, 0, 0, 0.1)`) for visible progress empty-spaces.
+  - Displays the high-fidelity cockpit background (`dev-bg.png`) symmetrically in both Dark and Light visual modes when `native-mock-enabled` is active, sized to the exact webview bounds (`width: 1920px; height: 596px; top: 62px;`).
+- **Estilo dos Marcadores (gaugeStyle)**: Declarative dropdown with choices **Esportivo (Sporty)** and **Clássico (Classic)**:
+  - Toggling to `Clássico` adds `.gauge-style-classico` to `#app` which forces the classic dial face and digital speed layout to show, while completely hiding the sporty canvas needle.
+  - Toggling to `Esportivo` adds `.gauge-style-esportivo` to `#app` which displays the modern active canvas dial, needle rotation, glow FX, and mock ready overlays.
+  - Inherits custom sport speedometer variables globally on the `:root` so the sporty cluster has perfect scale (`1.03`) and correct vertical offsets (`y = 45px`) in both the `Normal` (default) and `Esportivo` display modes.
+
+### 3. Local Simulator Segmented Pill Selectors
+In the floating Agent Testing Console testing harness, when a dynamic layout configuration is a `combo` of exactly **two options** (e.g. `mode` with `Dark, Light` or `gaugeStyle` with `Esportivo, Clássico`), the default dropdown `<select>` is automatically replaced with a premium, glassmorphic **segmented pill control** divided in the middle:
+- Active options are marked with a soft blue glowing backdrop (`rgba(56, 189, 248, 0.25)`) and cyan text.
+- Interactive clicks trigger JNI preference updates and dispatch `onDataChanged` state events, seamlessly synced via reactive getters/setters mapped to the console controller block.
+
+### 4. Interactive State Management Panel (Left Float Console)
+For comprehensive state tracking, a floating glassmorphic **State Management Simulator** floats in the bottom-left corner of the emulator (positioned at `left: 20px` to coordinate nicely with other consoles):
+- **Visual Toggle**: Minimizes and expands symmetrically alongside other panels by pressing the **`T`** key on the keyboard, or by clicking the header bar.
+- **Two-Column Organization**:
+  1. **Telemetria Básica (Core Telemetry)**: Sliders and numeric inputs to simulate variables like `carSpeed`, `engineRPM`, `evPowerKw`, `fuelPercent`, and `batteryPercent`.
+  2. **Modos e Estados (Modes & Status)**: Control dials and input blocks to simulate states like `gearState` (P, R, N, D), `drivingMode` (Normal, Eco, Sport), `evMode` (HEV, EV), `steerMode` (Conforto, Normal, Esportivo), `clockTime`, `espStatus`, and `appInDash`.
+- **Bidirectional Event Synchronization**: Changes inside the state manager (such as physical steering wheel button inputs changing drive/steer modes) automatically sync back to update the console's inputs and pill states in real time.
+
+### 5. Symmetrical Mock Projection (appInDash Backgrounds)
+To simulate the physical Haval cluster's projection behaviors during development (`nativeMockEnabled` is true):
+- A custom **Map in Dash Projection** checkbox toggle is exposed inside the State Management panel, mapped to JNI state `appInDash`.
+- When checked/enabled (`appInDash` is `true`), the cockpit background (`.dev-background`) displays the high-fidelity mock maps projection (`dev-bg.png`).
+- When unchecked/disabled (`appInDash` is `false`), the stylesheet appends `.app-in-dash-disabled` to `#app`, which triggers a transition and replaces the map with a premium solid neutral gray background (`#22252a`), mimicking the physical car cluster display.
+- **Production Isolation**: This visual projection switching is completely isolated from production bundles and only compiles in local test environments.
+
+This dynamic configuration architecture completely decouples visual choices from native Android logic, enabling full layout customizability purely through standardized theme stylesheets and descriptors.
+
+### 6. Sport Fixed Overlay & Speed Limit Sign Integration (v1.0 default)
+- **Overlay Level-Up**: The `.dashboard-fixed-overlay` container (housing the `READY` status text, lane assistance mock graphics, and speed limit sign) is nested inside `.dashboard-speed-container` but rendered with `inset: 0` and custom `z-index: 145`, which positions it symmetrically on the dashboard layout.
+- **Classic Mode Support**: With `display: block !important;` assigned via the native mock enabled rules under both layouts, overlays are completely visible and properly rendered in both **Classic** and **Sporty** speedometer gauge styles.
+- **Unified 30 Speed Sign**: The "30" speed limit sign, previously implemented as a CSS `::after` pseudo-element on `.dashboard-speed-container`, has been fully converted into a real, high-performance DOM element (`.dashboard-sport-limit-sign` containing text `"30"`) inside `.dashboard-fixed-overlay`. This makes visual styling extremely modular and easily controllable via theme stylesheets.
+- **Redundancy Clean-up**: Any redundant CSS layout overrides have been cleaned up and consolidated into standard conditional rules.
+
+### 7. Display Selection Menu Optimization & Key Synchronization
+- **Auto-Apply Selection Mode**: The display selection keyboard/steering wheel key event handler has been streamlined to cycle directly through the three valid layout options: `Normal`, `Reduzido` (Reduced), and `Clean` (Minimalist/Clean).
+- **Instant layout feedback**: Pressing `UP` or `DOWN` dynamically updates and auto-applies the new theme layout instantly in real time (e.g. updating the active `display` and sync with JNI bridge).
+- **Reactive UI carousel synchronization**: Added a reactive subscriber to `displaySelectionScreen` that listens to `display` changes and automatically updates `displayFocus`. This triggers the visual highlight, checked checkmark indicators, and slides the glassmorphic menu carousel to the chosen density option reactively.
+
 
 

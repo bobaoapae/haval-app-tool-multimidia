@@ -4,8 +4,17 @@ import { logger } from '../../../../shared/utils/logger.js';
 import { createOdometerInfo } from './display/odometer/odometerInfo.js';
 import { createSpeedometerScreen } from './speedometer/speedometer.js';
 
-const fuelIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xLDEyTDUsOVYxNVoiLz48cGF0aCBkPSJNMjIsMTBWOGEyLDIsMCwwLDAtMi0yaC0zVjRhMiwyLDAsMCwwLTItMkg5QTIsMiwwLDAsMCw3LDR2MTZhMiwyLDAsMCwwLDIsMmg4YTIsMiwwLDAsMCwyLTJWMTJoMXY0YTIsMiwwLDAsMCw0LDBWMTBaTTksNGg4djZIOVptOCwxNkg5VjEyaDhaIi8+PC9zdmc+";
-const batteryIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjwhLS0gQm9keSAtLT48cGF0aCBkPSJNMyw2aDE4YzEuMSwwLDIsMC45LDIsMnYxMGMwLDEuMS0wLjksMi0yLDJIM2MtMS4xLDAtMi0wLjktMi0yVjhDMSw2LjksMS45LDYsMyw2eiBNMyw4djEwaDE4VjhIM3oiLz48IS0tIFBvbGVzIC0tPjxyZWN0IHg9IjUiIHk9IjMiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48cmVjdCB4PSIxNSIgeT0iMyIgd2lkdGg9IjQiIGhlaWdodD0iMyIvPjwhLS0gTWludXMgc2lnbiAoLSkgLS0+PHJlY3QgeD0iNiIgeT0iMTIiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48IS0tIFBsdXMgc2lnbiAoKykgLS0+PHBhdGggZD0iTTE2LDEwaC0ydjJoLTJ2MmgydjJoMnYtMmgydi0yaC0yVjEweiIvPjwvc3ZnPg==";
+function createFuelIcon() {
+    const el = div({ className: 'fuel-icon-wrapper' });
+    el.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="fuel-icon"><path d="M1,12L5,9V15Z"/><path d="M22,10V8a2,2,0,0,0-2-2h-3V4a2,2,0,0,0-2-2H9A2,2,0,0,0,7,4v16a2,2,0,0,0,2,2h8a2,2,0,0,0,2-2V12h1v4a2,2,0,0,0,4,0V10a2,2,0,0,0-2-2M9,4h8v6H9Zm8,16H9V12h8Z"/></svg>`;
+    return el.firstChild;
+}
+
+function createBatteryIcon() {
+    const el = div({ className: 'battery-icon-wrapper' });
+    el.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="battery-icon"><path d="M3,6h18c1.1,0,2,0.9,2,2v10c0,1.1-0.9,2-2,2H3c-1.1,0-2-0.9-2-2V8C1,6.9,1.9,6,3,6z M3,8v10h18V8H3z"/><rect x="5" y="3" width="4" height="3"/><rect x="15" y="3" width="4" height="3"/><rect x="6" y="12" width="4" height="3"/><path d="M16,10h-2v2h-2v2h2v2h2v-2h2v-2h-2V10z"/></svg>`;
+    return el.firstChild;
+}
 const FUEL_TANK_CAPACITY_LITERS = 55;
 
 function formatFuelLiters(percent) {
@@ -133,8 +142,8 @@ export function createDashboardInfo() {
     const sportSpeedometer = createSpeedometerScreen();
     sportSpeedometer.element.classList.add('dashboard-speed-esportivo-widget');
     speedContainer.appendChild(sportSpeedometer.element);
-    const sportFixedOverlay = div({
-        className: 'dashboard-sport-fixed-overlay',
+    const fixedOverlay = div({
+        className: 'dashboard-fixed-overlay',
         children: [
             div({ className: 'dashboard-sport-ready-text', children: ['READY'] }),
             div({
@@ -144,10 +153,11 @@ export function createDashboardInfo() {
                     div({ className: 'dashboard-sport-right-car' }),
                     div({ className: 'dashboard-sport-right-lane right' })
                 ]
-            })
+            }),
+            div({ className: 'dashboard-sport-limit-sign', children: ['30'] })
         ]
     });
-    speedContainer.appendChild(sportFixedOverlay);
+    container.appendChild(fixedOverlay);
 
     // 3. Bottom Gauges
     const bottomGauges = div({ className: 'dashboard-bottom-gauges' });
@@ -157,7 +167,7 @@ export function createDashboardInfo() {
     const initialFuelDisplay = formatFuelDisplay(getState('fuelPercent'), getState('fuelDisplayUnit'));
     const fuelTop = div({
         className: 'gauge-top-info', children: [
-            img({ className: 'fuel-icon', src: fuelIconBase64 }),
+            createFuelIcon(),
             span({ className: 'fuel-range', children: [getState('fuelRange'), span({ className: 'dashboard-unit', children: [' km'] })] }),
             span({ className: 'fuel-liters', children: [initialFuelDisplay.value, span({ className: 'dashboard-unit', children: [` ${initialFuelDisplay.unit}`] })] })
         ]
@@ -186,7 +196,7 @@ export function createDashboardInfo() {
     const batteryContainer = div({ className: 'dashboard-battery-container' });
     const batteryTop = div({
         className: 'gauge-top-info', children: [
-            img({ className: 'battery-icon', src: batteryIconBase64 }),
+            createBatteryIcon(),
             span({ className: 'battery-range', children: [getState('batteryRange'), span({ className: 'dashboard-unit', children: [' km'] })] }),
             span({ className: 'battery-percent', children: [getState('batteryPercent') + '%'] })
         ]
@@ -245,7 +255,7 @@ export function createDashboardInfo() {
         if (cleanVal === 'EV') {
             bottomEvLabel.textContent = 'EV';
         } else if (cleanVal === 'EVP') {
-            bottomEvLabel.textContent = 'EV';
+            bottomEvLabel.textContent = 'EVP';
         } else if (cleanVal === 'HEV') {
             bottomEvLabel.textContent = 'HEV';
         } else {

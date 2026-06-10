@@ -215,6 +215,12 @@ export function createDisplaySelectionScreen() {
 
         updateItems();
         currentSubscriptions.push(subscribe('display', updateItems));
+        currentSubscriptions.push(subscribe('display', (currentMode) => {
+            const item = menuItemsData.find(i => i.type === 'mode' && i.value === currentMode);
+            if (item && getState('displayFocus') !== item.id) {
+                setState('displayFocus', item.id);
+            }
+        }));
         currentSubscriptions.push(subscribe('displayFocus', updateItems));
 
         const currentMode = getState('display') || 'Normal';

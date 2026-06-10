@@ -59,12 +59,11 @@ import br.com.redesurftank.havalshisuku.listeners.IDataChanged;
 import br.com.redesurftank.havalshisuku.listeners.IServiceManagerEvent;
 import br.com.redesurftank.havalshisuku.models.CarConstants;
 import br.com.redesurftank.havalshisuku.models.CarInfo;
-import br.com.redesurftank.havalshisuku.models.MainUiManager;
+import br.com.redesurftank.havalshisuku.models.ClusterKey;
 import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
 import br.com.redesurftank.havalshisuku.models.SteeringWheelClimateCommandType;
 import br.com.redesurftank.havalshisuku.models.SteeringWheelCustomActionType;
-import br.com.redesurftank.havalshisuku.models.screens.Screen;
 import br.com.redesurftank.havalshisuku.services.BottomBarService;
 import br.com.redesurftank.havalshisuku.utils.FridaUtils;
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils;
@@ -209,7 +208,7 @@ public class ServiceManager {
             CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG,
     };
     private static ServiceManager instance;
-    private volatile boolean isThemeDecentralized = false;
+
     private final Set<String> dynamicallyRegisteredKeys = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final List<IDataChanged> dataChangedListeners;
     private final List<IServiceManagerEvent> serviceManagerEventListeners;
@@ -613,40 +612,40 @@ public class ServiceManager {
                         }
                     }
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_MENU.getKey(), false)) {
-                        Screen.Key key = null;
+                        ClusterKey key = null;
                         switch (keyEvent.getKeyCode()) {
                             case 1024:
-                                key = Screen.Key.UP;
+                                key = ClusterKey.UP;
                                 break;
                             case 1025:
-                                key = Screen.Key.DOWN;
+                                key = ClusterKey.DOWN;
                                 break;
                             case 1026:
-                                key = Screen.Key.LEFT;
+                                key = ClusterKey.LEFT;
                                 break;
                             case 1027:
-                                key = Screen.Key.RIGHT;
+                                key = ClusterKey.RIGHT;
                                 break;
                             case 1028:
-                                key = Screen.Key.ENTER;
+                                key = ClusterKey.ENTER;
                                 break;
                             case 1029:
-                                key = Screen.Key.HOME;
+                                key = ClusterKey.HOME;
                                 break;
                             case 1030:
-                                key = Screen.Key.BACK;
+                                key = ClusterKey.BACK;
                                 break;
                             case 1033:
-                                key = Screen.Key.UP_LONG;
+                                key = ClusterKey.UP_LONG;
                                 break;
                             case 1034:
-                                key = Screen.Key.DOWN_LONG;
+                                key = ClusterKey.DOWN_LONG;
                                 break;
                             case 1037:
-                                key = Screen.Key.ENTER_LONG;
+                                key = ClusterKey.ENTER_LONG;
                                 break;
                             case 1039:
-                                key = Screen.Key.BACK_LONG;
+                                key = ClusterKey.BACK_LONG;
                                 break;
                         }
                         if (key != null) {
@@ -683,14 +682,12 @@ public class ServiceManager {
                                 lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
                                 lastHandledClusterInputAtMs = now;
                                 if (!isThemeDecentralized) {
-                                    if (key == Screen.Key.LEFT || key == Screen.Key.RIGHT) {
+                                    if (key == ClusterKey.LEFT || key == ClusterKey.RIGHT) {
                                         handleClusterCardNavigationKey(key);
-                                    } else {
-                                        MainUiManager.getInstance().handleGeneralKeyEvents(key);
-                                        if (key == Screen.Key.BACK) {
-                                            dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
-                                        }
                                     }
+                                }
+                                if (key == ClusterKey.BACK) {
+                                    dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
                                 }
                                 dispatchServiceManagerEvent(ServiceManagerEventType.RAW_KEY_EVENT, key);
                             } else {
@@ -834,7 +831,7 @@ public class ServiceManager {
             for (Runnable task : pendingTasks) backgroundHandler.post(task);
             pendingTasks.clear();
         }
-        MainUiManager.getInstance().updateScreen();
+
         timeInitialized = SystemClock.uptimeMillis();
         // Semeia o estado atual do hotspot (o receiver WIFI_AP só dispara em MUDANÇA; se já estava
         // ligado antes do serviço subir, a flag ficaria falsa).
@@ -1171,17 +1168,14 @@ public class ServiceManager {
         Log.w(TAG, label + " state changed to: " + !enabled);
     }
 
-    private void handleClusterCardNavigationKey(Screen.Key key) {
+    private void handleClusterCardNavigationKey(ClusterKey key) {
         int currentCard = clusterCardView;
-        if (!isKnownClusterCard(currentCard)) {
-            currentCard = MainUiManager.getInstance().getCurrentCard();
-        }
         if (!isKnownClusterCard(currentCard)) {
             currentCard = 0;
         }
 
         int currentIndex = indexOfClusterCard(currentCard);
-        int direction = key == Screen.Key.RIGHT ? 1 : -1;
+        int direction = key == ClusterKey.RIGHT ? 1 : -1;
         int nextIndex = (currentIndex + direction + CLUSTER_CARD_SEQUENCE.length) % CLUSTER_CARD_SEQUENCE.length;
         int nextCard = CLUSTER_CARD_SEQUENCE[nextIndex];
         int previousCard = clusterCardView;
@@ -2625,14 +2619,7 @@ public class ServiceManager {
         });
     }
 
-    public boolean isThemeDecentralized() {
-        return isThemeDecentralized;
-    }
 
-    public void setThemeDecentralized(boolean decentralized) {
-        this.isThemeDecentralized = decentralized;
-        Log.d(TAG, "Theme decentralization flag updated to: " + decentralized);
-    }
 
     public String[] getCombinedKeys() {
         List<String> keys = new ArrayList<>();

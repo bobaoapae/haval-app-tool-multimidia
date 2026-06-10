@@ -10,7 +10,10 @@
 
 :root {
   /* --- 1. BASE COLORS --- */
-  --bg-dark: #000000;
+  --bg-color: #000000;
+  --bg-75: rgba(0, 0, 0, 0.75);
+  --bg-50: rgba(0, 0, 0, 0.50);
+  --bg-25: rgba(0, 0, 0, 0.25);
   --text-main: #ffffff;
   --color-transparent: rgba(0, 0, 0, 0);
 
@@ -50,6 +53,7 @@
 
   /* --- 5. COMPONENT SPECIFIC COLORS --- */
   --menu-bg: #0a2345;
+  --menu-glow-bg: #6788b58c;
   --menu-text: #A3AED0;
   --text-cold-gray: #B0B8C4;
   --color-power-glow: #edbba8;
@@ -112,11 +116,11 @@
   --mask-border-color: var(--primary-blue);
   --mask-shadow: inset 0 0 60px 10px var(--bg-black-100);
 
-  --dial-inner-bg: radial-gradient(circle, var(--bg-black-80) 0%, var(--bg-black-60) 80%, var(--dial-gradient-blue) 100%);
+  --dial-inner-bg: radial-gradient(circle, var(--bg-black-20) 0%, var(--bg-black-30) 60%, var(--dial-gradient-blue) 100%);
   --dial-inner-border: var(--dial-border);
   --dial-shadow: 0 0 50px 10px var(--dial-shadow-color);
 
-  --menu-bg-gradient: radial-gradient(circle at center, var(--menu-bg) 0%, var(--color-transparent) 80%);
+  --menu-bg-gradient: radial-gradient(circle at center, var(--menu-glow-bg) 0%, var(--color-transparent) 80%);
   --dashboard-text-color: var(--text-main);
 
   /* --- 8. DISPLAY MODES --- */
@@ -124,6 +128,21 @@
   --display-left-offset: 0px;
   --display-right-offset: 0px;
   --display-opacity: 1;
+
+  /* Default Sport Display Variables */
+  --sport-speed-scale: 1.03;
+  --sport-speed-x-offset: 0.8px;
+  --sport-speed-y-offset: 45px;
+  --sport-tsr-mock-x: -20px;
+  --sport-tsr-mock-y: 90px;
+  --sport-tsr-mock-scale: 1;
+  --sport-ready-x: 0px;
+  --sport-ready-y: -58px;
+  --sport-ready-scale: 1;
+  --sport-right-icon-x: 108px;
+  --sport-right-icon-y: 26px;
+  --sport-right-icon-scale: 1;
+
 
   /* --- 9. MASK BACKGROUNDS --- */
   --mask-top-bar-bg: var(--bg-black-100);
@@ -152,6 +171,30 @@
   --graph-power-regen-color: var(--color-green);
   --graph-ring-accent-color: var(--color-ring-accent);
   --graph-ring-danger-color: var(--color-danger);
+
+  /* --- 11. TOOLTIP MASK COLORS --- */
+  --graph-mask-bg-100: var(--bg-color);
+  --graph-mask-bg-80: var(--bg-75);
+  --graph-mask-bg-transparent: rgba(0, 0, 0, 0);
+
+  /* --- 12. GRAPHS & GAUGES DROP SHADOWS --- */
+  --graph-bar-shadow-color: rgba(0, 0, 0, 0.6);
+  --tooltip-bg: var(--bg-black-70);
+  --tooltip-shadow: var(--bg-black-50);
+  --tooltip-text-shadow: 0 0 6px var(--bg-mask-80);
+  --shadow-black-50: rgb(0 0 0 / 50%);
+}
+
+#app {
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1920px;
+  height: 720px;
+  overflow: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 
@@ -182,7 +225,7 @@ button {
 }
 
 .main-container {
-  background-color: var(--bg-dark);
+  background-color: var(--bg-color);
   color: var(--text-main);
   height: 456px;
   width: 456px;
@@ -666,7 +709,7 @@ button {
   height: 392px;
   border: 3px solid var(--color-ac-dark-blue);
   border-radius: 50%;
-  background: radial-gradient(circle, var(--menu-bg) 0%, var(--bg-dark) 100%);
+  background: radial-gradient(circle, var(--menu-bg) 0%, var(--bg-color) 100%);
   z-index: 2;
 }
 
@@ -1027,7 +1070,7 @@ button {
   height: 392px;
   border: 3px solid var(--color-ac-dark-blue);
   border-radius: 50%;
-  background: radial-gradient(circle, var(--menu-bg) 0%, var(--bg-dark) 90%);
+  background: radial-gradient(circle, var(--menu-bg) 0%, var(--bg-color) 90%);
   overflow: hidden;
   z-index: 2;
 }
@@ -1335,15 +1378,15 @@ canvas.regen-chart {
   justify-content: center;
   gap: 4px;
   padding: 1px 1px;
-  background-color: var(--bg-black-70);
+  background-color: var(--tooltip-bg);
   border-radius: 12px;
-  box-shadow: 0 4px 4px var(--bg-black-50);
+  box-shadow: 0 4px 4px var(--tooltip-shadow);
   transform-origin: center;
   transition: transform 1s cubic-bezier(0.2, 1, 0.3, 1), opacity 0.5s ease, color 0.3s ease;
   font-family: 'Khand', sans-serif;
   opacity: 0;
   white-space: nowrap;
-  text-shadow: 0 0 6px var(--bg-mask-80), 0 0 3px currentColor;
+  text-shadow: var(--tooltip-text-shadow), 0 0 3px currentColor;
 }
 
 .graph-vertical-label .unit {
@@ -1394,18 +1437,18 @@ canvas.regen-chart {
 
 #graph-rpm-bar-svg {
   stroke: var(--graph-rpm-bar-color);
-  filter: drop-shadow(0 0 4px var(--bg-black-60)) drop-shadow(0 0 1px var(--graph-rpm-bar-color)) drop-shadow(0 0 8px var(--graph-rpm-bar-color));
+  filter: drop-shadow(0 0 4px var(--graph-bar-shadow-color)) drop-shadow(0 0 1px var(--graph-rpm-bar-color)) drop-shadow(0 0 8px var(--graph-rpm-bar-color));
 }
 
 #graph-power-bar-svg {
   stroke: var(--graph-power-bar-color);
   transition: stroke 0.3s ease;
-  filter: drop-shadow(0 0 4px var(--bg-black-60)) drop-shadow(0 0 1px var(--color-light-cyan)) drop-shadow(0 0 8px var(--color-cyan-glow));
+  filter: drop-shadow(0 0 4px var(--graph-bar-shadow-color)) drop-shadow(0 0 1px var(--color-light-cyan)) drop-shadow(0 0 8px var(--color-cyan-glow));
 }
 
 #graph-power-bar-svg.regen-active {
   stroke: var(--graph-power-regen-color);
-  filter: drop-shadow(0 0 4px var(--bg-black-60)) drop-shadow(0 0 1px var(--graph-power-regen-color)) drop-shadow(0 0 8px var(--color-green-glow));
+  filter: drop-shadow(0 0 4px var(--graph-bar-shadow-color)) drop-shadow(0 0 1px var(--graph-power-regen-color)) drop-shadow(0 0 8px var(--color-green-glow));
 }
 
 .graph-inner-ring {
@@ -1564,7 +1607,7 @@ canvas.regen-chart {
   left: 0;
   width: 100%;
   height: 200px;
-  background: linear-gradient(to top, var(--bg-black-100) 0%, var(--bg-mask-80) 40%, var(--color-transparent) 60%, var(--color-transparent) 100%);
+  background: linear-gradient(to top, var(--graph-mask-bg-100) 0%, var(--graph-mask-bg-80) 40%, var(--graph-mask-bg-transparent) 60%, var(--graph-mask-bg-transparent) 100%);
   pointer-events: none;
   z-index: 10;
   border-radius: 0 0 212px 212px;
@@ -1608,7 +1651,7 @@ canvas.regen-chart {
 }
 
 canvas.graph-chart {
-  background: radial-gradient(circle, var(--color-blue-glow-20) 0%, var(--color-transparent) 90%);
+  background: radial-gradient(circle, var(--color-blue-glow-20) 50%, var(--color-transparent) 90%);
 }
 
 .timer-tooltip {
@@ -2224,13 +2267,36 @@ canvas.graph-chart {
 }
 
 .display-clean .dashboard-speed-content {
-  transform: translate(150%, -185%) scale(0.8);
-  width: 500px;
-  height: 160px;
-  border-radius: 20px;
-  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  background: radial-gradient(circle at center, var(--bg-black-30) 20%, var(--color-purple-20) 100%);
-  backdrop-filter: blur(10px);
+  display: flex !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: none !important;
+  position: fixed !important;
+  left: 50% !important;
+  top: 10px !important;
+  transform: translateX(-50%) scale(0.8) !important;
+  width: 500px !important;
+  height: 160px !important;
+  border-radius: 20px !important;
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  background: radial-gradient(circle at center, var(--bg-black-30) 20%, var(--color-purple-20) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+  backdrop-filter: blur(10px) !important;
+  z-index: 9999 !important;
+}
+
+.display-clean .dashboard-speed-esportivo-widget {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+#app.theme-light.display-clean .dashboard-speed-content {
+  background: radial-gradient(circle at center, var(--bg-25) 20%, rgba(200, 220, 255, 0.2) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05) !important;
 }
 
 .display-clean .speed-inner-circle {
@@ -2703,6 +2769,7 @@ canvas.graph-chart {
   align-items: center;
   z-index: 20;
   transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateY(-8px);
 }
 
 .dashboard-ready {
@@ -2723,7 +2790,7 @@ canvas.graph-chart {
 .dashboard-speed-metric {
   font-size: 26px;
   color: var(--dashboard-text-color);
-  margin-top: -10px;
+  margin-top: -16px;
 }
 
 .display-esportivo .dashboard-speed-dial,
@@ -2740,8 +2807,34 @@ canvas.graph-chart {
   border-radius: 50%;
 }
 
-.display-esportivo.native-mock-enabled .dashboard-speed-container::after {
-  content: "30";
+/* ==========================================================================
+   DYNAMIC GAUGE STYLE OVERRIDES (Classic vs Sporty)
+   ========================================================================== */
+#app.gauge-style-classico .dashboard-speed-dial,
+#app.gauge-style-classico .dashboard-speed-content {
+  display: block !important;
+}
+#app.gauge-style-classico .dashboard-speed-esportivo-widget {
+  display: none !important;
+}
+#app.gauge-style-classico .dashboard-speed-container {
+  overflow: visible !important;
+  border-radius: 0 !important;
+}
+
+#app.gauge-style-esportivo .dashboard-speed-dial,
+#app.gauge-style-esportivo .dashboard-speed-content {
+  display: none !important;
+}
+#app.gauge-style-esportivo .dashboard-speed-esportivo-widget {
+  display: block !important;
+}
+#app.gauge-style-esportivo .dashboard-speed-container {
+  overflow: hidden !important;
+  border-radius: 50% !important;
+}
+
+.dashboard-sport-limit-sign {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -2765,16 +2858,20 @@ canvas.graph-chart {
   z-index: 60;
 }
 
-.dashboard-sport-fixed-overlay {
+.dashboard-fixed-overlay {
   display: none;
   position: absolute;
-  inset: 0;
+  left: var(--mask-left-x);
+  top: var(--mask-center-y);
+  transform: translate(-50%, -50%);
+  width: 456px;
+  height: 456px;
   pointer-events: none;
-  z-index: 62;
+  z-index: 145;
 }
 
-.display-esportivo.native-mock-enabled .dashboard-sport-fixed-overlay {
-  display: block;
+#app.native-mock-enabled .dashboard-fixed-overlay {
+  display: block !important;
 }
 
 .dashboard-sport-ready-text {
@@ -2980,6 +3077,7 @@ canvas.graph-chart {
   height: 32px;
   vertical-align: middle;
   object-fit: contain;
+  fill: var(--icon-color, #ffffff);
 }
 
 .segmented-bar-container {
@@ -2994,7 +3092,7 @@ canvas.graph-chart {
   flex: 1;
   height: 8px;
   /* Slightly taller */
-  background-color: var(--color-white-15);
+  background-color: var(--segment-track-bg, var(--color-white-15));
   position: relative;
   border-radius: 2px;
   overflow: hidden;
@@ -3243,7 +3341,6 @@ canvas.graph-chart {
   font-size: 22px;
   font-weight: 300;
   color: var(--menu-text);
-  text-shadow: 0 4px 8px var(--bg-black-100);
   transition: opacity 0.5s ease;
   transform: translateY(-10px);
 }
@@ -3366,4 +3463,149 @@ canvas.graph-chart {
 }
 .mask-top-bar {
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ==========================================================================
+   11. DYNAMIC LIGHT THEME OVERRIDES
+   ========================================================================== */
+#app.theme-light {
+  /* --- 1. BASE COLORS --- */
+  --bg-color: #ffffff;
+  --bg-75: rgba(255, 255, 255, 0.75);
+  --bg-50: rgba(255, 255, 255, 0.50);
+  --bg-25: rgba(255, 255, 255, 0.25);
+  --text-main: #0c0c0c;
+
+  /* --- 5. COMPONENT SPECIFIC COLORS --- */
+  --menu-bg: #ffffff;
+  --menu-glow-bg: #ffffffa4;
+  --menu-text: #0c0c0c;
+  --text-cold-gray: #0c0c0c;
+  --color-ring-bg: #aaaaaa44;
+
+  /* --- 7. MASK & DIAL LAYOUT --- */
+  --mask-shadow: 0 0 60px rgba(0, 0, 0, 0.06), inset 0 0 20px rgba(255, 255, 255, 0.8);
+  --dial-inner-bg: radial-gradient(circle, var(--color-white-20) 0%, var(--color-white-80) 70%, var(--dial-gradient-blue) 100%);
+
+  /* --- 9. MASK BACKGROUNDS --- */
+  --mask-top-bar-bg: #ffffff;
+  --mask-bottom-bar-bg: #ffffff;
+  --mask-circle-bg: #ffffff;
+
+  /* --- 10. GRAPH & CHART COLORS --- */
+  --graph-evpower-line-color: var(--text-main);
+  --graph-evpower-positive-color: var(--text-main);
+  --graph-rpm-bar-color: var(--text-main);
+  --graph-mixed-electric-line-color: var(--text-main);
+  --graph-speed-line-color: var(--text-main);
+  
+  /* Icon fills and Empty segment track */
+  --icon-color: #000000;
+  --segment-track-bg: rgba(0, 0, 0, 0.1);
+
+  /* High contrast light theme text overrides for children variable inheritance */
+  --dashboard-text-color: #0c0c0c;
+  --text-light-blue: #0c0c0c;
+  --text-gray: #4b5563;
+  --text-glow-blue: transparent;
+
+  /* Tooltip mask light theme overrides */
+  --graph-mask-bg-80: rgba(255, 255, 255, 0.8);
+  --graph-mask-bg-transparent: rgba(255, 255, 255, 0);
+
+  /* Light Theme Shadow & Tooltip Overrides */
+  --graph-bar-shadow-color: rgba(255, 255, 255, 0.8);
+  --shadow-black-50: rgba(255, 255, 255, 0.5);
+  --tooltip-bg: rgba(255, 255, 255, 0.80);
+  --tooltip-shadow: rgba(0, 0, 0, 0.08);
+  --tooltip-text-shadow: none;
+}
+
+/* Force light theme top/bottom status bar gradients and premium shadow */
+#app.theme-light .mask-top-bar,
+#app.theme-light .mask-bottom-bar {
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.85)) !important;
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.06) !important;
+}
+
+#app.theme-light .mask-circle.right {
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.80) 50%, var(--mask-circle-bg) 100%) !important;
+}
+
+#app.theme-light .menu-label-status.on {
+  color: var(--primary-blue) !important;
+}
+
+#app.theme-light .bottom-ev-label[data-bottom-ev="EV"] {
+  color: var(--primary-blue) !important;
+}
+
+#app.theme-light .no-app-mask-l,
+#app.theme-light .no-app-mask-r {
+  background: var(--mask-circle-bg) !important;
+  box-shadow: 0 0 40px 40px rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Remove text glows and shadows under light theme for pristine readability */
+#app.theme-light .dashboard-clock,
+#app.theme-light .dashboard-gear,
+#app.theme-light .dashboard-ev-mode,
+#app.theme-light .dashboard-speed-value,
+#app.theme-light .dashboard-speed-metric,
+#app.theme-light .bottom-ev-label,
+#app.theme-light .dashboard-bottom-ev-mode,
+#app.theme-light .odometer-line,
+#app.theme-light .odometer-value,
+#app.theme-light .odometer-label,
+#app.theme-light .odometer-unit,
+#app.theme-light .menu-item,
+#app.theme-light .dashboard-menu-title,
+#app.theme-light .trip-analysis-indicator-label,
+#app.theme-light .trip-analysis-indicator-value,
+#app.theme-light .tooltip-value,
+#app.theme-light .tooltip-unity {
+  text-shadow: none !important;
+}
+
+/* Beautiful high-contrast Light Theme Mode for the Sporty (Esportivo) gauge dial */
+#app.theme-light.gauge-style-esportivo .dashboard-speed-esportivo-widget {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* ==========================================================================
+   DEVELOPMENT ONLY BACKGROUND MOCKUP (Maps background)
+   ========================================================================== */
+.dev-background {
+  position: absolute;
+  top: 62px;
+  left: 0;
+  width: 1920px;
+  height: 596px;
+  background-image: url('../assets/dev-bg.png');
+  background-size: 1920px 596px;
+  background-repeat: no-repeat;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease, background-image 0.3s ease, background-color 0.3s ease, width 0.6s cubic-bezier(0.25, 0.8, 0.25, 1), background-size 0.6s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+#app.native-mock-enabled .dev-background {
+  opacity: 1;
+}
+
+/* Resize map background to 1344px (reduced 70%) when cardId = 0 / warn is active */
+#app.native-mock-enabled.warn-is-active .dev-background {
+  width: 1344px;
+  background-size: 1344px 596px;
+}
+
+/* If appInDash is disabled, render a neutral, high-fidelity test gray background instead of the maps projection */
+#app.native-mock-enabled.app-in-dash-disabled .dev-background {
+  background-image: none !important;
+  background-color: #292c31 !important; /* Premium neutral dark gray testing background */
+}
+#app.theme-light.native-mock-enabled.app-in-dash-disabled .dev-background {
+  background-image: none !important;
+  background-color: #d1d5db !important; /* Premium neutral light gray testing background */
 }

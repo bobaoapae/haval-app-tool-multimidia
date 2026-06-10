@@ -20,7 +20,7 @@ initializeConstants();
 initWarningHandler();
 
 if (process.env.NODE_ENV === 'development') {
-    document.body.style.backgroundColor = 'black';
+    document.body.style.backgroundColor = '#111315';
     initSimulationHarness(stateManager, menuItems);
 }
 
@@ -54,6 +54,15 @@ function initializeLayout() {
         return;
     }
     appContainer.innerHTML = '';
+
+    if (nativeMockEnabled) {
+        try {
+            const devBg = div({ className: 'dev-background' });
+            appContainer.appendChild(devBg);
+        } catch (e) {
+            console.error('[Error] Failed to create dev-background:', e);
+        }
+    }
 
     // Add mask background first (z-index: 50)
     try {
@@ -116,15 +125,23 @@ function render() {
     // Update app class based on display mode
     if (appContainer) {
         logger.log('Rendering screen:', screen);
-        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header');
+        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'app-in-dash-disabled' && c !== 'menu-minimized');
         classes.push('display-' + displayMode.toLowerCase());
 
         if (get('clusterEnabled') === false) {
             classes.push('cluster-disabled');
         }
 
-        if (get('cardId') == 0 || get('warningActive') === true || displayMode === 'Clean') {
+        const appInDash = get('appInDash');
+        if (appInDash === false || appInDash === 'false') {
+            classes.push('app-in-dash-disabled');
+        }
+
+        if (get('cardId') == 0 || get('warningActive') === true) {
             classes.push('warn-is-active');
+        }
+        if (get('cardId') == 0) {
+            classes.push('menu-minimized');
         }
         if (nativeMockEnabled) {
             classes.push('native-mock-enabled');
@@ -132,6 +149,12 @@ function render() {
         if (get('headerVisible') === false) {
             classes.push('hide-header');
         }
+
+        const currentMode = (get('mode') || 'Dark').toLowerCase();
+        classes.push('theme-' + currentMode);
+
+        const currentGaugeStyle = (get('gaugeStyle') || 'Esportivo').toLowerCase();
+        classes.push('gauge-style-' + currentGaugeStyle);
 
         appContainer.className = classes.join(' ').trim();
         logger.log('App classes:', appContainer.className);
@@ -218,8 +241,11 @@ subscribe('headerVisible', (val) => {
     console.log(`[STATE TRACE] headerVisible changed to: ${val}`);
     render();
 });
+subscribe('mode', render);
+subscribe('gaugeStyle', render);
 
 subscribe('clusterEnabled', render);
+subscribe('appInDash', render);
 render();
 
 // Setup Decentralized Bridge & Key events
@@ -247,6 +273,14 @@ function handleSteeringWheelKey(keyName) {
         return;
     }
     lastKeyTime = now;
+
+    // Wake up from Clean mode to Normal display mode on any key event
+    if (get('display') === 'Clean') {
+        setState('display', 'Normal');
+        bridge.updateCarData('display', 'Normal');
+        logger.log(`[Steering Wheel] Clean display mode active. Returning to Normal display mode on key event: ${keyName}`);
+        return; // Consume the key event as a wake-up trigger
+    }
 
     const screen = get('screen');
     logger.log(`Steering wheel event received: ${keyName} on screen: ${screen}`);
@@ -334,25 +368,37 @@ function handleSteeringWheelKey(keyName) {
             setState('screen', 'main_menu');
         }
     } else if (screen === 'display_selection') {
-        const displays = ['Normal', 'Esportivo', 'Reduzido', 'Clean'];
+        const displays = ['Normal', 'Reduzido', 'Clean'];
         let currentIdx = displays.indexOf(get('display'));
         if (currentIdx === -1) currentIdx = 0;
         
         if (keyName === 'UP') {
             currentIdx = (currentIdx - 1 + displays.length) % displays.length;
-            setState('display', displays[currentIdx]);
+            const nextDisplay = displays[currentIdx];
+            setState('display', nextDisplay);
+            bridge.updateCarData('display', nextDisplay);
         } else if (keyName === 'DOWN') {
             currentIdx = (currentIdx + 1) % displays.length;
-            setState('display', displays[currentIdx]);
+            const nextDisplay = displays[currentIdx];
+            setState('display', nextDisplay);
+            bridge.updateCarData('display', nextDisplay);
         } else if (keyName === 'ENTER') {
-            const activeDisplay = displays[currentIdx];
-            bridge.updateCarData('display', activeDisplay);
             setState('screen', 'main_menu');
         } else if (keyName === 'BACK') {
             setState('screen', 'main_menu');
         }
     } else if (screen === 'graph' || screen === 'graphs') {
-        if (keyName === 'BACK') {
+        const graphs = ['evConsumption', 'gasConsumption', 'carSpeed'];
+        let currentIdx = graphs.indexOf(get('currentGraph'));
+        if (currentIdx === -1) currentIdx = 0;
+
+        if (keyName === 'UP') {
+            currentIdx = (currentIdx - 1 + graphs.length) % graphs.length;
+            setState('currentGraph', graphs[currentIdx]);
+        } else if (keyName === 'DOWN') {
+            currentIdx = (currentIdx + 1) % graphs.length;
+            setState('currentGraph', graphs[currentIdx]);
+        } else if (keyName === 'BACK') {
             setState('screen', 'main_menu');
         }
     }
@@ -387,6 +433,8 @@ async function initDecentralizedBridge() {
     
     // Initialize preferences and initial states
     bridge.bindThemeSetting('headerVisible', true, setState);
+    bridge.bindThemeSetting('mode', 'Dark', setState);
+    bridge.bindThemeSetting('gaugeStyle', 'Esportivo', setState);
     const enableAdj = bridge.getPreference('enableSpeedAdjustment', 'false') === 'true';
     const speedOffset = parseFloat(bridge.getPreference('speedAdjustmentOffset', '0')) || 0.0;
     const enableOdometer = bridge.getPreference('enableOdometer', 'true') === 'true';

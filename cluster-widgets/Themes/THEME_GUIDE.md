@@ -184,3 +184,79 @@ To publish your theme for all users to download:
 2. Commit and push your changes to your feature branch.
 3. The launcher dynamically crawls the directory structure and populates compatible themes in the **Telas** screen.
 
+---
+
+## Unlimited Custom Screens & Navigation
+
+Because the native backend is completely decentralized, the theme frontend functions as a modern Single-Page Application (SPA) where the state variable `screen` controls the layout. Developers can create unlimited high-fidelity custom views (e.g. tyre pressure panels, ambient lighting controls, trip computer statistics, secondary menus) without touching the native Android application or writing complex event-routing boilerplate.
+
+### 1. Screen Cache vs. Dynamic Lifecycle
+To optimize memory and performance on low-resource head units, the rendering pipeline categorizes screens:
+* **Cached Screens** (e.g., `'main_menu'`, `'aircon'`): Initialized once at boot time. They remain in the DOM and are simply toggled between `display: 'block'` and `display: 'none'` for instant response.
+* **Dynamic Screens** (e.g., `'regen'`, `'display_selection'`, `'graph'`): Instantiated on the fly when navigated to, and **fully destroyed and garbage-collected** when navigated away.
+
+### 2. How to Build a Custom Screen (Example: Tyre Pressure)
+
+#### Step A: Create the Component
+Create a new file in your theme source (e.g., `src/core/components/tirePressure.js`). Export a factory function returning the root DOM element and a critical `cleanup` hook:
+
+```javascript
+import { getState, subscribe } from '../state.js';
+import { div, span } from '../../../../shared/utils/createElement.js';
+
+export function createTirePressureScreen() {
+    const container = div({ className: 'tire-pressure-container' });
+    const title = span({ className: 'screen-title', children: ['Tire Pressure'] });
+    container.appendChild(title);
+
+    const subscriptions = [];
+
+    // Subscribe to telemetry states reactively
+    subscriptions.push(subscribe('frontLeftTirePressure', (pressure) => {
+        // Smoothly update the visual layout
+    }));
+
+    // Cleanup hook - critical to prevent memory leaks and background CPU cycles
+    const cleanup = () => {
+        subscriptions.forEach(unsubscribe => unsubscribe());
+    };
+
+    return { element: container, cleanup };
+}
+```
+
+#### Step B: Register the Screen in the Main Renderer
+1. Import your factory in `main.js`:
+   ```javascript
+   import { createTirePressureScreen } from './components/tirePressure.js';
+   ```
+2. In the dynamic screen rendering block within `render()` in `main.js`, add a route handler:
+   ```javascript
+   } else if (screen === 'tire_pressure') {
+       componentResult = createTirePressureScreen();
+   }
+   ```
+
+#### Step C: Hook Key and Steering Wheel Inputs
+Add a key handler block inside the steering wheel listener in `main.js`:
+```javascript
+} else if (screen === 'tire_pressure') {
+    if (keyName === 'BACK') {
+        setState('screen', 'main_menu'); // Smoothly navigate back
+    }
+}
+```
+
+#### Step D: Link from the Declarative Menu
+1. **Visual Declaration** in `mainMenu.js`:
+   ```javascript
+   { id: 'option_8', label: 'Pneus', iconSrc: iconTires },
+   ```
+2. **Behavioral Declaration** in `main.js` under `manifest.menu`:
+   ```javascript
+   { id: 'option_8', action: 'navigate', screen: 'tire_pressure' }
+   ```
+   
+The routing engine automatically maps focus transitions, carousel scroll positions, keyboard selection triggers, and subscription states cleanly.
+
+

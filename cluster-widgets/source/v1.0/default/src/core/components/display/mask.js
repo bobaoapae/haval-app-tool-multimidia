@@ -25,11 +25,9 @@ export function createMask() {
     // No App Mask layer (Spatial)
     const noAppMaskL = div({ className: 'no-app-mask-l' });
     const noAppMaskR = div({ className: 'no-app-mask-r' });
-    const partialAppMask = div({ className: 'partial-app-mask' });
     const warnMask = div({ className: 'warn-mask' });
 
     // Note: noAppMaskL and R are appended in main.js to appContainer for z-index
-    maskBg.appendChild(partialAppMask);
     maskBg.appendChild(warnMask);
 
     const updateVisibility = () => {
@@ -65,7 +63,6 @@ export function createMask() {
         noAppMaskL.style.visibility = showL ? 'visible' : 'hidden';
         noAppMaskR.style.visibility = showR ? 'visible' : 'hidden';
 
-        partialAppMask.style.opacity = (cardId == 0 && !warningActive) ? '1' : '0';
         //warnMask.style.opacity = warningActive ? '1' : '0'; //TODO: enhance this mask in future
     };
 
@@ -79,7 +76,6 @@ export function createMask() {
         background: maskBg,
         noAppL: noAppMaskL,
         noAppR: noAppMaskR,
-        partial: partialAppMask,
         cleanup: () => {
             unsub1();
             unsub2();

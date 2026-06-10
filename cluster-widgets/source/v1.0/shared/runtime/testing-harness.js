@@ -919,7 +919,7 @@ export function initTestHarness(stateManager, menuItems) {
                                 <span>Temp Interna (inside_temp)</span>
                                 <span id="val-inside_temp" style="color: #a855f7; font-weight: bold;">32°C</span>
                             </div>
-                            <input type="range" id="state-range-inside_temp" min="-10" max="45" value="32" style="width: 100%; height: 4px; border-radius: 2px; outline: none; cursor: pointer; accent-color: #a855f7;">
+                            <input type="range" id="state-range-inside_temp" min="-10" max="45" value="32" step="0.5" style="width: 100%; height: 4px; border-radius: 2px; outline: none; cursor: pointer; accent-color: #a855f7;">
                         </div>
 
                         <!-- Outside Temp -->
@@ -928,7 +928,7 @@ export function initTestHarness(stateManager, menuItems) {
                                 <span>Temp Externa (outside_temp)</span>
                                 <span id="val-outside_temp" style="color: #a855f7; font-weight: bold;">28°C</span>
                             </div>
-                            <input type="range" id="state-range-outside_temp" min="-10" max="45" value="28" style="width: 100%; height: 4px; border-radius: 2px; outline: none; cursor: pointer; accent-color: #a855f7;">
+                            <input type="range" id="state-range-outside_temp" min="-10" max="45" value="28" step="0.5" style="width: 100%; height: 4px; border-radius: 2px; outline: none; cursor: pointer; accent-color: #a855f7;">
                         </div>
                     </div>
 
@@ -1352,11 +1352,11 @@ export function initTestHarness(stateManager, menuItems) {
                     <div style="font-size: 10px; font-weight: 700; color: #64748b; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Ações Rápidas do Simulador</div>
                     
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 4px;">
-                        <button class="harness-btn harness-action-btn" data-action="toggle-warn" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); padding: 6px; border-radius: 6px; color: #e2e8f0; font-size: 11px; cursor: pointer; text-align: left; font-weight: 500;">⚠️ Warning (W)</button>
-                        <button class="harness-btn harness-action-btn" data-action="toggle-odo" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); padding: 6px; border-radius: 6px; color: #e2e8f0; font-size: 11px; cursor: pointer; text-align: left; font-weight: 500;">💡 Odometer (6)</button>
                         <button class="harness-btn harness-action-btn" data-action="toggle-bsd-l" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); padding: 6px; border-radius: 6px; color: #e2e8f0; font-size: 11px; cursor: pointer; text-align: left; font-weight: 500;">⬅️ BSD Left (L)</button>
                         <button class="harness-btn harness-action-btn" data-action="toggle-bsd-r" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); padding: 6px; border-radius: 6px; color: #e2e8f0; font-size: 11px; cursor: pointer; text-align: left; font-weight: 500;">➡️ BSD Right (R)</button>
-                        <button class="harness-btn harness-action-btn" data-action="cycle-maint" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); padding: 6px; border-radius: 6px; color: #e2e8f0; font-size: 11px; cursor: pointer; text-align: left; font-weight: 500;">📆 Maintenance (M)</button>
+                        <button class="harness-btn harness-action-btn" data-action="toggle-odo" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); padding: 6px; border-radius: 6px; color: #e2e8f0; font-size: 11px; cursor: pointer; text-align: left; font-weight: 500;">💡 Odometer (6)</button>
+                        <button class="harness-btn harness-action-btn" data-action="cycle-maint" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); padding: 6px; border-radius: 6px; color: #e2e8f0; font-size: 11px; cursor: pointer; text-align: left; font-weight: 500;">📆 Revision (M)</button>
+                        <button class="harness-btn harness-action-btn" data-action="toggle-warn" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); padding: 6px; border-radius: 6px; color: #e2e8f0; font-size: 11px; cursor: pointer; text-align: left; font-weight: 500; grid-column: span 2;">⚠️ Warning (W)</button>
                     </div>
                 </div>
 
@@ -1511,6 +1511,13 @@ export function initTestHarness(stateManager, menuItems) {
                         };
                         
                         updatePills(currentVal);
+                        
+                        // Ensure state is initialized with resolved default so pill is visually active on first load
+                        if (initialVal === undefined && currentVal) {
+                            if (window.onDataChanged) {
+                                window.onDataChanged(`app.preferences.${config.stateVariable}`, currentVal);
+                            }
+                        }
                         
                         const saveVal = (val) => {
                             console.log(`[Simulator Setting] Segmented changed ${config.stateVariable} -> ${val}`);

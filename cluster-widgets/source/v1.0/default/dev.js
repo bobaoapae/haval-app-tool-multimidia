@@ -7,6 +7,16 @@ if (!fs.existsSync(distDir)) {
     fs.mkdirSync(distDir, { recursive: true });
 }
 
+const cacheDir = path.join(__dirname, '.parcel-cache');
+if (fs.existsSync(cacheDir)) {
+    try {
+        fs.rmSync(cacheDir, { recursive: true, force: true });
+        console.log('✅ Synchronously cleared .parcel-cache directory to prevent Windows locking errors!');
+    } catch (e) {
+        console.warn('⚠️ Could not clear .parcel-cache directory:', e.message);
+    }
+}
+
 try {
     fs.copyFileSync(
         path.join(__dirname, 'theme.xml'),
@@ -18,7 +28,7 @@ try {
 }
 
 // Spawn parcel index.html
-const parcel = spawn('npx', ['parcel', 'index.html'], { stdio: 'inherit', shell: true });
+const parcel = spawn('npx', ['parcel', 'index.html', '--no-cache'], { stdio: 'inherit', shell: true });
 
 parcel.on('error', (err) => {
     console.error('❌ Failed to start Parcel:', err.message);

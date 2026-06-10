@@ -5,7 +5,7 @@ var stateManager = new StateManager({
     screen: 'main_menu',
     cardId: 1,
     tempUnit: '°C',
-    focusedMenuItem: 'option_4',
+    focusedMenuItem: 'option_7',
     espStatus: 'ON',
     drivingMode: 'Normal',
     steerMode: 'Conforto',
