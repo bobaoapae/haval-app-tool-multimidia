@@ -34,9 +34,13 @@ export function createMask() {
 
     const updateVisibility = () => {
         const appInDash = get('appInDash');
+        const carPlayInDash = get('carPlayInDash');
+        const projectionMirrorInDash = get('projectionMirrorInDash');
         const cardId = get('cardId');
+        const mirrorThemeActive = carPlayInDash === true || projectionMirrorInDash === true;
         const warningActive = get('warningActive');
-        const rightVisible = (cardId != 0 && !warningActive);
+        const warningDismissed = get('warningDismissed');
+        const rightVisible = warningDismissed || (cardId != 0 && !warningActive);
 
         let showL = true;
         let showR = true;
@@ -60,18 +64,28 @@ export function createMask() {
             showR = false;
         }
 
+        if (mirrorThemeActive) {
+            showL = false;
+            showR = false;
+        }
+
         noAppMaskL.style.opacity = showL ? '1' : '0';
         noAppMaskR.style.opacity = showR ? '1' : '0';
         noAppMaskL.style.visibility = showL ? 'visible' : 'hidden';
         noAppMaskR.style.visibility = showR ? 'visible' : 'hidden';
 
-        partialAppMask.style.opacity = (cardId == 0 && !warningActive) ? '1' : '0';
-        //warnMask.style.opacity = warningActive ? '1' : '0'; //TODO: enhance this mask in future
+        partialAppMask.style.opacity = '0'; // Removed for better experience. Will decide if we keep this mask in future.
+        partialAppMask.style.visibility = 'hidden';
+        warnMask.style.opacity = '0'; // TODO: enhance this mask in future
+        warnMask.style.visibility = 'hidden';
     };
 
     const unsub1 = subscribe('appInDash', updateVisibility);
     const unsub2 = subscribe('cardId', updateVisibility);
     const unsub3 = subscribe('warningActive', updateVisibility);
+    const unsub4 = subscribe('warningDismissed', updateVisibility);
+    const unsub5 = subscribe('carPlayInDash', updateVisibility);
+    const unsub6 = subscribe('projectionMirrorInDash', updateVisibility);
     updateVisibility();
 
     // Use a combined object for cleanup
@@ -84,10 +98,11 @@ export function createMask() {
             unsub1();
             unsub2();
             unsub3();
+            unsub4();
+            unsub5();
+            unsub6();
         }
     };
 
     return result;
 }
-
-

@@ -327,6 +327,20 @@ document.addEventListener('keydown', (e) => {
         const nextIndex = (currentIndex + 1) % modes.length;
         window.maintenanceMode = modes[nextIndex];
         console.log(`[Maintenance Simulation] Toggle Mode -> ${window.maintenanceMode}`);
+        
+        if (window.maintenanceMode === 'none') {
+            setState('enableRevisionWarning', false);
+            setState('nextRevisionKm', 999999);
+            setState('nextRevisionDate', 0);
+        } else if (window.maintenanceMode === 'km') {
+            setState('enableRevisionWarning', true);
+            setState('nextRevisionKm', 12000);
+            setState('nextRevisionDate', Date.now() + 60 * 24 * 60 * 60 * 1000);
+        } else if (window.maintenanceMode === 'date') {
+            setState('enableRevisionWarning', true);
+            setState('nextRevisionKm', 20000);
+            setState('nextRevisionDate', Date.now() + 15 * 24 * 60 * 60 * 1000);
+        }
     }
 });
 
@@ -476,28 +490,7 @@ window.simulationInterval = setInterval(() => {
     }
     setState('odometer', Math.floor(window.simulatedOdo));
 
-    // Revision Simulation (Testing Warning logic)
-    if (window.simulatedOdo > 0) {
-        if (!window.maintenanceMode) window.maintenanceMode = 'km';
-        
-        if (window.maintenanceMode === 'none') {
-            // setState('enableRevisionWarning', false); // REMOVED: Don't override manual toggle
-        } else {
-            // setState('enableRevisionWarning', true); // REMOVED: Don't override manual toggle
-            
-            if (window.maintenanceMode === 'km') {
-                // Target: 12.000km, Current is around 11.450 -> Warning active (< 1000km)
-                setState('nextRevisionKm', 12000);
-                // Far date
-                setState('nextRevisionDate', Date.now() + 60 * 24 * 60 * 60 * 1000); 
-            } else if (window.maintenanceMode === 'date') {
-                // Far mileage (target 20k)
-                setState('nextRevisionKm', 20000);
-                // Close date (15 days)
-                setState('nextRevisionDate', Date.now() + 15 * 24 * 60 * 60 * 1000);
-            }
-        }
-    }
+
 
 }, SIMULATION_INTERVAL);
 

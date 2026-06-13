@@ -11,6 +11,7 @@ export class WarpTunnelAnimation {
 
         // Configuration
         this.normalizedSpeed = 0;
+        this.vignetteColor = 'rgba(0, 0, 0, 0.8)';
         this.config = {
             squareCount: 3,       // Number of tunnel "ribs"
             speed: 3,             // Speed of the tunnel (dynamic)
@@ -68,6 +69,7 @@ export class WarpTunnelAnimation {
     start() {
         if (this.isRunning) return;
         this.isRunning = true;
+        this.vignetteColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-mask-80').trim() || 'rgba(0, 0, 0, 0.8)';
         this.canvas.width = this.width;
         this.canvas.height = this.height;
         this.animate();
@@ -170,9 +172,9 @@ export class WarpTunnelAnimation {
         this.ctx.fillRect(0, 0, this.width, this.height);
 
         // 6. Outer Black Glow (Vignette)
-        const style = getComputedStyle(document.documentElement);
-        const vignetteColor = style.getPropertyValue('--bg-mask-80').trim() || 'rgba(0, 0, 0, 0.8)';
-        vignette.addColorStop(1, vignetteColor); // Strong black fade at edge
+        const vignette = this.ctx.createRadialGradient(this.cx, this.cy, this.width * 0.35, this.cx, this.cy, this.width * 0.5);
+        vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        vignette.addColorStop(1, this.vignetteColor); // Strong black fade at edge
 
         this.ctx.fillStyle = vignette;
         this.ctx.fillRect(0, 0, this.width, this.height);
@@ -287,5 +289,4 @@ class Ray {
         ctx.restore();
     }
 }
-
 

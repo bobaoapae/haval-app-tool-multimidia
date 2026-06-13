@@ -10,5 +10,8 @@ data class DisplayAppConfig(
     val height: Int,
     val substituteIcon: String? = null,
     val iconColor: String? = null,
-    val customName: String? = null
+    val customName: String? = null,
+    val forceFocus: Boolean = false,
+    val overrideThemeDimensions: Boolean = false
 )
+

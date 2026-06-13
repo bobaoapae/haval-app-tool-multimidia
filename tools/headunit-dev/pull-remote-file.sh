@@ -4,9 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TELNET_EXEC="$SCRIPT_DIR/telnet-exec.sh"
+source "$SCRIPT_DIR/headunit-env.sh"
 
-HEADUNIT_HOST="${HEADUNIT_HOST:-172.20.10.2}"
-HEADUNIT_LOCAL_HOST="${HEADUNIT_LOCAL_HOST:-172.20.10.5}"
+HEADUNIT_PORT="${HEADUNIT_PORT:-23}"
+resolve_headunit_defaults
 HTTP_PORT="${HTTP_PORT:-8768}"
 HTTP_PORT_SEARCH_LIMIT="${HTTP_PORT_SEARCH_LIMIT:-20}"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/output/pulled-files}"
@@ -167,6 +168,12 @@ REMOTE_SIZE="$("$TELNET_EXEC" "wc -c '$REMOTE_PATH' 2>/dev/null | awk '{print \$
 if [[ -z "$REMOTE_SIZE" ]]; then
   echo "[HavalDev] Could not read remote file size: $REMOTE_PATH" >&2
   exit 1
+fi
+if (( REMOTE_SIZE == 0 )); then
+  echo "[HavalDev] Remote file is empty: $REMOTE_PATH"
+  : > "$LOCAL_PATH"
+  echo "[HavalDev] Saved empty file to $LOCAL_PATH"
+  exit 0
 fi
 
 URL="http://${HOST_IP}:${SERVER_PORT}/${LOCAL_NAME}"

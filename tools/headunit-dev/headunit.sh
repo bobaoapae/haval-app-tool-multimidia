@@ -4,9 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TELNET_EXEC="$SCRIPT_DIR/telnet-exec.sh"
+source "$SCRIPT_DIR/headunit-env.sh"
 
-HEADUNIT_HOST="${HEADUNIT_HOST:-172.20.10.2}"
 HEADUNIT_PORT="${HEADUNIT_PORT:-23}"
+resolve_headunit_defaults
 HEADUNIT_TMP="${HEADUNIT_TMP:-/data/local/tmp}"
 APK_DEST="${APK_DEST:-/data/local/tmp/haval-tool-dev.apk}"
 APP_PACKAGE="${APP_PACKAGE:-br.com.redesurftank.havalshisuku}"
@@ -21,7 +22,12 @@ Usage:
   ./tools/headunit-dev/headunit.sh push-apk <path.apk>
   ./tools/headunit-dev/headunit.sh install-apk <remote.apk>
   ./tools/headunit-dev/headunit.sh deploy-apk
+  ./tools/headunit-dev/headunit.sh deploy-apk-adb
   ./tools/headunit-dev/headunit.sh deploy-air-control [http-url]
+  ./tools/headunit-dev/headunit.sh carplay-baseline <label>
+  ./tools/headunit-dev/headunit.sh carplay-compare <capture-a> <capture-b>
+  ./tools/headunit-dev/headunit.sh carplay-visual [label]
+  ./tools/headunit-dev/headunit.sh carplay-proof <label>
   ./tools/headunit-dev/headunit.sh logcat
   ./tools/headunit-dev/headunit.sh logcat-app
   ./tools/headunit-dev/headunit.sh dump-info
@@ -59,6 +65,36 @@ require_file() {
   }
 }
 
+print_progress_bar() {
+  local label="$1"
+  local current="${2:-0}"
+  local total="${3:-0}"
+  local width=32
+  local percent=0
+  local filled=0
+  local bar=""
+  local i
+
+  [[ "$current" =~ ^[0-9]+$ ]] || current=0
+  [[ "$total" =~ ^[0-9]+$ ]] || total=0
+
+  if (( total > 0 )); then
+    percent=$(( current * 100 / total ))
+    (( percent > 100 )) && percent=100
+    filled=$(( width * percent / 100 ))
+  fi
+
+  for ((i=0; i<width; i++)); do
+    if (( i < filled )); then
+      bar+="#"
+    else
+      bar+="."
+    fi
+  done
+
+  printf '\r[HavalDev] %s [%s] %3d%% %s/%s chunks' "$label" "$bar" "$percent" "$current" "$total"
+}
+
 remote_exec() {
   "$TELNET_EXEC" "$*"
 }
@@ -77,15 +113,23 @@ push_apk() {
   local remote_dest="${2:-$APK_DEST}"
   local remote_b64="${remote_dest}.b64"
   local chunk
+  local total_chunks
+  local sent_chunks=0
 
   require_file "$apk_path"
 
   echo "[HavalDev] Uploading $apk_path to $HEADUNIT_HOST:$remote_dest"
   remote_exec "rm -f '$remote_b64' '$remote_dest'"
 
+  total_chunks="$(base64_single_line "$apk_path" | fold -w 700 | wc -l | tr -d '[:space:]')"
+  [[ "$total_chunks" =~ ^[0-9]+$ ]] || total_chunks=0
+
   while IFS= read -r chunk; do
     remote_exec "printf '%s' '$chunk' >> '$remote_b64'"
+    sent_chunks=$((sent_chunks + 1))
+    print_progress_bar "Telnet upload fallback" "$sent_chunks" "$total_chunks"
   done < <(base64_single_line "$apk_path" | fold -w 700)
+  printf '\n'
 
   remote_exec "if command -v base64 >/dev/null 2>&1; then base64 -d '$remote_b64' > '$remote_dest'; elif command -v busybox >/dev/null 2>&1; then busybox base64 -d '$remote_b64' > '$remote_dest'; else echo 'missing base64 on target' >&2; exit 1; fi"
   remote_exec "chmod 644 '$remote_dest' && ls -l '$remote_dest' && rm -f '$remote_b64'"
@@ -152,6 +196,9 @@ case "${1:-}" in
   deploy-apk)
     exec "$SCRIPT_DIR/deploy-apk.sh"
     ;;
+  deploy-apk-adb)
+    exec "$SCRIPT_DIR/deploy-apk-adb.sh"
+    ;;
   deploy-air-control)
     shift
     if [[ $# -ge 1 ]]; then
@@ -159,6 +206,34 @@ case "${1:-}" in
     else
       exec "$SCRIPT_DIR/deploy-air-control.sh"
     fi
+    ;;
+  carplay-baseline)
+    shift
+    if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+      exec "$SCRIPT_DIR/carplay-baseline-capture.sh" --help
+    fi
+    [[ $# -ge 1 ]] || { usage >&2; exit 1; }
+    exec "$SCRIPT_DIR/carplay-baseline-capture.sh" "$1"
+    ;;
+  carplay-compare)
+    shift
+    if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+      exec "$SCRIPT_DIR/carplay-baseline-compare.sh" --help
+    fi
+    [[ $# -ge 2 ]] || { usage >&2; exit 1; }
+    exec "$SCRIPT_DIR/carplay-baseline-compare.sh" "$1" "$2"
+    ;;
+  carplay-visual)
+    shift
+    exec "$SCRIPT_DIR/carplay-visual-capture.sh" "${1:-carplay-visual}"
+    ;;
+  carplay-proof)
+    shift
+    if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+      exec "$SCRIPT_DIR/carplay-proof-capture.sh" --help
+    fi
+    [[ $# -ge 1 ]] || { usage >&2; exit 1; }
+    exec "$SCRIPT_DIR/carplay-proof-capture.sh" "$1"
     ;;
   logcat)
     remote_exec "logcat -d -v time | tail -n 400"

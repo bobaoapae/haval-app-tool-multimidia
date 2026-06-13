@@ -20,6 +20,7 @@ Padronizar um fluxo de desenvolvimento rápido e reproduzível para:
 - deploy de APK;
 - hot deploy de frontend (`app.html`) sem reinstalar APK;
 - coleta de diagnóstico e discovery;
+- captura/comparação de baseline do CarPlay D3;
 - execução remota de comandos utilitários.
 
 ## Benefício para o time

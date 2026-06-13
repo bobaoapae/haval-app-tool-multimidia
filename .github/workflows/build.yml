@@ -71,17 +71,15 @@ jobs:
           NEW_VERSION_CODE=$((NEW_BUILD + 1))
           echo "new_version_code=$NEW_VERSION_CODE" >> "$GITHUB_OUTPUT"
 
-      - name: Update build.gradle.kts
-        run: |
-          sed -i "s/versionName = \".*\"/versionName = \"${{ steps.version.outputs.new_version }}\"/" app/build.gradle.kts
-          sed -i "s/versionCode = [0-9]*/versionCode = ${{ steps.version.outputs.new_version_code }}/" app/build.gradle.kts
-
       - name: Build with Gradle
         env:
           SIGNING_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+        run: |
+          ./gradlew assembleRelease \
+            -PappVersionName=${{ steps.version.outputs.new_version }} \
+            -PappVersionCode=${{ steps.version.outputs.new_version_code }}
 
       - name: Create Release
         run: |

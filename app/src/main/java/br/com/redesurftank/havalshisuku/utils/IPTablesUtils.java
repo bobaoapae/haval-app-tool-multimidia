@@ -1,7 +1,6 @@
 package br.com.redesurftank.havalshisuku.utils;
 
 import android.os.ParcelFileDescriptor;
-import android.os.RemoteException;
 import android.util.Log;
 
 import moe.shizuku.server.IRemoteProcess;
@@ -29,7 +28,13 @@ public class IPTablesUtils {
             }
             checkProc.waitFor();
             int checkExit = checkProc.exitValue();
-            closeStreams(checkProc);
+            // NOTE: Do not call closeStreams here. The old helper lazy-created
+            // the InputStream/ErrorStream PFDs just to close them, which spawned
+            // Shizuku TransferThreads (rikka.shizuku.Jj.run) and then closed
+            // their local pipe ends while the threads were mid-write. That
+            // produced an "IOException: Stream closed" + exception heap on every
+            // ForegroundService cycle. proc.destroy() in the finally block does
+            // the actual teardown.
             if (checkExit == 0) {
                 Log.w("IpTablesUtils", "[IpTablesUtils]: OUTPUT chain in iptables is already unlocked");
                 return true;
@@ -43,7 +48,6 @@ public class IPTablesUtils {
             int insertExit = insertProc.exitValue();
             if (insertExit == 0) {
                 Log.w("IpTablesUtils", "[IpTablesUtils]: OUTPUT chain in iptables unlocked successfully");
-                closeStreams(insertProc);
                 return true;
             }
 
@@ -62,7 +66,6 @@ public class IPTablesUtils {
                     Log.e("IpTablesUtils", "[IpTablesUtils]: Error reading OUTPUT error stream", e);
                 }
             }
-            closeStreams(insertProc);
 
             if (!err.isEmpty()) {
                 Log.e("IpTablesUtils", "[IpTablesUtils]: Failed to unlock OUTPUT chain in iptables: " + err);
@@ -101,7 +104,7 @@ public class IPTablesUtils {
             }
             checkProc.waitFor();
             int checkExit = checkProc.exitValue();
-            closeStreams(checkProc);
+            // See note in unlockOutput() above — closeStreams removed.
             if (checkExit == 0) {
                 Log.w("IpTablesUtils", "[IpTablesUtils]: INPUT chain in iptables is already unlocked");
                 return true;
@@ -115,7 +118,6 @@ public class IPTablesUtils {
             int insertExit = insertProc.exitValue();
             if (insertExit == 0) {
                 Log.w("IpTablesUtils", "[IpTablesUtils]: INPUT chain in iptables unlocked successfully");
-                closeStreams(insertProc);
                 return true;
             }
 
@@ -134,7 +136,6 @@ public class IPTablesUtils {
                     Log.e("IpTablesUtils", "[IpTablesUtils]: Error reading INPUT error stream", e);
                 }
             }
-            closeStreams(insertProc);
 
             if (!err.isEmpty()) {
                 Log.e("IpTablesUtils", "[IpTablesUtils]: Failed to unlock INPUT chain in iptables: " + err);
@@ -162,22 +163,4 @@ public class IPTablesUtils {
         }
     }
 
-    private static void closeStreams(IRemoteProcess proc) throws RemoteException {
-        ParcelFileDescriptor pfd;
-        pfd = proc.getInputStream();
-        if (pfd != null) try {
-            pfd.close();
-        } catch (IOException ignored) {
-        }
-        pfd = proc.getOutputStream();
-        if (pfd != null) try {
-            pfd.close();
-        } catch (IOException ignored) {
-        }
-        pfd = proc.getErrorStream();
-        if (pfd != null) try {
-            pfd.close();
-        } catch (IOException ignored) {
-        }
-    }
 }

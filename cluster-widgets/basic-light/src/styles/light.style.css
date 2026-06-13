@@ -2599,7 +2599,7 @@ canvas.graph-chart {
 .dashboard-bottom-gauges {
   position: absolute;
   bottom: 0;
-  height: 72px;
+  height: 60px;
   /* Match bottom bar height */
   width: 100%;
   display: flex;
@@ -2613,11 +2613,13 @@ canvas.graph-chart {
 
 .dashboard-fuel-container,
 .dashboard-battery-container {
+  margin-right: -40px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0px;
   position: relative;
+  margin-left: -30px;
 }
 
 .dashboard-warning-label {
@@ -2663,9 +2665,27 @@ canvas.graph-chart {
   text-align: left;
 }
 
+.fuel-liters {
+  position: absolute;
+  right: 23px;
+  top: 5px;
+  font-size: 26px;
+  font-weight: 300;
+  color: var(--menu-text);
+  min-width: 96px;
+  text-align: right;
+  letter-spacing: -1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fuel-liters .dashboard-unit {
+  font-size: 26px;
+  margin-left: 0px;
+}
+
 .dashboard-unit {
   font-size: 26px;
-  font-weight: 500;
+  font-weight: 300;
   color: var(--menu-text);
   margin-left: 4px;
 }
@@ -2692,7 +2712,7 @@ canvas.graph-chart {
   flex: 1;
   height: 8px;
   /* Slightly taller */
-  background-color: var(--color-white-15);
+  background-color: rgba(0, 0, 0, 0.1);
   position: relative;
   border-radius: 2px;
   overflow: hidden;
@@ -2928,11 +2948,15 @@ canvas.graph-chart {
   font-weight: 300;
   color: var(--menu-text);
   transition: opacity 0.5s ease;
-  transform: translateY(-4px);
+  transform: translateY(-10px);
 }
 
 .odometer-text-wrapper.single-line {
-  transform: translateY(8px);
+  transform: translateY(0px);
+}
+
+.odometer-text-wrapper.double-line {
+  transform: translateY(6px);
 }
 
 .odometer-text-wrapper.single-line .odometer-value {

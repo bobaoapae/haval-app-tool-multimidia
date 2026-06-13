@@ -30,6 +30,7 @@ public class ProjectorManager {
     private DisplayManager displayManager;
     private InstrumentProjector instrumentProjector;
     private InstrumentProjector2 instrumentProjector2;
+    private boolean initialized = false;
 
     private final Map<Integer, BiConsumer<android.content.Context, Display>> projectorCreators = new HashMap<>();
 
@@ -52,19 +53,21 @@ public class ProjectorManager {
             Log.w(TAG, "InstrumentProjector2 (Mask) initialized on Display " + disp.getDisplayId());
         });
 
-        /* [DEPRECATED] Moved InstrumentProjector to Display 1 (HUD) as intended
-           Disabled to save resources as logic moved to WebView.
         projectorCreators.put(hudDisplayId, (ctx, disp) -> {
             instrumentProjector = new InstrumentProjector(ctx, disp);
             instrumentProjector.show();
             Log.w(TAG, "InstrumentProjector (HUD) initialized on Display " + disp.getDisplayId());
         });
-        */
     }
 
     public void initialize() {
         Log.w(TAG, "Initializing ProjectorManager");
         try {
+            if (initialized && (instrumentProjector != null || instrumentProjector2 != null)) {
+                Log.w(TAG, "ProjectorManager already initialized; skipping duplicate presentations");
+                return;
+            }
+
             displayManager = App.getContext().getSystemService(DisplayManager.class);
 
             for (Display display : displayManager.getDisplays()) {
@@ -85,9 +88,11 @@ public class ProjectorManager {
                 registerDisplayListener(pending);
             }
 
+            initialized = true;
+
             ServiceManager.getInstance().addDataChangedListener((key, value) -> {
                 if (key.equals(CarConstants.CAR_BASIC_ENGINE_STATE.getValue())) {
-                    if ("-1".equals(value) || "15".equals(value) || "14".equals(value) || "10".equals(value)) {
+                    if (!br.com.redesurftank.havalshisuku.models.EngineState.isMainScreenOn(value)) {
                         if (instrumentProjector != null) {
                             instrumentProjector.carMainScreenOff();
                         }
@@ -95,7 +100,7 @@ public class ProjectorManager {
                             instrumentProjector2.carMainScreenOff();
                         }
                         
-                        // Kill all apps on display 1 and 3
+                        // Kill all secondary display apps when the main screen turns off.
                         java.util.List<br.com.redesurftank.havalshisuku.models.DisplayAppConfig> configs = DisplayAppLauncher.INSTANCE.getAllConfigs();
                         for (br.com.redesurftank.havalshisuku.models.DisplayAppConfig config : configs) {
                              DisplayAppLauncher.TaskInfo task = DisplayAppLauncher.INSTANCE.findTaskForPackage(config.getPackageName());
@@ -144,6 +149,7 @@ public class ProjectorManager {
             instrumentProjector2 = null;
         }
         projectorCreators.clear();
+        initialized = false;
     }
 
     public void refresh() {
@@ -160,13 +166,11 @@ public class ProjectorManager {
             Log.w(TAG, "InstrumentProjector2 (Mask) refreshed on Display " + disp.getDisplayId());
         });
 
-        /* Disabled to save resources as logic moved to WebView.
         projectorCreators.put(hudDisplayId, (ctx, disp) -> {
             instrumentProjector = new InstrumentProjector(ctx, disp);
             instrumentProjector.show();
             Log.w(TAG, "InstrumentProjector (HUD) refreshed on Display " + disp.getDisplayId());
         });
-        */
 
         initialize();
     }

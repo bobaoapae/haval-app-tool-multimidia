@@ -13,16 +13,16 @@ export function initWarningHandler() {
         const warnings = state.warnings || {};
         const newWarnings = Object.assign({}, warnings, { [key]: value });
         stateManager.set('warnings', newWarnings);
-
+        
         let hasCriticalWarning = false;
-
+        
         for (const [k, v] of Object.entries(newWarnings)) {
             const isThisActive = v !== "0" && v !== "{0,0,0,0}" && v !== "{0,0,0,0,0}" && v !== "" && v !== "false";
-
+            
             if (isThisActive && !VISUAL_ONLY_KEYS.includes(k)) {
                 hasCriticalWarning = true;
             }
-
+            
             if (k === "car.ipk_info.bsd_lca_warning_reqleft") {
                 stateManager.set('bsdLeft', isThisActive);
             }
@@ -42,6 +42,10 @@ export function initWarningHandler() {
         const cardId = stateManager.get('cardId');
         const shouldBeWarnActive = hasCriticalWarning;
 
+        if (hasCriticalWarning) {
+            stateManager.set('warningDismissed', false);
+        }
+
         if (currentActive !== hasCriticalWarning) {
             stateManager.set('warningActive', hasCriticalWarning);
         }
@@ -56,11 +60,12 @@ export function initWarningHandler() {
         logger.log('Clearing all warnings via DISMISS_WARNING');
         stateManager.set('warnings', {});
         stateManager.set('warningActive', false);
+        stateManager.set('warningDismissed', true);
         
         const cardId = stateManager.get('cardId');
 
         if (window.Android && window.Android.setWarningActive) {
-            window.Android.setWarningActive(shouldBeWarnActive);
+            window.Android.setWarningActive(false);
         }
     };
 }

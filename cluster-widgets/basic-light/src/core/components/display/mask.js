@@ -36,7 +36,8 @@ export function createMask() {
         const appInDash = get('appInDash');
         const cardId = get('cardId');
         const warningActive = get('warningActive');
-        const rightVisible = (cardId != 0 && !warningActive);
+        const warningDismissed = get('warningDismissed');
+        const rightVisible = warningDismissed || (cardId != 0 && !warningActive);
 
         let showL = true;
         let showR = true;
@@ -65,13 +66,14 @@ export function createMask() {
         noAppMaskL.style.visibility = showL ? 'visible' : 'hidden';
         noAppMaskR.style.visibility = showR ? 'visible' : 'hidden';
 
-        partialAppMask.style.opacity = (cardId == 0 && !warningActive) ? '1' : '0';
+        //partialAppMask.style.opacity = (cardId == 0 && !warningActive) ? '1' : '0'; //Removed for better experience. Will decide if we keep this mask in future.
         //warnMask.style.opacity = warningActive ? '1' : '0'; //TODO: enhance this mask in future
     };
 
     const unsub1 = subscribe('appInDash', updateVisibility);
     const unsub2 = subscribe('cardId', updateVisibility);
     const unsub3 = subscribe('warningActive', updateVisibility);
+    const unsub4 = subscribe('warningDismissed', updateVisibility);
     updateVisibility();
 
     // Use a combined object for cleanup
@@ -84,6 +86,7 @@ export function createMask() {
             unsub1();
             unsub2();
             unsub3();
+            unsub4();
         }
     };
 

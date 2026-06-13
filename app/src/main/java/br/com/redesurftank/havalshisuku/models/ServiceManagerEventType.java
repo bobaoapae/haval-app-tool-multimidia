@@ -2,6 +2,7 @@ package br.com.redesurftank.havalshisuku.models;
 
 public enum ServiceManagerEventType {
     CLUSTER_CARD_CHANGED,
+    CLUSTER_INPUT_KEY,
     STEERING_WHEEL_AC_CONTROL,
     GRAPH_SCREEN_NAVIGATION,
     UPDATE_SCREEN,

@@ -36,8 +36,9 @@ class BottomBarBootReceiver : BroadcastReceiver() {
             // Aplica o overscan via Shizuku
             Thread {
                 try {
-                    val overscan = prefs.getInt(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR_OVERSCAN.key, 60)
-                    val result = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "wm overscan 0,0,0,$overscan"))
+                    val overscan = prefs.getInt(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR_OVERSCAN.key, 20)
+                    val result = ShizukuUtils.runCommandAndGetOutput(arrayOf("wm", "overscan", "0,0,0,$overscan"))
+
                     if (result.isNotEmpty()) {
                         Log.d("BottomBarBootReceiver", "Overscan applied successfully: $result")
                     } else {

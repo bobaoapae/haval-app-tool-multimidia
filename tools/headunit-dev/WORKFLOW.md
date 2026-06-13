@@ -38,6 +38,30 @@ Para voltar ao empacotado:
 
 As saídas ficam em `tools/headunit-dev/output/`.
 
+## Fluxo 4 - Baseline CarPlay D3
+
+Antes de enviar CarPlay para D3, preparar o terreno no D0: abrir CarPlay pelo icone nativo, aguardar
+o feed ficar limpo e acionar o envio pelo fluxo do Impulse/app. `am start --display 3` direto via
+Telnet e diagnostico, nao substitui o fluxo preparado.
+
+Captura read-only do estado atual por cenário:
+
+```bash
+./tools/headunit-dev/headunit.sh carplay-baseline cp-02-d3-clean
+```
+
+Comparação entre baseline conhecido e nova tentativa:
+
+```bash
+./tools/headunit-dev/headunit.sh carplay-compare \
+  tools/headunit-dev/output/carplay-baseline-<baseline> \
+  tools/headunit-dev/output/carplay-baseline-<candidate>
+```
+
+Use esse fluxo antes de qualquer deploy novo que toque CarPlay no D3. O objetivo é comparar
+props, mounts, task real, Surface, logcat filtrado e screenshots auxiliares sem depender de memória
+da sessão anterior.
+
 ## Comandos úteis
 
 ```bash

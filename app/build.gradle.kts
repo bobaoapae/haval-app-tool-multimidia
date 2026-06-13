@@ -7,6 +7,12 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+val appVersionCode = providers.gradleProperty("appVersionCode")
+    .map(String::toInt)
+    .orElse(1)
+val appVersionName = providers.gradleProperty("appVersionName")
+    .orElse("0.0.1")
+
 android {
     namespace = "br.com.redesurftank.havalshisuku"
     compileSdk = 36
@@ -16,8 +22,9 @@ android {
         minSdk = 28
         //noinspection ExpiredTargetSdkVersion
         targetSdk = 28
-        versionCode = 1
-        versionName = "0.0.1"
+        versionCode = appVersionCode.get()
+        versionName = appVersionName.get()
+        buildConfigField("boolean", "EMBED_FRIDA_TOOLS", "true")
     }
 
     signingConfigs {
@@ -30,11 +37,29 @@ android {
     }
 
     buildTypes {
+        named("debug") {
+            buildConfigField("boolean", "EMBED_FRIDA_TOOLS", "true")
+        }
+        create("leanDebug") {
+            initWith(getByName("debug"))
+            matchingFallbacks += listOf("debug")
+            buildConfigField("boolean", "EMBED_FRIDA_TOOLS", "false")
+        }
         named("release") {
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources  = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            buildConfigField("boolean", "EMBED_FRIDA_TOOLS", "true")
+        }
+    }
+
+    sourceSets {
+        getByName("debug") {
+            java.srcDir("src/internalDebug/java")
+        }
+        getByName("leanDebug") {
+            java.srcDir("src/internalDebug/java")
         }
     }
 
@@ -44,6 +69,7 @@ android {
     }
     buildFeatures {
         aidl = true
+        buildConfig = true
         compose = true
     }
 }

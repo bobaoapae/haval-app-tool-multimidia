@@ -4,11 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TELNET_EXEC="$SCRIPT_DIR/telnet-exec.sh"
+source "$SCRIPT_DIR/headunit-env.sh"
 
 AIR_CONTROL_DIR="${AIR_CONTROL_DIR:-$ROOT_DIR/cluster-widgets/air-control}"
 REMOTE_HTML_PATH="${REMOTE_HTML_PATH:-/data/local/tmp/app.html}"
-HEADUNIT_HOST="${HEADUNIT_HOST:-172.20.10.2}"
-HEADUNIT_LOCAL_HOST="${HEADUNIT_LOCAL_HOST:-172.20.10.5}"
+resolve_headunit_defaults
 HTTP_PORT="${HTTP_PORT:-8766}"
 HTTP_PORT_SEARCH_LIMIT="${HTTP_PORT_SEARCH_LIMIT:-20}"
 AIR_CONTROL_REMOTE_URL="${AIR_CONTROL_REMOTE_URL:-}"
@@ -120,12 +120,12 @@ push_html_via_http() {
   url="http://${host_ip}:${server_port}/$(basename "$html_path")"
   echo "[HavalDev] Asking headunit to download $url"
 
-  remote_cmd="rm -f '${remote_path}.tmp' '${remote_path}'; (curl -fsSL '$url' -o '${remote_path}.tmp' || wget -O '${remote_path}.tmp' '$url' || toybox wget -O '${remote_path}.tmp' '$url' || busybox wget -O '${remote_path}.tmp' '$url') && mv '${remote_path}.tmp' '${remote_path}' && chmod 644 '${remote_path}' && ls -l '${remote_path}'"
+  remote_cmd="rm -f '${remote_path}.tmp' '${remote_path}' '${remote_path}.download.log'; nohup sh -c \"(curl -fsSL '$url' -o '${remote_path}.tmp' || wget -O '${remote_path}.tmp' '$url' || toybox wget -O '${remote_path}.tmp' '$url' || busybox wget -O '${remote_path}.tmp' '$url') && mv '${remote_path}.tmp' '${remote_path}' && chmod 644 '${remote_path}'\" > '${remote_path}.download.log' 2>&1 &"
   "$TELNET_EXEC" "$remote_cmd" >/dev/null || true
 
   local expected_size
   expected_size="$(wc -c < "$html_path" | tr -d ' ')"
-  for _ in $(seq 1 30); do
+  for _ in $(seq 1 60); do
     local remote_size
     remote_size="$("$TELNET_EXEC" "wc -c '$remote_path' 2>/dev/null | awk '{print \\$1}'" 2>/dev/null | tr -cd '0-9' | tail -c 20)"
     if [[ "$remote_size" == "$expected_size" ]]; then
@@ -137,6 +137,7 @@ push_html_via_http() {
 
   echo "[HavalDev] Headunit did not complete app.html download from local HTTP server" >&2
   sed -n '1,80p' "$server_log" >&2
+  "$TELNET_EXEC" "cat '${remote_path}.download.log' 2>/dev/null | tail -n 40" >&2 || true
   return 1
 }
 
@@ -209,6 +210,11 @@ push_html() {
 
   if push_html_via_http "$html_path" "$remote_path"; then
     return
+  fi
+
+  if [[ "${AIR_CONTROL_NO_BASE64_FALLBACK:-0}" == "1" ]]; then
+    echo "[HavalDev] HTTP deploy failed and AIR_CONTROL_NO_BASE64_FALLBACK=1, aborting without Telnet/base64 upload" >&2
+    exit 1
   fi
 
   echo "[HavalDev] HTTP deploy failed, falling back to Telnet chunk upload"

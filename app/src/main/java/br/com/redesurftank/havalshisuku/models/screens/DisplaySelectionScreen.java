@@ -11,18 +11,18 @@ public class DisplaySelectionScreen implements Screen {
 
     private ServiceManager serviceManager;
     private Screen previousScreen = this;
-    
+
     // The items mirror the frontend displaySelection.js
     private static final String[] ITEM_IDS = {
-        "mode_normal",
-        "mode_esportivo",
-        "mode_reduzido",
-        "mode_clean"
+            "mode_normal",
+            "mode_reduzido",
+            "mode_clean",
+            "mode_mapa"
     };
-    private int focusedTemplateIndex = 1; // default focus on Esportivo
-    private int focusedDisplayIndex = 1; // default selected display is Esportivo
+    private int focusedTemplateIndex = 0; // default focus on Normal
+    private int focusedDisplayIndex = 0; // default selected display is Normal
 
-    private static final String[] DISPLAYS = {"Normal", "Esportivo", "Reduzido", "Clean"};
+    private static final String[] DISPLAYS = { "Normal", "Reduzido", "Clean", "Mapa" };
 
     private int getDisplayIndex(String display) {
         for (int i = 0; i < DISPLAYS.length; i++) {
@@ -47,8 +47,7 @@ public class DisplaySelectionScreen implements Screen {
     private void dispatchCurrentDisplay() {
         serviceManager.dispatchServiceManagerEvent(
                 ServiceManagerEventType.DISPLAY_SCREEN_SELECTION,
-                "control('display', '" + getCurrentDisplay() + "')"
-        );
+                "control('display', '" + getCurrentDisplay() + "')");
     }
 
     @Override
@@ -87,7 +86,8 @@ public class DisplaySelectionScreen implements Screen {
     }
 
     private void updateFocus() {
-        serviceManager.dispatchServiceManagerEvent(ServiceManagerEventType.MENU_ITEM_NAVIGATION, ITEM_IDS[focusedTemplateIndex]);
+        serviceManager.dispatchServiceManagerEvent(ServiceManagerEventType.MENU_ITEM_NAVIGATION,
+                ITEM_IDS[focusedTemplateIndex]);
     }
 
     private void handleSelection(Key key) {
@@ -97,25 +97,25 @@ public class DisplaySelectionScreen implements Screen {
                 case "mode_normal":
                     focusedDisplayIndex = 0;
                     break;
-                case "mode_esportivo":
+                case "mode_reduzido":
                     focusedDisplayIndex = 1;
                     break;
-                case "mode_reduzido":
-                    focusedDisplayIndex = 2;
-                    break;
                 case "mode_clean":
-                    if (focusedDisplayIndex == 3) { // if already in clean mode, exit
+                    if (focusedDisplayIndex == 2) { // if already in clean mode, exit
                         focusedDisplayIndex = 0;
                     } else {
-                        focusedDisplayIndex = 3;
+                        focusedDisplayIndex = 2;
                     }
+                    break;
+                case "mode_mapa":
+                    focusedDisplayIndex = 3;
                     break;
             }
             persistCurrentDisplay();
             dispatchCurrentDisplay();
         } else {
             // if in clean mode, any key exits
-            if (focusedDisplayIndex == 3) {
+            if (focusedDisplayIndex == 2) {
                 focusedDisplayIndex = 0;
                 persistCurrentDisplay();
                 dispatchCurrentDisplay();
@@ -129,8 +129,7 @@ public class DisplaySelectionScreen implements Screen {
         this.serviceManager = ServiceManager.getInstance();
         String savedDisplay = serviceManager.getSharedPreferences().getString(
                 SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.getKey(),
-                DISPLAYS[focusedDisplayIndex]
-        );
+                DISPLAYS[focusedDisplayIndex]);
         focusedDisplayIndex = getDisplayIndex(savedDisplay);
         focusedTemplateIndex = focusedDisplayIndex;
         serviceManager.dispatchServiceManagerEvent(ServiceManagerEventType.UPDATE_SCREEN, this);

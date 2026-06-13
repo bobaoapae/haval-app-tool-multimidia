@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
+import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -29,14 +30,14 @@ import kotlinx.coroutines.delay
 fun DefaultAppSelectionSection() {
     val context = LocalContext.current
     val prefs = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
-    var configs by remember { mutableStateOf(br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.getAllConfigs()) }
+    var configs by remember { mutableStateOf(DisplayAppLauncher.getAllConfigs()) }
     var selectedPackage by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.DEFAULT_DISPLAY_APP_PACKAGE.key, "") ?: "") }
     var expanded by remember { mutableStateOf(false) }
 
     // Update configs periodically or when needed
     LaunchedEffect(Unit) {
         while(true) {
-            configs = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.getAllConfigs()
+            configs = DisplayAppLauncher.getAllConfigs()
             delay(5000)
         }
     }
@@ -61,11 +62,8 @@ fun DefaultAppSelectionSection() {
             )
 
             Box(modifier = Modifier.fillMaxWidth()) {
-                val pm = context.packageManager
                 val selectedAppName = if (selectedPackage.isEmpty()) "Nenhum" else {
-                    try {
-                        pm.getApplicationInfo(selectedPackage, 0).let { pm.getApplicationLabel(it).toString() }
-                    } catch (_: Exception) { selectedPackage }
+                    DisplayAppLauncher.resolveAppInfo(context, selectedPackage).label
                 }
 
                 OutlinedButton(
@@ -102,12 +100,10 @@ fun DefaultAppSelectionSection() {
                         }
                     )
                     for (config in configs) {
-                        val appName = try {
-                            pm.getApplicationInfo(config.packageName, 0).let { pm.getApplicationLabel(it).toString() }
-                        } catch (_: Exception) { config.packageName }
+                        val appInfo = DisplayAppLauncher.resolveAppInfo(context, config.packageName, config.customName)
 
                         DropdownMenuItem(
-                            text = { Text(appName, color = Color.White) },
+                            text = { Text(appInfo.label, color = Color.White) },
                             onClick = {
                                 selectedPackage = config.packageName
                                 prefs.edit { putString(SharedPreferencesKeys.DEFAULT_DISPLAY_APP_PACKAGE.key, config.packageName) }

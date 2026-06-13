@@ -23,7 +23,7 @@ export function createOdometerInfo() {
         showDoubleLine = false;
         textWrapper.classList.remove('startup-flash');
         updateDisplay();
-    }, 120000); 
+    }, window.__AIR_CONTROL_TEST_MODE === true ? 3000 : 120000); 
 
     textWrapper.classList.add('startup-flash');
 

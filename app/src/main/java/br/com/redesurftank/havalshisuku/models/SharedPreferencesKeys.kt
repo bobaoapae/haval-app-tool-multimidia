@@ -3,12 +3,21 @@ package br.com.redesurftank.havalshisuku.models
 enum class SharedPreferencesKeys(val key: String, val description: String) {
     DISABLE_MONITORING("disableMonitoring", "Manter desativado monitoramento de distrações"),
     CLOSE_WINDOW_ON_POWER_OFF("closeWindowOnPowerOff", "Fechar janela ao desligar o veículo"),
-    CLOSE_WINDOW_ON_FOLD_MIRROR("closeWindowOnFoldMirror", "Fechar janela ao recolher retrovisores"),
+    CLOSE_WINDOW_ON_FOLD_MIRROR(
+            "closeWindowOnFoldMirror",
+            "Fechar janela ao recolher retrovisores"
+    ),
     CLOSE_SUNROOF_ON_POWER_OFF("closeSunroofOnPowerOff", "Fechar teto solar ao desligar o veículo"),
-    CLOSE_SUNROOF_ON_FOLD_MIRROR("closeSunroofOnFoldMirror", "Fechar teto solar ao recolher retrovisores"),
+    CLOSE_SUNROOF_ON_FOLD_MIRROR(
+            "closeSunroofOnFoldMirror",
+            "Fechar teto solar ao recolher retrovisores"
+    ),
     CLOSE_WINDOWS_ON_SPEED("closeWindowsOnSpeed", "Fechar janelas ao atingir velocidade"),
     CLOSE_SUNROOF_ON_SPEED("closeSunroofOnSpeed", "Fechar teto solar ao atingir velocidade"),
-    CLOSE_SUNROOF_SUN_SHADE_ON_CLOSE_SUNROOF("closeSunroofSunShadeOnCloseSunRoof", "Fechar cortina do teto ao fechar teto solar"),
+    CLOSE_SUNROOF_SUN_SHADE_ON_CLOSE_SUNROOF(
+            "closeSunroofSunShadeOnCloseSunRoof",
+            "Fechar cortina do teto ao fechar teto solar"
+    ),
     SET_STARTUP_VOLUME("setStartupVolume", "Definir volume ao ligar o veículo"),
     STARTUP_VOLUME("startupVolume", "Volume ao ligar o veículo"),
     SPEED_THRESHOLD("speedThreshold", "Velocidade limite para fechar janelas"),
@@ -21,61 +30,179 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     AUTO_BRIGHTNESS_LEVEL_NIGHT("autoBrightnessLevelNight", "Nível de brilho automático à noite"),
     AUTO_BRIGHTNESS_LEVEL_DAY("autoBrightnessLevelDay", "Nível de brilho automático durante o dia"),
     ENABLE_FRIDA_HOOKS("enableFridaHooks", "Habilitar hooks do Frida"),
-    ENABLE_FRIDA_HOOK_SYSTEM_SERVER("enableFridaHookSystemServer", "Habilitar hooks do Frida no System Server"),
-    ENABLE_INSTRUMENT_PROJECTOR("enableInstrumentProjector", "Habilitar projeção de dados no painel de instrumentos"),
-    ENABLE_INSTRUMENT_ODOMETER("enableInstrumentOdometer", "Exibir odômetro no painel de instrumentos"),
-    ENABLE_INSTRUMENT_REVISION_WARNING("enableInstrumentRevisionWarning", "Habilitar aviso de revisão no painel de instrumentos"),
-    ENABLE_INSTRUMENT_ODOMETER_AND_REVISION("enableOdometerAndRevision", "Exibir Odômetro e Aviso de Revisão no painel de instrumentos"),
-    ENABLE_INSTRUMENT_EV_BATTERY_PERCENTAGE("enableInstrumentEvBatteryPercentage", "Habilitar porcentagem da bateria EV no painel de instrumentos"),
-    ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION("enableInstrumentCustomMediaIntegration", "Habilitar integração personalizada de mídia no painel de instrumentos"),
-    ENABLE_CUSTOM_MENU("enableCustomMenu", "Exibe um menu customizado no cluster controlado pelas teclas do volante"),
-    INSTRUMENT_REVISION_KM("instrumentRevisionKm", "Quilometragem para aviso de revisão no painel de instrumentos"),
-    INSTRUMENT_REVISION_NEXT_DATE("instrumentRevisionNextDate", "Data da próxima revisão no painel de instrumentos"),
+    ENABLE_FRIDA_HOOK_SYSTEM_SERVER(
+            "enableFridaHookSystemServer",
+            "Habilitar hooks do Frida no System Server"
+    ),
+    ENABLE_INSTRUMENT_PROJECTOR(
+            "enableInstrumentProjector",
+            "Habilitar projeção de dados no painel de instrumentos"
+    ),
+    ENABLE_INSTRUMENT_ODOMETER(
+            "enableInstrumentOdometer",
+            "Exibir odômetro no painel de instrumentos"
+    ),
+    ENABLE_INSTRUMENT_REVISION_WARNING(
+            "enableInstrumentRevisionWarning",
+            "Habilitar aviso de revisão no painel de instrumentos"
+    ),
+    ENABLE_INSTRUMENT_ODOMETER_AND_REVISION(
+            "enableOdometerAndRevision",
+            "Exibir Odômetro e Aviso de Revisão no painel de instrumentos"
+    ),
+    ENABLE_INSTRUMENT_EV_BATTERY_PERCENTAGE(
+            "enableInstrumentEvBatteryPercentage",
+            "Habilitar porcentagem da bateria EV no painel de instrumentos"
+    ),
+    ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION(
+            "enableInstrumentCustomMediaIntegration",
+            "Habilitar integração personalizada de mídia no painel de instrumentos"
+    ),
+    ENABLE_CUSTOM_MENU(
+            "enableCustomMenu",
+            "Exibe um menu customizado no cluster controlado pelas teclas do volante"
+    ),
+    INSTRUMENT_REVISION_KM(
+            "instrumentRevisionKm",
+            "Quilometragem para aviso de revisão no painel de instrumentos"
+    ),
+    INSTRUMENT_REVISION_NEXT_DATE(
+            "instrumentRevisionNextDate",
+            "Data da próxima revisão no painel de instrumentos"
+    ),
     DISABLE_AVAS("disableAvas", "Desativar AVAS (sistema de alerta de veículo silencioso)"),
-    DISABLE_AVM_CAR_STOPPED("disableAvmCarStopped", "Desativar camera AVM quando o carro está parado"),
+    DISABLE_AVM_CAR_STOPPED(
+            "disableAvmCarStopped",
+            "Desativar camera AVM quando o carro está parado"
+    ),
     CAR_MONITOR_PROPERTIES("carMonitorProperties", "Propriedades do monitoramento do carro"),
-    BYPASS_SELF_INSTALLATION_INTEGRITY_CHECK("bypassSelfInstallationIntegrityCheck", "Ignorar verificação de integridade da instalação"),
-    SELF_INSTALLATION_INTEGRITY_CHECK("selfInstallationIntegrityCheck", "Verificação de integridade da instalação"),
+    BYPASS_SELF_INSTALLATION_INTEGRITY_CHECK(
+            "bypassSelfInstallationIntegrityCheck",
+            "Ignorar verificação de integridade da instalação"
+    ),
+    SELF_INSTALLATION_INTEGRITY_CHECK(
+            "selfInstallationIntegrityCheck",
+            "Verificação de integridade da instalação"
+    ),
     ADVANCE_USE("advanceUse", "Uso avançado"),
     CURRENT_USER("currentUser", "Usuário atual"),
-    LAST_CLUSTER_AC_CONFIG("lastClusterAcConfig", "Última configuração do ar-condicionado do cluster"),
-    DISABLE_BLUETOOTH_ON_POWER_OFF("disableBluetoothOnPowerOff", "Desativar Bluetooth ao desligar o veículo"),
-    DISABLE_HOTSPOT_ON_POWER_OFF("disableHotspotOnPowerOff", "Desativar ponto de acesso ao desligar o veículo"),
-    BLUETOOTH_STATE_ON_POWER_OFF("bluetoothStateOnPowerOff", "Estado do Bluetooth ao desligar o veículo"),
-    ENABLE_SEAT_VENTILATION_ON_AC_ON("enableSeatVentilationOnAcOn", "Habilitar ventilação do banco do motorista ao ligar o ar-condicionado"),
-    ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS("enableSteeringWheelCustomButtons", "Habilitar botões personalizados no volante"),
-    PERSISTENT_BOTTOM_BAR("enable_persistent_bottom_bar", "Habilitar barra inferior persistente (Android 9)"),
-    STEERING_WHEEL_CUSTOM_BUTON_1_ACTION("steeringWheelCustomButon1Action", "Ação do botão personalizado 1 do volante"),
-    STEERING_WHEEL_CUSTOM_BUTON_2_ACTION("steeringWheelCustomButon2Action", "Ação do botão personalizado 2 do volante"),
-    STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL("steeringWheelCustomButon1ActionOriginal", "Ação original do botão personalizado 1 do volante"),
-    STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL("steeringWheelCustomButon2ActionOriginal", "Ação original do botão personalizado 2 do volante"),
-    STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1("steeringWheelOpenAppPackageButton1", "Pacote do aplicativo para o botão personalizado 1 do volante"),
-    STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2("steeringWheelOpenAppPackageButton2", "Pacote do aplicativo para o botão personalizado 2 do volante"),
+    LAST_CLUSTER_AC_CONFIG(
+            "lastClusterAcConfig",
+            "Última configuração do ar-condicionado do cluster"
+    ),
+    DISABLE_BLUETOOTH_ON_POWER_OFF(
+            "disableBluetoothOnPowerOff",
+            "Desativar Bluetooth ao desligar o veículo"
+    ),
+    DISABLE_HOTSPOT_ON_POWER_OFF(
+            "disableHotspotOnPowerOff",
+            "Desativar ponto de acesso ao desligar o veículo"
+    ),
+    BLUETOOTH_STATE_ON_POWER_OFF(
+            "bluetoothStateOnPowerOff",
+            "Estado do Bluetooth ao desligar o veículo"
+    ),
+    ENABLE_SEAT_VENTILATION_ON_AC_ON(
+            "enableSeatVentilationOnAcOn",
+            "Habilitar ventilação do banco do motorista ao ligar o ar-condicionado"
+    ),
+    ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS(
+            "enableSteeringWheelCustomButtons",
+            "Habilitar botões personalizados no volante"
+    ),
+    PERSISTENT_BOTTOM_BAR(
+            "enable_persistent_bottom_bar",
+            "Habilitar barra inferior persistente (Android 9)"
+    ),
+    STEERING_WHEEL_CUSTOM_BUTON_1_ACTION(
+            "steeringWheelCustomButon1Action",
+            "Ação do botão personalizado 1 do volante"
+    ),
+    STEERING_WHEEL_CUSTOM_BUTON_2_ACTION(
+            "steeringWheelCustomButon2Action",
+            "Ação do botão personalizado 2 do volante"
+    ),
+    STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL(
+            "steeringWheelCustomButon1ActionOriginal",
+            "Ação original do botão personalizado 1 do volante"
+    ),
+    STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL(
+            "steeringWheelCustomButon2ActionOriginal",
+            "Ação original do botão personalizado 2 do volante"
+    ),
+    STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1(
+            "steeringWheelOpenAppPackageButton1",
+            "Pacote do aplicativo para o botão personalizado 1 do volante"
+    ),
+    STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2(
+            "steeringWheelOpenAppPackageButton2",
+            "Pacote do aplicativo para o botão personalizado 2 do volante"
+    ),
     LAST_CLUSTER_SCREEN("lastClusterScreen", "Última tela exibida no cluster"),
-    LAST_CLUSTER_MENU_ITEM("lastClusterMenuItem", "Último item selecionado no menu principal do cluster"),
-    ENABLE_MAX_AC_ON_UNLOCK("enableMaxAcOnUnlock", "Habilitar A/C no máximo ao ligar o veículo se temperatura acima do configurado"),
-    MAX_AC_ON_UNLOCK_THRESHOLD("maxAcOnUnlockThreshold", "Temperatura limite para ativar Max AC ao destravar"),
+    LAST_CLUSTER_MENU_ITEM(
+            "lastClusterMenuItem",
+            "Último item selecionado no menu principal do cluster"
+    ),
+    ENABLE_MAX_AC_ON_UNLOCK(
+            "enableMaxAcOnUnlock",
+            "Habilitar A/C no máximo ao ligar o veículo se temperatura acima do configurado"
+    ),
+    MAX_AC_ON_UNLOCK_THRESHOLD(
+            "maxAcOnUnlockThreshold",
+            "Temperatura limite para ativar Max AC ao destravar"
+    ),
     MAX_AC_TARGET_TEMP("maxAcTargetTemp", "Temperatura alvo para o Max AC"),
     MAX_AC_TIMEOUT("maxAcTimeout", "Tempo limite para desativar o Max AC (em minutos)"),
-    ENABLE_OPEN_SUNROOF_CURTAIN_ON_START("enableOpenSunroofCurtainOnStart", "Habilitar abertura da cortina do teto solar ao ligar"),
-    OPEN_SUNROOF_CURTAIN_START_HOUR("openSunroofCurtainStartHour", "Hora de início para abrir cortina"),
-    OPEN_SUNROOF_CURTAIN_START_MINUTE("openSunroofCurtainStartMinute", "Minuto de início para abrir cortina"),
+    ENABLE_OPEN_SUNROOF_CURTAIN_ON_START(
+            "enableOpenSunroofCurtainOnStart",
+            "Habilitar abertura da cortina do teto solar ao ligar"
+    ),
+    OPEN_SUNROOF_CURTAIN_START_HOUR(
+            "openSunroofCurtainStartHour",
+            "Hora de início para abrir cortina"
+    ),
+    OPEN_SUNROOF_CURTAIN_START_MINUTE(
+            "openSunroofCurtainStartMinute",
+            "Minuto de início para abrir cortina"
+    ),
     OPEN_SUNROOF_CURTAIN_END_HOUR("openSunroofCurtainEndHour", "Hora fim para abrir cortina"),
     OPEN_SUNROOF_CURTAIN_END_MINUTE("openSunroofCurtainEndMinute", "Minuto fim para abrir cortina"),
-    OPEN_SUNROOF_CURTAIN_MAX_TEMP("openSunroofCurtainMaxTemp", "Temperatura externa máxima para abrir cortina"),
-    PENDING_RESET_TARGET_VERSION("pendingResetTargetVersion", "Versão alvo para resetar dados ao voltar para canal estável"),
+    OPEN_SUNROOF_CURTAIN_MAX_TEMP(
+            "openSunroofCurtainMaxTemp",
+            "Temperatura externa máxima para abrir cortina"
+    ),
+    PENDING_RESET_TARGET_VERSION(
+            "pendingResetTargetVersion",
+            "Versão alvo para resetar dados ao voltar para canal estável"
+    ),
     SHOW_BETA_UPDATES("showBetaUpdates", "Mostrar atualizações do canal beta"),
     DISPLAY_APP_CONFIGS("displayAppConfigs", "Configurações de apps para telas secundárias"),
-    ENABLE_VIRTUAL_CLUSTER("enableVirtualCluster", "Habilitar Virtual Cluster no painel de instrumentos"),
-    VIRTUAL_CLUSTER_DISPLAY_ID("instrumentMaskDisplayId", "ID da tela para o Virtual Cluster (Fixado em 3)"),
+    ANDROID_SETTINGS_SHORTCUT_SEEDED(
+            "androidSettingsShortcutSeeded",
+            "Atalho das Configurações do Android já criado na área de trabalho padrão"
+    ),
+    ENABLE_VIRTUAL_CLUSTER(
+            "enableVirtualCluster",
+            "Habilitar Virtual Cluster no painel de instrumentos com a opção de temas diferenciados"
+    ),
+    VIRTUAL_CLUSTER_DISPLAY_ID(
+            "instrumentMaskDisplayId",
+            "ID da tela para o Virtual Cluster (Fixado em 3)"
+    ),
     CURRENT_CLUSTER_TEMPLATE("currentClusterTemplate", "Template atual do cluster"),
     CURRENT_CLUSTER_DISPLAY("currentClusterDisplay", "Modo de exibição do cluster"),
-    DEFAULT_DISPLAY_APP_PACKAGE("defaultDisplayAppPackage", "Pacote do app padrão para abrir no cluster"),
+    DEFAULT_DISPLAY_APP_PACKAGE(
+            "defaultDisplayAppPackage",
+            "Pacote do app padrão para abrir no cluster"
+    ),
     INSTRUMENT_REVISION_HISTORY("instrumentRevisionHistory", "Histórico de revisões realizadas"),
     VIRTUAL_CLUSTER_THEME("virtualClusterTheme", "Tema do Virtual Cluster"),
     VIRTUAL_CLUSTER_NIGHT_MODE("virtualClusterNightMode", "Modo Noturno do Virtual Cluster"),
+    PERSISTENT_BOTTOM_BAR_OVERSCAN(
+            "persistentBottomBarOverscan",
+            "Ajuste de margem inferior para a barra (overscan)"
+    ),
     CLUSTER_FUEL_DISPLAY_UNIT("clusterFuelDisplayUnit", "Unidade de exibição do combustível no cluster"),
-    PERSISTENT_BOTTOM_BAR_OVERSCAN("persistentBottomBarOverscan", "Ajuste de margem inferior para a barra (overscan)"),
     CUSTOM_THEME_REPO_URL_PROD("customThemeRepoUrlProd", "URL do Repositório de Temas (Prod)"),
     CUSTOM_THEME_REPO_URL_DEV("customThemeRepoUrlDev", "URL do Repositório de Temas (Dev)"),
     CUSTOM_THEME_REPO_ENV("customThemeRepoEnv", "Ambiente do Repositório (Prod/Dev)"),
@@ -84,12 +211,13 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     BOTTOM_BAR_OVERRIDES("bottomBarOverrides", "Overrides de aplicativos salvos (JSON)"),
     ENABLE_SPEED_ADJUSTMENT("enableSpeedAdjustment", "Habilitar ajuste de velocidade no painel"),
     SPEED_ADJUSTMENT_OFFSET("speedAdjustmentOffset", "Fator de ajuste de velocidade (%)"),
-    ALWAYS_USE_THEME_DIMENSIONS("alwaysUseThemeDimensions", "Sempre usar dimensões do tema para apps"),
     TRIP_CONSISTENCY_CLUSTER_ACTIVE("tripConsistencyClusterActive", "Indicador discreto de análise de viagem ativa no cluster"),
     TRIP_CONSISTENCY_CLUSTER_SCORE("tripConsistencyClusterScore", "Score de consistência em tempo real no cluster"),
     CLUSTER_MEDIA_BAR_ENABLED("mediaBarEnabled", "Exibir mini bar de mídia no cluster"),
     STEERING_WHEEL_MEDIA_ARROWS_NAVIGATE_FAVORITES(
             "steeringWheelMediaArrowsNavigateFavorites",
             "Botões |◄ ►| do volante navegam entre rádios favoritas"
-    )
+    ),
+    AA_PATCH_AUTO_MOUNT("aaPatchAutoMount", "Habilitar montagem automática dos patches do Android Auto ao iniciar"),
+    CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar")
 }

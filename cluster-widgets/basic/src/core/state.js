@@ -124,6 +124,7 @@ var stateManager = new StateManager({
     enableRevisionWarning: false,
     enableOdometer: false,
     warningActive: false,
+    warningDismissed: false,
     bsdLeft: false,
     bsdRight: false,
     tripAnalysisActive: false,

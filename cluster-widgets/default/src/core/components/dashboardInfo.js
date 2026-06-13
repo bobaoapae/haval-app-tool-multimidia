@@ -59,6 +59,15 @@ function createMediaBar() {
 const fuelIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xLDEyTDUsOVYxNVoiLz48cGF0aCBkPSJNMjIsMTBWOGEyLDIsMCwwLDAtMi0yaC0zVjRhMiwyLDAsMCwwLTItMkg5QTIsMiwwLDAsMCw3LDR2MTZhMiwyLDAsMCwwLDIsMmg4YTIsMiwwLDAsMCwyLTJWMTJoMXY0YTIsMiwwLDAsMCw0LDBWMTBaTTksNGg4djZIOVptOCwxNkg5VjEyaDhaIi8+PC9zdmc+";
 const batteryIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjwhLS0gQm9keSAtLT48cGF0aCBkPSJNMyw2aDE4YzEuMSwwLDIsMC45LDIsMnYxMGMwLDEuMS0wLjksMi0yLDJIM2MtMS4xLDAtMi0wLjktMi0yVjhDMSw2LjksMS45LDYsMyw2eiBNMyw4djEwaDE4VjhIM3oiLz48IS0tIFBvbGVzIC0tPjxyZWN0IHg9IjUiIHk9IjMiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48cmVjdCB4PSIxNSIgeT0iMyIgd2lkdGg9IjQiIGhlaWdodD0iMyIvPjwhLS0gTWludXMgc2lnbiAoLSkgLS0+PHJlY3QgeD0iNiIgeT0iMTIiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48IS0tIFBsdXMgc2lnbiAoKykgLS0+PHBhdGggZD0iTTE2LDEwaC0ydjJoLTJ2MmgydjJoMnYtMmgydi0yaC0yVjEweiIvPjwvc3ZnPg==";
 const FUEL_TANK_CAPACITY_LITERS = 55;
+function isSimulatorRuntime() {
+    if (window.Android) return false;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    return process.env.NODE_ENV === 'development' ||
+        urlParams.get('nativeMocks') === '1' ||
+        window.__ENABLE_NATIVE_MOCKS === true ||
+        window.__AIR_CONTROL_TEST_MODE === true;
+}
 
 function formatFuelLiters(percent) {
     const value = Number(percent);
@@ -75,6 +84,29 @@ function formatFuelDisplay(percent, unit) {
     }
 
     return { value: formatFuelLiters(percent), unit: 'L' };
+}
+
+function formatEvPowerKw(value) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+        return { label: 'EV', value: '--', unit: 'kW', state: 'idle' };
+    }
+
+    if (Math.abs(numericValue) < 0.2) {
+        return { label: 'EV', value: '0', unit: 'kW', state: 'idle' };
+    }
+
+    const absValue = Math.abs(numericValue);
+    const precision = absValue < 10 ? 1 : 0;
+    const formattedValue = absValue.toFixed(precision);
+    const isRegen = numericValue < 0;
+
+    return {
+        label: isRegen ? 'REGEN' : 'EV',
+        value: `${isRegen ? '-' : '+'}${formattedValue}`,
+        unit: 'kW',
+        state: isRegen ? 'regen' : 'drive'
+    };
 }
 
 export function createDashboardInfo() {
@@ -185,21 +217,29 @@ export function createDashboardInfo() {
     const sportSpeedometer = createSpeedometerScreen();
     sportSpeedometer.element.classList.add('dashboard-speed-esportivo-widget');
     speedContainer.appendChild(sportSpeedometer.element);
-    const sportFixedOverlay = div({
-        className: 'dashboard-sport-fixed-overlay',
-        children: [
-            div({ className: 'dashboard-sport-ready-text', children: ['READY'] }),
-            div({
-                className: 'dashboard-sport-right-icon',
-                children: [
-                    div({ className: 'dashboard-sport-right-lane left' }),
-                    div({ className: 'dashboard-sport-right-car' }),
-                    div({ className: 'dashboard-sport-right-lane right' })
-                ]
-            })
-        ]
-    });
-    speedContainer.appendChild(sportFixedOverlay);
+    if (isSimulatorRuntime()) {
+        const sportFixedOverlay = div({
+            className: 'dashboard-sport-fixed-overlay',
+            children: [
+                div({
+                    className: 'dashboard-sport-limit-sign',
+                    children: [
+                        div({ className: 'limit-circle', children: ['30'] })
+                    ]
+                }),
+                div({ className: 'dashboard-sport-ready-text', children: ['READY'] }),
+                div({
+                    className: 'dashboard-sport-right-icon',
+                    children: [
+                        div({ className: 'dashboard-sport-right-lane left' }),
+                        div({ className: 'dashboard-sport-right-car' }),
+                        div({ className: 'dashboard-sport-right-lane right' })
+                    ]
+                })
+            ]
+        });
+        speedContainer.appendChild(sportFixedOverlay);
+    }
 
     // 3. Bottom Gauges
     const bottomGauges = div({ className: 'dashboard-bottom-gauges' });
@@ -309,6 +349,24 @@ export function createDashboardInfo() {
 
     bottomEvMode.appendChild(bottomEvLabel);
 
+    const evPowerCard = div({ className: 'dashboard-ev-power-card' });
+    const evPowerLabel = span({ className: 'ev-power-label' });
+    const evPowerValue = span({ className: 'ev-power-value' });
+    const evPowerUnit = span({ className: 'ev-power-unit' });
+
+    const updateEvPower = (value) => {
+        const formatted = formatEvPowerKw(value);
+        evPowerLabel.textContent = formatted.label;
+        evPowerValue.textContent = formatted.value;
+        evPowerUnit.textContent = formatted.unit;
+        evPowerCard.setAttribute('data-ev-power-state', formatted.state);
+    };
+    updateEvPower(getState('evPowerKw'));
+
+    evPowerCard.appendChild(evPowerLabel);
+    evPowerCard.appendChild(evPowerValue);
+    evPowerCard.appendChild(evPowerUnit);
+
     // Warning Label (Red label below right circle)
     const warningLabel = div({
         className: 'dashboard-warning-label',
@@ -371,6 +429,7 @@ export function createDashboardInfo() {
     container.appendChild(mediaBar);
     container.appendChild(externalTempContainer);
     container.appendChild(internalTempContainer);
+    container.appendChild(evPowerCard);
     container.appendChild(bottomEvMode);
     container.appendChild(menuWrapper);
     container.appendChild(alertIndicatorsContainer);
@@ -435,6 +494,7 @@ export function createDashboardInfo() {
             updateEvModeColor(val);
         }),
         subscribe('evMode', val => updateBottomEv(val)),
+        subscribe('evPowerKw', updateEvPower),
         subscribe('carSpeed', val => {
             speedValue.textContent = val;
             updateSpeedRotation(val);

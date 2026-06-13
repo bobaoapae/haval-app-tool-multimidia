@@ -1,5 +1,6 @@
 import { setState, stateManager } from '../core/state.js';
 import { menuItems } from '../core/components/mainMenu.js';
+import { SHOW_SCORE_CARD_IN_SIMULATOR } from './testingFlags.js';
 
 window.__AIR_CONTROL_TEST_MODE = true;
 setState('enableOdometer', true);
@@ -7,15 +8,15 @@ setState('enableRevisionWarning', true);
 setState('odometer', 11450);
 setState('nextRevisionKm', 12000);
 setState('nextRevisionDate', Date.now() + 15 * 24 * 60 * 60 * 1000);
-setState('tripAnalysisActive', true);
-setState('tripAnalysisScore', 82);
+setState('tripAnalysisActive', SHOW_SCORE_CARD_IN_SIMULATOR);
+setState('tripAnalysisScore', SHOW_SCORE_CARD_IN_SIMULATOR ? 82 : null);
 
 const focusableAreas = {
     main_menu: menuItems.map(item => item.id),
     ac_control: ['fan', 'temp'],
     regen: ['Baixo', 'Normal', 'Alto'],
     graph: ['evConsumption', 'gasConsumption', 'carSpeed'],
-    display_selection: ['title_mask', 'mode_normal', 'mode_reduzido', 'mode_clean']
+    display_selection: ['title_mask', 'mode_normal', 'mode_reduzido', 'mode_clean', 'mode_mapa']
 };
 // If running under dev-controls (index.html), add a red background to help identify the environment
 if (window.location.pathname.endsWith('index.html') || window.location.pathname === '/' || window.location.pathname.endsWith('/')) {
@@ -85,7 +86,8 @@ document.addEventListener('keydown', (e) => {
         const currentIndex = cards.indexOf(currentCardId);
         const nextIndex = (currentIndex + 1) % cards.length;
         const targetCard = cards[nextIndex];
-        const cardMeaning = { 0: 'Hide Menu', 1: 'Main Menu', 3: 'AC Menu' };
+        const mapCardActive = currentState.projectionMirrorInDash === true || currentState.carPlayInDash === true;
+        const cardMeaning = { 0: 'Hide Menu', 1: 'Main Menu', 3: mapCardActive ? 'Map Display' : 'AC Menu' };
         console.log(`[Card Simulation] Cycle Up -> Card ${targetCard} (${cardMeaning[targetCard]})`);
         setState('cardId', targetCard);
         return;
@@ -95,7 +97,8 @@ document.addEventListener('keydown', (e) => {
         const currentIndex = cards.indexOf(currentCardId);
         const prevIndex = (currentIndex - 1 + cards.length) % cards.length;
         const targetCard = cards[prevIndex];
-        const cardMeaning = { 0: 'Hide Menu', 1: 'Main Menu', 3: 'AC Menu' };
+        const mapCardActive = currentState.projectionMirrorInDash === true || currentState.carPlayInDash === true;
+        const cardMeaning = { 0: 'Hide Menu', 1: 'Main Menu', 3: mapCardActive ? 'Map Display' : 'AC Menu' };
         console.log(`[Card Simulation] Cycle Down -> Card ${targetCard} (${cardMeaning[targetCard]})`);
         setState('cardId', targetCard);
         return;
@@ -288,10 +291,10 @@ document.addEventListener('keydown', (e) => {
         const currentAppInDash = stateManager.getState().appInDash;
         let currentIndex = options.indexOf(currentAppInDash);
         if (currentIndex === -1) currentIndex = 0;
-        
+
         const nextIndex = (currentIndex + 1) % options.length;
         const nextValue = options[nextIndex];
-        
+
         console.log(`[Mask Simulation] Cycle appInDash -> ${nextValue}`);
         setState('appInDash', nextValue);
     }
@@ -327,6 +330,20 @@ document.addEventListener('keydown', (e) => {
         const nextIndex = (currentIndex + 1) % modes.length;
         window.maintenanceMode = modes[nextIndex];
         console.log(`[Maintenance Simulation] Toggle Mode -> ${window.maintenanceMode}`);
+
+        if (window.maintenanceMode === 'none') {
+            setState('enableRevisionWarning', false);
+            setState('nextRevisionKm', 999999);
+            setState('nextRevisionDate', 0);
+        } else if (window.maintenanceMode === 'km') {
+            setState('enableRevisionWarning', true);
+            setState('nextRevisionKm', 12000);
+            setState('nextRevisionDate', Date.now() + 60 * 24 * 60 * 60 * 1000);
+        } else if (window.maintenanceMode === 'date') {
+            setState('enableRevisionWarning', true);
+            setState('nextRevisionKm', 20000);
+            setState('nextRevisionDate', Date.now() + 15 * 24 * 60 * 60 * 1000);
+        }
     }
 });
 
@@ -334,7 +351,7 @@ let lastValue = 0;
 const smoothingFactor = 0.05; // Less dramatic changes
 let timeToModeChange = 10;
 let simulationPhase = 'idle';
-let currentSpeed = 0;
+let currentSpeed = 150;
 let steadyTimeCounter = 0;
 const SIMULATION_INTERVAL = 100;
 
@@ -398,7 +415,9 @@ window.simulationInterval = setInterval(() => {
     }
 
     setState('carSpeed', Math.max(0, currentSpeed.toFixed(1)));
-    setState('tripAnalysisScore', Math.max(74, Math.min(99, Math.round(88 - (lastValue / 12) + (currentSpeed / 30)))));
+    if (SHOW_SCORE_CARD_IN_SIMULATOR) {
+        setState('tripAnalysisScore', Math.max(74, Math.min(99, Math.round(88 - (lastValue / 12) + (currentSpeed / 30)))));
+    }
 
     const randomTarget = Math.floor(Math.random() * 101);
     lastValue = (lastValue * (1 - smoothingFactor)) + (randomTarget * smoothingFactor);
@@ -476,28 +495,7 @@ window.simulationInterval = setInterval(() => {
     }
     setState('odometer', Math.floor(window.simulatedOdo));
 
-    // Revision Simulation (Testing Warning logic)
-    if (window.simulatedOdo > 0) {
-        if (!window.maintenanceMode) window.maintenanceMode = 'km';
-        
-        if (window.maintenanceMode === 'none') {
-            // setState('enableRevisionWarning', false); // REMOVED: Don't override manual toggle
-        } else {
-            // setState('enableRevisionWarning', true); // REMOVED: Don't override manual toggle
-            
-            if (window.maintenanceMode === 'km') {
-                // Target: 12.000km, Current is around 11.450 -> Warning active (< 1000km)
-                setState('nextRevisionKm', 12000);
-                // Far date
-                setState('nextRevisionDate', Date.now() + 60 * 24 * 60 * 60 * 1000); 
-            } else if (window.maintenanceMode === 'date') {
-                // Far mileage (target 20k)
-                setState('nextRevisionKm', 20000);
-                // Close date (15 days)
-                setState('nextRevisionDate', Date.now() + 15 * 24 * 60 * 60 * 1000);
-            }
-        }
-    }
+
 
 }, SIMULATION_INTERVAL);
 

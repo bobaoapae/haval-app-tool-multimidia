@@ -1,7 +1,13 @@
 <theme>
     <name>Default</name>
     <description>Tema principal com o novo design Sport.</description>
-    <version>1.1.0</version>
+    <version>1.1.5</version>
     <thumbnail>thumbnail.png</thumbnail>
     <mainFile>index.html</mainFile>
+    <AppDefaultPosition>
+        <x>0</x>
+        <y>62</y>
+        <width>1920</width>
+        <height>596</height>
+    </AppDefaultPosition>
 </theme>

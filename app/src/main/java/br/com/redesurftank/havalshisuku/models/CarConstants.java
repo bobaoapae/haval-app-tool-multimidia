@@ -690,6 +690,7 @@ public enum CarConstants {
     CAR_WIRELESS_CHARGE_SETTING_CHARGE_STATE("car.wireless_charge_setting.charge_state"),
     CAR_WIRELESS_CHARGE_SETTING_CONFIGURE_ENABLE("car.wireless_charge_setting.configure_enable"),
     SYSTEM_SETTING_DAYNIGHT_THEME("system_setting_daynight_theme"),
+    BEAN_PUI_SCENE_NOTIFY("bean.pui.scene_notify"),
     SYS_AVM_AUTO_PREVIEW_ENABLE("sys.avm.auto_preview_enable"),
     SYS_AVM_CAR_MOVE_FORWARD_MODE_ENABLE("sys.avm.car_move_forward_mode_enable"),
     SYS_AVM_CLEAN_CAR_MODE_ENABLE("sys.avm.clean_car_mode_enable"),

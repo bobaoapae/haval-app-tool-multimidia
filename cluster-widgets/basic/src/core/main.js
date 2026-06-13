@@ -118,7 +118,7 @@ function render() {
             classes.push('cluster-disabled');
         }
 
-        if (get('cardId') == 0 || get('warningActive') === true) {
+        if (get('warningDismissed') !== true && (get('cardId') == 0 || get('warningActive') === true)) {
             classes.push('warn-is-active');
         }
         if (nativeMockEnabled) {
@@ -197,6 +197,7 @@ function render() {
 }
 
 subscribe('warningActive', () => render());
+subscribe('warningDismissed', () => render());
 subscribe('cardId', () => render());
 initializeLayout();
 
@@ -214,6 +215,10 @@ render();
 subscribe('cardId', (cardId) => {
     logger.log('cardId change:', cardId);
 
+    if (cardId == 1 || cardId == 3) {
+        setState('warningDismissed', false);
+    }
+
     // Sync with Android bridge for correct app resizing
     if (window.Android && window.Android.setCardId) {
         window.Android.setCardId(cardId);
@@ -221,7 +226,7 @@ subscribe('cardId', (cardId) => {
 
     // 0 = hide the right menu display
     if (menuWrapper) {
-        menuWrapper.style.display = (cardId == 0) ? 'none' : 'block';
+        menuWrapper.style.display = (cardId == 0 && get('warningDismissed') !== true) ? 'none' : 'block';
     }
 
     if (cardId == 1) {

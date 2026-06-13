@@ -26,6 +26,7 @@ export function initializeConstants() {
     window.Esportivo = 'Esportivo';
     window.Reduzido = 'Reduzido';
     window.Clean = 'Clean';
+    window.Mapa = 'Mapa';
 
     // Misc
     window.ON = 'ON';

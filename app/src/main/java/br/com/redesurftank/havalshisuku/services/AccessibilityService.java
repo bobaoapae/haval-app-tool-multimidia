@@ -28,6 +28,19 @@ public class AccessibilityService extends android.accessibilityservice.Accessibi
     @Override
     protected boolean onKeyEvent(KeyEvent event) {
         Log.w(TAG, "onKeyEvent: " + event.getKeyCode());
+        if (DisplayAppLauncher.INSTANCE.shouldConsumeAndroidAutoAccessibilityMediaKey(
+                event.getKeyCode(),
+                event.getAction()
+        )) {
+            Log.w(
+                    TAG,
+                    "Consumed Android Auto toggle media key: "
+                            + event.getKeyCode()
+                            + " action="
+                            + event.getAction()
+            );
+            return true;
+        }
         return false;
     }
 }

@@ -9,8 +9,22 @@ Chart.register(...registerables, streamingPlugin);
 
 const HISTORY_DURATION = 30000; //ms
 const TIMER_HIDE_DELAY = 30000; //ms
-const UI_UPDATE_INTERVAL = 100; //ms
+const UI_UPDATE_INTERVAL = 250; //ms
+const CHART_UPDATE_INTERVAL = 500; //ms
 const ACCELERATION_THRESHOLD = 10; //s (ie 100km/h in 5s = 5, 100km/h in 10s = 10)
+const GRAPH_SCREENS = new Set(['graph', 'graphs']);
+
+const isGraphScreenActive = () => GRAPH_SCREENS.has(getState('screen'));
+
+const emitPerfEvent = (name, details = '') => {
+    try {
+        if (window.Android && window.Android.perfEvent) {
+            window.Android.perfEvent(name, details);
+        }
+    } catch (e) {
+        // Perf logging must never affect the cluster UI.
+    }
+};
 
 const hexToRgba = (hex, alpha) => {
     let r = 255, g = 255, b = 255;
@@ -271,6 +285,8 @@ function startGlobalDataCollector() {
 
     dataKeys.forEach(dataKey => {
         subscribe(dataKey, (value) => {
+            if (!isGraphScreenActive()) return;
+
             const datasetCfg = allDatasets.find(d =>
                 d.dataKey === dataKey ||
                 d.filterInternalKey === dataKey ||
@@ -357,6 +373,8 @@ function startGlobalDataCollector() {
     });
 
     setInterval(() => {
+        if (!isGraphScreenActive()) return;
+
         smoothingStates.forEach((state, rawKey) => {
             const rawValue = getState(rawKey) || 0;
 
@@ -388,6 +406,11 @@ export function createGraphScreen() {
     let last0To100Time = null;
     let flashTriggered = false;
     let uiUpdateInterval = null;
+    let lastChartUpdateAt = 0;
+    let lastGraphPerfEventAt = 0;
+    let lastRpmLabelValue = null;
+    let lastPowerLabelValue = null;
+    let lastHasRpm = null;
 
     const container = div({ className: 'graph-screen' });
 
@@ -672,6 +695,7 @@ export function createGraphScreen() {
         chartInstance.data.datasets = newDatasets;
         currentGraphId = graphId;
         chartInstance.update({ duration: 400 });
+        emitPerfEvent('graph_switch', `graph=${graphId}`);
     };
 
     const updateFocus = (id) => {
@@ -717,6 +741,11 @@ export function createGraphScreen() {
                 if (!chartInstance || !currentGraphId) return;
                 const graphInfo = graphList.find(g => g.id === currentGraphId);
                 if (!graphInfo) return;
+                const now = Date.now();
+                if (now - lastGraphPerfEventAt >= 60_000) {
+                    emitPerfEvent('graph_runtime', `graph=${currentGraphId}`);
+                    lastGraphPerfEventAt = now;
+                }
 
                 const LINE_OFFSET = 13;
                 dynamicTooltip.style.display = 'none';
@@ -817,7 +846,7 @@ export function createGraphScreen() {
                     const isFastAcc = acceleration >= (100 / ACCELERATION_THRESHOLD);
 
                     if (isSpeedTimerRunning) {
-                        const elapsed = (Date.now() - speedTimerStartTime) / 1000;
+                        const elapsed = (now - speedTimerStartTime) / 1000;
                         if (elapsed > 15) { triggerFlash('red'); setWarpAnimation(false); setChronometer('stop'); }
                         else if (currentSpeed >= 100) {
                             if (!last0To100Time) last0To100Time = elapsed.toFixed(1);
@@ -839,14 +868,17 @@ export function createGraphScreen() {
                 } else { setWarpAnimation(false); setChronometer('stop'); }
 
                 if (chartInstance && chartInstance.ctx && chartInstance.canvas) {
-                    chartInstance.update('quiet');
+                    if (now - lastChartUpdateAt >= CHART_UPDATE_INTERVAL) {
+                        chartInstance.update('quiet');
+                        lastChartUpdateAt = now;
+                    }
                 }
 
                 // Update Rings
                 const powerV = getState('evPowerFactor');
                 const rpmV = getState('engineRPM');
-                const powerBarEl = document.getElementById('graph-power-bar-svg');
-                const rpmBarEl = document.getElementById('graph-rpm-bar-svg');
+                const powerBarEl = powerBar;
+                const rpmBarEl = rpmBar;
                 if (powerBarEl && rpmBarEl) {
                     const isRegen = powerV < 0;
                     if (isRegen) powerBarEl.classList.add('regen-active'); else powerBarEl.classList.remove('regen-active');
@@ -871,14 +903,36 @@ export function createGraphScreen() {
                         rpmBarEl.style.opacity = 1; rpmBarEl.setAttribute("stroke-width", "8");
                         rpmBarEl.setAttribute("stroke-dasharray", "44.9 4.01");
                     } else rpmBarEl.style.opacity = 0;
-                    if (rpmLabel) { const rpmVal = (rpmV / 1000).toFixed(1); rpmLabel.innerHTML = `<span class="val">${rpmVal}</span><span class="unit">RPM</span>`; rpmLabel.style.opacity = rpmVal > 0 ? 1 : 0; }
-                    if (powerLabel) { const pwrVal = Math.abs(Math.round(powerV)); powerLabel.innerHTML = `<span class="val">${pwrVal}</span><span class="symbol">%</span>`; powerLabel.style.opacity = pwrVal > 0 ? 1 : 0; if (isRegen) powerLabel.classList.add('regen'); else powerLabel.classList.remove('regen'); }
-                    if (labelContainer) { if (rpmV > 1) labelContainer.classList.add('has-rpm'); else labelContainer.classList.remove('has-rpm'); }
+                    if (rpmLabel) {
+                        const rpmVal = (rpmV / 1000).toFixed(1);
+                        if (lastRpmLabelValue !== rpmVal) {
+                            rpmLabel.innerHTML = `<span class="val">${rpmVal}</span><span class="unit">RPM</span>`;
+                            lastRpmLabelValue = rpmVal;
+                        }
+                        rpmLabel.style.opacity = rpmV > 1 ? 1 : 0;
+                    }
+                    if (powerLabel) {
+                        const pwrVal = Math.abs(Math.round(powerV));
+                        if (lastPowerLabelValue !== pwrVal) {
+                            powerLabel.innerHTML = `<span class="val">${pwrVal}</span><span class="symbol">%</span>`;
+                            lastPowerLabelValue = pwrVal;
+                        }
+                        powerLabel.style.opacity = pwrVal > 0 ? 1 : 0;
+                        if (isRegen) powerLabel.classList.add('regen'); else powerLabel.classList.remove('regen');
+                    }
+                    if (labelContainer) {
+                        const hasRpm = rpmV > 1;
+                        if (lastHasRpm !== hasRpm) {
+                            if (hasRpm) labelContainer.classList.add('has-rpm'); else labelContainer.classList.remove('has-rpm');
+                            lastHasRpm = hasRpm;
+                        }
+                    }
                 }
             } catch (e) { console.error('Error: ', e); }
         }, UI_UPDATE_INTERVAL);
 
         switchTo(currentGraphId);
+        emitPerfEvent('graph_mount', `graph=${currentGraphId}`);
     };
 
     const unsubCurrentGraph = subscribe('currentGraph', (id) => {
@@ -887,6 +941,7 @@ export function createGraphScreen() {
     });
 
     const cleanup = () => {
+        emitPerfEvent('graph_cleanup', `graph=${currentGraphId}`);
         if (uiUpdateInterval) { clearInterval(uiUpdateInterval); uiUpdateInterval = null; }
         if (warpTunnel) { warpTunnel.stop(); }
         if (timerHideTimeoutId) { clearTimeout(timerHideTimeoutId); timerHideTimeoutId = null; }
@@ -904,5 +959,3 @@ export function createGraphScreen() {
         cleanup
     };
 }
-
-

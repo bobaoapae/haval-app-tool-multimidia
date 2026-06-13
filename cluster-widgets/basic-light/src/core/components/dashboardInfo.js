@@ -3,8 +3,26 @@ import { div, span, img } from '../../utils/createElement.js';
 import { logger } from '../../utils/logger.js';
 import { createOdometerInfo } from './display/odometer/odometerInfo.js';
 
-const fuelIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xLDEyTDUsOVYxNVoiLz48cGF0aCBkPSJNMjIsMTBWOGEyLDIsMCwwLDAtMi0yaC0zVjRhMiwyLDAsMCwwLTItMkg5QTIsMiwwLDAsMCw3LDR2MTZhMiwyLDAsMCwwLDIsMmg4YTIsMiwwLDAsMCwyLTJWMTJoMXY0YTIsMiwwLDAsMCw0LDBWMTBaTTksNGg4djZIOVptOCwxNkg5VjEyaDhaIi8+PC9zdmc+";
-const batteryIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjwhLS0gQm9keSAtLT48cGF0aCBkPSJNMyw2aDE4YzEuMSwwLDIsMC45LDIsMnYxMGMwLDEuMS0wLjksMi0yLDJIM2MtMS4xLDAtMi0wLjktMi0yVjhDMSw2LjksMS45LDYsMyw2eiBNMyw4djEwaDE4VjhIM3oiLz48IS0tIFBvbGVzIC0tPjxyZWN0IHg9IjUiIHk9IjMiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48cmVjdCB4PSIxNSIgeT0iMyIgd2lkdGg9IjQiIGhlaWdodD0iMyIvPjwhLS0gTWludXMgc2lnbiAoLSkgLS0+PHJlY3QgeD0iNiIgeT0iMTIiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48IS0tIFBsdXMgc2lnbiAoKykgLS0+PHBhdGggZD0iTTE2LDEwaC0ydjJoLTJ2MmgydjJoMnYtMmgydi0yaC0yVjEweiIvPjwvc3ZnPg==";
+const fuelIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iYmxhY2siPjxwYXRoIGQ9Ik0xLDEyTDUsOVYxNVoiLz48cGF0aCBkPSJNMjIsMTBWOGEyLDIsMCwwLDAtMi0yaC0zVjRhMiwyLDAsMCwwLTItMkg5QTIsMiwwLDAsMCw3LDR2MTZhMiwyLDAsMCwwLDIsMmg4YTIsMiwwLDAsMCwyLTJWMTJoMXY0YTIsMiwwLDAsMCw0LDBWMTBaTTksNGg4djZIOVptOCwxNkg5VjEyaDhaIi8+PC9zdmc+";
+const batteryIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iYmxhY2siPjwhLS0gQm9keSAtLT48cGF0aCBkPSJNMyw2aDE4YzEuMSwwLDIsMC45LDIsMnYxMGMwLDEuMS0wLjksMi0yLDJIM2MtMS4xLDAtMi0wLjktMi0yVjhDMSw2LjksMS45LDYsMyw2eiBNMyw4djEwaDE4VjhIM3oiLz48IS0tIFBvbGVzIC0tPjxyZWN0IHg9IjUiIHk9IjMiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48cmVjdCB4PSIxNSIgeT0iMyIgd2lkdGg9IjQiIGhlaWdodD0iMyIvPjwhLS0gTWludXMgc2lnbiAoLSkgLS0+PHJlY3QgeD0iNiIgeT0iMTIiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48IS0tIFBsdXMgc2lnbiAoKykgLS0+PHBhdGggZD0iTTE2LDEwaC0ydjJoLTJ2MmgydjJoMnYtMmgydi0yaC0yVjEweiIvPjwvc3ZnPg==";
+const FUEL_TANK_CAPACITY_LITERS = 55;
+
+function formatFuelLiters(percent) {
+    const value = Number(percent);
+    if (!Number.isFinite(value)) return '--';
+    const clamped = Math.max(0, Math.min(100, value));
+    return (clamped * FUEL_TANK_CAPACITY_LITERS / 100).toFixed(1);
+}
+
+function formatFuelDisplay(percent, unit) {
+    if (unit === 'percent') {
+        const value = Number(percent);
+        if (!Number.isFinite(value)) return { value: '--', unit: '%' };
+        return { value: String(Math.round(Math.max(0, Math.min(100, value)))), unit: '%' };
+    }
+
+    return { value: formatFuelLiters(percent), unit: 'L' };
+}
 
 export function createDashboardInfo() {
     logger.enter('createDashboardInfo');
@@ -107,11 +125,12 @@ export function createDashboardInfo() {
 
     // Fuel Gauge
     const fuelContainer = div({ className: 'dashboard-fuel-container' });
+    const initialFuelDisplay = formatFuelDisplay(getState('fuelPercent'), getState('fuelDisplayUnit'));
     const fuelTop = div({
         className: 'gauge-top-info', children: [
             img({ className: 'fuel-icon', src: fuelIconBase64 }),
             span({ className: 'fuel-range', children: [getState('fuelRange'), span({ className: 'dashboard-unit', children: [' km'] })] }),
-            span({ className: 'fuel-percent', children: [getState('fuelPercent') + '%'] })
+            span({ className: 'fuel-liters', children: [initialFuelDisplay.value, span({ className: 'dashboard-unit', children: [` ${initialFuelDisplay.unit}`] })] })
         ]
     });
 
@@ -284,6 +303,18 @@ export function createDashboardInfo() {
         prevSpeed = speed;
     };
 
+    const updateFuelDisplay = () => {
+        const display = formatFuelDisplay(getState('fuelPercent'), getState('fuelDisplayUnit'));
+        const fuelDisplaySpan = fuelTop.querySelector('.fuel-liters');
+        const fuelUnitSpan = fuelDisplaySpan?.querySelector('.dashboard-unit');
+        if (fuelDisplaySpan && fuelDisplaySpan.childNodes[0]) {
+            fuelDisplaySpan.childNodes[0].textContent = display.value;
+        }
+        if (fuelUnitSpan) {
+            fuelUnitSpan.textContent = ` ${display.unit}`;
+        }
+    };
+
     const subscriptions = [
         subscribe('clockTime', val => clock.textContent = val),
         subscribe('gearState', val => {
@@ -301,8 +332,9 @@ export function createDashboardInfo() {
         }),
         subscribe('fuelPercent', val => {
             updateBarSegments(fuelSegments, val);
-            fuelTop.querySelector('.fuel-percent').textContent = val + '%';
+            updateFuelDisplay();
         }),
+        subscribe('fuelDisplayUnit', updateFuelDisplay),
         subscribe('batteryPercent', val => {
             updateBarSegments(batterySegments, val);
             batteryTop.querySelector('.battery-percent').textContent = val + '%';

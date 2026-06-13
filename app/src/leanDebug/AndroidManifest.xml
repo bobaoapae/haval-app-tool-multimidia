@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <service
+            android:name=".services.CarPlayLoopLoggerService"
+            android:enabled="true"
+            android:exported="true"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.action.CARPLAY_LOOP_LOGGER_START" />
+                <action android:name="br.com.redesurftank.havalshisuku.action.CARPLAY_LOOP_LOGGER_STOP" />
+                <action android:name="br.com.redesurftank.havalshisuku.action.CARPLAY_LOOP_LOGGER_DUMP" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".services.AndroidAutoLoopLoggerService"
+            android:enabled="true"
+            android:exported="true"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.action.ANDROID_AUTO_LOOP_LOGGER_START" />
+                <action android:name="br.com.redesurftank.havalshisuku.action.ANDROID_AUTO_LOOP_LOGGER_STOP" />
+                <action android:name="br.com.redesurftank.havalshisuku.action.ANDROID_AUTO_LOOP_LOGGER_DUMP" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

@@ -14,8 +14,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -438,4 +440,44 @@ fun StyledTextField(
             unfocusedLabelColor = AppColors.TextSecondary
         )
     )
+}
+
+@Composable
+fun DiagnosticsDialog(showDiagnostics: Boolean, onDismiss: () -> Unit, diagnosticsText: String) {
+    if (showDiagnostics) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Diagnóstico de Estabilidade") },
+            text = {
+                Box(modifier = Modifier.height(400.dp).verticalScroll(rememberScrollState())) {
+                    Text(diagnosticsText, fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.White)
+                }
+            },
+            confirmButton = {
+                Button(onClick = onDismiss) {
+                    Text("Fechar")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun AppActionButton(
+    text: String,
+    onClick: () -> Unit,
+    isPrimary: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (isPrimary) AppColors.Primary else AppColors.ButtonSecondary
+        ),
+        shape = RoundedCornerShape(8.dp),
+        contentPadding = PaddingValues(vertical = 8.dp)
+    ) {
+        Text(text, color = Color.White, fontSize = 14.sp)
+    }
 }

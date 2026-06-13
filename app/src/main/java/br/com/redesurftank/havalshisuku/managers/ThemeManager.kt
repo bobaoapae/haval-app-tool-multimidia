@@ -234,13 +234,61 @@ class ThemeManager private constructor(val context: Context) {
                     } else {
                         metadata.thumbnailUrl
                     }
-                    return@withContext metadata.copy(thumbnailUrl = resolvedThumbnail)
+                    
+                    var mainFileSha = ""
+                    var mainFileSize = 0L
+                    val mainFileName = metadata.mainFile.ifEmpty { "index.html" }
+                    
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        if (obj.getString("name") == mainFileName) {
+                            mainFileSha = obj.optString("sha", "")
+                            mainFileSize = obj.optLong("size", 0L)
+                            break
+                        }
+                    }
+                    
+                    return@withContext metadata.copy(
+                        thumbnailUrl = resolvedThumbnail,
+                        remoteSha = mainFileSha,
+                        remoteSize = mainFileSize
+                    )
                 }
                 null
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching metadata for $folderName", e)
                 null
             }
+        }
+    }
+
+    fun isEmbeddedDifferent(remoteSha: String?, remoteSize: Long?): Boolean {
+        if (remoteSha.isNullOrEmpty() || remoteSize == null || remoteSize <= 0) return false
+        return try {
+            val inputStream = context.resources.openRawResource(br.com.redesurftank.havalshisuku.R.raw.app)
+            val bytes = inputStream.readBytes()
+            val localSize = bytes.size.toLong()
+            if (localSize != remoteSize) {
+                Log.d("ThemeManager", "Embedded size ($localSize) differs from remote ($remoteSize)")
+                return true
+            }
+            
+            // Calculate Git SHA-1 of local bytes: SHA-1("blob " + size + "\0" + content)
+            val header = "blob $localSize\u0000".toByteArray(Charsets.UTF_8)
+            val gitBytes = ByteArray(header.size + bytes.size)
+            System.arraycopy(header, 0, gitBytes, 0, header.size)
+            System.arraycopy(bytes, 0, gitBytes, header.size, bytes.size)
+            
+            val messageDigest = java.security.MessageDigest.getInstance("SHA-1")
+            val hashBytes = messageDigest.digest(gitBytes)
+            val localSha = hashBytes.joinToString("") { "%02x".format(it) }
+            
+            val matches = localSha.equals(remoteSha, ignoreCase = true)
+            Log.d("ThemeManager", "Embedded SHA-1: $localSha, Remote SHA-1: $remoteSha. Matches: $matches")
+            !matches
+        } catch (e: Exception) {
+            Log.e("ThemeManager", "Error comparing embedded app with remote", e)
+            false
         }
     }
 

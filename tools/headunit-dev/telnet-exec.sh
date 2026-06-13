@@ -3,8 +3,11 @@ set -euo pipefail
 export LC_ALL=C
 export LANG=C
 
-HEADUNIT_HOST="${HEADUNIT_HOST:-172.20.10.2}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/headunit-env.sh"
+
 HEADUNIT_PORT="${HEADUNIT_PORT:-23}"
+resolve_headunit_defaults
 HEADUNIT_TELNET_WAIT="${HEADUNIT_TELNET_WAIT:-1}"
 DONE_MARKER="__HAVALDEV_DONE__"
 

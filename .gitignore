@@ -1,7 +1,27 @@
 # Gradle files
 .gradle/
 build/
+
+# Documentation
+# `docs/` is the canonical documentation path. Avoid uppercase `DOCS/`
+# because this repo is commonly used on case-insensitive filesystems.
+!docs/
+!docs/**
+.ai-context
+.agents
+.codex
+prompts/
+docs/
+!docs/
+!docs/qa/
+!docs/qa/carplay-d3-baseline-workflow.md
+.docs
+AGENTS.md
+AI-README.md
+docs/
+
 tools/headunit-dev/output/
+artifacts/
 
 # Local configuration file (sdk path, etc)
 local.properties
@@ -36,9 +56,53 @@ google-services.json
 
 .DS_Store
 REFACTORING_SUMMARY.md
-.agents/
+.agents/*
+!.agents/skills/
+!.agents/skills/**
 
-# Frontend build artifacts
-node_modules/
-.parcel-cache/
-cluster-widgets/air-control/dist/
+# AA Patch Tooling and Temporary Artifacts
+tools/
+!tools/
+!tools/headunit-dev/
+!tools/headunit-dev/carplay-baseline-capture.sh
+!tools/headunit-dev/carplay-baseline-compare.sh
+tools/**/*.jar
+build_*/
+tmp_*/
+scripts/.build/
+scripts/.tmp/
+!aa-patches/cluster-widgets/
+!scripts/
+!aa-patches/README.md
+
+# Reverse Engineering and Large Binaries
+re/
+bin/
+gapps_download/
+frida/
+
+# Temporary Logs and Outputs
+*.txt
+*.log
+gradle_error.txt
+build_output*.txt
+!README*.txt
+scripts/experimental/
+scripts/utils/
+cluster-widgets/**/node_modules/
+cluster-widgets/**/parcel-cache/
+cluster-widgets/**/.parcel-cache/
+cluster-widgets/**/dist/
+cluster-widgets/**/out/
+
+.claude/settings.local.json
+
+# Decompiled APKs and reverse engineering directory
+/apks/
+__pycache__/
+*.pyc
+
+# Allow tracking APKs in assets and milestones
+!app/src/main/assets/**/*.apk
+!scripts/milestones/**/*.apk
+!scripts/carplay-patches/**/*.apk
