@@ -37,6 +37,7 @@ import br.com.redesurftank.havalshisuku.managers.AndroidAutoPatchManager;
 import br.com.redesurftank.havalshisuku.managers.CarPlayPatchManager;
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher;
 import br.com.redesurftank.havalshisuku.managers.ServiceManager;
+import br.com.redesurftank.havalshisuku.managers.HotRouterManager;
 import br.com.redesurftank.havalshisuku.models.CommandListener;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
 import br.com.redesurftank.havalshisuku.utils.IPTablesUtils;
@@ -616,6 +617,12 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                 Log.e(TAG, "Projection patch auto-mount check failed: " + e.getMessage(), e);
             }
         });
+
+        try {
+            HotRouterManager.getInstance().onServicesReady();
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting HotRouter: " + e.getMessage(), e);
+        }
 
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction("com.beantechs.intelligentvehiclecontrol.INIT_COMPLETED");
