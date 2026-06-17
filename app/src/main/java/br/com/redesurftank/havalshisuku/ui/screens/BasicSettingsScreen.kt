@@ -183,6 +183,22 @@ fun BasicSettingsTab() {
                         )
                 )
         }
+        var disableBluetoothOnlyOnFold by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF_ONLY_ON_FOLD_MIRROR.key,
+                                false
+                        )
+                )
+        }
+        var disableHotspotOnlyOnFold by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF_ONLY_ON_FOLD_MIRROR.key,
+                                false
+                        )
+                )
+        }
         var nightBrightnessLevel by remember {
                 mutableIntStateOf(
                         prefs.getInt(SharedPreferencesKeys.AUTO_BRIGHTNESS_LEVEL_NIGHT.key, 1)
@@ -1295,6 +1311,34 @@ fun BasicSettingsTab() {
                                                         it
                                                 )
                                         }
+                                },
+                                customContent = {
+                                        Row(
+                                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                                Text(
+                                                        "Apenas ao recolher o retrovisor (carro travado)",
+                                                        color = AppColors.TextPrimary,
+                                                        fontSize = 14.sp,
+                                                        modifier = Modifier.weight(1f).padding(end = 12.dp)
+                                                )
+                                                Switch(
+                                                        checked = disableBluetoothOnlyOnFold,
+                                                        onCheckedChange = {
+                                                                disableBluetoothOnlyOnFold = it
+                                                                prefs.edit {
+                                                                        putBoolean(
+                                                                                SharedPreferencesKeys
+                                                                                        .DISABLE_BLUETOOTH_ON_POWER_OFF_ONLY_ON_FOLD_MIRROR
+                                                                                        .key,
+                                                                                it
+                                                                        )
+                                                                }
+                                                        }
+                                                )
+                                        }
                                 }
                         ),
                         SettingItem(
@@ -1311,6 +1355,34 @@ fun BasicSettingsTab() {
                                                                 .DISABLE_HOTSPOT_ON_POWER_OFF
                                                                 .key,
                                                         it
+                                                )
+                                        }
+                                },
+                                customContent = {
+                                        Row(
+                                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                                Text(
+                                                        "Apenas ao recolher o retrovisor (carro travado)",
+                                                        color = AppColors.TextPrimary,
+                                                        fontSize = 14.sp,
+                                                        modifier = Modifier.weight(1f).padding(end = 12.dp)
+                                                )
+                                                Switch(
+                                                        checked = disableHotspotOnlyOnFold,
+                                                        onCheckedChange = {
+                                                                disableHotspotOnlyOnFold = it
+                                                                prefs.edit {
+                                                                        putBoolean(
+                                                                                SharedPreferencesKeys
+                                                                                        .DISABLE_HOTSPOT_ON_POWER_OFF_ONLY_ON_FOLD_MIRROR
+                                                                                        .key,
+                                                                                it
+                                                                        )
+                                                                }
+                                                        }
                                                 )
                                         }
                                 }

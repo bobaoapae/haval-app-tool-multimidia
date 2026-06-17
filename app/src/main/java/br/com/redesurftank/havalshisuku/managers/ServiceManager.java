@@ -646,7 +646,7 @@ public class ServiceManager {
                         int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
                         if (state == BluetoothAdapter.STATE_ON) {
                             String drivingReady = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
-                            if ((drivingReady.equals("-1") || drivingReady.equals("0")) && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false)) {
+                            if ((drivingReady.equals("-1") || drivingReady.equals("0")) && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false) && !sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF_ONLY_ON_FOLD_MIRROR.getKey(), false)) {
                                 disableBluetooth();
                             }
                         }
@@ -659,11 +659,15 @@ public class ServiceManager {
                 @Override
                 public void onReceive(Context context, Intent intent) {
                     if ("android.net.wifi.WIFI_AP_STATE_CHANGED".equals(intent.getAction())) {
-                        if (intent.getIntExtra("wifi_state", 0) == 13) {
+                        int wifiApState = intent.getIntExtra("wifi_state", 0);
+                        if (wifiApState == 13) {
+                            wifiTetherEnabled = true;
                             String drivingReady = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
-                            if ((drivingReady.equals("-1") || drivingReady.equals("0")) && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false)) {
+                            if ((drivingReady.equals("-1") || drivingReady.equals("0")) && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false) && !sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF_ONLY_ON_FOLD_MIRROR.getKey(), false)) {
                                 disableWifiTether();
                             }
+                        } else if (wifiApState == 11) {
+                            wifiTetherEnabled = false;
                         }
                     }
                 }
@@ -1399,6 +1403,14 @@ public class ServiceManager {
                 if (closeSunRoofOnFoldMirror) {
                     closeSunRoof(true);
                 }
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false)
+                        && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF_ONLY_ON_FOLD_MIRROR.getKey(), false)) {
+                    shutdownBluetoothIfEnabled();
+                }
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false)
+                        && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF_ONLY_ON_FOLD_MIRROR.getKey(), false)) {
+                    shutdownWifiTetherIfEnabled();
+                }
             } else if (key.equals(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue())) {
                 float currentSpeed = Float.parseFloat(value);
                 boolean closeWindowOnSpeed = sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_WINDOWS_ON_SPEED.getKey(), false);
@@ -1435,24 +1447,21 @@ public class ServiceManager {
             } else if (key.equals(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue())) {
                 if ((value.equals("-1") || value.equals("0"))) {
                     boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
-                    boolean currentBluetoothState = currentBluetoothState();
-                    if (currentBluetoothState && disableBluetoothOnPowerOff) {
-                        sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), true).apply();
-                        disableBluetooth();
+                    boolean bluetoothOnlyOnFold = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF_ONLY_ON_FOLD_MIRROR.getKey(), false);
+                    if (disableBluetoothOnPowerOff && !bluetoothOnlyOnFold) {
+                        shutdownBluetoothIfEnabled();
                     }
                     boolean disableHotspotOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false);
-                    if (disableHotspotOnPowerOff) {
-                        disableWifiTether();
+                    boolean hotspotOnlyOnFold = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF_ONLY_ON_FOLD_MIRROR.getKey(), false);
+                    if (disableHotspotOnPowerOff && !hotspotOnlyOnFold) {
+                        shutdownWifiTetherIfEnabled();
                     }
                     if (isMaxAcActive) {
                         cancelMaxAcMode();
                     }
                 } else {
-                    boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
-                    boolean bluetoothStateOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false);
-                    if (disableBluetoothOnPowerOff && bluetoothStateOnPowerOff && !currentBluetoothState()) {
-                        enableBluetooth();
-                    }
+                    restoreBluetoothIfWasEnabled();
+                    restoreWifiTetherIfWasEnabled();
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), false)) {
                         if (!isMaxAcActive) enableMaxAcOn();
                     }
@@ -1612,6 +1621,44 @@ public class ServiceManager {
         } catch (Exception e) {
             Log.e(TAG, "Error checking Bluetooth state", e);
             return false;
+        }
+    }
+
+    private volatile boolean wifiTetherEnabled = false;
+
+    // Salva o estado atual e desliga (usado no power-off OU no recolher do retrovisor).
+    private void shutdownBluetoothIfEnabled() {
+        boolean wasOn = currentBluetoothState();
+        sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), wasOn).apply();
+        if (wasOn) {
+            disableBluetooth();
+        }
+    }
+
+    private void shutdownWifiTetherIfEnabled() {
+        boolean wasOn = wifiTetherEnabled;
+        sharedPreferences.edit().putBoolean(SharedPreferencesKeys.WIFI_TETHER_STATE_ON_POWER_OFF.getKey(), wasOn).apply();
+        if (wasOn) {
+            disableWifiTether();
+        }
+    }
+
+    // Religa ao ligar o carro SOMENTE o que estava ligado; depois limpa o flag.
+    private void restoreBluetoothIfWasEnabled() {
+        if (sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false)) {
+            if (!currentBluetoothState()) {
+                enableBluetooth();
+            }
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false).apply();
+        }
+    }
+
+    private void restoreWifiTetherIfWasEnabled() {
+        if (sharedPreferences.getBoolean(SharedPreferencesKeys.WIFI_TETHER_STATE_ON_POWER_OFF.getKey(), false)) {
+            if (!wifiTetherEnabled) {
+                enableWifiTether();
+            }
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.WIFI_TETHER_STATE_ON_POWER_OFF.getKey(), false).apply();
         }
     }
 
