@@ -106,6 +106,10 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "enableSeatVentilationOnAcOn",
             "Habilitar ventilação do banco do motorista ao ligar o ar-condicionado"
     ),
+    ENABLE_PASSENGER_SEAT_VENTILATION_ON_AC_ON(
+            "enablePassengerSeatVentilationOnAcOn",
+            "Habilitar ventilação do banco do passageiro ao ligar o ar-condicionado"
+    ),
     ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS(
             "enableSteeringWheelCustomButtons",
             "Habilitar botões personalizados no volante"
