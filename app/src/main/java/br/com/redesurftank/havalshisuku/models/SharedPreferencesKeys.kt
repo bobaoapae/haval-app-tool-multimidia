@@ -258,5 +258,7 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     AMBIENT_LIGHT_AUTO_RECONNECT(
             "ambientLightAutoReconnect",
             "Reconectar automaticamente o Ambient Light"
-    )
+    ),
+    ENABLE_PERSIST_HEV_SOC_TARGET("enablePersistHevSocTarget", "Manter o % de bateria escolhido no HEV Prioritário"),
+    HEV_SOC_TARGET_VALUE("hevSocTargetValue", "% de bateria a manter no HEV Prioritário (20-80)")
 }
