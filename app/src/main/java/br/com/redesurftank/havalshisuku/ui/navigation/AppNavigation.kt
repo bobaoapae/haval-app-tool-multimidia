@@ -151,6 +151,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     "Valores Atuais" -> CurrentValuesTab()
                     "Instalar Apps" -> InstallAppsTab()
                     "Recursos" -> FeaturesHubScreen()
+                    "Reportar problema" -> ProblemReportTab()
                     "Informações" -> InformacoesTab()
                     "Frida Hooks" -> FridaHooksTab()
                     else -> BasicSettingsTab()

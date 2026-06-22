@@ -38,9 +38,8 @@ export function createMask() {
         const projectionMirrorInDash = get('projectionMirrorInDash');
         const cardId = get('cardId');
         const mirrorThemeActive = carPlayInDash === true || projectionMirrorInDash === true;
-        const warningActive = get('warningActive');
         const warningDismissed = get('warningDismissed');
-        const rightVisible = warningDismissed || (cardId != 0 && !warningActive);
+        const rightVisible = warningDismissed || cardId != 0;
 
         let showL = true;
         let showR = true;

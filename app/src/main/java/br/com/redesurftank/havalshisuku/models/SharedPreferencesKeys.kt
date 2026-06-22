@@ -209,6 +209,7 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ACTIVE_CUSTOM_THEME("activeCustomTheme", "Tema Dinâmico Ativo"),
     BOTTOM_BAR_AUTO_HIDE("bottomBarAutoHide", "Esconder barra automaticamente após 30s"),
     BOTTOM_BAR_OVERRIDES("bottomBarOverrides", "Overrides de aplicativos salvos (JSON)"),
+    DASHBOARD_CARD_ORDER("dashboardCardOrder", "Ordem dos cards do dashboard"),
     ENABLE_SPEED_ADJUSTMENT("enableSpeedAdjustment", "Habilitar ajuste de velocidade no painel"),
     SPEED_ADJUSTMENT_OFFSET("speedAdjustmentOffset", "Fator de ajuste de velocidade (%)"),
     TRIP_CONSISTENCY_CLUSTER_ACTIVE("tripConsistencyClusterActive", "Indicador discreto de análise de viagem ativa no cluster"),

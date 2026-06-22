@@ -33,6 +33,7 @@ object BottomBarState {
     var mediaPackageName by mutableStateOf<String?>(null)
     var mediaArtwork by mutableStateOf<Bitmap?>(null)
     var mediaIsPlaying by mutableStateOf(false)
+    var mediaIsMuted by mutableStateOf(false)
     var mediaDurationMs by mutableLongStateOf(0L)
     var mediaElapsedMs by mutableLongStateOf(0L)
     var mediaProgressUpdatedAtMs by mutableLongStateOf(0L)

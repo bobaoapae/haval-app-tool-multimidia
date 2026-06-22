@@ -53,6 +53,7 @@ import java.util.Map;
 import java.util.Set;
 
 import br.com.redesurftank.App;
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger;
 import br.com.redesurftank.havalshisuku.listeners.IDataChanged;
 import br.com.redesurftank.havalshisuku.listeners.IServiceManagerEvent;
 import br.com.redesurftank.havalshisuku.models.CarConstants;
@@ -62,6 +63,7 @@ import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
 import br.com.redesurftank.havalshisuku.models.SteeringWheelCustomActionType;
 import br.com.redesurftank.havalshisuku.models.screens.Screen;
+import br.com.redesurftank.havalshisuku.services.BottomBarService;
 import br.com.redesurftank.havalshisuku.utils.FridaUtils;
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils;
 import rikka.shizuku.Shizuku;
@@ -107,6 +109,10 @@ public class ServiceManager {
             CarConstants.CAR_IPK_SETTING_BRIGHTNESS_CONFIG,
             CarConstants.SYS_AVM_AUTO_PREVIEW_ENABLE,
             CarConstants.SYS_AVM_PREVIEW_STATUS,
+            CarConstants.SYS_BASIC_AUDIO_SOURCE_APP,
+            CarConstants.SYS_RADIO_CUR_CHANNEL_INFO,
+            CarConstants.SYS_RADIO_PLAY_STATE,
+            CarConstants.SYS_RADIO_RDS_CUR_CHANNEL_INFO,
             CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME,
             CarConstants.SYS_SETTINGS_DISPLAY_BACKLIGHT_STATE,
             CarConstants.SYS_SETTINGS_DISPLAY_BRIGHTNESS_LEVEL,
@@ -238,7 +244,12 @@ public class ServiceManager {
     private static final long CLUSTER_INPUT_DEDUP_WINDOW_MS = 220L;
     private int lastHandledClusterInputKeyCode = -1;
     private long lastHandledClusterInputAtMs = 0L;
+    private long lastSyntheticClusterCardNavigationAtMs = 0L;
+    private int lastSyntheticClusterCardTarget = -1;
     private static final long STEERING_WHEEL_PROJECTION_TOGGLE_DEDUP_WINDOW_MS = 800L;
+    private static final long STEERING_WHEEL_DASHBOARD_TOGGLE_DEDUP_WINDOW_MS = 800L;
+    private int lastDashboardToggleButton = -1;
+    private long lastDashboardToggleAtMs = 0L;
     private static final int[] INPUT_LISTENER_KEY_CODES = new int[] {
             -1
     };
@@ -247,6 +258,10 @@ public class ServiceManager {
     private final Map<String, String> previousAcState = new HashMap<>();
     private boolean isMaxAcActive = false;
     private Runnable maxAcTimeoutRunnable;
+
+    private void logPersistentClusterEvent(String event, String detail) {
+        ClusterPersistentEventLogger.logText(event, detail);
+    }
 
     // Counter-pulse for `bean.pui.scene_notify`:
     // the native Its_IntelligentVehicleControlService raises this signal to value 8
@@ -418,12 +433,54 @@ public class ServiceManager {
                     if (msgId == 133) {
                         int whichCard = data.getIntValue();
                         int previousCard = clusterCardView;
-                        clusterCardView = whichCard;
-                        dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, clusterCardView);
+                        long now = SystemClock.uptimeMillis();
                         long sinceInputMs =
                                 lastClusterInputAtMs == 0L
                                         ? -1L
-                                        : SystemClock.uptimeMillis() - lastClusterInputAtMs;
+                                        : now - lastClusterInputAtMs;
+                        long sinceSyntheticMs =
+                                lastSyntheticClusterCardNavigationAtMs == 0L
+                                        ? -1L
+                                        : now - lastSyntheticClusterCardNavigationAtMs;
+                        if (ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
+                                previousCard,
+                                whichCard,
+                                sinceInputMs,
+                                lastClusterInputKeyCode,
+                                sinceSyntheticMs,
+                                lastSyntheticClusterCardTarget
+                        )) {
+                            Log.w(
+                                    TAG,
+                                    "Ignoring stale native cluster card change: "
+                                            + previousCard
+                                            + " -> "
+                                            + whichCard
+                                            + " lastInputKey="
+                                            + lastClusterInputKeyName
+                                            + "("
+                                            + lastClusterInputKeyCode
+                                            + ") sinceInputMs="
+                                            + sinceInputMs
+                                            + " syntheticTarget="
+                                            + lastSyntheticClusterCardTarget
+                                            + " sinceSyntheticMs="
+                                            + sinceSyntheticMs
+                            );
+                            logPersistentClusterEvent(
+                                    "native_cluster_card_ignored",
+                                    "from=" + previousCard
+                                            + " to=" + whichCard
+                                            + " lastInputKey=" + lastClusterInputKeyName
+                                            + "(" + lastClusterInputKeyCode + ")"
+                                            + " sinceInputMs=" + sinceInputMs
+                                            + " syntheticTarget=" + lastSyntheticClusterCardTarget
+                                            + " sinceSyntheticMs=" + sinceSyntheticMs
+                            );
+                            return;
+                        }
+                        clusterCardView = whichCard;
+                        dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, clusterCardView);
                         Log.w(
                                 TAG,
                                 "Cluster card changed: "
@@ -437,6 +494,14 @@ public class ServiceManager {
                                         + ") sinceInputMs="
                                         + sinceInputMs
                         );
+                        logPersistentClusterEvent(
+                                "native_cluster_card_changed",
+                                "from=" + previousCard
+                                        + " to=" + whichCard
+                                        + " lastInputKey=" + lastClusterInputKeyName
+                                        + "(" + lastClusterInputKeyCode + ")"
+                                        + " sinceInputMs=" + sinceInputMs
+                        );
                     } else if (msgId == 134) {
                         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
                             if (data.getIntValue() == 2) {
@@ -447,6 +512,10 @@ public class ServiceManager {
                     } else if (msgId == 135) {
                         int val = data.getIntValue();
                         Log.w(TAG, "Cluster media command msgId=135 value=" + val);
+                        logPersistentClusterEvent(
+                                "cluster_media_command",
+                                "msgId=135 value=" + val
+                        );
                         if (DisplayAppLauncher.INSTANCE.handleAndroidAutoClusterMediaCommand(val)) {
                             Log.w(TAG, "Android Auto handled cluster media command msgId=135 value=" + val);
                             return;
@@ -554,6 +623,13 @@ public class ServiceManager {
                                             + ") action="
                                             + keyEvent.getAction()
                             );
+                            logPersistentClusterEvent(
+                                    "cluster_input_key",
+                                    "key=" + lastClusterInputKeyName
+                                            + "(" + lastClusterInputKeyCode + ")"
+                                            + " action=" + keyEvent.getAction()
+                                            + " currentCard=" + clusterCardView
+                            );
                             dispatchServiceManagerEvent(
                                     ServiceManagerEventType.CLUSTER_INPUT_KEY,
                                     lastClusterInputKeyName,
@@ -585,6 +661,13 @@ public class ServiceManager {
                                                 + ") action="
                                                 + keyEvent.getAction()
                                 );
+                                logPersistentClusterEvent(
+                                        "cluster_input_duplicate_ignored",
+                                        "key=" + lastClusterInputKeyName
+                                                + "(" + lastClusterInputKeyCode + ")"
+                                                + " action=" + keyEvent.getAction()
+                                                + " currentCard=" + clusterCardView
+                                );
                             }
                         }
                     }
@@ -594,27 +677,40 @@ public class ServiceManager {
                 @Override
                 public void onServiceConnected(ComponentName name, IBinder service) {
                     inputService = IInputService.Stub.asInterface(service);
-                    try {
-                        inputService.registerKeyEventListener(INPUT_LISTENER_KEY_CODES, inputListener);
-                        Log.w(
-                                TAG,
-                                "InputService listener registered keyCodes="
-                                        + Arrays.toString(INPUT_LISTENER_KEY_CODES)
-                        );
-                    } catch (Exception e) {
-                        Log.e(
-                                TAG,
-                                "InputService explicit listener registration failed; trying wildcard",
-                                e
-                        );
-                        try {
-                            inputService.registerKeyEventListener(new int[]{-1}, inputListener);
-                            Log.w(TAG, "InputService wildcard listener registered");
-                        } catch (Exception fallbackError) {
-                            Log.e(TAG, "InputService wildcard listener registration failed", fallbackError);
+                    final IInputService connectedInputService = inputService;
+                    new Thread(
+                                    () -> {
+                                        try {
+                                            connectedInputService.registerKeyEventListener(
+                                                    INPUT_LISTENER_KEY_CODES,
+                                                    inputListener
+                                            );
+                                            Log.w(
+                                                    TAG,
+                                                    "InputService listener registered keyCodes="
+                                                            + Arrays.toString(INPUT_LISTENER_KEY_CODES)
+                                            );
+                                        } catch (Exception e) {
+                                            Log.e(
+                                                    TAG,
+                                                    "InputService explicit listener registration failed; trying wildcard",
+                                                    e
+                                            );
+                                            try {
+                                                connectedInputService.registerKeyEventListener(
+                                                        new int[]{-1},
+                                                        inputListener
+                                                );
+                                                Log.w(TAG, "InputService wildcard listener registered");
+                                            } catch (Exception fallbackError) {
+                                                Log.e(TAG, "InputService wildcard listener registration failed", fallbackError);
+                                            }
+                                        }
+                                    },
+                                    "InputServiceRegister"
+                            )
+                            .start();
                         }
-                    }
-                }
                 @Override public void onServiceDisconnected(ComponentName name) { inputService = null; }
             };
             context.bindService(inputIntent, inputServiceConnection, Context.BIND_AUTO_CREATE);
@@ -807,6 +903,9 @@ public class ServiceManager {
             case TOGGLE_PROJECTION_DISPLAY:
                 handleSteeringWheelProjectionDisplayToggle(button);
                 break;
+            case TOGGLE_IMPULSE_DASHBOARD:
+                handleSteeringWheelImpulseDashboardToggle(button);
+                break;
             case TOGGLE_CAMERA_AVM:
                 boolean cameraAVM = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_AVM_CAR_STOPPED.getKey(), false);
                 cameraAVM = !cameraAVM;
@@ -860,6 +959,8 @@ public class ServiceManager {
         int nextCard = CLUSTER_CARD_SEQUENCE[nextIndex];
         int previousCard = clusterCardView;
         clusterCardView = nextCard;
+        lastSyntheticClusterCardNavigationAtMs = SystemClock.uptimeMillis();
+        lastSyntheticClusterCardTarget = nextCard;
 
         Log.w(
                 TAG,
@@ -871,6 +972,13 @@ public class ServiceManager {
                         + key
                         + " previousServiceCard="
                         + previousCard
+        );
+        logPersistentClusterEvent(
+                "synthetic_cluster_card_navigation",
+                "from=" + currentCard
+                        + " to=" + nextCard
+                        + " key=" + key
+                        + " previousServiceCard=" + previousCard
         );
         dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, clusterCardView);
     }
@@ -903,6 +1011,24 @@ public class ServiceManager {
         DisplayAppLauncher.INSTANCE.toggleActiveProjectionDisplayFromSteeringWheel(
                 "STEERING_WHEEL_TOGGLE_PROJECTION_BUTTON_" + button
         );
+    }
+
+    private void handleSteeringWheelImpulseDashboardToggle(int button) {
+        long now = SystemClock.uptimeMillis();
+        boolean duplicateToggle =
+                lastDashboardToggleButton == button
+                        && now - lastDashboardToggleAtMs <= STEERING_WHEEL_DASHBOARD_TOGGLE_DEDUP_WINDOW_MS;
+        if (duplicateToggle) {
+            Log.w(TAG, "Ignoring duplicate Impulse dashboard toggle from steering wheel button " + button);
+            return;
+        }
+
+        lastDashboardToggleButton = button;
+        lastDashboardToggleAtMs = now;
+        boolean handled = BottomBarService.requestImpulseDashboardToggleFromSteeringWheel(
+                "STEERING_WHEEL_TOGGLE_DASHBOARD_BUTTON_" + button
+        );
+        Log.w(TAG, "Impulse dashboard toggle from steering wheel button " + button + " handled=" + handled);
     }
 
     public void enableSteeringWheelButton1Integration() {

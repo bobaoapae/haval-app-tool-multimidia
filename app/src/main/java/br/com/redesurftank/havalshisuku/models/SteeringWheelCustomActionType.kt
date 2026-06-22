@@ -15,6 +15,10 @@ enum class SteeringWheelCustomActionType(val key: String, val description: Strin
             "toggle_projection_display",
             "Alterar CarPlay/Android Auto de display."
     ),
+    TOGGLE_IMPULSE_DASHBOARD(
+            "toggle_impulse_dashboard",
+            "Abrir/Fechar Dashboard Impulse."
+    ),
     TOGGLE_CAMERA_AVM("toggle_avm", "Alternar o modo de desabilitar a camera com o carro parado."),
     OPEN_AVM_ONCE("open_avm_once", "Abrir a camera sem interrupções.");
 

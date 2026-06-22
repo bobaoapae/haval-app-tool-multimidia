@@ -10,19 +10,24 @@ import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import br.com.redesurftank.havalshisuku.models.BottomBarState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 class BottomBarNotificationListenerService : NotificationListenerService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val workerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val notification = sbn?.notification ?: return
-        if (sbn.packageName == packageName) return
+        val sourcePackage = sbn.packageName
+        if (sourcePackage == packageName) return
         if (!isMediaNotification(notification)) return
-        if (shouldPreserveProjectionMedia(sbn.packageName)) return
-
-        val artwork = resolveNotificationArtwork(notification)
+        if (shouldPreserveProjectionMedia(sourcePackage)) return
 
         val extras = notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
@@ -30,28 +35,36 @@ class BottomBarNotificationListenerService : NotificationListenerService() {
         val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
         val summary = extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString()
 
-        if (title.isNullOrBlank() && text.isNullOrBlank() && artwork == null) return
+        workerScope.launch {
+            val artwork = resolveNotificationArtwork(notification)
+            if (title.isNullOrBlank() && text.isNullOrBlank() && artwork == null) return@launch
 
-        mainHandler.post {
-            val trackChanged =
-                    BottomBarState.mediaPackageName != sbn.packageName ||
-                            BottomBarState.mediaTitle != title?.takeIf { it.isNotBlank() } ||
-                            BottomBarState.mediaArtist != text?.takeIf { it.isNotBlank() }
+            mainHandler.post {
+                val trackChanged =
+                        BottomBarState.mediaPackageName != sourcePackage ||
+                                BottomBarState.mediaTitle != title?.takeIf { it.isNotBlank() } ||
+                                BottomBarState.mediaArtist != text?.takeIf { it.isNotBlank() }
 
-            BottomBarState.mediaTitle = title?.takeIf { it.isNotBlank() }
-            BottomBarState.mediaArtist = text?.takeIf { it.isNotBlank() }
-            BottomBarState.mediaAlbum =
-                    subText?.takeIf { it.isNotBlank() } ?: summary?.takeIf { it.isNotBlank() }
-            if (artwork != null || trackChanged) {
-                BottomBarState.mediaArtwork = artwork
+                BottomBarState.mediaTitle = title?.takeIf { it.isNotBlank() }
+                BottomBarState.mediaArtist = text?.takeIf { it.isNotBlank() }
+                BottomBarState.mediaAlbum =
+                        subText?.takeIf { it.isNotBlank() } ?: summary?.takeIf { it.isNotBlank() }
+                if (artwork != null || trackChanged) {
+                    BottomBarState.mediaArtwork = artwork
+                }
+                BottomBarState.mediaPackageName = sourcePackage
+                BottomBarState.mediaIsPlaying = true
+                BottomBarState.mediaDurationMs = 0L
+                BottomBarState.mediaElapsedMs = 0L
+                BottomBarState.mediaProgressUpdatedAtMs = 0L
+                BottomBarState.mediaCanSeek = false
             }
-            BottomBarState.mediaPackageName = sbn.packageName
-            BottomBarState.mediaIsPlaying = true
-            BottomBarState.mediaDurationMs = 0L
-            BottomBarState.mediaElapsedMs = 0L
-            BottomBarState.mediaProgressUpdatedAtMs = 0L
-            BottomBarState.mediaCanSeek = false
         }
+    }
+
+    override fun onDestroy() {
+        workerScope.cancel()
+        super.onDestroy()
     }
 
     private fun isMediaNotification(notification: Notification): Boolean {

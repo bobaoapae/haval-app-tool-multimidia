@@ -19,10 +19,11 @@ docs/
 AGENTS.md
 AI-README.md
 docs/
-
+reverse/
 tools/headunit-dev/output/
 artifacts/
-
+supabase/
+test-artifacts/
 # Local configuration file (sdk path, etc)
 local.properties
 

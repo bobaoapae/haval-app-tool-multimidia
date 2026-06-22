@@ -3,6 +3,7 @@ package br.com.redesurftank.havalshisuku.ui.screens
 import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.background
@@ -208,6 +209,106 @@ fun BasicSettingsTab() {
                                 false
                         )
                 )
+        }
+        var steeringWheelButton1Action by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.key,
+                                SteeringWheelCustomActionType.DEFAULT.key
+                        )
+                                ?: SteeringWheelCustomActionType.DEFAULT.key
+                )
+        }
+        var steeringWheelButton2Action by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.key,
+                                SteeringWheelCustomActionType.DEFAULT.key
+                        )
+                                ?: SteeringWheelCustomActionType.DEFAULT.key
+                )
+        }
+        var steeringWheelButton1Package by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1.key,
+                                ""
+                        )
+                                ?: ""
+                )
+        }
+        var steeringWheelButton2Package by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2.key,
+                                ""
+                        )
+                                ?: ""
+                )
+        }
+        DisposableEffect(prefs) {
+                val listener =
+                        SharedPreferences.OnSharedPreferenceChangeListener { sharedPrefs, key ->
+                                when (key) {
+                                        SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS
+                                                .key ->
+                                                enableCustomSteeringWheelButtons =
+                                                        sharedPrefs.getBoolean(
+                                                                SharedPreferencesKeys
+                                                                        .ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS
+                                                                        .key,
+                                                                false
+                                                        )
+                                        SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION
+                                                .key ->
+                                                steeringWheelButton1Action =
+                                                        sharedPrefs.getString(
+                                                                SharedPreferencesKeys
+                                                                        .STEERING_WHEEL_CUSTOM_BUTON_1_ACTION
+                                                                        .key,
+                                                                SteeringWheelCustomActionType.DEFAULT
+                                                                        .key
+                                                        )
+                                                                ?: SteeringWheelCustomActionType
+                                                                        .DEFAULT
+                                                                        .key
+                                        SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION
+                                                .key ->
+                                                steeringWheelButton2Action =
+                                                        sharedPrefs.getString(
+                                                                SharedPreferencesKeys
+                                                                        .STEERING_WHEEL_CUSTOM_BUTON_2_ACTION
+                                                                        .key,
+                                                                SteeringWheelCustomActionType.DEFAULT
+                                                                        .key
+                                                        )
+                                                                ?: SteeringWheelCustomActionType
+                                                                        .DEFAULT
+                                                                        .key
+                                        SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1
+                                                .key ->
+                                                steeringWheelButton1Package =
+                                                        sharedPrefs.getString(
+                                                                SharedPreferencesKeys
+                                                                        .STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1
+                                                                        .key,
+                                                                ""
+                                                        )
+                                                                ?: ""
+                                        SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2
+                                                .key ->
+                                                steeringWheelButton2Package =
+                                                        sharedPrefs.getString(
+                                                                SharedPreferencesKeys
+                                                                        .STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2
+                                                                        .key,
+                                                                ""
+                                                        )
+                                                                ?: ""
+                                }
+                        }
+                prefs.registerOnSharedPreferenceChangeListener(listener)
+                onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
         }
         var enablePersistentBottomBar by remember {
                 mutableStateOf(
@@ -1337,58 +1438,6 @@ fun BasicSettingsTab() {
                                 customContent =
                                         if (enableCustomSteeringWheelButtons) {
                                                 {
-                                                        var action1 by remember {
-                                                                mutableStateOf(
-                                                                        prefs.getString(
-                                                                                SharedPreferencesKeys
-                                                                                        .STEERING_WHEEL_CUSTOM_BUTON_1_ACTION
-                                                                                        .key,
-                                                                                SteeringWheelCustomActionType
-                                                                                        .DEFAULT
-                                                                                        .key
-                                                                        )
-                                                                                ?: SteeringWheelCustomActionType
-                                                                                        .DEFAULT
-                                                                                        .key
-                                                                )
-                                                        }
-                                                        var action2 by remember {
-                                                                mutableStateOf(
-                                                                        prefs.getString(
-                                                                                SharedPreferencesKeys
-                                                                                        .STEERING_WHEEL_CUSTOM_BUTON_2_ACTION
-                                                                                        .key,
-                                                                                SteeringWheelCustomActionType
-                                                                                        .DEFAULT
-                                                                                        .key
-                                                                        )
-                                                                                ?: SteeringWheelCustomActionType
-                                                                                        .DEFAULT
-                                                                                        .key
-                                                                )
-                                                        }
-                                                        var package1 by remember {
-                                                                mutableStateOf(
-                                                                        prefs.getString(
-                                                                                SharedPreferencesKeys
-                                                                                        .STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1
-                                                                                        .key,
-                                                                                ""
-                                                                        )
-                                                                                ?: ""
-                                                                )
-                                                        }
-                                                        var package2 by remember {
-                                                                mutableStateOf(
-                                                                        prefs.getString(
-                                                                                SharedPreferencesKeys
-                                                                                        .STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2
-                                                                                        .key,
-                                                                                ""
-                                                                        )
-                                                                                ?: ""
-                                                                )
-                                                        }
                                                         var expanded1 by remember {
                                                                 mutableStateOf(false)
                                                         }
@@ -1423,7 +1472,7 @@ fun BasicSettingsTab() {
                                                                                                 .entries
                                                                                                 .find {
                                                                                                         it.key ==
-                                                                                                                action1
+                                                                                                                steeringWheelButton1Action
                                                                                                 }
                                                                                                 ?.description
                                                                                                 ?: "",
@@ -1470,7 +1519,7 @@ fun BasicSettingsTab() {
                                                                                                                 )
                                                                                                         },
                                                                                                         onClick = {
-                                                                                                                action1 =
+                                                                                                                steeringWheelButton1Action =
                                                                                                                         type.key
                                                                                                                 prefs
                                                                                                                         .edit {
@@ -1491,16 +1540,16 @@ fun BasicSettingsTab() {
                                                                                         }
                                                                         }
                                                                 }
-                                                                if (action1 ==
+                                                                if (steeringWheelButton1Action ==
                                                                                 SteeringWheelCustomActionType
                                                                                         .OPEN_APP
                                                                                         .key
                                                                 ) {
                                                                         TextField(
-                                                                                value = package1,
+                                                                                value = steeringWheelButton1Package,
                                                                                 onValueChange = {
                                                                                         newPkg ->
-                                                                                        package1 =
+                                                                                        steeringWheelButton1Package =
                                                                                                 newPkg
                                                                                         prefs.edit {
                                                                                                 putString(
@@ -1568,7 +1617,7 @@ fun BasicSettingsTab() {
                                                                                                 .entries
                                                                                                 .find {
                                                                                                         it.key ==
-                                                                                                                action2
+                                                                                                                steeringWheelButton2Action
                                                                                                 }
                                                                                                 ?.description
                                                                                                 ?: "",
@@ -1615,7 +1664,7 @@ fun BasicSettingsTab() {
                                                                                                                 )
                                                                                                         },
                                                                                                         onClick = {
-                                                                                                                action2 =
+                                                                                                                steeringWheelButton2Action =
                                                                                                                         type.key
                                                                                                                 prefs
                                                                                                                         .edit {
@@ -1636,16 +1685,16 @@ fun BasicSettingsTab() {
                                                                                         }
                                                                         }
                                                                 }
-                                                                if (action2 ==
+                                                                if (steeringWheelButton2Action ==
                                                                                 SteeringWheelCustomActionType
                                                                                         .OPEN_APP
                                                                                         .key
                                                                 ) {
                                                                         TextField(
-                                                                                value = package2,
+                                                                                value = steeringWheelButton2Package,
                                                                                 onValueChange = {
                                                                                         newPkg ->
-                                                                                        package2 =
+                                                                                        steeringWheelButton2Package =
                                                                                                 newPkg
                                                                                         prefs.edit {
                                                                                                 putString(

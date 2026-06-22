@@ -64,13 +64,7 @@
             android:exported="true"
             android:label="@string/android_settings_shortcut_label"
             android:noHistory="true"
-            android:theme="@android:style/Theme.NoDisplay">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:theme="@android:style/Theme.NoDisplay" />
 
         <service
             android:name=".services.ForegroundService"
