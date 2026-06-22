@@ -17,8 +17,14 @@ public class BootReceiver extends BroadcastReceiver {
     @SuppressLint("UnsafeProtectedBroadcastReceiver")
     @Override
     public void onReceive(Context context, Intent intent) {
+        String action = intent != null ? intent.getAction() : null;
+        if (Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action)) {
+            Log.w(TAG, "Locked boot completed received; waiting for full boot before starting service.");
+            return;
+        }
+
         ServiceManager.getInstance().setTimeBootReceived(SystemClock.uptimeMillis());
-        Log.w(TAG, "Boot completed received, starting service...");
+        Log.w(TAG, "Boot event received (" + action + "), starting service...");
         // Start the BackgroundService
         Intent serviceIntent = new Intent(context, ForegroundService.class);
         context.startForegroundService(serviceIntent);

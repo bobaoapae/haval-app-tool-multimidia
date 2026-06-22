@@ -46,6 +46,7 @@ class AndroidAutoNowPlayingMonitor(
     private var hasMetadata = false
     private var lastMetadataSignature: String? = null
     private var lastPublishedSignature: String? = null
+    private var lastLinkActive = false
 
     private val deathRecipient =
             IBinder.DeathRecipient {
@@ -130,6 +131,7 @@ class AndroidAutoNowPlayingMonitor(
             hasMetadata = false
             lastMetadataSignature = null
             lastPublishedSignature = null
+            lastLinkActive = false
         }
     }
 
@@ -177,9 +179,25 @@ class AndroidAutoNowPlayingMonitor(
         }
     }
 
+    fun playPauseToggle(): Boolean {
+        return transactAapHardkeyCommand(AAP_HARDKEY_MEDIA_PLAY_PAUSE, "playPauseToggle")
+    }
+
+    fun readMusicStatusForCommand(): Int? {
+        return readIntTransaction(TRANSACTION_GET_MUSIC_STATUS)
+    }
+
+    fun readMediaProgressForCommand(): Int? {
+        return readIntTransaction(TRANSACTION_GET_MEDIA_PROGRESS)
+    }
+
     fun seekTo(targetMs: Long): Boolean {
         Log.i(TAG, "Ignoring Android Auto seek request; progress bar is visual only")
         return false
+    }
+
+    fun isLinkActive(): Boolean {
+        return synchronized(stateLock) { lastLinkActive }
     }
 
     private fun registerCallback(binder: IBinder?) {
@@ -237,6 +255,42 @@ class AndroidAutoNowPlayingMonitor(
             false
         } finally {
             reply.recycle()
+            data.recycle()
+        }
+    }
+
+    private fun transactAapHardkeyCommand(aapHardkeyOrdinal: Int, label: String): Boolean {
+        val downSent = transactAapHardkeyEvent(aapHardkeyOrdinal, AAP_KEY_ACTION_DOWN, "${label}_down")
+        SystemClock.sleep(AAP_KEY_UP_DELAY_MS)
+        val upSent = transactAapHardkeyEvent(aapHardkeyOrdinal, AAP_KEY_ACTION_UP, "${label}_up")
+        val sent = downSent && upSent
+        Log.i(
+                TAG,
+                "Android Auto AAP hardkey command sent: $label hardkey=$aapHardkeyOrdinal " +
+                        "sent=$sent down=$downSent up=$upSent"
+        )
+        return sent
+    }
+
+    private fun transactAapHardkeyEvent(aapHardkeyOrdinal: Int, action: Int, label: String): Boolean {
+        val binder = serviceBinder ?: return false
+        val data = Parcel.obtain()
+        return try {
+            data.writeInterfaceToken(LINK_COMMAND_DESCRIPTOR)
+            data.writeInt(aapHardkeyOrdinal)
+            data.writeInt(action)
+            val sent = binder.transact(TRANSACTION_SEND_KEY_EVENT, data, null, IBinder.FLAG_ONEWAY)
+            if (!sent) {
+                Log.w(TAG, "Android Auto AAP hardkey event failed: $label")
+            }
+            sent
+        } catch (e: RemoteException) {
+            Log.w(TAG, "Android Auto AAP hardkey event failed: $label", e)
+            false
+        } catch (e: Exception) {
+            Log.w(TAG, "Unexpected Android Auto AAP hardkey event failure: $label", e)
+            false
+        } finally {
             data.recycle()
         }
     }
@@ -337,6 +391,37 @@ class AndroidAutoNowPlayingMonitor(
     }
 
     private fun refreshStatusAndProgress() {
+        val linkActive = isAndroidAutoLinkActive(readLinkStatus())
+        if (!linkActive) {
+            val shouldClear =
+                    synchronized(stateLock) {
+                        val hadState =
+                                lastLinkActive ||
+                                        hasMetadata ||
+                                        lastMusicStatus != MUSIC_STATUS_NOT_START ||
+                                        lastProgressSeconds > 0 ||
+                                        lastDurationSeconds > 0
+                        lastLinkActive = false
+                        lastProgressSeconds = 0
+                        lastDurationSeconds = 0
+                        lastMusicStatus = MUSIC_STATUS_NOT_START
+                        lastAcceptedProgressAtMs = 0L
+                        lastPlaybackEvidenceAtMs = 0L
+                        hasMetadata = false
+                        lastMetadataSignature = null
+                        lastPublishedSignature = null
+                        hadState
+                    }
+            if (shouldClear) {
+                publishClear("Android Auto link inactive")
+            }
+            return
+        }
+
+        synchronized(stateLock) {
+            lastLinkActive = true
+        }
+
         val status = readIntTransaction(TRANSACTION_GET_MUSIC_STATUS)
         if (status != null) {
             handleMusicStatus(status, fromPoll = true)
@@ -543,7 +628,7 @@ class AndroidAutoNowPlayingMonitor(
                     ) {
                         Log.d(
                                 TAG,
-                                "Ignoring transient Android Auto non-playing status=$normalized while progress is advancing"
+                                "Ignoring transient Android Auto not-started status while progress is advancing"
                         )
                         return
                     }
@@ -615,7 +700,7 @@ class AndroidAutoNowPlayingMonitor(
                     }
                     val changed = lastProgressSeconds != normalized
                     lastProgressSeconds = normalized
-                    if (normalized > ANDROID_AUTO_STALE_LOW_PROGRESS_MAX_SECONDS) {
+                    if (changed && normalized > ANDROID_AUTO_STALE_LOW_PROGRESS_MAX_SECONDS) {
                         lastAcceptedProgressAtMs = SystemClock.elapsedRealtime()
                         lastPlaybackEvidenceAtMs = lastAcceptedProgressAtMs
                     }
@@ -643,7 +728,7 @@ class AndroidAutoNowPlayingMonitor(
     private fun publishClear(reason: String) {
         Log.i(TAG, "Clearing Android Auto media metadata: $reason")
         scope.launch(Dispatchers.Main) {
-            onUpdate(AndroidAutoNowPlayingUpdate(clear = true))
+            onUpdate(AndroidAutoNowPlayingUpdate(clear = true, clearReason = reason))
         }
     }
 
@@ -767,6 +852,7 @@ class AndroidAutoNowPlayingMonitor(
         private const val LINK_CALLBACK_DESCRIPTOR = "com.ts.androidauto.sdk.aidl.LinkCallback"
         private const val TRANSACTION_ADD_LINK_CALLBACK = 1
         private const val TRANSACTION_REMOVE_LINK_CALLBACK = 2
+        private const val TRANSACTION_SEND_KEY_EVENT = 10
         private const val TRANSACTION_NEXT = 24
         private const val TRANSACTION_PREVIOUS = 25
         private const val TRANSACTION_GET_MEDIA_PROGRESS = 26
@@ -777,6 +863,10 @@ class AndroidAutoNowPlayingMonitor(
         private const val TRANSACTION_ON_MUSIC_STATUS_CHANGED = 4
         private const val TRANSACTION_ON_MEDIA_METADATA_CHANGE = 5
         private const val TRANSACTION_ON_MEDIA_PROGRESS_CHANGE = 6
+        private const val AAP_HARDKEY_MEDIA_PLAY_PAUSE = 6
+        private const val AAP_KEY_ACTION_DOWN = 0
+        private const val AAP_KEY_ACTION_UP = 1
+        private const val AAP_KEY_UP_DELAY_MS = 40L
         private const val MUSIC_STATUS_NOT_START = 0
         private const val MUSIC_STATUS_PLAYING = 1
         private const val MUSIC_STATUS_PAUSED = 2
@@ -814,15 +904,14 @@ class AndroidAutoNowPlayingMonitor(
                 lastAcceptedProgressAtMs: Long,
                 nowMs: Long
         ): Boolean {
+            if (newStatus != MUSIC_STATUS_NOT_START) return false
             if (previousStatus != MUSIC_STATUS_PLAYING) return false
-            if (newStatus == MUSIC_STATUS_PLAYING) return false
             if (!hasMetadata) return false
             if (lastProgressSeconds <= ANDROID_AUTO_STALE_LOW_PROGRESS_PREVIOUS_MIN_SECONDS) {
                 return false
             }
             if (lastAcceptedProgressAtMs <= 0L) return false
-            return nowMs - lastAcceptedProgressAtMs <=
-                    ANDROID_AUTO_NON_PLAYING_STATUS_GRACE_MS
+            return nowMs - lastAcceptedProgressAtMs in 0..ANDROID_AUTO_TRANSIENT_NON_PLAYING_STATUS_GRACE_MS
         }
 
         internal fun shouldResyncCallbackForMissingMetadata(
@@ -858,15 +947,6 @@ class AndroidAutoNowPlayingMonitor(
                 nowMs: Long
         ): Boolean {
             if (!isLinkActive) return false
-            if (previousStatus == MUSIC_STATUS_PLAYING) return true
-            if (lastProgressSeconds > 0) return true
-            if (
-                    lastPlaybackEvidenceAtMs > 0L &&
-                            nowMs - lastPlaybackEvidenceAtMs <=
-                                    ANDROID_AUTO_MISSING_METADATA_STATE_HOLD_MS
-            ) {
-                return true
-            }
             return lastServiceConnectedAtMs > 0L &&
                     nowMs - lastServiceConnectedAtMs <=
                             ANDROID_AUTO_INITIAL_METADATA_BOOTSTRAP_MS
@@ -878,7 +958,7 @@ class AndroidAutoNowPlayingMonitor(
 
         private const val ANDROID_AUTO_STALE_LOW_PROGRESS_MAX_SECONDS = 1
         private const val ANDROID_AUTO_STALE_LOW_PROGRESS_PREVIOUS_MIN_SECONDS = 3
-        private const val ANDROID_AUTO_NON_PLAYING_STATUS_GRACE_MS = 5_000L
+        private const val ANDROID_AUTO_TRANSIENT_NON_PLAYING_STATUS_GRACE_MS = 4_500L
     }
 }
 
@@ -893,5 +973,6 @@ data class AndroidAutoNowPlayingUpdate(
         val elapsedMs: Long? = null,
         val progressUpdatedAtMs: Long = SystemClock.elapsedRealtime(),
         val isPlaying: Boolean? = null,
-        val clear: Boolean = false
+        val clear: Boolean = false,
+        val clearReason: String? = null
 )

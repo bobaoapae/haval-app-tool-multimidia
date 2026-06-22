@@ -12,6 +12,17 @@ val appVersionCode = providers.gradleProperty("appVersionCode")
     .orElse(1)
 val appVersionName = providers.gradleProperty("appVersionName")
     .orElse("0.0.1")
+val impulseReportSupabaseUrl =
+    providers.gradleProperty("impulseReportSupabaseUrl")
+        .orElse("https://eymyarugcfcwkezqjiba.supabase.co")
+val impulseReportSupabasePublishableKey =
+    providers.gradleProperty("impulseReportSupabasePublishableKey")
+        .orElse("sb_publishable_2fp6Nav76kCNXklyKtCnYA_ZiM3z5l8")
+val impulseReportFunctionName =
+    providers.gradleProperty("impulseReportFunctionName").orElse("impulse-report-problem")
+
+fun buildConfigString(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "br.com.redesurftank.havalshisuku"
@@ -25,6 +36,21 @@ android {
         versionCode = appVersionCode.get()
         versionName = appVersionName.get()
         buildConfigField("boolean", "EMBED_FRIDA_TOOLS", "true")
+        buildConfigField(
+            "String",
+            "IMPULSE_REPORT_SUPABASE_URL",
+            buildConfigString(impulseReportSupabaseUrl.get())
+        )
+        buildConfigField(
+            "String",
+            "IMPULSE_REPORT_SUPABASE_PUBLISHABLE_KEY",
+            buildConfigString(impulseReportSupabasePublishableKey.get())
+        )
+        buildConfigField(
+            "String",
+            "IMPULSE_REPORT_FUNCTION_NAME",
+            buildConfigString(impulseReportFunctionName.get())
+        )
     }
 
     signingConfigs {

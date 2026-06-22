@@ -10,6 +10,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -31,6 +32,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import br.com.redesurftank.App;
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.DispatchAllDatasReceiver;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.RestartReceiver;
 import br.com.redesurftank.havalshisuku.managers.AndroidAutoPatchManager;
@@ -51,6 +53,8 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     private static final String CHANNEL_ID = "ForegroundServiceChannel";
     private static final int NOTIFICATION_ID = 1;
     private static final int MAX_AUTOMATIC_SHIZUKU_BOOTSTRAP_UID = 10999;
+    private static final long SHIZUKU_BINDER_RECEIVE_TIMEOUT_MS = 15000L;
+    private static final int SHIZUKU_BINDER_TIMEOUTS_BEFORE_RESTART = 3;
     private static final String CARPLAY_PATCH_VERSION_KEY = "carPlayPatchAutoMountPatchVersion";
     private static final String CARPLAY_HVAC_FOCUS_PATCH_VERSION = "app_visual_d0_focus_service_conditional_camera_native1904x704_v13";
 
@@ -59,21 +63,58 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     private final Object lifecycleLock = new Object();
     private volatile boolean isShizukuInitialized = false;
     private volatile boolean isServiceRunning = false;
+    private volatile int shizukuBinderTimeoutCount = 0;
 
     private final Runnable timeoutRunnable = () -> {
         if (!isShizukuInitialized) {
-            Log.w(TAG, "Shizuku initialization timed out. Restarting service...");
-            restart();
+            if (Shizuku.pingBinder()) {
+                backgroundHandler.post(ForegroundService.this::shizukuBinderReceived);
+                return;
+            }
+
+            int timeoutCount;
+            synchronized (lifecycleLock) {
+                if (isShizukuInitialized) return;
+                shizukuBinderTimeoutCount++;
+                timeoutCount = shizukuBinderTimeoutCount;
+            }
+
+            if (shouldRestartAfterShizukuBinderTimeoutForTest(
+                    timeoutCount,
+                    SHIZUKU_BINDER_TIMEOUTS_BEFORE_RESTART
+            )) {
+                Log.w(TAG, "Shizuku initialization timed out after " + timeoutCount + " checks. Restarting service...");
+                ClusterPersistentEventLogger.logText(
+                        "foreground_service_shizuku_timeout",
+                        "restarting=true timeoutCount=" + timeoutCount
+                );
+                restart();
+                return;
+            }
+
+            Log.w(TAG, "Shizuku binder not received yet after timeout " + timeoutCount + "; keeping service alive.");
+            ClusterPersistentEventLogger.logText(
+                    "foreground_service_shizuku_timeout",
+                    "restarting=false timeoutCount=" + timeoutCount
+            );
+            armShizukuBinderListenerWithTimeout();
         }
     };
 
     private void armShizukuBinderListenerWithTimeout() {
         backgroundHandler.removeCallbacks(timeoutRunnable);
-        backgroundHandler.postDelayed(timeoutRunnable, 5000);
+        backgroundHandler.postDelayed(timeoutRunnable, SHIZUKU_BINDER_RECEIVE_TIMEOUT_MS);
         Shizuku.addBinderReceivedListenerSticky(ForegroundService.this::shizukuBinderReceived);
         if (Shizuku.pingBinder()) {
             backgroundHandler.post(ForegroundService.this::shizukuBinderReceived);
         }
+    }
+
+    public static boolean shouldRestartAfterShizukuBinderTimeoutForTest(
+            int timeoutCount,
+            int maxTimeoutsBeforeRestart
+    ) {
+        return timeoutCount >= maxTimeoutsBeforeRestart;
     }
 
     private List<String> getLocalTelnetBootstrapHosts() {
@@ -240,6 +281,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     @Override
     public void onCreate() {
         super.onCreate();
+        ClusterPersistentEventLogger.logText("foreground_service_on_create", "created=true");
         createNotificationChannel();
         handlerThread = new HandlerThread("BackgroundThread");
         handlerThread.start();
@@ -284,6 +326,22 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
         }
     }
 
+    private void ensurePersistentBottomBarStarted(SharedPreferences sharedPreferences, String reason) {
+        if (!sharedPreferences.getBoolean(SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR.getKey(), false)) {
+            Log.d(TAG, "Persistent bottom bar disabled (" + reason + ").");
+            return;
+        }
+
+        if (!android.provider.Settings.canDrawOverlays(this)) {
+            Log.e(TAG, "Overlay permission not granted, skipping persistent bottom bar (" + reason + ").");
+            return;
+        }
+
+        Log.w(TAG, "Ensuring persistent bottom bar (" + reason + ")...");
+        Intent bottomBarIntent = new Intent(this, br.com.redesurftank.havalshisuku.services.BottomBarService.class);
+        startService(bottomBarIntent);
+    }
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         var sharedPreferences = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
@@ -292,13 +350,22 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
         synchronized (lifecycleLock) {
             if (isServiceRunning) {
                 Log.w(TAG, "Service is already running, skipping start.");
+                ClusterPersistentEventLogger.logText(
+                        "foreground_service_already_running",
+                        "flags=" + flags + " startId=" + startId
+                );
                 startCarPlaySystemUiIconWatchdogSafely("already-running");
+                ensurePersistentBottomBarStarted(sharedPreferences, "already-running");
                 return START_STICKY; // Retorna imediatamente se o serviço já estiver rodando
             }
             isServiceRunning = true; // Marca o serviço como rodando
         }
         try {
             Log.w(TAG, "Service started");
+            ClusterPersistentEventLogger.logText(
+                    "foreground_service_started",
+                    "flags=" + flags + " startId=" + startId
+            );
 
             // Clear any pending background tasks (retry loops) from previous starts
             backgroundHandler.removeCallbacksAndMessages(null);
@@ -311,15 +378,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
             startForeground(NOTIFICATION_ID, notification);
 
             // Start bottom bar as early as possible if enabled
-            if (sharedPreferences.getBoolean(SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR.getKey(), false)) {
-                if (android.provider.Settings.canDrawOverlays(this)) {
-                    Log.w(TAG, "Starting persistent bottom bar...");
-                    Intent bottomBarIntent = new Intent(this, br.com.redesurftank.havalshisuku.services.BottomBarService.class);
-                    startService(bottomBarIntent);
-                } else {
-                    Log.e(TAG, "Overlay permission not granted, skipping persistent bottom bar.");
-                }
-            }
+            ensurePersistentBottomBarStarted(sharedPreferences, "service-start");
 
             // Checar se precisa resetar dados (rollback preview→estável)
             var pendingResetTarget = sharedPreferences.getString(SharedPreferencesKeys.PENDING_RESET_TARGET_VERSION.getKey(), "");
@@ -431,6 +490,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
             if (!isServiceRunning) return;
             if (isShizukuInitialized) return;
             isShizukuInitialized = true;
+            shizukuBinderTimeoutCount = 0;
         }
         Shizuku.removeBinderReceivedListener(this::shizukuBinderReceived);
         Log.w(TAG, "Shizuku binder received");
@@ -572,7 +632,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
             DisplayAppLauncher.INSTANCE.startCarPlayClusterContractWatchdog();
             DisplayAppLauncher.INSTANCE.startCarPlayMainDisplayBootAutostart();
         } catch (Exception e) {
-            Log.e(TAG, "CarPlay watchdog/autostart scheduling failed: " + e.getMessage(), e);
+            Log.e(TAG, "Projection watchdog/autostart scheduling failed: " + e.getMessage(), e);
         }
         boolean initSuccess = ServiceManager.getInstance().initializeServices(getApplicationContext());
         if (!initSuccess) {
@@ -669,6 +729,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
         synchronized (lifecycleLock) {
             isShizukuInitialized = false;
             isServiceRunning = false;
+            shizukuBinderTimeoutCount = 0;
         }
         Shizuku.removeBinderReceivedListener(this::shizukuBinderReceived);
         Shizuku.removeBinderDeadListener(this);

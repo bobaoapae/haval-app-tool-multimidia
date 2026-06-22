@@ -96,7 +96,7 @@ class AndroidAutoNowPlayingMonitorTest {
     }
 
     @Test
-    fun ignoresTransientNonPlayingStatusWhileProgressIsRecent() {
+    fun ignoresRecentNotStartedStatusWhenProgressIsAdvancing() {
         assertTrue(
             AndroidAutoNowPlayingMonitor.shouldIgnoreTransientNonPlayingStatus(
                 previousStatus = 1,
@@ -107,7 +107,11 @@ class AndroidAutoNowPlayingMonitorTest {
                 nowMs = 12_000L
             )
         )
-        assertTrue(
+    }
+
+    @Test
+    fun acceptsPausedStatusImmediatelyEvenWhenProgressIsRecent() {
+        assertFalse(
             AndroidAutoNowPlayingMonitor.shouldIgnoreTransientNonPlayingStatus(
                 previousStatus = 1,
                 newStatus = 2,
@@ -242,7 +246,7 @@ class AndroidAutoNowPlayingMonitorTest {
                 nowMs = 12_000L
             )
         )
-        assertTrue(
+        assertFalse(
             AndroidAutoNowPlayingMonitor.shouldHoldMissingMetadataAndroidAutoState(
                 isLinkActive = true,
                 previousStatus = 1,

@@ -15,6 +15,7 @@ val menuItems = listOf(
     NavigationItem("Valores Atuais", Icons.Default.DeveloperMode),
     NavigationItem("Instalar Apps", Icons.Default.ShoppingCart),
     NavigationItem("Recursos", Icons.Default.Apps),
+    NavigationItem("Reportar problema", Icons.Default.BugReport),
     NavigationItem("Informações", Icons.Default.Info),
     NavigationItem("Frida Hooks", Icons.Default.Build)
 )

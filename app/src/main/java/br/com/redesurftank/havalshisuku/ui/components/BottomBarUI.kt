@@ -1,6 +1,7 @@
 package br.com.redesurftank.havalshisuku.ui.components
 
 import android.content.Context
+import android.media.AudioManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.animation.*
@@ -44,6 +45,7 @@ import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.*
 import androidx.compose.ui.text.style.*
 import androidx.compose.ui.unit.*
+import androidx.compose.ui.window.PopupProperties
 import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.havalshisuku.managers.*
 import br.com.redesurftank.havalshisuku.models.*
@@ -54,16 +56,24 @@ import br.com.redesurftank.havalshisuku.utils.*
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.*
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.core.content.edit
 private const val recycleIn = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAAA8CAYAAAA6/NlyAAAJDElEQVR4AcTau5JcVxUG4NOjsUYSJVOYi7kURGROCKGIKV4AZbwAMVSR+gEg5gXIzAtQxBSEJM6IoLiYiymsQjePaM63p//26j379HTPjIRq/l5rr/u/9z6nNbJPptv5s5rLrKb1+kJO06J89Gh957YwTct9pmnj+2SmyZ+bEe6KTSs8ld3FTPAk2PXcbJWakcNqZlqvp3YY6/XquoRzmsMejBmCtF7CO+9Md47FUi29gp0YpDc4nvC8S62YAk3Z/Rg23ISMiG1cR4m+zih5aY7jCCOL6Hq+IrrQyRlLDepwc9gr+dnXo5/rGMKr7TNaiGKgKFmRIaptqH9+utvs5Aic7OQBWOprRjiE8GruA7PY/VEAdq3TpGlv264zPAkckX+fXlg2RI+PDFrA/GE9i9GPGaD37SOMJPQ506NH6/bWrQ7Fg2pvegbrZXOWj/iZqm5dwQdsvWQr6GeqhJGrKGkX6j6iFxHdp2GAOZK+gOf3p/tckfSDkNokDJJCHOGQHIRN06PNaZIJSDIZW5NpRkIzXv4IoV6ePZ2eskXSK1SyJvdCbxgEIXzJjFxQnQhCtV3SFxqJMyyEUGyRfNFJcSTQ47euuvUQg1l2CI9IKoQk0IdQGAbODEYaWgidvAo1rtfVYgsWa5kLNgGN8LWIKhJsilVhkKyjR8Z+E1lrVfKLNc06Oy+9bWdb+1pZPFGJkK8NCQV1kKqXkEV1fTY95Owl2z7UPtEjd/LmudsJx4gkZH1JzglbW9U3xjSJtPMb11Yg88HjJ+/+6V8f/fIPHz7+oOKPf3n8e2uS/89//egXJMgJ/vnsxXfU2RYtip76k8W8VRthJGFrrQpiQbVvdMWpkbVRbPwGNDAyzz9++YOX69U32JfAXyEn+M+T5z9Xx0YgX2ukJwnVRz/ZS1TEHiiIIJmwqrMhaigDGpjttmBDkB8RT49unqmdcJxNOs2mzB9Vn5d+UoDsyfJXIPu3fzz5oaGq/c5q/btPPTj7/le/9PDr+yCm4uyNOz8D+bXePuKZ0bxyLhNmHRBlhhSgpwi9B7KewXqqBkXgy19883tvffrub/ucfi2m4gufe/BTkG+jkK85lbj+fJnR3NYXhEMwkqcgSSQkuYRsVY0AWQPEgaxBEYjtphL5JeIeIe+M9DA3/YIwbQ9ZBCWQQulkD0TZerJOAlm+V4G3Hz54d0Tc7fJ8Zy5zn0x7iPbDSehtdf3hv198087Wk3WFnUSNu209hBDXz21KD7M4gKw/OeGNpZKKHrkJ2QqNwFvY9elfTppfdYVt0rHYDtApZvnsvbu/cpvcqriRNqP1JcKuLYKkgEAxSYi5JuA0AVHXJ7F2eB9ZBO16cuUfA3np1Utzsjltc9ArtoSRDATQK0FNDIWYHQNxPTSxw0529Xx63PvzNbWU38cfu05PxE9PT3/T528J1xPNKVaCfWLWCIIr5FSRjU/T6KSTtWF0SI68Y+AFJX+E2vP8/PxbfUwj7DSB01U11OgEKjEDaowguEJOVY3sMr3i2dNnP8parpeZnGORGlfJykEP8Y0wBVzhGsSWUzDgVz7z5ndDzMshxMjsbNXlV6S2mtX+OnRz6XOSk7WoJ2AoJEOQHxCTTFpXxE6yR9JdZxJO3zj9Nfn/wPaE+9N13QyMGAnRD5HIiCMhV4p+/vH5t8lj4YVXN+6Y/MyyJVyHOJv/kt4THBUfxSjMPor3DmD3jiCPxel8M7xIfaUdQjz99El8I2zIOoTCgjI4KaaXvY0f2Gs+He7dv/cTEnzN5cQMcwjkIeFdcBVxc9SvpTyujbBmioGCXkh0gwcK0KtMTGz8YB0fGbjWZ/PtydomG/wYIJt8utzRiZvDY1lj6Y1wvc7ZFQkZnMy6l4oE4qKT/ZrNEL7SbKz168V0+R8ATufnpCdV18cMmLw+x0n77kb8WNSNostXS82+T39z+S9OePA3Ek7I0JFsh8IJy1uKN+QxUMc1voqoOL3z3Frn5jbCDIEBBGdNN/RNpFryyZvAo7fvRGvt/mvWzeVvhO2aRcV1SaaGfHov2a4Lz78DOSTf5iTOjciLuBGOg/RVYXfohq0nk/U+GZ/8mmv9uuDZ9Q2QfvXrsBE+G3xV5HsSATA8RK9SA790yIH8Y3ok23XhADL4PmkGX0/6+KpKbD1dtkbYVbHoYZc0DNHqj00jDUaPRY2/rm4GRPblL82ArDd4cv0K3Agb3i8KXghOW2CCNHTFxeRU+egksuSrhM208Us96ts4MXgga+7YyBOsKRwebL8d+TWwkkbKPwrYSUTBAK6PXBBv07721sO3D4X4QE500trQaoON19MM1kA3gw2xhuTigRMbhGf79dACOAK7g0TWGiKuAVjHR3ox1AZsI9gsdlJ8kDUfm7VHbd8M5hEfuKFys47ELb8Gb084Bk6BEnvS7D0MZFfdjt43WqvLHklHLmsya7oZ6kmLHwHZfTOEV3uGFWCAEGfT0PVWTFPk2Elg52e7CfSp+dZIx+Z66lVn4DMD22jDcRETSYctYQtkBYB1pJ3TFDnPFgns4gxI3iZSM1IvV1xfM0DTTx/8ODF9/8xf7TuEExDiCYw96yWZuF6KZ4Po5LEYETNr6tT61R4/eTIN/teFJEqKToIkEqL3cilvZFcH1Lgu5ENff6cenjMuTnhWdpybhSJUhSKrLXpk4rKWUzGy1xz+66DWqP2ajhu0Rf19OMbITQBhiCp73RoSRz8UV+WEzJLUZ1gDD6j/sXAOvjjhWWk/CSCb4RV8qA0Hlg6ZJTksU+tXfQ7eJTwbts90AnspZh/6eOuK5FYbnZ0MsiavQnIiF+Lff396eeJjwT8NySsqYSRHNrE9umvW3MmNL2sSBI1kbMkT1wFHYG4nbAEMByFNeil5T2PuhuS1RffR+1Iv9l4mPfasN7Ln1QhvfBMnZH0tudB4VCu9Ikcx21s2dI6N6gU14r33Vv898VGN9ARHsh2CxB8q1RQbSa9gBzZyCfwVfRyOwN5O2CJg7FGL7dP7POvUvUqK7ZFe7NFHkn+E9Ky+RrgaEhRZfUt6YkdyKae3j3Jj62NH68RWOYq7RLgPqgWW9D7nttdLfav90J7/AwAA//83rYeYAAAABklEQVQDAMltCzwxszfdAAAAAElFTkSuQmCC"
 private const val recycleOut = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAAA8BAMAAADI0sRBAAAAJ1BMVEV6pf97nfh7o/12kO5bjPJlf+leVZZlk/ZHcExejvJgj/P//+0A/9FP0Or/AAAADXRSTlMeDBMG/QMBVQDLlQEBuyPuOwAAAtFJREFUOMt9Vc1q20AQHpaAcU6VdOpttQRMchPCL1AWjHw18RtYl/ZgjCEkTxBoDyEITG+mGIzzALkk51z6Uv1m9kerFvfDyDv7zcyORrMz9Ojw4+21BW4Dlix9PNLj93dZ/cZjdZuAFT7ovX1tv7bRsnaY8hp79NE6rBISWEyFp7a3XNQD8AGgl6uULASBp8GZVeZRVY6ntrcsiqwqooLwBM8LYSORKpAzraLbsiyNccuCaWY9lefG4AeFsoTI1otgCiOQeSkKePBeTT5e2UuRs4OCxJa9emitw1JoPlgkpUhddtba5ufLURk5H9ZZTkIq0pc2oFmzf9BZ9snu4ZJIjWyPZgP7jGCsoUuMg1uM7h5OnicO+t7OmR0HNXjCMQ3OJ45LH+wTjDp+BoCfm5xgrDWYNW2dDw8F/gnWiJp1G8S1jqTGS97bRmiOeotgZ9HSqRzshtg3jU78LsFY+/9r0Mi0I1PfTmsM2uibTtJw6iM7uj+hDdjmZc1JmXv77U4iuLCKDCLeud0OaneMrdu5sIbMtd17n6OuT/ku0FsbgwkxRhrOuzRXo9Q5h6b7bES40OjGPtMk/Q7DFyP7BSp7Ogeh1+fYEZxfn6VReb/+Q+MrbujKxi80hKIDvveVPZ49emboM2oKJT7IKL8LisU+G6SFRSXlEmvc17xCzpHoGemJTbHnjNo9qhDXp8PxKGUtkBqer3HZlDYZas2MxWLj7iFfUgljhksGOnfijinlLvClV8cd44s/OTU7lVx99dA1ezZmGrw2/yCXBkRJa8jzPDNeKtkW3aGSZmXEVexdxvWuoqbat6w8k2bFbMaauXQuik1tANHkvlYXKZ+0x6KoxLryW9yFpdGGjomhQK4ZV9KhK9eXnVTwyHA9ldd1kY6C0M//mhHTab/kabAK3X4aR9Ri6sVlS8lou20Hk44nGYWdpWchuNkjgh9UPb6lwtsfbTVCnXvwUeQAAAAASUVORK5CYII="
 private const val BOTTOM_BAR_TAG = "BottomBarUI"
 private const val BOTTOM_BAR_CARPLAY_PACKAGE = "com.ts.carplay.app"
 private const val BOTTOM_BAR_ANDROID_AUTO_PACKAGE = "com.ts.androidauto.app"
+internal const val DASHBOARD_FUEL_TANK_CAPACITY_LITERS = 55f
+private const val DASHBOARD_MEDIA_VOLUME_MIN = 0
+private const val DASHBOARD_MEDIA_VOLUME_MAX = 30
+private const val DASHBOARD_COLLAPSE_DRAG_THRESHOLD_PX = 80f
+private const val DASHBOARD_COLLAPSE_CONSUME_DRAG_PX = 20f
+private const val DASHBOARD_COLLAPSE_VERTICAL_DOMINANCE_RATIO = 1.2f
 
 private val DashboardReadableFont = FontFamily.SansSerif
 
@@ -599,6 +609,7 @@ fun BottomBarContent() {
                                                                                 0,
                                                                                 30
                                                                         )
+                                                                volume = newVol
                                                                 serviceManager.updateData(
                                                                         CarConstants
                                                                                 .SYS_SETTINGS_AUDIO_MEDIA_VOLUME
@@ -1890,8 +1901,6 @@ private data class DashboardVehicleSnapshot(
         val readyState: String
 )
 
-private const val DASHBOARD_FUEL_TANK_CAPACITY_LITERS = 55f
-
 @Composable
 private fun rememberDashboardVehicleSnapshot(
         serviceManager: ServiceManager
@@ -2327,10 +2336,79 @@ fun ImpulseDashboardFullscreenContent() {
 private fun ExpandedImpulseDashboard() {
         val serviceManager = ServiceManager.getInstance()
         val context = LocalContext.current
-        val scope = rememberCoroutineScope()
         val snapshot = rememberDashboardVehicleSnapshot(serviceManager)
         val entryProgress = remember { Animatable(0f) }
         var currentTime by remember { mutableStateOf(formatDashboardClock()) }
+        val prefs =
+                remember {
+                        br.com.redesurftank.App.getDeviceProtectedContext()
+                                .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+                }
+        var dashboardCardOrder by remember {
+                mutableStateOf(
+                        normalizeDashboardCardOrder(
+                                prefs.getString(SharedPreferencesKeys.DASHBOARD_CARD_ORDER.key, null)
+                        )
+                )
+        }
+        var layoutEditMode by remember { mutableStateOf(false) }
+        var shortcutMenuExpanded by remember { mutableStateOf(false) }
+        var dashboardShortcutButton1Action by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.key,
+                                SteeringWheelCustomActionType.DEFAULT.key
+                        )
+                                ?: SteeringWheelCustomActionType.DEFAULT.key
+                )
+        }
+        var dashboardShortcutButton2Action by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.key,
+                                SteeringWheelCustomActionType.DEFAULT.key
+                        )
+                                ?: SteeringWheelCustomActionType.DEFAULT.key
+                )
+        }
+
+        fun updateDashboardCardOrder(nextOrder: List<DashboardCardId>) {
+                val normalized = normalizeDashboardCardOrder(dashboardCardOrderToStorage(nextOrder))
+                dashboardCardOrder = normalized
+                prefs.edit {
+                        putString(
+                                SharedPreferencesKeys.DASHBOARD_CARD_ORDER.key,
+                                dashboardCardOrderToStorage(normalized)
+                        )
+                }
+        }
+
+        fun setDashboardShortcutButton(button: Int) {
+                val actions =
+                        resolveImpulseDashboardShortcutActions(
+                                currentButton1Action = dashboardShortcutButton1Action,
+                                currentButton2Action = dashboardShortcutButton2Action,
+                                selectedButton = button
+                        )
+                dashboardShortcutButton1Action = actions.button1Action
+                dashboardShortcutButton2Action = actions.button2Action
+                prefs.edit(commit = true) {
+                        putBoolean(
+                                SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.key,
+                                true
+                        )
+                        putString(
+                                SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.key,
+                                actions.button1Action
+                        )
+                        putString(
+                                SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.key,
+                                actions.button2Action
+                        )
+                }
+                shortcutMenuExpanded = false
+                ServiceManager.getInstance().ensureSteeringWheelButtonIntegration()
+        }
 
         LaunchedEffect(Unit) {
                 entryProgress.animateTo(
@@ -2367,6 +2445,15 @@ private fun ExpandedImpulseDashboard() {
                         }
                 }
 
+        fun collapseDashboard() {
+                BottomBarState.isDashboardExpanded = false
+                BottomBarState.isVisible = true
+                BottomBarState.isMenuExpanded = false
+                BottomBarState.isSettingsMenuExpanded = false
+                BottomBarState.isOverrideMenuExpanded = false
+                BottomBarState.activeSliderType = null
+        }
+
         Box(
                 modifier =
                         Modifier.fillMaxSize()
@@ -2381,43 +2468,37 @@ private fun ExpandedImpulseDashboard() {
                                         )
                                 )
                                 .pointerInput(Unit) {
-                                        awaitPointerEventScope {
-                                                while (true) {
-                                                        awaitFirstDown(requireUnconsumed = false)
-                                                        var totalDragY = 0f
-                                                        do {
-                                                                val event = awaitPointerEvent()
-                                                                val change =
-                                                                        event.changes.firstOrNull()
-                                                                if (change != null) {
-                                                                        totalDragY +=
-                                                                                change.position.y -
-                                                                                        change.previousPosition
-                                                                                                .y
-                                                                        if (totalDragY > 20f) {
-                                                                                event.changes
-                                                                                        .forEach {
-                                                                                                it.consume()
-                                                                                        }
+                                        awaitEachGesture {
+                                                awaitFirstDown(requireUnconsumed = false)
+                                                var totalDragY = 0f
+                                                var totalDragX = 0f
+                                                do {
+                                                        val event = awaitPointerEvent()
+                                                        event.changes.forEach { change ->
+                                                                val deltaX =
+                                                                        change.position.x -
+                                                                                change.previousPosition.x
+                                                                val deltaY =
+                                                                        change.position.y -
+                                                                                change.previousPosition.y
+                                                                totalDragX += deltaX
+                                                                if (deltaY > 0f) {
+                                                                        totalDragY += deltaY
+                                                                        if (totalDragY >
+                                                                                        DASHBOARD_COLLAPSE_CONSUME_DRAG_PX
+                                                                                && isDashboardCollapseDragMostlyVertical(
+                                                                                        totalDragY,
+                                                                                        totalDragX
+                                                                                )
+                                                                        ) {
+                                                                                change.consume()
                                                                         }
                                                                 }
-                                                        } while (event.changes.any { it.pressed })
-
-                                                        if (totalDragY > 80f) {
-                                                                BottomBarState
-                                                                        .isDashboardExpanded =
-                                                                        false
-                                                                BottomBarState.isVisible = true
-                                                                BottomBarState.isMenuExpanded = false
-                                                                BottomBarState
-                                                                        .isSettingsMenuExpanded =
-                                                                        false
-                                                                BottomBarState
-                                                                        .isOverrideMenuExpanded =
-                                                                        false
-                                                                BottomBarState.activeSliderType =
-                                                                        null
                                                         }
+                                                } while (event.changes.any { it.pressed })
+
+                                                if (shouldCollapseDashboardAfterDrag(totalDragY, totalDragX)) {
+                                                        collapseDashboard()
                                                 }
                                         }
                                 }
@@ -2444,46 +2525,44 @@ private fun ExpandedImpulseDashboard() {
                                 time = currentTime,
                                 snapshot = snapshot,
                                 activeProjectionPackage = activeProjectionPackage,
-                                onShowNativeMenu = {
-                                        BottomBarState.isDashboardExpanded = false
-                                        BottomBarState.isVisible = true
-                                        BottomBarState.isMenuExpanded = false
-                                        BottomBarState.isSettingsMenuExpanded = false
-                                        BottomBarState.isOverrideMenuExpanded = false
-                                        BottomBarState.activeSliderType = null
-                                }
+                                layoutEditMode = layoutEditMode,
+                                shortcutSelectedButton =
+                                        resolveImpulseDashboardShortcutButton(
+                                                dashboardShortcutButton1Action,
+                                                dashboardShortcutButton2Action
+                                        ),
+                                shortcutMenuExpanded = shortcutMenuExpanded,
+                                onToggleLayoutEditMode = { layoutEditMode = !layoutEditMode },
+                                onShortcutExpandedChange = { shortcutMenuExpanded = it },
+                                onShortcutButtonSelected = { setDashboardShortcutButton(it) },
+                                onShowNativeMenu = { collapseDashboard() }
                         )
                         Row(
                                 modifier = Modifier.weight(1f).fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                                DashboardMediaPanel(
-                                        appLabel = appInfo?.label,
-                                        appIcon = appInfo?.icon,
-                                        activeProjectionPackage = activeProjectionPackage,
-                                        volume = snapshot.volume,
-                                        serviceManager = serviceManager,
-                                        modifier = Modifier.weight(1.12f).fillMaxHeight()
-                                )
-                                DashboardSettingsPanel(
-                                        snapshot = snapshot,
-                                        serviceManager = serviceManager,
-                                        modifier = Modifier.weight(0.9f).fillMaxHeight()
-                                )
-                                Column(
-                                        modifier = Modifier.weight(1.03f).fillMaxHeight(),
-                                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                        DashboardHvacPanel(
+                                dashboardCardOrder.forEachIndexed { index, cardId ->
+                                        DashboardCardSlot(
+                                                cardId = cardId,
+                                                order = dashboardCardOrder,
+                                                layoutEditMode = layoutEditMode,
                                                 snapshot = snapshot,
                                                 serviceManager = serviceManager,
-                                                modifier = Modifier.weight(1f)
-                                        )
-                                        DashboardProjectionActionsPanel(
-                                                effectivePackage = effectivePackage,
-                                                context = context,
-                                                scope = scope,
-                                                modifier = Modifier.height(94.dp)
+                                                appLabel = appInfo?.label,
+                                                appIcon = appInfo?.icon,
+                                                activeProjectionPackage = activeProjectionPackage,
+                                                modifier =
+                                                        Modifier.weight(dashboardSlotWeight(index))
+                                                                .fillMaxHeight(),
+                                                onMoveCard = { movedCardId, direction ->
+                                                        updateDashboardCardOrder(
+                                                                moveDashboardCard(
+                                                                        dashboardCardOrder,
+                                                                        movedCardId,
+                                                                        direction
+                                                                )
+                                                        )
+                                                }
                                         )
                                 }
                         }
@@ -2496,6 +2575,12 @@ private fun DashboardHeader(
         time: String,
         snapshot: DashboardVehicleSnapshot,
         activeProjectionPackage: String?,
+        layoutEditMode: Boolean,
+        shortcutSelectedButton: Int?,
+        shortcutMenuExpanded: Boolean,
+        onToggleLayoutEditMode: () -> Unit,
+        onShortcutExpandedChange: (Boolean) -> Unit,
+        onShortcutButtonSelected: (Int) -> Unit,
         onShowNativeMenu: () -> Unit
 ) {
         Row(
@@ -2542,7 +2627,58 @@ private fun DashboardHeader(
                                 text = "Externa ${formatTemperature(snapshot.outsideTemp)}"
                         )
                         DashboardStatusChip(icon = Icons.Default.AccessTime, text = time)
+                        DashboardHeaderControlButton(
+                                icon = Icons.Default.Tune,
+                                text = if (layoutEditMode) "Pronto" else "Layout",
+                                active = layoutEditMode,
+                                onClick = onToggleLayoutEditMode
+                        )
+                        DashboardShortcutSelectorButton(
+                                selectedButton = shortcutSelectedButton,
+                                expanded = shortcutMenuExpanded,
+                                onExpandedChange = onShortcutExpandedChange,
+                                onSelectButton = onShortcutButtonSelected,
+                                modifier = Modifier.zIndex(6f)
+                        )
                         DashboardNativeMenuButton(onClick = onShowNativeMenu)
+                }
+        }
+}
+
+@Composable
+private fun DashboardHeaderControlButton(
+        icon: ImageVector,
+        text: String,
+        active: Boolean,
+        onClick: () -> Unit
+) {
+        val accent = if (active) Color(0xFF78E08F) else Color(0xFF66E3FF)
+        Surface(
+                onClick = onClick,
+                modifier = Modifier.height(44.dp),
+                color = accent.copy(alpha = if (active) 0.18f else 0.12f),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, accent.copy(alpha = if (active) 0.48f else 0.30f))
+        ) {
+                Row(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                        Icon(
+                                icon,
+                                contentDescription = null,
+                                tint = accent,
+                                modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                                text = text,
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontFamily = DashboardReadableFont,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                        )
                 }
         }
 }
@@ -2580,6 +2716,111 @@ private fun DashboardNativeMenuButton(onClick: () -> Unit) {
 }
 
 @Composable
+private fun DashboardShortcutSelectorButton(
+        selectedButton: Int?,
+        expanded: Boolean,
+        onExpandedChange: (Boolean) -> Unit,
+        onSelectButton: (Int) -> Unit,
+        modifier: Modifier = Modifier
+) {
+        val accent = if (selectedButton == null) Color(0xFFFF7A7A) else Color(0xFF66E3FF)
+        Box(modifier = modifier) {
+                Surface(
+                        onClick = { onExpandedChange(!expanded) },
+                        modifier =
+                                if (selectedButton == null) Modifier.height(44.dp)
+                                else Modifier.size(44.dp),
+                        color = accent.copy(alpha = if (selectedButton == null) 0.16f else 0.14f),
+                        shape = RoundedCornerShape(8.dp),
+                        border =
+                                BorderStroke(
+                                        1.dp,
+                                        accent.copy(alpha = if (selectedButton == null) 0.42f else 0.34f)
+                                )
+                ) {
+                        Row(
+                                modifier =
+                                        if (selectedButton == null) {
+                                                Modifier.padding(horizontal = 14.dp)
+                                        } else {
+                                                Modifier.fillMaxSize()
+                                        },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                        ) {
+                                if (selectedButton == null) {
+                                        Text(
+                                                text = "Definir atalho",
+                                                color = Color.White,
+                                                fontSize = 13.sp,
+                                                fontFamily = DashboardReadableFont,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1
+                                        )
+                                } else {
+                                        Icon(
+                                                dashboardShortcutButtonIcon(selectedButton),
+                                                contentDescription = "Atalho no botão $selectedButton",
+                                                tint = accent,
+                                                modifier = Modifier.size(21.dp)
+                                        )
+                                }
+                        }
+                }
+                DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { onExpandedChange(false) },
+                        modifier = Modifier.background(Color(0xFF121A22)),
+                        properties = PopupProperties(focusable = false)
+                ) {
+                        DashboardShortcutDropdownItem(
+                                text = "Botão 1",
+                                icon = Icons.Default.Add,
+                                selected = selectedButton == 1,
+                                onClick = { onSelectButton(1) }
+                        )
+                        DashboardShortcutDropdownItem(
+                                text = "Botão 2",
+                                icon = Icons.Default.Star,
+                                selected = selectedButton == 2,
+                                onClick = { onSelectButton(2) }
+                        )
+                }
+        }
+}
+
+@Composable
+private fun DashboardShortcutDropdownItem(
+        text: String,
+        icon: ImageVector,
+        selected: Boolean,
+        onClick: () -> Unit
+) {
+        DropdownMenuItem(
+                text = {
+                        Text(
+                                text = text,
+                                color = Color.White,
+                                fontFamily = DashboardReadableFont,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                        )
+                },
+                leadingIcon = {
+                        Icon(
+                                icon,
+                                contentDescription = null,
+                                tint = if (selected) Color(0xFF66E3FF) else Color.White.copy(alpha = 0.76f)
+                        )
+                },
+                onClick = onClick
+        )
+}
+
+private fun dashboardShortcutButtonIcon(button: Int): ImageVector {
+        return if (button == 1) Icons.Default.Add else Icons.Default.Star
+}
+
+@Composable
 private fun DashboardTopDragHandle(modifier: Modifier = Modifier) {
         Box(
                 modifier = modifier.width(148.dp).height(24.dp),
@@ -2594,6 +2835,165 @@ private fun DashboardTopDragHandle(modifier: Modifier = Modifier) {
                                                 RoundedCornerShape(50)
                                         )
                 )
+        }
+}
+
+@Composable
+private fun DashboardTopDragTouchTarget(modifier: Modifier = Modifier, onCollapse: () -> Unit) {
+        Spacer(
+                modifier =
+                        modifier.fillMaxWidth()
+                                .height(44.dp)
+                                .zIndex(2f)
+                                .pointerInput(onCollapse) {
+                                        var totalDragY = 0f
+                                        detectDragGestures(
+                                                onDragStart = { totalDragY = 0f },
+                                                onDragCancel = { totalDragY = 0f },
+                                                onDragEnd = {
+                                                        if (shouldCollapseDashboardAfterDrag(totalDragY)) {
+                                                                onCollapse()
+                                                        }
+                                                        totalDragY = 0f
+                                                }
+                                        ) { change, dragAmount ->
+                                                if (dragAmount.y > 0f) {
+                                                        totalDragY += dragAmount.y
+                                                        change.consume()
+                                                }
+                                        }
+                                }
+        )
+}
+
+internal fun shouldCollapseDashboardAfterDrag(totalDragY: Float, totalDragX: Float = 0f): Boolean {
+        return totalDragY > DASHBOARD_COLLAPSE_DRAG_THRESHOLD_PX &&
+                isDashboardCollapseDragMostlyVertical(totalDragY, totalDragX)
+}
+
+internal fun isDashboardCollapseDragMostlyVertical(totalDragY: Float, totalDragX: Float): Boolean {
+        return totalDragY > 0f &&
+                totalDragY >= abs(totalDragX) * DASHBOARD_COLLAPSE_VERTICAL_DOMINANCE_RATIO
+}
+
+private fun dashboardSlotWeight(index: Int): Float {
+        return when (index) {
+                0 -> 1.12f
+                1 -> 0.90f
+                else -> 1.03f
+        }
+}
+
+@Composable
+private fun DashboardCardSlot(
+        cardId: DashboardCardId,
+        order: List<DashboardCardId>,
+        layoutEditMode: Boolean,
+        snapshot: DashboardVehicleSnapshot,
+        serviceManager: ServiceManager,
+        appLabel: String?,
+        appIcon: android.graphics.drawable.Drawable?,
+        activeProjectionPackage: String?,
+        modifier: Modifier,
+        onMoveCard: (DashboardCardId, Int) -> Unit
+) {
+        val controls: @Composable (() -> Unit)? =
+                if (layoutEditMode) {
+                        {
+                                DashboardCardPositionControls(
+                                        cardId = cardId,
+                                        order = order,
+                                        onMoveCard = onMoveCard
+                                )
+                        }
+                } else {
+                        null
+                }
+
+        val content: @Composable (Modifier) -> Unit = { contentModifier ->
+                when (cardId) {
+                        DashboardCardId.MEDIA ->
+                                DashboardMediaPanel(
+                                        appLabel = appLabel,
+                                        appIcon = appIcon,
+                                        activeProjectionPackage = activeProjectionPackage,
+                                        volume = snapshot.volume,
+                                        serviceManager = serviceManager,
+                                        layoutControls = controls,
+                                        modifier = contentModifier
+                                )
+                        DashboardCardId.DYNAMICS ->
+                                DashboardSettingsPanel(
+                                        snapshot = snapshot,
+                                        serviceManager = serviceManager,
+                                        layoutControls = controls,
+                                        modifier = contentModifier
+                                )
+                        DashboardCardId.HVAC ->
+                                DashboardHvacPanel(
+                                        snapshot = snapshot,
+                                        serviceManager = serviceManager,
+                                        layoutControls = controls,
+                                        modifier = contentModifier
+                                )
+                }
+        }
+
+        content(modifier)
+}
+
+@Composable
+private fun DashboardCardPositionControls(
+        cardId: DashboardCardId,
+        order: List<DashboardCardId>,
+        onMoveCard: (DashboardCardId, Int) -> Unit
+) {
+        val index = order.indexOf(cardId)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                DashboardMiniIconButton(
+                        icon = Icons.Default.KeyboardArrowLeft,
+                        enabled = index > 0,
+                        contentDescription = "Mover card para esquerda"
+                ) {
+                        onMoveCard(cardId, -1)
+                }
+                DashboardMiniIconButton(
+                        icon = Icons.Default.KeyboardArrowRight,
+                        enabled = index in 0 until order.lastIndex,
+                        contentDescription = "Mover card para direita"
+                ) {
+                        onMoveCard(cardId, 1)
+                }
+        }
+}
+
+@Composable
+private fun DashboardMiniIconButton(
+        icon: ImageVector,
+        enabled: Boolean,
+        contentDescription: String,
+        onClick: () -> Unit
+) {
+        Surface(
+                onClick = onClick,
+                enabled = enabled,
+                color = Color.White.copy(alpha = if (enabled) 0.10f else 0.04f),
+                shape = RoundedCornerShape(8.dp),
+                border =
+                        BorderStroke(
+                                1.dp,
+                                Color.White.copy(alpha = if (enabled) 0.18f else 0.06f)
+                        ),
+                modifier = Modifier.size(34.dp)
+        ) {
+                Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                                icon,
+                                contentDescription = contentDescription,
+                                tint = Color.White.copy(alpha = if (enabled) 0.92f else 0.28f),
+                                modifier = Modifier.size(22.dp)
+                        )
+                }
         }
 }
 
@@ -2760,6 +3160,7 @@ private fun DashboardEnergyPanel(snapshot: DashboardVehicleSnapshot, modifier: M
 private fun DashboardSettingsPanel(
         snapshot: DashboardVehicleSnapshot,
         serviceManager: ServiceManager,
+        layoutControls: @Composable (() -> Unit)? = null,
         modifier: Modifier
 ) {
         DashboardPanel(modifier = modifier) {
@@ -2778,7 +3179,13 @@ private fun DashboardSettingsPanel(
                                 verticalAlignment = Alignment.CenterVertically
                         ) {
                                 DashboardPanelTitle(Icons.Default.Tune, "Dinâmica")
-                                DashboardDynamicsReadyBadge(snapshot.readyState)
+                                Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                        layoutControls?.invoke()
+                                        DashboardDynamicsReadyBadge(snapshot.readyState)
+                                }
                         }
                         Row(
                                 modifier = Modifier.fillMaxWidth().height(138.dp),
@@ -2797,7 +3204,11 @@ private fun DashboardSettingsPanel(
                                         label = "Combustível",
                                         value = formatPercent(snapshot.fuelPercent),
                                         fraction = percentFraction(snapshot.fuelPercent),
-                                        detail = formatFuelLiters(snapshot.fuelPercent),
+                                        detail =
+                                                formatDashboardFuelLitersAndRange(
+                                                        snapshot.fuelPercent,
+                                                        snapshot.fuelRange
+                                                ),
                                         accent = Color(0xFFFFC857),
                                         icon = Icons.Default.LocalGasStation,
                                         modifier = Modifier.weight(1f)
@@ -2917,8 +3328,10 @@ private fun DashboardMediaPanel(
         activeProjectionPackage: String?,
         volume: String,
         serviceManager: ServiceManager,
+        layoutControls: @Composable (() -> Unit)? = null,
         modifier: Modifier
 ) {
+        val context = LocalContext.current
         val mediaTitle = BottomBarState.mediaTitle?.takeIf { it.isNotBlank() }
         val mediaArtist = BottomBarState.mediaArtist?.takeIf { it.isNotBlank() }
         val mediaAlbum = BottomBarState.mediaAlbum?.takeIf { it.isNotBlank() }
@@ -2993,6 +3406,54 @@ private fun DashboardMediaPanel(
                                 mediaPackageName != null -> "Midia do sistema"
                                 else -> "Sistema de audio"
                         }
+        var visibleVolume by remember {
+                mutableIntStateOf(
+                        volume.toIntOrNull()
+                                ?.coerceIn(DASHBOARD_MEDIA_VOLUME_MIN, DASHBOARD_MEDIA_VOLUME_MAX)
+                                ?: DASHBOARD_MEDIA_VOLUME_MIN
+                )
+        }
+        var pendingVolume by remember { mutableStateOf<Int?>(null) }
+        var pendingVolumeAtMs by remember { mutableLongStateOf(0L) }
+
+        LaunchedEffect(volume) {
+                val remoteVolume =
+                        volume.toIntOrNull()
+                                ?.coerceIn(DASHBOARD_MEDIA_VOLUME_MIN, DASHBOARD_MEDIA_VOLUME_MAX)
+                                ?: return@LaunchedEffect
+                val pending = pendingVolume
+                val pendingAgeMs = SystemClock.elapsedRealtime() - pendingVolumeAtMs
+                if (pending == null || remoteVolume == pending || pendingAgeMs > 1800L) {
+                        visibleVolume = remoteVolume
+                        if (remoteVolume == pending || pendingAgeMs > 1800L) {
+                                pendingVolume = null
+                        }
+                }
+        }
+
+        fun updateVolume(delta: Int) {
+                if (delta == 0) return
+                val serviceVolume =
+                        serviceManager
+                                .getData(CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue())
+                                ?.toIntOrNull()
+                                ?.coerceIn(DASHBOARD_MEDIA_VOLUME_MIN, DASHBOARD_MEDIA_VOLUME_MAX)
+                val base = pendingVolume ?: serviceVolume ?: visibleVolume
+                val next = resolveDashboardMediaVolumeAfterDelta(base, delta)
+                adjustDashboardSystemMediaVolume(context, delta)
+                visibleVolume = next
+                pendingVolume = next
+                pendingVolumeAtMs = SystemClock.elapsedRealtime()
+                serviceManager.updateData(
+                        CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
+                        next.toString()
+                )
+        }
+
+        fun runMediaControl(action: () -> Unit) {
+                BottomBarService.suppressDashboardControlFocusRestore("dashboard_media_control")
+                action()
+        }
 
         Box(
                 modifier =
@@ -3033,7 +3494,16 @@ private fun DashboardMediaPanel(
                                 verticalAlignment = Alignment.CenterVertically
                         ) {
                                 DashboardPanelTitle(Icons.Default.Album, "Midia")
-                                DashboardMediaBadge(isPlaying = isPlaying, hasMetadata = mediaTitle != null)
+                                Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                        layoutControls?.invoke()
+                                        DashboardMediaBadge(
+                                                isPlaying = isPlaying,
+                                                hasMetadata = mediaTitle != null
+                                        )
+                                }
                         }
                         Box(
                                 modifier =
@@ -3127,7 +3597,9 @@ private fun DashboardMediaPanel(
                                         size = 66.dp,
                                         contentDescription = "Musica anterior"
                                 ) {
-                                        BottomBarService.skipCurrentMediaPrevious()
+                                        runMediaControl {
+                                                BottomBarService.skipCurrentMediaPrevious()
+                                        }
                                 }
                                 DashboardIconButton(
                                         if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -3135,7 +3607,9 @@ private fun DashboardMediaPanel(
                                         contentDescription =
                                                 if (isPlaying) "Pausar musica" else "Reproduzir musica"
                                 ) {
-                                        BottomBarService.toggleCurrentMediaPlayback()
+                                        runMediaControl {
+                                                BottomBarService.toggleCurrentMediaPlayback()
+                                        }
                                 }
                                 DashboardMediaProgressMeter(
                                         elapsedMs = displayedElapsedMs,
@@ -3143,45 +3617,50 @@ private fun DashboardMediaPanel(
                                         canSeek = canSeek,
                                         accent = dynamicAccent,
                                         modifier = Modifier.weight(1f),
-                                        onSeek = { BottomBarService.seekCurrentMediaTo(it) }
+                                        onSeek = { positionMs ->
+                                                runMediaControl {
+                                                        BottomBarService.seekCurrentMediaTo(positionMs)
+                                                }
+                                        }
                                 )
                                 DashboardIconButton(
                                         Icons.Default.SkipNext,
                                         size = 66.dp,
                                         contentDescription = "Proxima musica"
                                 ) {
-                                        BottomBarService.skipCurrentMediaNext()
+                                        runMediaControl {
+                                                BottomBarService.skipCurrentMediaNext()
+                                        }
                                 }
                         }
                         Row(
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                         ) {
-                                DashboardIconButton(Icons.Default.Remove, size = 62.dp) {
-                                        val next =
-                                                (volume.toIntOrNull() ?: 0).minus(1).coerceIn(0, 30)
-                                        serviceManager.updateData(
-                                                CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME
-                                                        .getValue(),
-                                                next.toString()
-                                        )
+                                DashboardIconButton(
+                                        Icons.Default.Remove,
+                                        size = 70.dp,
+                                        contentDescription = "Diminuir volume"
+                                ) {
+                                        runMediaControl { updateVolume(-1) }
                                 }
                                 DashboardLinearMeter(
                                         label = "Volume",
-                                        value = volume,
-                                        fraction = ((volume.toFloatOrNull() ?: 0f) / 30f).coerceIn(0f, 1f),
+                                        value = visibleVolume.toString(),
+                                        fraction =
+                                                (visibleVolume / DASHBOARD_MEDIA_VOLUME_MAX.toFloat())
+                                                        .coerceIn(0f, 1f),
                                         accent = Color(0xFF66E3FF),
                                         icon = Icons.Default.VolumeUp,
                                         modifier = Modifier.weight(1f)
                                 )
-                                DashboardIconButton(Icons.Default.Add, size = 62.dp) {
-                                        val next =
-                                                (volume.toIntOrNull() ?: 0).plus(1).coerceIn(0, 30)
-                                        serviceManager.updateData(
-                                                CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME
-                                                        .getValue(),
-                                                next.toString()
-                                        )
+                                DashboardIconButton(
+                                        Icons.Default.Add,
+                                        size = 70.dp,
+                                        contentDescription = "Aumentar volume"
+                                ) {
+                                        runMediaControl { updateVolume(1) }
                                 }
                         }
                 }
@@ -3436,53 +3915,6 @@ private fun DashboardMediaProgressMeter(
 }
 
 @Composable
-private fun DashboardProjectionActionsPanel(
-        effectivePackage: String?,
-        context: Context,
-        scope: CoroutineScope,
-        modifier: Modifier
-) {
-        DashboardPanel(modifier = modifier) {
-                Row(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                ) {
-                        DashboardActionButton(
-                                text = "Cluster",
-                                icon = Icons.Default.KeyboardArrowLeft,
-                                enabled = effectivePackage != null,
-                                modifier = Modifier.weight(1f),
-                                height = 58.dp
-                        ) {
-                                val pkg = effectivePackage ?: return@DashboardActionButton
-                                scope.launch {
-                                        DisplayAppLauncher.getOrCreateDefaultConfig(context, pkg)
-                                                ?.let { DisplayAppLauncher.sendToDisplay(it) }
-                                }
-                        }
-                        DashboardActionButton(
-                                text = "D0",
-                                icon = Icons.Default.KeyboardArrowRight,
-                                modifier = Modifier.weight(1f),
-                                height = 58.dp
-                        ) {
-                                scope.launch { DisplayAppLauncher.bringAllToMainDisplay() }
-                        }
-                        DashboardActionButton(
-                                text = "Apps",
-                                icon = Icons.Default.GridView,
-                                modifier = Modifier.weight(1f),
-                                height = 58.dp
-                        ) {
-                                BottomBarState.isDashboardExpanded = false
-                                BottomBarState.isMenuExpanded = true
-                        }
-                }
-        }
-}
-
-@Composable
 private fun DashboardMediaBadge(isPlaying: Boolean, hasMetadata: Boolean) {
         Row(
                 modifier =
@@ -3636,6 +4068,7 @@ private fun DashboardQuickActionsPanel(
 private fun DashboardHvacPanel(
         snapshot: DashboardVehicleSnapshot,
         serviceManager: ServiceManager,
+        layoutControls: @Composable (() -> Unit)? = null,
         modifier: Modifier
 ) {
         val hvacEnabled = snapshot.hvacPower == "1"
@@ -3658,15 +4091,20 @@ private fun DashboardHvacPanel(
         DashboardPanel(modifier = modifier) {
                 Column(
                         modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.SpaceBetween
                 ) {
                         Row(
                                 modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                         ) {
                                 DashboardPanelTitle(Icons.Default.AcUnit, "Climatização")
+                                layoutControls?.invoke()
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
                                 DashboardTempAdjuster(
                                         label = "Motorista",
                                         temp = snapshot.driverTemp,
@@ -3728,7 +4166,10 @@ private fun DashboardHvacPanel(
                                         nextMode
                                 )
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                                 DashboardSeatVentilationButton(
                                         label = "Motorista",
                                         level = driverSeatVentilation,
@@ -3768,7 +4209,10 @@ private fun DashboardHvacPanel(
                                         )
                                 }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                                 DashboardToggleButton(
                                         label = "AC",
                                         icon = Icons.Default.PowerSettingsNew,
@@ -4510,12 +4954,12 @@ private fun DashboardTempAdjuster(
                 modifier =
                         modifier.alpha(if (enabled) 1f else 0.45f)
                                 .background(Color.White.copy(alpha = 0.055f), RoundedCornerShape(8.dp))
-                                .height(78.dp)
-                                .padding(horizontal = 10.dp),
+                                .height(92.dp)
+                                .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-                DashboardIconButton(Icons.Default.Remove, size = 54.dp) { if (enabled) onDelta(-0.5f) }
+                DashboardIconButton(Icons.Default.Remove, size = 62.dp) { if (enabled) onDelta(-0.5f) }
                 Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                                 text = label,
@@ -4527,12 +4971,12 @@ private fun DashboardTempAdjuster(
                         Text(
                                 text = if (enabled) formatTemperature(temp) else "--",
                                 color = Color.White,
-                                fontSize = 22.sp,
+                                fontSize = 24.sp,
                                 fontFamily = DashboardReadableFont,
                                 maxLines = 1
                         )
                 }
-                DashboardIconButton(Icons.Default.Add, size = 54.dp) { if (enabled) onDelta(0.5f) }
+                DashboardIconButton(Icons.Default.Add, size = 62.dp) { if (enabled) onDelta(0.5f) }
         }
 }
 
@@ -4547,12 +4991,12 @@ private fun DashboardFanAdjuster(
                 modifier =
                         modifier.alpha(if (enabled) 1f else 0.45f)
                                 .background(Color.White.copy(alpha = 0.055f), RoundedCornerShape(8.dp))
-                                .height(70.dp)
-                                .padding(horizontal = 10.dp),
+                                .height(84.dp)
+                                .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-                DashboardIconButton(Icons.Default.Remove, size = 54.dp) { if (enabled) onDelta(-1) }
+                DashboardIconButton(Icons.Default.Remove, size = 62.dp) { if (enabled) onDelta(-1) }
                 Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                                 text = "Ventilação",
@@ -4564,12 +5008,12 @@ private fun DashboardFanAdjuster(
                         Text(
                                 text = speed.toIntOrNull()?.toString() ?: "--",
                                 color = Color.White,
-                                fontSize = 22.sp,
+                                fontSize = 24.sp,
                                 fontFamily = DashboardReadableFont,
                                 maxLines = 1
                         )
                 }
-                DashboardIconButton(Icons.Default.Add, size = 54.dp) { if (enabled) onDelta(1) }
+                DashboardIconButton(Icons.Default.Add, size = 62.dp) { if (enabled) onDelta(1) }
         }
 }
 
@@ -4603,7 +5047,7 @@ private fun DashboardAirflowModeSelector(
                         Surface(
                                 onClick = { onSelect(option.value) },
                                 enabled = enabled,
-                                modifier = Modifier.weight(1f).height(62.dp),
+                                modifier = Modifier.weight(1f).height(82.dp),
                                 color =
                                         if (active && enabled) Color(0xFF66E3FF).copy(alpha = 0.16f)
                                         else Color.White.copy(alpha = 0.055f),
@@ -4628,9 +5072,9 @@ private fun DashboardAirflowModeSelector(
                                                         else Color.White.copy(
                                                                 alpha = if (enabled) 0.82f else 0.35f
                                                         ),
-                                                modifier = Modifier.size(40.dp)
+                                                modifier = Modifier.size(46.dp)
                                         )
-                                        Spacer(Modifier.height(4.dp))
+                                        Spacer(Modifier.height(6.dp))
                                         Text(
                                                 text = option.label,
                                                 color =
@@ -4638,7 +5082,7 @@ private fun DashboardAirflowModeSelector(
                                                         else Color.White.copy(
                                                                 alpha = if (enabled) 0.76f else 0.35f
                                                         ),
-                                                fontSize = 10.sp,
+                                                fontSize = 11.sp,
                                                 fontFamily = DashboardReadableFont,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
@@ -4661,7 +5105,7 @@ private fun DashboardSeatVentilationButton(
         val active = parsedLevel > 0
         Surface(
                 onClick = onClick,
-                modifier = modifier.height(68.dp),
+                modifier = modifier.height(82.dp),
                 color =
                         if (active) Color(0xFF78E08F).copy(alpha = 0.15f)
                         else Color.White.copy(alpha = 0.055f),
@@ -4684,20 +5128,20 @@ private fun DashboardSeatVentilationButton(
                                 tint =
                                         if (active) Color(0xFF78E08F)
                                         else Color.White.copy(alpha = 0.62f),
-                                modifier = Modifier.size(27.dp)
+                                modifier = Modifier.size(32.dp)
                         )
                         Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                         text = label,
                                         color = Color.White.copy(alpha = 0.58f),
-                                        fontSize = 12.sp,
+                                        fontSize = 13.sp,
                                         fontFamily = DashboardReadableFont,
                                         maxLines = 1
                                 )
                                 Text(
                                         text = if (active) "Nível $parsedLevel" else "Desligado",
                                         color = Color.White,
-                                        fontSize = 16.sp,
+                                        fontSize = 18.sp,
                                         fontFamily = DashboardReadableFont,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
@@ -4745,7 +5189,7 @@ private fun DashboardToggleButton(
         Surface(
                 onClick = onClick,
                 enabled = enabled,
-                modifier = modifier.height(68.dp),
+                modifier = modifier.height(82.dp),
                 color =
                         if (active && enabled) Color(0xFF66E3FF).copy(alpha = 0.16f)
                         else Color.White.copy(alpha = 0.055f),
@@ -4767,15 +5211,15 @@ private fun DashboardToggleButton(
                                 tint =
                                         if (active && enabled) Color(0xFF66E3FF)
                                         else Color.White.copy(alpha = if (enabled) 0.82f else 0.35f),
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(31.dp)
                         )
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(8.dp))
                         Text(
                                 text = label,
                                 color =
                                         if (active && enabled) Color(0xFF66E3FF)
                                         else Color.White.copy(alpha = if (enabled) 0.76f else 0.35f),
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 fontFamily = DashboardReadableFont,
                                 maxLines = 1
                         )
@@ -4813,6 +5257,25 @@ private fun updateTemperature(
         val current = currentValue.toFloatOrNull() ?: 22.0f
         val next = (current + delta).coerceIn(16.0f, 32.0f)
         serviceManager.updateData(key.getValue(), String.format(java.util.Locale.US, "%.1f", next))
+}
+
+internal fun resolveDashboardMediaVolumeAfterDelta(current: Int, delta: Int): Int {
+        return (current + delta).coerceIn(DASHBOARD_MEDIA_VOLUME_MIN, DASHBOARD_MEDIA_VOLUME_MAX)
+}
+
+private fun adjustDashboardSystemMediaVolume(context: Context, delta: Int) {
+        val direction =
+                if (delta > 0) {
+                        AudioManager.ADJUST_RAISE
+                } else {
+                        AudioManager.ADJUST_LOWER
+                }
+        try {
+                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0)
+        } catch (e: Exception) {
+                Log.w(BOTTOM_BAR_TAG, "Unable to adjust system media volume", e)
+        }
 }
 
 private fun updateSeatVentilationLevel(
@@ -4945,13 +5408,6 @@ private fun percentFraction(value: String): Float {
 
 private fun formatDistance(value: String): String {
         return value.toFloatOrNull()?.roundToInt()?.let { "$it km" } ?: "--"
-}
-
-private fun formatFuelLiters(percent: String): String {
-        val parsed = percent.toFloatOrNull() ?: return "--"
-        if (parsed < 0f || parsed > 100f) return "--"
-        val liters = parsed.coerceIn(0f, 100f) * DASHBOARD_FUEL_TANK_CAPACITY_LITERS / 100f
-        return String.format(java.util.Locale.US, "%.1f L", liters)
 }
 
 private fun formatConsumption(value: String, suffix: String): String {
@@ -6148,6 +6604,7 @@ fun VerticalSliderOverlay() {
                                                 visualAidType = VisualAidType.VOLUME,
                                                 onValueChange = { newValue ->
                                                         val calculatedVol = newValue.toInt().coerceIn(0, 30)
+                                                        volVal = calculatedVol
                                                         serviceManager.updateData(
                                                                 CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
                                                                 calculatedVol.toString()

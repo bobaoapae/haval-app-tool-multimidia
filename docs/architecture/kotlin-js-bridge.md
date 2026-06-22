@@ -1,6 +1,6 @@
 # Kotlin JS Bridge
 
-Atualizado em: 2026-05-24
+Atualizado em: 2026-06-12
 
 ## Android Para JavaScript
 
@@ -23,6 +23,21 @@ Também existem chamadas para:
 - `focus(...)`
 - `updateWarning(...)`
 - `clearWarnings()`
+
+## Politica de Warnings
+
+`InstrumentProjector2` mantém uma separação entre warning visual e warning crítico:
+
+- chaves visuais (`car.ipk_info.warning_tts_notify`,
+  `car.ipk_info.bsd_lca_warning_reqleft`, `car.ipk_info.bsd_lca_warning_reqright`) continuam sendo
+  enviadas ao frontend por `updateWarning(...)`;
+- essas chaves não disparam `syncInitialWarnings()`, `isWarningActive`, dismiss crítico nem
+  recomputação de visibilidade do cluster;
+- warnings críticos continuam podendo acionar `updateWarningUI(...)` via bridge
+  `window.Android.setWarningActive(...)`.
+
+O objetivo é preservar o contrato do frontend, que já tratava essas chaves como visual-only, sem
+deixar pulsos nativos de TTS/LCA entrarem no caminho pesado de warning e card flow.
 
 ## JavaScript Para Android
 

@@ -1,6 +1,6 @@
 # WebView Flow
 
-Atualizado em: 2026-05-24
+Atualizado em: 2026-06-15
 
 ## Fluxo Identificado
 
@@ -15,7 +15,9 @@ Atualizado em: 2026-05-24
 4. `loadDataWithBaseURL` injeta o HTML.
 5. `onPageFinished` marca a WebView como carregada, sincroniza estado e injeta heartbeat JS.
 6. `evaluateJsIfReady` envia JS imediatamente ou coloca em fila.
-7. `onStop` remove callbacks/listeners e destrói WebView.
+7. `WebChromeClient.onConsoleMessage` captura `console.log/warn/error` do WebView e grava eventos
+   `webview_console` no log persistente debug-only do dia quando a captura persistente esta ativa.
+8. `onStop` remove callbacks/listeners e destrói WebView.
 
 ## Arquivos Relacionados
 
@@ -30,6 +32,8 @@ Atualizado em: 2026-05-24
 - Recarregar WebView em loop.
 - Não destruir WebView em `onStop`.
 - HTML em `/data/local/tmp/app.html` inválido afetar debug.
+- Console do WebView pode ficar ruidoso em tema com erro em loop; por isso a captura fica restrita
+  a builds debug/internal e cada campo e truncado pelo logger persistente.
 
 ## A Confirmar
 
