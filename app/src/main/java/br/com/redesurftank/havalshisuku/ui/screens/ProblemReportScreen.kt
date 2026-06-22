@@ -410,10 +410,13 @@ private fun handleSubmitResult(
 ): String {
     return when (result) {
         is ProblemReportSubmitResult.Success -> {
+            val prefix =
+                    if (result.chunked) "Relatório enviado com logs completos"
+                    else "Relatório enviado"
             if (result.githubIssueUrl.isNullOrBlank()) {
-                "Relatório enviado. ID: ${result.reportId}"
+                "$prefix. ID: ${result.reportId}"
             } else {
-                "Relatório enviado e issue criada: ${result.githubIssueUrl}"
+                "$prefix e issue criada: ${result.githubIssueUrl}"
             }
         }
         ProblemReportSubmitResult.BackendNotConfigured -> {

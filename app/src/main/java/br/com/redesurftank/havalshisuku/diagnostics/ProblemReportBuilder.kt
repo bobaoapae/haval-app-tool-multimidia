@@ -34,8 +34,9 @@ object ProblemReportBuilder {
     private const val LOG_DIRECTORY_NAME = "cluster-diagnostics"
     private const val LOG_FILE_PREFIX = "cluster-events-"
     private const val LOG_FILE_SUFFIX = ".log"
-    private const val MAX_PERSISTENT_LOG_CHARS = 12_000
-    private const val MAX_LOGCAT_CHARS = 5_500
+    private const val MAX_PERSISTENT_LOG_CHARS = 1_500_000
+    private const val MAX_LOGCAT_CHARS = 20_000
+    private const val MAX_LOG_EXCERPT_CHARS = 60_000
     private const val LOGCAT_LINE_LIMIT = 220
 
     private val logFileDateFormat = SimpleDateFormat("yyyyMMdd", Locale.US)
@@ -62,7 +63,8 @@ object ProblemReportBuilder {
         val captureStatus = ClusterPersistentEventLogger.getTodayLogCaptureStatus(context, nowMs)
         val persistentLogText = readLogTail(logFile, MAX_PERSISTENT_LOG_CHARS).orEmpty()
         val logcatText = readLogcatSnapshot()
-        val logExcerpt = buildCombinedLogExcerpt(logFile.name, persistentLogText, logcatText)
+        val combinedLogs = buildCombinedLogExcerpt(logFile.name, persistentLogText, logcatText)
+        val logExcerpt = trimToLastChars(combinedLogs, MAX_LOG_EXCERPT_CHARS)
         val title = buildReportTitle(input.description)
         val fullBody =
                 buildFullBody(
@@ -83,7 +85,7 @@ object ProblemReportBuilder {
                 logFileName =
                         if (logcatText.isBlank()) logFile.name else "${logFile.name}; logcat-snapshot",
                 logExcerpt = logExcerpt,
-                logCharCount = logExcerpt.length,
+                logCharCount = combinedLogs.length,
                 input = input.copy(description = input.description.trim())
         )
     }

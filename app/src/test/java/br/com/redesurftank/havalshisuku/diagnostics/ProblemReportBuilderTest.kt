@@ -1,7 +1,9 @@
 package br.com.redesurftank.havalshisuku.diagnostics
 
 import java.util.Calendar
+import java.util.Base64
 import java.util.Locale
+import java.util.zip.GZIPInputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -73,5 +75,27 @@ class ProblemReportBuilderTest {
         assertTrue(excerpt.contains("cluster-events-20260615.log"))
         assertTrue(excerpt.contains("event=webview_console"))
         assertTrue(excerpt.contains("chromium: console error"))
+    }
+
+    @Test
+    fun splitsSerializedPayloadIntoBoundedChunksWithoutDataLoss() {
+        val payload = "0123456789abcdef"
+        val chunks = ProblemReportSubmitter.splitPayloadIntoChunks(payload, chunkSize = 6)
+
+        assertEquals(listOf("012345", "6789ab", "cdef"), chunks)
+        assertEquals(payload, chunks.joinToString(separator = ""))
+    }
+
+    @Test
+    fun encodesChunkUploadPayloadWithoutLosingOriginalJson() {
+        val payload = """{"reportBody":"${"log line ".repeat(1000)}"}"""
+        val encoded = ProblemReportSubmitter.encodePayloadForChunkUpload(payload)
+        val decoded =
+                GZIPInputStream(Base64.getDecoder().decode(encoded).inputStream())
+                        .bufferedReader(Charsets.UTF_8)
+                        .use { it.readText() }
+
+        assertEquals(payload, decoded)
+        assertTrue(encoded.length < payload.length)
     }
 }
