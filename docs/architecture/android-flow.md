@@ -26,6 +26,27 @@ Atualizado em: 2026-06-18
 - Esta v216 nao declara `play/pause` corrigido. Ela e rollback de regressao/conexao; `pause`
   continua dependente de validacao sustentada no Spotify/telefone.
 
+## Atualizacao 2026-06-23 - Atalho Volante Comandos Ar-condicionado
+
+- `SteeringWheelCustomActionType` inclui a acao `CLIMATE_COMMAND`, chave `climate_command`,
+  exibida no dropdown de botoes personalizados do volante como
+  `Acionar comandos do ar-condicionado`.
+- Quando essa acao e escolhida em `BasicSettingsScreen`, a UI abre um segundo dropdown por botao
+  para selecionar o comando salvo em `STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_1` ou
+  `STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_2`.
+- `SteeringWheelClimateCommandType` mantem as chaves estaveis:
+  - `toggle_ac`: alterna `car.hvac.ac_enable`;
+  - `toggle_auto`: alterna `car.hvac.auto_enable`;
+  - `toggle_power`: alterna `car.hvac.power_mode`;
+  - `front_defrost`: alterna a ventilacao no vidro/desembacador frontal. Quando desativado, volta
+    `car.hvac.front_defrost_enable=0` e troca `car.hvac.blower_mode` de `4` para `0`; quando
+    ativado, liga `car.hvac.power_mode`, ativa `car.hvac.front_defrost_enable` e seta
+    `car.hvac.blower_mode=4`.
+- `ServiceManager` aplica deduplicacao de `800ms` por botao para evitar duplo toggle se o
+  InputService entregar evento repetido.
+- Esta acao escreve apenas propriedades HVAC via `updateData`; nao altera display 0/3, CarPlay,
+  Android Auto ou o fluxo de handoff de projecao.
+
 ## Atualizacao 2026-06-18 - Atalho Volante Dashboard Impulse
 
 - `SteeringWheelCustomActionType` inclui a acao `TOGGLE_IMPULSE_DASHBOARD`, chave

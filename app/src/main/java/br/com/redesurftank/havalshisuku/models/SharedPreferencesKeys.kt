@@ -138,6 +138,14 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "steeringWheelOpenAppPackageButton2",
             "Pacote do aplicativo para o botão personalizado 2 do volante"
     ),
+    STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_1(
+            "steeringWheelClimateCommandButton1",
+            "Comando do ar-condicionado para o botão personalizado 1 do volante"
+    ),
+    STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_2(
+            "steeringWheelClimateCommandButton2",
+            "Comando do ar-condicionado para o botão personalizado 2 do volante"
+    ),
     LAST_CLUSTER_SCREEN("lastClusterScreen", "Última tela exibida no cluster"),
     LAST_CLUSTER_MENU_ITEM(
             "lastClusterMenuItem",
