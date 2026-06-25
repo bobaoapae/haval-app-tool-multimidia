@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import br.com.redesurftank.App;
+import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightService;
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.DispatchAllDatasReceiver;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.RestartReceiver;
@@ -356,6 +357,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                 );
                 startCarPlaySystemUiIconWatchdogSafely("already-running");
                 ensurePersistentBottomBarStarted(sharedPreferences, "already-running");
+                AmbientLightService.startIfEnabled(this);
                 return START_STICKY; // Retorna imediatamente se o serviço já estiver rodando
             }
             isServiceRunning = true; // Marca o serviço como rodando
@@ -379,6 +381,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
 
             // Start bottom bar as early as possible if enabled
             ensurePersistentBottomBarStarted(sharedPreferences, "service-start");
+            AmbientLightService.startIfEnabled(this);
 
             // Checar se precisa resetar dados (rollback preview→estável)
             var pendingResetTarget = sharedPreferences.getString(SharedPreferencesKeys.PENDING_RESET_TARGET_VERSION.getKey(), "");

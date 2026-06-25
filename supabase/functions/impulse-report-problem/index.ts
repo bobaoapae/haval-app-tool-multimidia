@@ -2,12 +2,14 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const MAX_DESCRIPTION_CHARS = 3000;
 const MAX_REPORT_BODY_CHARS = 2000000;
 const MAX_LOG_CHARS = 100000;
+const MAX_REPORT_STORAGE_CHARS = 1800000;
 const MAX_REPORTS_PER_INSTALLATION_PER_DAY = 8;
 const MAX_CHUNK_TEXT_CHARS = 700;
 const MAX_CHUNK_COUNT = 4000;
 const MAX_CHUNKED_PAYLOAD_CHARS = 2200000;
 const MAX_DECOMPRESSED_PAYLOAD_CHARS = 2200000;
 const CHUNK_RETENTION_HOURS = 6;
+const LOG_STORAGE_BUCKET = "impulse-problem-report-logs";
 
 const jsonHeaders = {
   "Content-Type": "application/json; charset=utf-8",
@@ -107,6 +109,11 @@ async function handleCompleteReport(
     return jsonResponse({ error: "insert_failed", detail: inserted.error }, 500);
   }
 
+  const logStorage = await uploadReportFile(serviceKey, inserted.id, payload, reportBody);
+  if (logStorage.ok) {
+    await updateReportLogStorage(serviceKey, inserted.id, logStorage);
+  }
+
   const issue = await maybeCreateGithubIssue(payload.title, reportBody, inserted.id);
   if (issue.githubIssueUrl) {
     await updateGithubIssue(serviceKey, inserted.id, issue.githubIssueUrl, issue.githubIssueNumber);
@@ -116,6 +123,8 @@ async function handleCompleteReport(
     id: inserted.id,
     githubIssueUrl: issue.githubIssueUrl,
     githubIssueNumber: issue.githubIssueNumber,
+    logStoragePath: logStorage.ok ? logStorage.path : null,
+    logStorageError: logStorage.ok ? null : logStorage.error,
   });
 }
 
@@ -160,6 +169,10 @@ type ReportChunkPayload = {
 type InsertResult = { ok: true; id: string } | { ok: false; error: string };
 
 type ChunkRow = { chunk_index: number; chunk_text: string };
+
+type ReportFileUploadResult =
+  | { ok: true; bucket: string; path: string; sizeBytes: number }
+  | { ok: false; error: string };
 
 function validatePayload(payload: ReportPayload): string | null {
   if (!payload || typeof payload !== "object") return "missing_payload";
@@ -451,6 +464,100 @@ async function updateGithubIssue(
       updated_at: new Date().toISOString(),
     }),
   });
+}
+
+async function updateReportLogStorage(
+  serviceKey: string,
+  id: string,
+  upload: Extract<ReportFileUploadResult, { ok: true }>,
+) {
+  const url = new URL(`${SUPABASE_URL}/rest/v1/impulse_problem_reports`);
+  url.searchParams.set("id", `eq.${id}`);
+  await fetch(url, {
+    method: "PATCH",
+    headers: serviceHeaders(serviceKey),
+    body: JSON.stringify({
+      log_storage_bucket: upload.bucket,
+      log_storage_path: upload.path,
+      log_storage_size_bytes: upload.sizeBytes,
+      updated_at: new Date().toISOString(),
+    }),
+  });
+}
+
+async function uploadReportFile(
+  serviceKey: string,
+  reportId: string,
+  payload: ReportPayload,
+  reportBody: string,
+): Promise<ReportFileUploadResult> {
+  const path = buildReportStoragePath(reportId, payload.logFileName);
+  const body = buildReportStorageBody(reportId, payload, reportBody);
+  const bytes = new TextEncoder().encode(body);
+  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+  const url = `${SUPABASE_URL}/storage/v1/object/${LOG_STORAGE_BUCKET}/${encodedPath}`;
+
+  const headers: Record<string, string> = {
+    apikey: serviceKey,
+    "Content-Type": "text/plain",
+    "Cache-Control": "no-store",
+    "x-upsert": "true",
+  };
+  if (serviceKey.split(".").length === 3) {
+    headers.Authorization = `Bearer ${serviceKey}`;
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: bytes,
+  });
+
+  if (!response.ok) {
+    return { ok: false, error: await response.text() };
+  }
+
+  return {
+    ok: true,
+    bucket: LOG_STORAGE_BUCKET,
+    path,
+    sizeBytes: bytes.byteLength,
+  };
+}
+
+function buildReportStoragePath(reportId: string, logFileName: string | undefined): string {
+  const date = new Date().toISOString().slice(0, 10);
+  const primaryName = (logFileName ?? "problem-report.log").split(";")[0]?.trim();
+  const fileName = sanitizeStorageFileName(primaryName || "problem-report.log")
+    .replace(/\.log$/i, ".txt");
+  return `${date}/${reportId}/${fileName.endsWith(".txt") ? fileName : `${fileName}.txt`}`;
+}
+
+function buildReportStorageBody(
+  reportId: string,
+  payload: ReportPayload,
+  reportBody: string,
+): string {
+  const body = [
+    `Supabase report id: ${reportId}`,
+    `Installation id: ${payload.installationId}`,
+    `Generated at: ${payload.generatedAt ?? ""}`,
+    `Client timezone: ${payload.timeZone ?? ""}`,
+    `Log file name: ${payload.logFileName ?? ""}`,
+    "",
+    reportBody,
+  ].join("\n");
+
+  if (body.length <= MAX_REPORT_STORAGE_CHARS) return body;
+  return `${body.slice(0, MAX_REPORT_STORAGE_CHARS)}\n\n[arquivo truncado no Storage]`;
+}
+
+function sanitizeStorageFileName(value: string): string {
+  return value
+    .trim()
+    .replace(/[^A-Za-z0-9_.-]/g, "_")
+    .replace(/^_+/, "")
+    .slice(0, 120) || "problem-report.txt";
 }
 
 async function maybeCreateGithubIssue(title: string | undefined, body: string, reportId: string) {

@@ -20,6 +20,14 @@ val impulseReportSupabasePublishableKey =
         .orElse("sb_publishable_2fp6Nav76kCNXklyKtCnYA_ZiM3z5l8")
 val impulseReportFunctionName =
     providers.gradleProperty("impulseReportFunctionName").orElse("impulse-report-problem")
+val impulseReportDiagnosticsEnabled =
+    providers.gradleProperty("impulseReportDiagnosticsEnabled")
+        .map(String::toBoolean)
+        .orElse(
+            appVersionName.map { versionName ->
+                versionName.contains("preview", ignoreCase = true)
+            }
+        )
 
 fun buildConfigString(value: String): String =
     "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -51,6 +59,11 @@ android {
             "IMPULSE_REPORT_FUNCTION_NAME",
             buildConfigString(impulseReportFunctionName.get())
         )
+        buildConfigField(
+            "boolean",
+            "IMPULSE_REPORT_DIAGNOSTICS_ENABLED",
+            impulseReportDiagnosticsEnabled.get().toString()
+        )
     }
 
     signingConfigs {
@@ -65,11 +78,13 @@ android {
     buildTypes {
         named("debug") {
             buildConfigField("boolean", "EMBED_FRIDA_TOOLS", "true")
+            buildConfigField("boolean", "IMPULSE_REPORT_DIAGNOSTICS_ENABLED", "true")
         }
         create("leanDebug") {
             initWith(getByName("debug"))
             matchingFallbacks += listOf("debug")
             buildConfigField("boolean", "EMBED_FRIDA_TOOLS", "false")
+            buildConfigField("boolean", "IMPULSE_REPORT_DIAGNOSTICS_ENABLED", "true")
         }
         named("release") {
             signingConfig = signingConfigs.getByName("release")

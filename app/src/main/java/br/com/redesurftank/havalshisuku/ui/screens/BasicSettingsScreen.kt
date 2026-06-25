@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightService
 import br.com.redesurftank.havalshisuku.managers.AutoBrightnessManager
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.models.BottomBarState
@@ -183,6 +184,11 @@ fun BasicSettingsTab() {
                                 SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.key,
                                 false
                         )
+                )
+        }
+        var ambientLightBleEnabled by remember {
+                mutableStateOf(
+                        prefs.getBoolean(SharedPreferencesKeys.AMBIENT_LIGHT_BLE_ENABLED.key, false)
                 )
         }
         var nightBrightnessLevel by remember {
@@ -1442,6 +1448,28 @@ fun BasicSettingsTab() {
                                                                 .key,
                                                         it
                                                 )
+                                        }
+                                }
+                        ),
+                        SettingItem(
+                                title = "Ativar Ambient Light BLE",
+                                description =
+                                        "Exibe o recurso opcional para LEDs externos instalados pelo usuario",
+                                checked = ambientLightBleEnabled,
+                                onCheckedChange = {
+                                        ambientLightBleEnabled = it
+                                        prefs.edit {
+                                                putBoolean(
+                                                        SharedPreferencesKeys
+                                                                .AMBIENT_LIGHT_BLE_ENABLED
+                                                                .key,
+                                                        it
+                                                )
+                                        }
+                                        if (it) {
+                                                AmbientLightService.startIfEnabled(context)
+                                        } else {
+                                                AmbientLightService.stop(context)
                                         }
                                 }
                         ),
