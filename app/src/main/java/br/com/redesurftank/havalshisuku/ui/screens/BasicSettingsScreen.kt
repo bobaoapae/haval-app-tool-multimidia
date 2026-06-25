@@ -22,10 +22,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightService
 import br.com.redesurftank.havalshisuku.managers.AutoBrightnessManager
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
+import br.com.redesurftank.havalshisuku.models.SteeringWheelClimateCommandType
 import br.com.redesurftank.havalshisuku.models.SteeringWheelCustomActionType
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
 import br.com.redesurftank.havalshisuku.ui.components.SettingItem
@@ -184,6 +186,11 @@ fun BasicSettingsTab() {
                         )
                 )
         }
+        var ambientLightBleEnabled by remember {
+                mutableStateOf(
+                        prefs.getBoolean(SharedPreferencesKeys.AMBIENT_LIGHT_BLE_ENABLED.key, false)
+                )
+        }
         var nightBrightnessLevel by remember {
                 mutableIntStateOf(
                         prefs.getInt(SharedPreferencesKeys.AUTO_BRIGHTNESS_LEVEL_NIGHT.key, 1)
@@ -246,6 +253,24 @@ fun BasicSettingsTab() {
                                 ?: ""
                 )
         }
+        var steeringWheelButton1ClimateCommand by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_1.key,
+                                SteeringWheelClimateCommandType.TOGGLE_AC.key
+                        )
+                                ?: SteeringWheelClimateCommandType.TOGGLE_AC.key
+                )
+        }
+        var steeringWheelButton2ClimateCommand by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_2.key,
+                                SteeringWheelClimateCommandType.TOGGLE_AC.key
+                        )
+                                ?: SteeringWheelClimateCommandType.TOGGLE_AC.key
+                )
+        }
         DisposableEffect(prefs) {
                 val listener =
                         SharedPreferences.OnSharedPreferenceChangeListener { sharedPrefs, key ->
@@ -305,6 +330,34 @@ fun BasicSettingsTab() {
                                                                 ""
                                                         )
                                                                 ?: ""
+                                        SharedPreferencesKeys.STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_1
+                                                .key ->
+                                                steeringWheelButton1ClimateCommand =
+                                                        sharedPrefs.getString(
+                                                                SharedPreferencesKeys
+                                                                        .STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_1
+                                                                        .key,
+                                                                SteeringWheelClimateCommandType
+                                                                        .TOGGLE_AC
+                                                                        .key
+                                                        )
+                                                                ?: SteeringWheelClimateCommandType
+                                                                        .TOGGLE_AC
+                                                                        .key
+                                        SharedPreferencesKeys.STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_2
+                                                .key ->
+                                                steeringWheelButton2ClimateCommand =
+                                                        sharedPrefs.getString(
+                                                                SharedPreferencesKeys
+                                                                        .STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_2
+                                                                        .key,
+                                                                SteeringWheelClimateCommandType
+                                                                        .TOGGLE_AC
+                                                                        .key
+                                                        )
+                                                                ?: SteeringWheelClimateCommandType
+                                                                        .TOGGLE_AC
+                                                                        .key
                                 }
                         }
                 prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -1399,6 +1452,28 @@ fun BasicSettingsTab() {
                                 }
                         ),
                         SettingItem(
+                                title = "Ativar Ambient Light BLE",
+                                description =
+                                        "Exibe o recurso opcional para LEDs externos instalados pelo usuario",
+                                checked = ambientLightBleEnabled,
+                                onCheckedChange = {
+                                        ambientLightBleEnabled = it
+                                        prefs.edit {
+                                                putBoolean(
+                                                        SharedPreferencesKeys
+                                                                .AMBIENT_LIGHT_BLE_ENABLED
+                                                                .key,
+                                                        it
+                                                )
+                                        }
+                                        if (it) {
+                                                AmbientLightService.startIfEnabled(context)
+                                        } else {
+                                                AmbientLightService.stop(context)
+                                        }
+                                }
+                        ),
+                        SettingItem(
                                 title = "Desligar ponto de acesso ao desligar",
                                 description =
                                         SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF
@@ -1442,6 +1517,12 @@ fun BasicSettingsTab() {
                                                                 mutableStateOf(false)
                                                         }
                                                         var expanded2 by remember {
+                                                                mutableStateOf(false)
+                                                        }
+                                                        var climateCommandExpanded1 by remember {
+                                                                mutableStateOf(false)
+                                                        }
+                                                        var climateCommandExpanded2 by remember {
                                                                 mutableStateOf(false)
                                                         }
 
@@ -1539,6 +1620,37 @@ fun BasicSettingsTab() {
                                                                                                 )
                                                                                         }
                                                                         }
+                                                                }
+                                                                if (steeringWheelButton1Action ==
+                                                                                SteeringWheelCustomActionType
+                                                                                        .CLIMATE_COMMAND
+                                                                                        .key
+                                                                ) {
+                                                                        SteeringWheelClimateCommandDropdown(
+                                                                                selectedCommandKey =
+                                                                                        steeringWheelButton1ClimateCommand,
+                                                                                expanded =
+                                                                                        climateCommandExpanded1,
+                                                                                onExpandedChange = {
+                                                                                        climateCommandExpanded1 =
+                                                                                                it
+                                                                                },
+                                                                                onCommandSelected = {
+                                                                                        command ->
+                                                                                        steeringWheelButton1ClimateCommand =
+                                                                                                command.key
+                                                                                        prefs.edit {
+                                                                                                putString(
+                                                                                                        SharedPreferencesKeys
+                                                                                                                .STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_1
+                                                                                                                .key,
+                                                                                                        command.key
+                                                                                                )
+                                                                                        }
+                                                                                        climateCommandExpanded1 =
+                                                                                                false
+                                                                                }
+                                                                        )
                                                                 }
                                                                 if (steeringWheelButton1Action ==
                                                                                 SteeringWheelCustomActionType
@@ -1684,6 +1796,37 @@ fun BasicSettingsTab() {
                                                                                                 )
                                                                                         }
                                                                         }
+                                                                }
+                                                                if (steeringWheelButton2Action ==
+                                                                                SteeringWheelCustomActionType
+                                                                                        .CLIMATE_COMMAND
+                                                                                        .key
+                                                                ) {
+                                                                        SteeringWheelClimateCommandDropdown(
+                                                                                selectedCommandKey =
+                                                                                        steeringWheelButton2ClimateCommand,
+                                                                                expanded =
+                                                                                        climateCommandExpanded2,
+                                                                                onExpandedChange = {
+                                                                                        climateCommandExpanded2 =
+                                                                                                it
+                                                                                },
+                                                                                onCommandSelected = {
+                                                                                        command ->
+                                                                                        steeringWheelButton2ClimateCommand =
+                                                                                                command.key
+                                                                                        prefs.edit {
+                                                                                                putString(
+                                                                                                        SharedPreferencesKeys
+                                                                                                                .STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_2
+                                                                                                                .key,
+                                                                                                        command.key
+                                                                                                )
+                                                                                        }
+                                                                                        climateCommandExpanded2 =
+                                                                                                false
+                                                                                }
+                                                                        )
                                                                 }
                                                                 if (steeringWheelButton2Action ==
                                                                                 SteeringWheelCustomActionType
@@ -2148,6 +2291,44 @@ fun BasicSettingsTab() {
                                 )
                         dialog.setOnDismissListener { showEndPicker = false }
                         dialog.show()
+                }
+        }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SteeringWheelClimateCommandDropdown(
+        selectedCommandKey: String,
+        expanded: Boolean,
+        onExpandedChange: (Boolean) -> Unit,
+        onCommandSelected: (SteeringWheelClimateCommandType) -> Unit
+) {
+        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = onExpandedChange) {
+                TextField(
+                        value =
+                                SteeringWheelClimateCommandType.entries
+                                        .find { it.key == selectedCommandKey }
+                                        ?.description
+                                        ?: SteeringWheelClimateCommandType.TOGGLE_AC.description,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Comando do ar-condicionado") },
+                        trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                        },
+                        colors = ExposedDropdownMenuDefaults.textFieldColors(),
+                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                )
+                ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { onExpandedChange(false) }
+                ) {
+                        SteeringWheelClimateCommandType.entries.forEach { command ->
+                                DropdownMenuItem(
+                                        text = { Text(command.description) },
+                                        onClick = { onCommandSelected(command) }
+                                )
+                        }
                 }
         }
 }

@@ -138,6 +138,14 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "steeringWheelOpenAppPackageButton2",
             "Pacote do aplicativo para o botão personalizado 2 do volante"
     ),
+    STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_1(
+            "steeringWheelClimateCommandButton1",
+            "Comando do ar-condicionado para o botão personalizado 1 do volante"
+    ),
+    STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_2(
+            "steeringWheelClimateCommandButton2",
+            "Comando do ar-condicionado para o botão personalizado 2 do volante"
+    ),
     LAST_CLUSTER_SCREEN("lastClusterScreen", "Última tela exibida no cluster"),
     LAST_CLUSTER_MENU_ITEM(
             "lastClusterMenuItem",
@@ -215,5 +223,40 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     TRIP_CONSISTENCY_CLUSTER_ACTIVE("tripConsistencyClusterActive", "Indicador discreto de análise de viagem ativa no cluster"),
     TRIP_CONSISTENCY_CLUSTER_SCORE("tripConsistencyClusterScore", "Score de consistência em tempo real no cluster"),
     AA_PATCH_AUTO_MOUNT("aaPatchAutoMount", "Habilitar montagem automática dos patches do Android Auto ao iniciar"),
-    CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar")
+    CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),
+    AMBIENT_LIGHT_BLE_ENABLED("ambientLightBleEnabled", "Ativar Ambient Light BLE"),
+    AMBIENT_LIGHT_BLE_DEVICE_MAC("ambientLightBleDeviceMac", "MAC do dispositivo Ambient Light BLE"),
+    AMBIENT_LIGHT_BLE_DEVICE_NAME("ambientLightBleDeviceName", "Nome do dispositivo Ambient Light BLE"),
+    AMBIENT_LIGHT_SYNC_DRIVE_MODE(
+            "ambientLightSyncDriveMode",
+            "Sincronizar Ambient Light com modo de condução"
+    ),
+    AMBIENT_LIGHT_ANIMATIONS_ENABLED(
+            "ambientLightAnimationsEnabled",
+            "Ativar animações do Ambient Light"
+    ),
+    AMBIENT_LIGHT_MUSIC_ANIMATION_ENABLED(
+            "ambientLightMusicAnimationEnabled",
+            "Ativar animação do Ambient Light com música"
+    ),
+    AMBIENT_LIGHT_COLOR_ORDER(
+            "ambientLightColorOrder",
+            "Ordem dos canais de cor DMX do Ambient Light"
+    ),
+    AMBIENT_LIGHT_BLE_COLOR_ORDER(
+            "ambientLightBleColorOrder",
+            "Ordem dos canais de cor BLE do Ambient Light"
+    ),
+    AMBIENT_LIGHT_BRIGHTNESS_PERCENT(
+            "ambientLightBrightnessPercent",
+            "Brilho do Ambient Light"
+    ),
+    AMBIENT_LIGHT_OUTPUT(
+            "ambientLightOutput",
+            "Saída do Ambient Light"
+    ),
+    AMBIENT_LIGHT_AUTO_RECONNECT(
+            "ambientLightAutoReconnect",
+            "Reconectar automaticamente o Ambient Light"
+    )
 }

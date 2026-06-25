@@ -61,6 +61,7 @@ import br.com.redesurftank.havalshisuku.models.CarInfo;
 import br.com.redesurftank.havalshisuku.models.MainUiManager;
 import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
+import br.com.redesurftank.havalshisuku.models.SteeringWheelClimateCommandType;
 import br.com.redesurftank.havalshisuku.models.SteeringWheelCustomActionType;
 import br.com.redesurftank.havalshisuku.models.screens.Screen;
 import br.com.redesurftank.havalshisuku.services.BottomBarService;
@@ -248,6 +249,7 @@ public class ServiceManager {
     private int lastSyntheticClusterCardTarget = -1;
     private static final long STEERING_WHEEL_PROJECTION_TOGGLE_DEDUP_WINDOW_MS = 800L;
     private static final long STEERING_WHEEL_DASHBOARD_TOGGLE_DEDUP_WINDOW_MS = 800L;
+    private static final long STEERING_WHEEL_CLIMATE_COMMAND_DEDUP_WINDOW_MS = 800L;
     private int lastDashboardToggleButton = -1;
     private long lastDashboardToggleAtMs = 0L;
     private static final int[] INPUT_LISTENER_KEY_CODES = new int[] {
@@ -255,6 +257,8 @@ public class ServiceManager {
     };
     private int lastProjectionDisplayToggleButton = -1;
     private long lastProjectionDisplayToggleAtMs = 0L;
+    private int lastClimateCommandButton = -1;
+    private long lastClimateCommandAtMs = 0L;
     private final Map<String, String> previousAcState = new HashMap<>();
     private boolean isMaxAcActive = false;
     private Runnable maxAcTimeoutRunnable;
@@ -900,6 +904,9 @@ public class ServiceManager {
                     }
                 }
                 break;
+            case CLIMATE_COMMAND:
+                handleSteeringWheelClimateCommand(button);
+                break;
             case TOGGLE_PROJECTION_DISPLAY:
                 handleSteeringWheelProjectionDisplayToggle(button);
                 break;
@@ -942,6 +949,82 @@ public class ServiceManager {
                 }
                 break;
         }
+    }
+
+    private void handleSteeringWheelClimateCommand(int button) {
+        long now = SystemClock.uptimeMillis();
+        boolean duplicateCommand =
+                lastClimateCommandButton == button
+                        && now - lastClimateCommandAtMs <= STEERING_WHEEL_CLIMATE_COMMAND_DEDUP_WINDOW_MS;
+        if (duplicateCommand) {
+            Log.w(TAG, "Ignoring duplicate climate command from steering wheel button " + button);
+            return;
+        }
+
+        lastClimateCommandButton = button;
+        lastClimateCommandAtMs = now;
+
+        String commandKey = sharedPreferences.getString(
+                button == 1
+                        ? SharedPreferencesKeys.STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_1.getKey()
+                        : SharedPreferencesKeys.STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_2.getKey(),
+                SteeringWheelClimateCommandType.TOGGLE_AC.getKey()
+        );
+        if (commandKey == null) {
+            commandKey = SteeringWheelClimateCommandType.TOGGLE_AC.getKey();
+        }
+        SteeringWheelClimateCommandType command = SteeringWheelClimateCommandType.Companion.fromKey(commandKey);
+        if (command == null) {
+            command = SteeringWheelClimateCommandType.TOGGLE_AC;
+        }
+
+        Log.w(TAG, "Executing steering wheel climate command from button " + button + ": " + command.getKey());
+        cancelMaxAcMode();
+        switch (command) {
+            case TOGGLE_AC:
+                toggleHvacBinaryValue(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), "AC");
+                break;
+            case TOGGLE_AUTO:
+                toggleHvacBinaryValue(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), "Auto AC");
+                break;
+            case TOGGLE_POWER:
+                toggleHvacBinaryValue(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "HVAC power");
+                break;
+            case FRONT_DEFROST:
+                toggleFrontDefrostAirflow(button);
+                break;
+        }
+    }
+
+    private void toggleFrontDefrostAirflow(int button) {
+        String frontDefrostState = getUpdatedData(CarConstants.CAR_HVAC_FRONT_DEFROST_ENABLE.getValue());
+        String blowerMode = getUpdatedData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue());
+        boolean frontDefrostActive = "1".equals(frontDefrostState) || "4".equals(blowerMode);
+
+        if (frontDefrostActive) {
+            updateData(CarConstants.CAR_HVAC_FRONT_DEFROST_ENABLE.getValue(), "0");
+            if ("4".equals(blowerMode)) {
+                updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), "0");
+            }
+            Log.w(TAG, "Front defrost airflow disabled from steering wheel button " + button);
+            return;
+        }
+
+        updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1");
+        updateData(CarConstants.CAR_HVAC_FRONT_DEFROST_ENABLE.getValue(), "1");
+        updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), "4");
+        Log.w(TAG, "Front defrost airflow enabled from steering wheel button " + button);
+    }
+
+    private void toggleHvacBinaryValue(String key, String label) {
+        String currentState = getUpdatedData(key);
+        if (currentState == null) {
+            Log.e(TAG, "Unable to toggle " + label + ": current value is null");
+            return;
+        }
+        boolean enabled = currentState.equals("1");
+        updateData(key, enabled ? "0" : "1");
+        Log.w(TAG, label + " state changed to: " + !enabled);
     }
 
     private void handleClusterCardNavigationKey(Screen.Key key) {

@@ -11,6 +11,131 @@ Atualizado em: 2026-06-25
 5. `ProjectorManager` cria projectors nos displays secundários.
 6. Telas Compose em `ui/screens` expõem configurações para usuário.
 
+## Atualizacao 2026-06-25 - Ambient Light BLE externo
+
+- `ambientlight/` adiciona um modulo opcional para LEDs BLE externos instalados pelo usuario.
+- O modulo fica desligado por padrao via `AMBIENT_LIGHT_BLE_ENABLED=false`.
+- `ForegroundService` chama apenas `AmbientLightService.startIfEnabled(...)`; se a chave estiver
+  desligada, nada e iniciado.
+- `AmbientLightService` e `exported=false`, usa `AmbientLightBleController` singleton e nao para
+  nem reinicia `ForegroundService`, `BottomBarService`, `ProjectorManager`, Android Auto ou
+  CarPlay.
+- O scanner BLE e manual pela tela de Recursos e nao roda no boot.
+- O protocolo inicial escreve no servico `FFE0` e caracteristica `FFE1` usando o frame validado
+  `7B 00 07 RR GG BB 00 FF BF`.
+- A v2 adiciona `ColorOrderMapper`; no `LEDCAR-01-00DD`, o padrao DMX e `RBG`, porque testes reais
+  mostraram vermelho correto e inversao fisica entre verde/azul no caminho DMX.
+- A v2.1 separa a ordem por saida: `DMX=RBG` e `BLE=RGB`. Isso evita que `BLE + DMX` envie um
+  payload BLE invertido apos o payload DMX correto.
+- `AmbientLightOutput` permite `DMX`, `BLE` e `BLE + DMX`; o padrao segue `DMX`, que foi o caminho
+  validado no controlador instalado.
+- Ao conectar, o service envia o brilho salvo; o padrao e 100% usando o frame LEDCAR-01/DMX
+  `7B FF 01 SCALED PERCENT 00 FF FF BF`.
+- A tela Ambient Light inclui desconexao manual, reconexao automatica configuravel, slider de
+  brilho e um bloco `Ambient Light Debug` com status, RSSI, UUIDs, ultimo payload e ultimo erro.
+- A sincronizacao opcional com graves usa uma cadeia conservadora quando
+  `AMBIENT_LIGHT_MUSIC_ANIMATION_ENABLED=true`: primeiro escuta a propriedade OEM
+  `car.light_setting.ambient_light.sync_music_freq`; se ela nao chegar em `3s`, tenta
+  `android.media.audiofx.Visualizer` na sessao global `0`; se o firmware negar essa captura, usa
+  fallback por `AudioRecord`/microfone. Se todas as capturas falharem, o erro fica restrito ao
+  debug e nao altera o fluxo BLE manual.
+- Enquanto a sincronizacao com graves esta ativa, `AmbientLightService` cancela animacoes de modo
+  de conducao para evitar concorrencia no GATT. O modo de conducao continua atualizando a cor base
+  usada apos cada pulso de grave.
+- O detector de graves opera por callback FFT, sem loop infinito, com minimo de `220ms` entre
+  batidas e com o throttle BLE de `50ms` por payload preservado.
+- A sincronizacao com modo de conducao usa somente leitura do
+  `ServiceManager.addDataChangedListener` para `car.drive_setting.drive_mode`.
+- Mapeamento inicial:
+  - `2`/Eco -> verde;
+  - `0`/Normal -> azul suave;
+  - `1`/Sport -> vermelho;
+  - `3`/Neve -> azul gelo;
+  - `4` ou `5`/Offroad -> laranja;
+  - desconhecido -> branco.
+- Animacoes ficam opt-in e cancelam a animacao anterior ao mudar modo, evitando acumulacao de
+  coroutines.
+- Esta frente nao altera WebView, bridge Kotlin/JS, resolucao, bounds, display 0/3, CarPlay,
+  Android Auto, MediaCenter `402` ou comandos de volante. A captura de graves tambem nao se
+  integra a comandos de midia; ela apenas observa o audio quando o Android permitir.
+
+## Atualizacao 2026-06-24 - Android Auto card sem monitor ativo
+
+- `AndroidAutoNowPlayingMonitor` fica desligado na build diagnostica atual para evitar bind,
+  callback e polling no service Android Auto.
+- Com o monitor desligado, o card Android Auto passa a aceitar `source=402` ou `audioSource=402`
+  do MediaCenter nativo como readiness passivo.
+- Metadata/capa/progresso do AA no card devem vir do MediaCenter:
+  - `getCurrentSource` / `getCurrentAudioSource`;
+  - `getPlayMediaInfoBySource(402)`;
+  - `getPlayStateBySource(402)`.
+- O parser de `getPlayMediaInfoBySource(402)` precisa pular o `Serializable` do reply sem
+  desserializar e ler o `MediaInfo` inline no `Parcel`.
+- Play/pause do card, quando a fonte AA `402` esta ativa, usa primeiro
+  `pauseMediaBySource(402)` / `resumeMediaBySource(402)` e exige verificacao do alvo antes de
+  marcar sucesso.
+- `SEND_VEHICLE_INFO`/`IfVehicleInfo` nao deve ser enviado antes de comandos de midia Android Auto
+  nesta build, porque o handoff externo reportou crash de desserializacao no service OEM.
+- Botao fisico/keycode `85` fica separado: o handoff externo indica caminho OEM
+  `BeanInputService`/`BeanInputManager`, ainda sem fix validado no app.
+
+### Complemento v251 - card e volante por alvo MediaCenter
+
+- Com a validacao manual de que o Media Center nativo/player do mapa pausa corretamente, o card do
+  dashboard passa a tratar `pauseMediaBySource(402)` / `resumeMediaBySource(402)` como rota
+  primaria quando source/audioSource `402` esta ativo.
+- O card segura o alvo visual depois de envio Binder aceito pelo MediaCenter. A verificacao
+  posterior continua registrada em log, mas uma leitura inconclusiva nao deve reabrir fallback
+  ativo LinkCommand/AAP na mesma tentativa.
+- O botao do volante continua sem comando app-side imediato para evitar duplo toggle.
+- Para play/pause do volante, `ACTION_UP` agenda uma reconciliacao atrasada e idempotente quando:
+  - a origem e `STEERING_INPUT`;
+  - Android Auto esta desejado no cluster;
+  - MediaCenter `402` esta ativo;
+  - nao houve rota app-side imediata.
+- Essa reconciliacao usa o alvo explicito nativo MediaCenter antes de qualquer LinkCommand.
+- Next/previous/mute nao fazem parte desta correcao v251.
+
+Evidencia pos-deploy v251:
+
+- Logs de 2026-06-24 entre 17:17 e 17:19 confirmaram o encadeamento mecanico:
+  - card/dashboard enviou `AA_BOTTOM_BAR_play_MC` transaction `28` e
+    `AA_BOTTOM_BAR_pause_MC` transaction `27` para source `402`;
+  - volante chegou por `BeanInputService`/`InputService` como `KEYCODE_MEDIA_PLAY_PAUSE`;
+  - reconcile atrasado do volante enviou transactions `27`/`28` para MediaCenter `402`.
+- Essa evidencia confirma a rota, mas nao confirma sucesso funcional de pause. No recorte
+  observado nao havia sessao Spotify ativa, o estado debug ja estava `playing=false` e o audio AA
+  atual estava `state:stopped`.
+
+### Complemento v252 - reset de progresso em previous/next
+
+- Quando `next`/`previous` Android Auto e aceito pelo fluxo do card, o card zera imediatamente o
+  progresso visual e abre a janela de regressao de progresso para aceitar `0`.
+- Quando `previous`/`next` fisico do volante chega em `ACTION_UP` com MediaCenter `402` ativo, o
+  mesmo reset acontece antes de eventual fallback tardio do Impulse.
+- Durante a janela pos-comando, leituras nativas de play state/progresso podem zerar a timeline
+  mesmo que a metadata nova ainda nao tenha mudado a assinatura da faixa.
+- Escopo: somente Android Auto/MediaCenter `402`; nao altera CarPlay, WebView, layout/display,
+  play/pause ou mute.
+
+### Contrato anti-regressao v250
+
+Validacao manual reportada pelo usuario apos instalar a v250:
+
+- play/pause pelo Spotify no celular esta corrigido;
+- pause pelo Media Center nativo da central, no player dentro do mapa nativo, esta corrigido;
+- ainda nao pausam corretamente: card de midia do dashboard Impulse e botao do volante.
+
+Regras de contrato:
+
+- Nao reativar `AndroidAutoNowPlayingMonitor` para resolver dashboard/volante sem evidencia nova;
+- nao voltar a enviar `SEND_VEHICLE_INFO`/`IfVehicleInfo` antes de comandos de midia Android Auto;
+- nao trocar o Android Auto nativo nem montar `AndroidAutoService.apk` para este problema sem
+  autorizacao explicita, veiculo parado e nova evidencia;
+- nao considerar resposta Binder, ACK, `sent=true` ou mudanca de icone como sucesso de pause;
+- qualquer mudanca futura em card/volante deve preservar os fluxos ja validados:
+  Spotify/celular e Media Center nativo/player do mapa.
+
 ## Atualizacao 2026-06-18 - Rollback Android Auto v216
 
 - A v216 `1.0.0.216-rollback-v194-debug` foi instalada na central real `192.168.15.101` como
@@ -25,6 +150,27 @@ Atualizado em: 2026-06-25
   `pause`; o fallback AAP e o fallback generico de media button voltam a ficar disponiveis.
 - Esta v216 nao declara `play/pause` corrigido. Ela e rollback de regressao/conexao; `pause`
   continua dependente de validacao sustentada no Spotify/telefone.
+
+## Atualizacao 2026-06-23 - Atalho Volante Comandos Ar-condicionado
+
+- `SteeringWheelCustomActionType` inclui a acao `CLIMATE_COMMAND`, chave `climate_command`,
+  exibida no dropdown de botoes personalizados do volante como
+  `Acionar comandos do ar-condicionado`.
+- Quando essa acao e escolhida em `BasicSettingsScreen`, a UI abre um segundo dropdown por botao
+  para selecionar o comando salvo em `STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_1` ou
+  `STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_2`.
+- `SteeringWheelClimateCommandType` mantem as chaves estaveis:
+  - `toggle_ac`: alterna `car.hvac.ac_enable`;
+  - `toggle_auto`: alterna `car.hvac.auto_enable`;
+  - `toggle_power`: alterna `car.hvac.power_mode`;
+  - `front_defrost`: alterna a ventilacao no vidro/desembacador frontal. Quando desativado, volta
+    `car.hvac.front_defrost_enable=0` e troca `car.hvac.blower_mode` de `4` para `0`; quando
+    ativado, liga `car.hvac.power_mode`, ativa `car.hvac.front_defrost_enable` e seta
+    `car.hvac.blower_mode=4`.
+- `ServiceManager` aplica deduplicacao de `800ms` por botao para evitar duplo toggle se o
+  InputService entregar evento repetido.
+- Esta acao escreve apenas propriedades HVAC via `updateData`; nao altera display 0/3, CarPlay,
+  Android Auto ou o fluxo de handoff de projecao.
 
 ## Atualizacao 2026-06-18 - Atalho Volante Dashboard Impulse
 
@@ -381,6 +527,14 @@ Atualizado em: 2026-06-25
   stale, auto-retomada ou duplicidade. A regra atual preserva MediaCenter `402` somente para
   metadata/capa/progresso/play state. Nao usar MediaCenter `402` para `next`, `previous`,
   `play/pause` ou reconciliacao atrasada.
+- A v252/v253 adiciona apenas comportamento visual de progresso para `next/previous`: apos um
+  comando de faixa Android Auto aceito pelo card ou pelo fluxo do volante, o card zera
+  `mediaElapsedMs` localmente para evitar carregar a timeline da faixa anterior. O reset e
+  deliberadamente escopado a `mediaPackage=com.ts.androidauto` ou MediaCenter nativo `402`; nao e
+  uma autorizacao para voltar a usar MediaCenter `402` como rota primaria de comando de faixa.
+- Para aprovar `next/previous`, a troca real de faixa nao basta: o contrato exige que a timeline do
+  card volte para `0` e que o proximo snapshot nativo possa sobrescrever esse estado com a verdade
+  do MediaCenter/Android Auto.
 - `clear` transitorio do `AndroidAutoNowPlayingMonitor` durante uma projecao ainda ativa nao deve
   derrubar `BottomBarState.mediaIsPlaying`. Esse clear pode chegar em loop enquanto o MediaCenter
   ainda esta com fonte Android Auto `402`; se ele marcar `isPlaying=false`, o proximo toggle pode

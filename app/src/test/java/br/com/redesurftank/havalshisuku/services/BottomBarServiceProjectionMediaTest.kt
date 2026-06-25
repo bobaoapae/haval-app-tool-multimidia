@@ -792,6 +792,56 @@ class BottomBarServiceProjectionMediaTest {
     }
 
     @Test
+    fun explicitAndroidAutoTrackCommandAllowsZeroProgressEvenWithoutMetadataChange() {
+        assertEquals(
+                0L,
+                BottomBarService.resolveNativeAndroidAutoProgressElapsedForTest(
+                        previousElapsedMs = 54_000L,
+                        durationMs = 180_000L,
+                        progressUpdatedAtMs = 1_000L,
+                        nowMs = 2_500L,
+                        isPlaying = true,
+                        trackChanged = true,
+                        nativeElapsedMs = null
+                )
+        )
+        assertEquals(
+                0L,
+                BottomBarService.resolveNativeAndroidAutoProgressElapsedForTest(
+                        previousElapsedMs = 54_000L,
+                        durationMs = 180_000L,
+                        progressUpdatedAtMs = 1_000L,
+                        nowMs = 2_500L,
+                        isPlaying = true,
+                        trackChanged = true,
+                        nativeElapsedMs = 0L
+                )
+        )
+    }
+
+    @Test
+    fun explicitTrackCommandProgressResetIsScopedToAndroidAuto() {
+        assertTrue(
+                BottomBarService.shouldResetAndroidAutoProgressAfterExplicitTrackCommandForTest(
+                        currentMediaPackageName = "com.ts.androidauto",
+                        nativeAndroidAutoMediaCenterActive = false
+                )
+        )
+        assertTrue(
+                BottomBarService.shouldResetAndroidAutoProgressAfterExplicitTrackCommandForTest(
+                        currentMediaPackageName = null,
+                        nativeAndroidAutoMediaCenterActive = true
+                )
+        )
+        assertFalse(
+                BottomBarService.shouldResetAndroidAutoProgressAfterExplicitTrackCommandForTest(
+                        currentMediaPackageName = "com.ts.carplay",
+                        nativeAndroidAutoMediaCenterActive = false
+                )
+        )
+    }
+
+    @Test
     fun mediaProgressEstimateClampsToDuration() {
         assertEquals(
                 180_000L,

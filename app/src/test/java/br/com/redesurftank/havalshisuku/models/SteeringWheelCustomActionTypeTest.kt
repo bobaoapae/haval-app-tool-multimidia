@@ -21,4 +21,21 @@ class SteeringWheelCustomActionTypeTest {
                 )
         )
     }
+
+    @Test
+    fun climateCommandActionIsAvailableByStableKey() {
+        assertEquals(
+                SteeringWheelCustomActionType.CLIMATE_COMMAND,
+                SteeringWheelCustomActionType.fromKey("climate_command")
+        )
+    }
+
+    @Test
+    fun climateCommandActionIsListedForSettingsDropdown() {
+        assertTrue(
+                SteeringWheelCustomActionType.entries.contains(
+                        SteeringWheelCustomActionType.CLIMATE_COMMAND
+                )
+        )
+    }
 }
