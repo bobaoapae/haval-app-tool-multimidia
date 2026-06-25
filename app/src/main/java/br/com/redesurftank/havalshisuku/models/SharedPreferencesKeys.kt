@@ -146,6 +146,38 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "steeringWheelClimateCommandButton2",
             "Comando do ar-condicionado para o botão personalizado 2 do volante"
     ),
+    STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_DOUBLE(
+            "steeringWheelCustomButon1ActionDouble",
+            "Ação do botão personalizado 1 do volante (toque duplo)"
+    ),
+    STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_DOUBLE(
+            "steeringWheelCustomButon2ActionDouble",
+            "Ação do botão personalizado 2 do volante (toque duplo)"
+    ),
+    STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_LONG(
+            "steeringWheelCustomButon1ActionLong",
+            "Ação do botão personalizado 1 do volante (toque longo)"
+    ),
+    STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_LONG(
+            "steeringWheelCustomButon2ActionLong",
+            "Ação do botão personalizado 2 do volante (toque longo)"
+    ),
+    STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_DOUBLE(
+            "steeringWheelOpenAppPackageButton1Double",
+            "Pacote do app para o botão 1 do volante (toque duplo)"
+    ),
+    STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_DOUBLE(
+            "steeringWheelOpenAppPackageButton2Double",
+            "Pacote do app para o botão 2 do volante (toque duplo)"
+    ),
+    STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_LONG(
+            "steeringWheelOpenAppPackageButton1Long",
+            "Pacote do app para o botão 1 do volante (toque longo)"
+    ),
+    STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_LONG(
+            "steeringWheelOpenAppPackageButton2Long",
+            "Pacote do app para o botão 2 do volante (toque longo)"
+    ),
     LAST_CLUSTER_SCREEN("lastClusterScreen", "Última tela exibida no cluster"),
     LAST_CLUSTER_MENU_ITEM(
             "lastClusterMenuItem",
