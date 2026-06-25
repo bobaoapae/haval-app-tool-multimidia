@@ -14,18 +14,21 @@ Atualizado em: 2026-06-15
 - Modo grafico usa Chart.js/canvas/SVG e deve ter limite explicito de frequencia.
 - `ClusterPerfEventLogger` registra eventos operacionais com snapshot de CPU/memoria no logcat
   usando tag `ClusterPerf` e prefixo `[PERF_EVENT]` somente em builds debug/internal.
-- `ClusterPersistentEventLogger` grava uma trilha leve de diagnostico em arquivo por dia, somente
-  em builds debug/internal:
+- `ClusterPersistentEventLogger` grava uma trilha leve de diagnostico em arquivo por dia em
+  builds debug/leanDebug e em releases de preview com
+  `IMPULSE_REPORT_DIAGNOSTICS_ENABLED=true`:
   `/sdcard/Android/data/br.com.redesurftank.havalshisuku/files/cluster-diagnostics/cluster-events-YYYYMMDD.log`.
   A retencao preserva hoje + dois dias anteriores e remove arquivos mais antigos.
 - A captura persistente pode ser desligada pelo usuario na tela `Reportar problema`. Quando
   desligada, o logger retorna antes de enfileirar qualquer escrita em `Dispatchers.IO`.
 - `WebChromeClient.onConsoleMessage` grava `webview_console` nesse mesmo log persistente diario,
   permitindo correlacionar erros do frontend com `WEBVIEW_STATE_SYNC`, cards e projecao.
-- Builds preview/release nao devem emitir logs de diagnostico do app: `ClusterPerfEventLogger`
-  e `ClusterPersistentEventLogger` retornam imediatamente quando `BuildConfig.DEBUG=false`, logs
-  CarPlay de Now Playing usam lazy debug logging e o R8 remove chamadas `android.util.Log` por
-  `-maximumremovedandroidloglevel 7`.
+- Release final sem `preview` nao deve emitir logs de diagnostico do app por padrao:
+  `ClusterPerfEventLogger` retorna imediatamente quando `BuildConfig.DEBUG=false`, logs CarPlay de
+  Now Playing usam lazy debug logging e o R8 remove chamadas `android.util.Log` por
+  `-maximumremovedandroidloglevel 7`. A excecao operacional e a trilha persistente leve de
+  `Reportar problema` em builds `*-preview`, controlada por
+  `IMPULSE_REPORT_DIAGNOSTICS_ENABLED=true` e pelo toggle do usuario.
 
 ## Riscos de Performance
 
@@ -38,8 +41,8 @@ Atualizado em: 2026-06-15
 - `chartInstance.update(...)` em intervalos curtos por muitas horas de viagem.
 - Canvas/`requestAnimationFrame` com erro repetido em `try/catch`, gerando log/GC continuo.
 - Instrumentacao de performance em frequencia alta demais tambem pode virar custo; logs de
-  heartbeat devem continuar espaçados e eventos JS devem ser pontuais. Em preview/release, essa
-  instrumentacao deve permanecer desligada.
+  heartbeat devem continuar espaçados e eventos JS devem ser pontuais. Em release final, essa
+  instrumentacao deve permanecer desligada salvo decisao explicita.
 - O log persistente nao deve capturar `logcat` inteiro nem snapshots pesados a cada tick. Usar
   apenas eventos ja existentes, console do WebView e mudancas de estado para preservar I/O baixo
   durante viagens longas.
@@ -76,7 +79,7 @@ Atualizado em: 2026-06-15
 - Nao deixar `requestAnimationFrame` ativo fora da tela de grafico.
 - Para correlacionar travamentos/lentidao com recursos, usar build debug/internal e coletar logcat
   filtrando `ClusterPerf`/`[PERF_EVENT]`. A primeira amostra de CPU pode vir como `n/a`; as
-  seguintes usam delta entre eventos. Em preview/release esses eventos nao sao emitidos.
+  seguintes usam delta entre eventos. Em release final esses eventos nao sao emitidos por padrao.
 - Para diagnostico pos-reboot de eventos de cluster, puxar os arquivos persistentes:
 
 ```bash

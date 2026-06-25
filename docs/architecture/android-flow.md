@@ -1,6 +1,6 @@
 # Android Flow
 
-Atualizado em: 2026-06-18
+Atualizado em: 2026-06-25
 
 ## Fluxo Identificado
 
@@ -75,15 +75,24 @@ Atualizado em: 2026-06-18
      atual e snapshot recente/filtrado de `logcat`;
   6. app faz `POST` para a Edge Function com publishable key;
   7. Edge Function valida payload/rate limit, grava em `public.impulse_problem_reports` com
-     service role e, se secrets GitHub existirem, cria issue server-side.
+     service role e, se secrets GitHub existirem, cria issue server-side;
+  8. Edge Function salva uma copia `.txt` do corpo do relatorio/logs no bucket privado
+     `impulse-problem-report-logs` e grava `log_storage_bucket`, `log_storage_path` e
+     `log_storage_size_bytes` na linha do report.
 - A tabela `public.impulse_problem_reports` tem RLS habilitado e policy apenas para `service_role`.
   `anon`/`authenticated` nao tem permissao direta na tabela; envio publico passa somente pela Edge
   Function.
+- O bucket `impulse-problem-report-logs` e privado. O APK nao acessa Storage diretamente; upload
+  do arquivo e feito somente pela Edge Function usando service role.
 - Rate limit inicial: ate `8` relatos por `installationId` em 24h.
 - Se o envio falhar ou a build nao estiver configurada, o app copia o relatorio completo para a
   area de transferencia.
 - O log persistente diario tambem inclui `webview_console`, capturado via `WebChromeClient`, para
   registrar `console.log/warn/error` do dashboard sem alterar o contrato Kotlin/JS.
+- A captura persistente fica disponivel em `debug`/`leanDebug` e em builds release com
+  `IMPULSE_REPORT_DIAGNOSTICS_ENABLED=true`. Por padrao, esse campo fica ativo quando
+  `appVersionName` contem `preview`; release final sem `preview` continua sem diagnostico, salvo
+  override explicito por `-PimpulseReportDiagnosticsEnabled=true`.
 - A tela mostra o status do log persistente do dia atual: captura ativa/desativada, arquivo,
   tamanho e ultima atualizacao. O usuario pode desligar a captura persistente; isso para novas
   escritas no arquivo diario, mas nao executa limpeza retroativa.
@@ -381,11 +390,13 @@ Atualizado em: 2026-06-18
   estado que o usuario acabou de pedir.
 - Esses comandos sao restritos a midia. Eles nao autorizam abrir/mover Activity, alterar Surface,
   foco, display, watchdog ou handoff D0/D3 do CarPlay.
-- Para preview/release, logs de diagnostico do app ficam desligados. O build release usa R8 com
-  `-maximumremovedandroidloglevel 7`; `ClusterPerfEventLogger` nao executa fora de debug e os logs
-  do `CarPlayNowPlayingMonitor` ficam em lazy debug logging. Em 2026-06-12, `dexdump` do
-  `minifyReleaseWithR8` confirmou ausencia de chamadas de emissao `Log.e/w/d/i` do app e ausencia
-  dos marcadores `ClusterPerf`, `[PERF_EVENT]`, `CarPlay now playing...` e loop loggers no dex.
+- Para release final sem `preview`, logs de diagnostico do app continuam desligados por padrao. O
+  build release usa R8 com `-maximumremovedandroidloglevel 7`; `ClusterPerfEventLogger` nao executa
+  fora de debug e os logs do `CarPlayNowPlayingMonitor` ficam em lazy debug logging. Em
+  2026-06-12, `dexdump` do `minifyReleaseWithR8` confirmou ausencia de chamadas de emissao
+  `Log.e/w/d/i` do app e ausencia dos marcadores `ClusterPerf`, `[PERF_EVENT]`,
+  `CarPlay now playing...` e loop loggers no dex. Builds `*-preview` agora podem manter a trilha
+  persistente leve de `Reportar problema` via `IMPULSE_REPORT_DIAGNOSTICS_ENABLED=true`.
 
 ## Arquivos Relacionados
 

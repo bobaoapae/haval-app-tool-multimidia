@@ -16,7 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 data class ClusterLogCaptureStatus(
-        val debugBuild: Boolean,
+        val diagnosticLoggingAvailable: Boolean,
         val enabled: Boolean,
         val directoryPath: String,
         val filePath: String,
@@ -26,7 +26,7 @@ data class ClusterLogCaptureStatus(
         val lastModifiedMs: Long
 ) {
     val captureActive: Boolean
-        get() = debugBuild && enabled
+        get() = diagnosticLoggingAvailable && enabled
 }
 
 object ClusterPersistentEventLogger {
@@ -59,7 +59,7 @@ object ClusterPersistentEventLogger {
 
     @JvmStatic
     fun log(event: String, details: Map<String, *>) {
-        if (!BuildConfig.DEBUG) return
+        if (!isDiagnosticLoggingAvailable()) return
 
         val context =
                 runCatching { App.getDeviceProtectedContext() }
@@ -101,13 +101,18 @@ object ClusterPersistentEventLogger {
 
     @JvmStatic
     fun isPersistentCaptureEnabled(context: Context): Boolean {
-        if (!BuildConfig.DEBUG) return false
+        if (!isDiagnosticLoggingAvailable()) return false
         return runCatching {
                     deviceProtectedContext(context)
                             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                             .getBoolean(CAPTURE_ENABLED_KEY, true)
                 }
                 .getOrDefault(false)
+    }
+
+    @JvmStatic
+    fun isDiagnosticLoggingAvailable(): Boolean {
+        return BuildConfig.DEBUG || BuildConfig.IMPULSE_REPORT_DIAGNOSTICS_ENABLED
     }
 
     @JvmStatic
@@ -128,7 +133,7 @@ object ClusterPersistentEventLogger {
         val fileName = buildFileName(nowMs)
         val file = File(dir, fileName)
         return ClusterLogCaptureStatus(
-                debugBuild = BuildConfig.DEBUG,
+                diagnosticLoggingAvailable = isDiagnosticLoggingAvailable(),
                 enabled = isPersistentCaptureEnabled(context),
                 directoryPath = dir.absolutePath,
                 filePath = file.absolutePath,

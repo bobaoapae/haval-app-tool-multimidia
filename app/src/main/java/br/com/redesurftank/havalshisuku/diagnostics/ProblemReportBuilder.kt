@@ -112,13 +112,20 @@ object ProblemReportBuilder {
             appendLine("- Version code: ${BuildConfig.VERSION_CODE}")
             appendLine("- Build type: ${BuildConfig.BUILD_TYPE}")
             appendLine("- Debug: ${BuildConfig.DEBUG}")
+            appendLine(
+                    "- Diagnostico de logs habilitado: " +
+                            yesNo(captureStatus.diagnosticLoggingAvailable)
+            )
             appendLine("- Relatorio gerado em: $generatedAt")
             appendLine("- Timezone: $timeZoneId")
             appendLine()
             appendLine("## Log persistente do dia atual")
             appendLine("- Arquivo esperado: ${logFile.absolutePath}")
             appendLine("- Captura persistente ativa: ${yesNo(captureStatus.captureActive)}")
-            appendLine("- Build debug/internal: ${yesNo(captureStatus.debugBuild)}")
+            appendLine(
+                    "- Build com diagnostico de logs: " +
+                            yesNo(captureStatus.diagnosticLoggingAvailable)
+            )
             appendLine("- Arquivo existe: ${yesNo(captureStatus.fileExists)}")
             appendLine("- Tamanho do arquivo: ${captureStatus.fileSizeBytes} bytes")
             appendLine("- Observacao: o app anexa somente o log persistente do dia atual para manter o envio leve.")
@@ -155,7 +162,7 @@ object ProblemReportBuilder {
     }
 
     private fun readLogcatSnapshot(): String {
-        if (!BuildConfig.DEBUG) return ""
+        if (!ClusterPersistentEventLogger.isDiagnosticLoggingAvailable()) return ""
         return runCatching {
                     val process =
                             ProcessBuilder("logcat", "-d", "-v", "time", "-t", "320")
