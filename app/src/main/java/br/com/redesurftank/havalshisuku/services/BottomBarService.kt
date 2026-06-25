@@ -243,8 +243,15 @@ class BottomBarService : LifecycleService() {
         startNativeMediaProtectionMonitoring()
         startNativeMediaCenterSourceMonitoring()
         startCarPlayUsbDisconnectMonitoring()
-        startAndroidAutoNowPlayingMonitoring()
-        startAndroidAutoMonitorRefreshLoop()
+        if (isAndroidAutoNowPlayingMonitorEnabled()) {
+            startAndroidAutoNowPlayingMonitoring()
+            startAndroidAutoMonitorRefreshLoop()
+        } else {
+            Log.w(
+                    "BottomBarService",
+                    "Android Auto now playing monitor disabled for pause diagnostics"
+            )
+        }
         startAudioMuteStateMonitoring()
         startDynamicOverscanMonitoring()
         ensureAccessibilityServiceEnabled()
@@ -418,6 +425,10 @@ class BottomBarService : LifecycleService() {
                 DEBUG_MEDIA_TAG,
                 "[before_$command] mediaPackage=${BottomBarState.mediaPackageName} " +
                         "title=${BottomBarState.mediaTitle} playing=${BottomBarState.mediaIsPlaying} " +
+                        "durationMs=${BottomBarState.mediaDurationMs} " +
+                        "elapsedMs=${BottomBarState.mediaElapsedMs} " +
+                        "progressUpdatedAtMs=${BottomBarState.mediaProgressUpdatedAtMs} " +
+                        "canSeek=${BottomBarState.mediaCanSeek} " +
                         "muted=${BottomBarState.mediaIsMuted} monitorAlive=${androidAutoNowPlayingMonitor != null} " +
                         "nativeRadioProtectionMs=$protectionRemainingMs " +
                         "nativeRadioReason=$lastNativeRadioProtectionReason " +
@@ -433,6 +444,10 @@ class BottomBarService : LifecycleService() {
                 DEBUG_MEDIA_TAG,
                 "[$reason] mediaPackage=${BottomBarState.mediaPackageName} " +
                         "title=${BottomBarState.mediaTitle} playing=${BottomBarState.mediaIsPlaying} " +
+                        "durationMs=${BottomBarState.mediaDurationMs} " +
+                        "elapsedMs=${BottomBarState.mediaElapsedMs} " +
+                        "progressUpdatedAtMs=${BottomBarState.mediaProgressUpdatedAtMs} " +
+                        "canSeek=${BottomBarState.mediaCanSeek} " +
                         "muted=${BottomBarState.mediaIsMuted} monitorAlive=${androidAutoNowPlayingMonitor != null} " +
                         "monitorLink=${androidAutoNowPlayingMonitor?.isLinkActive()} " +
                         "nativeRadioProtectionMs=$protectionRemainingMs " +
@@ -1213,15 +1228,19 @@ class BottomBarService : LifecycleService() {
 
             val mediaSource = reply.readInt()
             reply.readByte()
-            reply.readSerializable()
-            val value = reply.readParcelable(MediaInfo::class.java.classLoader) as? MediaInfo
-            if (value == null) {
+            val serializableClassName = reply.readString()
+            if (serializableClassName != null) {
+                reply.createByteArray()
+            }
+            val parcelableClassName = reply.readString()
+            if (parcelableClassName == null) {
                 Log.w(
                         "BottomBarService",
                         "Native MediaCenter Android Auto metadata returned empty value source=$source"
                 )
                 return null
             }
+            val value = MediaInfo(reply)
             NativeMediaCenterMediaInfo(
                     mediaSource = mediaSource,
                     title = value.title?.takeIf { it.isNotBlank() },
@@ -1335,6 +1354,12 @@ class BottomBarService : LifecycleService() {
     }
 
     private fun startAndroidAutoMonitorRefreshLoop() {
+        if (!isAndroidAutoNowPlayingMonitorEnabled()) {
+            stopAndroidAutoNowPlayingMonitoring("disabled for pause diagnostics")
+            androidAutoMonitorRefreshJob?.cancel()
+            androidAutoMonitorRefreshJob = null
+            return
+        }
         if (androidAutoMonitorRefreshJob != null) return
         androidAutoMonitorRefreshJob =
                 lifecycleScope.launch(Dispatchers.IO) {
@@ -1353,6 +1378,10 @@ class BottomBarService : LifecycleService() {
     }
 
     private fun startAndroidAutoNowPlayingMonitoring(skipReadinessCheck: Boolean = false) {
+        if (!isAndroidAutoNowPlayingMonitorEnabled()) {
+            stopAndroidAutoNowPlayingMonitoring("disabled for pause diagnostics")
+            return
+        }
         if (androidAutoNowPlayingMonitor != null) return
         if (isNativeRadioProtectionActive(queryNativeGuard = true)) return
         if (!skipReadinessCheck && !isAndroidAutoMediaSessionReadyForDashboard()) return
@@ -1470,6 +1499,9 @@ class BottomBarService : LifecycleService() {
                         .also { it.start() }
     }
 
+    private fun isAndroidAutoNowPlayingMonitorEnabled(): Boolean =
+            ANDROID_AUTO_NOW_PLAYING_MONITOR_ENABLED
+
     private fun isAndroidAutoMediaSessionReadyForDashboard(): Boolean {
         if (isNativeRadioProtectionActive(queryNativeGuard = true)) {
             cachedAndroidAutoMediaSessionReady = false
@@ -1553,7 +1585,13 @@ class BottomBarService : LifecycleService() {
         ) {
             return true
         }
-        return DisplayAppLauncher.hasActiveAndroidAutoAudioPlaybackForMedia("AA_MEDIA_TRANSPORT_AUDIO")
+        if (DisplayAppLauncher.hasActiveAndroidAutoAudioPlaybackForMedia("AA_MEDIA_TRANSPORT_AUDIO")) {
+            return true
+        }
+        return shouldUseNativeAndroidAutoMediaCenterMetadataForTest(
+                nativeMediaCenterCurrentSource,
+                nativeMediaCenterCurrentAudioSource
+        )
     }
 
     private fun startAudioMuteStateMonitoring() {
@@ -2077,6 +2115,40 @@ class BottomBarService : LifecycleService() {
         )
     }
 
+    private fun resetAndroidAutoProgressAfterExplicitTrackCommand(reason: String) {
+        val currentMediaPackageName = BottomBarState.mediaPackageName
+        val nativeAndroidAutoMediaCenterActive = isNativeAndroidAutoMediaCenterActive()
+        val previousElapsedMs = BottomBarState.mediaElapsedMs
+        val durationMs = BottomBarState.mediaDurationMs
+        if (
+                !shouldResetAndroidAutoProgressAfterExplicitTrackCommandForTest(
+                        currentMediaPackageName = currentMediaPackageName,
+                        nativeAndroidAutoMediaCenterActive = nativeAndroidAutoMediaCenterActive
+                )
+        ) {
+            Log.w(
+                    "BottomBarService",
+                    "Skipped Android Auto media progress reset after $reason " +
+                            "mediaPackage=$currentMediaPackageName " +
+                            "nativeMediaCenterActive=$nativeAndroidAutoMediaCenterActive " +
+                            "elapsedMs=$previousElapsedMs durationMs=$durationMs"
+            )
+            return
+        }
+        updateMediaProgressState(
+                durationMs = durationMs,
+                elapsedMs = 0L,
+                updatedAtMs = SystemClock.elapsedRealtime(),
+                canSeek = false,
+                allowProgressRegression = true
+        )
+        Log.w(
+                "BottomBarService",
+                "Reset Android Auto media progress after $reason " +
+                        "previousElapsedMs=$previousElapsedMs durationMs=$durationMs"
+        )
+    }
+
     private fun shouldAllowPendingAndroidAutoProgressRegressionForCurrentState(): Boolean {
         if (
                 !isAndroidAutoMediaPackage(BottomBarState.mediaPackageName) &&
@@ -2333,7 +2405,9 @@ class BottomBarService : LifecycleService() {
                 nextSignature != null &&
                         previousSignature != null &&
                         nextSignature != previousSignature
-        val shouldResetProgress = sourceChanged || trackChanged || stateTrackChanged
+        val explicitTrackCommandReset = shouldAllowPendingAndroidAutoProgressRegressionForCurrentState()
+        val shouldResetProgress =
+                sourceChanged || trackChanged || stateTrackChanged || explicitTrackCommandReset
         val matchingPlayState =
                 playState?.takeIf {
                     shouldAcceptNativeAndroidAutoPlayStateForTest(
@@ -2442,6 +2516,7 @@ class BottomBarService : LifecycleService() {
 
         val durationMs = matchingPlayState.durationMs.takeIf { it > 0L } ?: BottomBarState.mediaDurationMs
         val nowMs = SystemClock.elapsedRealtime()
+        val explicitTrackCommandReset = shouldAllowPendingAndroidAutoProgressRegressionForCurrentState()
         val elapsedMs =
                 resolveNativeAndroidAutoProgressElapsedForTest(
                         previousElapsedMs = BottomBarState.mediaElapsedMs,
@@ -2449,14 +2524,15 @@ class BottomBarService : LifecycleService() {
                         progressUpdatedAtMs = BottomBarState.mediaProgressUpdatedAtMs,
                         nowMs = nowMs,
                         isPlaying = nativeIsPlaying,
-                        trackChanged = false,
+                        trackChanged = explicitTrackCommandReset,
                         nativeElapsedMs = matchingPlayState.progressElapsedMs
                 )
         updateMediaProgressState(
                 durationMs = durationMs,
                 elapsedMs = elapsedMs,
                 updatedAtMs = nowMs,
-                canSeek = false
+                canSeek = false,
+                allowProgressRegression = explicitTrackCommandReset
         )
         Log.i(
                 "BottomBarService",
@@ -3689,6 +3765,7 @@ class BottomBarService : LifecycleService() {
         private const val NATIVE_MEDIA_CENTER_STATE_PAUSED = 4
         private const val NATIVE_MEDIA_CENTER_STATE_STOPPED = 5
         private const val NATIVE_MEDIA_CENTER_STATE_COMPLETED = 6
+        private const val ANDROID_AUTO_NOW_PLAYING_MONITOR_ENABLED = false
         private const val ANDROID_AUTO_MONITOR_REFRESH_INTERVAL_MS = 2_000L
         private const val ANDROID_AUTO_STALE_LOW_PROGRESS_MAX_MS = 1_000L
         private const val ANDROID_AUTO_STALE_LOW_PROGRESS_PREVIOUS_MIN_MS = 3_000L
@@ -4093,6 +4170,14 @@ class BottomBarService : LifecycleService() {
                     previousElapsed
         }
 
+        internal fun shouldResetAndroidAutoProgressAfterExplicitTrackCommandForTest(
+                currentMediaPackageName: String?,
+                nativeAndroidAutoMediaCenterActive: Boolean
+        ): Boolean {
+            return isAndroidAutoMediaPackageName(currentMediaPackageName) ||
+                    nativeAndroidAutoMediaCenterActive
+        }
+
         private fun isMeaningfulDurationChangeForProgress(previousDurationMs: Long, durationMs: Long): Boolean {
             val delta = durationMs - previousDurationMs
             return delta > 2_000L || delta < -2_000L
@@ -4253,12 +4338,47 @@ class BottomBarService : LifecycleService() {
             return instance?.sendAndroidAutoProjectionPlaybackCommandFromIntercept(isPlaying) == true
         }
 
+        suspend fun sendAndroidAutoNativeMediaCenterPlaybackTarget(
+                targetPlaying: Boolean,
+                reason: String
+        ): Boolean {
+            val service = instance
+            if (service == null) {
+                Log.w(
+                        "BottomBarService",
+                        "[$reason] Android Auto MediaCenter playback unavailable: service null"
+                )
+                return false
+            }
+            if (!service.isNativeAndroidAutoMediaCenterActive() ||
+                    !service.isAndroidAutoMediaTransportReadyForDashboard()
+            ) {
+                Log.w(
+                        "BottomBarService",
+                        "[$reason] Android Auto MediaCenter playback unavailable: route inactive"
+                )
+                return false
+            }
+            return service.sendNativeMediaCenterAndroidAutoPlaybackCommandAndHoldTarget(
+                    targetPlaying = targetPlaying,
+                    reason = reason,
+                    verifyTarget = false
+            )
+        }
+
         fun isNativeAndroidAutoMediaCenterRouteActive(): Boolean {
             return instance?.isNativeAndroidAutoMediaCenterActive() == true
         }
 
         fun getAndroidAutoNativeMediaCenterIsPlaying(): Boolean? {
             return instance?.readNativeAndroidAutoMediaCenterIsPlaying()
+        }
+
+        fun markAndroidAutoTrackCommandProgressReset(reason: String): Boolean {
+            val service = instance ?: return false
+            service.markAndroidAutoProgressRegressionAllowed(reason)
+            service.resetAndroidAutoProgressAfterExplicitTrackCommand(reason)
+            return true
         }
 
         fun toggleAndroidAutoMuteFromIntercept(): Boolean {
@@ -4311,13 +4431,13 @@ class BottomBarService : LifecycleService() {
                             )
                 }
         if (sent) {
-            markAndroidAutoProgressRegressionAllowed(
+            val resetReason =
                     if (preferAapRoute) {
                         "Android Auto AAP $commandName"
                     } else {
                         "Android Auto LinkCommand/AAP $commandName"
                     }
-            )
+            markAndroidAutoTrackCommandProgressReset(resetReason)
         }
         return sent
     }
@@ -4347,6 +4467,26 @@ class BottomBarService : LifecycleService() {
             return false
         }
         val targetPlaying = !effectiveIsPlaying
+        val allowStoppedAudioAsPause =
+                !targetPlaying && decision.audioPlaybackActiveAtResolve
+        if (isNativeAndroidAutoMediaCenterActive() && isAndroidAutoMediaTransportReadyForDashboard()) {
+            val nativeMediaCenterHandled =
+                    sendNativeMediaCenterAndroidAutoPlaybackCommandAndHoldTarget(
+                            targetPlaying = targetPlaying,
+                            reason = "AA_BOTTOM_BAR_${commandName}_MC",
+                            verifyTarget = true,
+                            allowStoppedAudioAsPause = allowStoppedAudioAsPause
+                    )
+            if (nativeMediaCenterHandled) {
+                return true
+            }
+            Log.w(
+                    "BottomBarService",
+                    "Android Auto MediaCenter $commandName route did not send target=$targetPlaying; " +
+                            "skipping active LinkCommand/AAP playback fallback"
+            )
+            return false
+        }
         if (
             !DisplayAppLauncher.prepareAndroidAutoMediaCommandTarget(
                 reason = "AA_BOTTOM_BAR_$commandName",
@@ -4362,8 +4502,6 @@ class BottomBarService : LifecycleService() {
         if (shouldReleaseAndroidAutoPauseOemAudioFocusForTest(targetPlaying)) {
             abandonAndroidAutoPauseOemAudioFocus("Android Auto playback $commandName")
         }
-        val allowStoppedAudioAsPause =
-                !targetPlaying && decision.audioPlaybackActiveAtResolve
         val directHandled = DisplayAppLauncher.sendAndroidAutoDashboardPlaybackCommand(effectiveIsPlaying)
         if (directHandled &&
                 verifyAndMarkAndroidAutoPlaybackTarget(
@@ -5055,6 +5193,35 @@ class BottomBarService : LifecycleService() {
                 source = NATIVE_MEDIA_CENTER_ANDROID_AUTO_SOURCE,
                 reason = reason
         )
+    }
+
+    private suspend fun sendNativeMediaCenterAndroidAutoPlaybackCommandAndHoldTarget(
+            targetPlaying: Boolean,
+            reason: String,
+            verifyTarget: Boolean,
+            allowStoppedAudioAsPause: Boolean = false
+    ): Boolean {
+        val sent =
+                sendNativeMediaCenterAndroidAutoPlaybackCommand(
+                        targetPlaying = targetPlaying,
+                        reason = reason
+                )
+        if (!sent) return false
+
+        markNativeAndroidAutoPlaybackCommandTarget(targetPlaying)
+        if (verifyTarget) {
+            val verified =
+                    verifyAndroidAutoPlaybackTarget(
+                            targetPlaying = targetPlaying,
+                            reason = "$reason verify",
+                            allowStoppedAudioAsPause = allowStoppedAudioAsPause
+                    )
+            Log.w(
+                    "BottomBarService",
+                    "$reason native MediaCenter target=$targetPlaying sent=true verified=$verified"
+            )
+        }
+        return true
     }
 
     private suspend fun sendNativeMediaCenterMediaCommandBySource(

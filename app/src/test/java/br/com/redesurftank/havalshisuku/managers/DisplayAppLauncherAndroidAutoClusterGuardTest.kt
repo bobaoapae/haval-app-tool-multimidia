@@ -1029,7 +1029,7 @@ class DisplayAppLauncherAndroidAutoClusterGuardTest {
     }
 
     @Test
-    fun androidAutoPhysicalMediaKeysStayNativeOnlyWhenNativeMediaCenterSourceIsActive() {
+    fun androidAutoPhysicalMediaKeysKeepImmediateAppRouteDisabledWhenNativeMediaCenterSourceIsActive() {
         assertFalse(
             DisplayAppLauncher.shouldUseAndroidAutoSteeringAppCommandRouteForTest(
                 keyCode = KeyEvent.KEYCODE_MEDIA_NEXT,
@@ -1223,8 +1223,8 @@ class DisplayAppLauncherAndroidAutoClusterGuardTest {
     }
 
     @Test
-    fun androidAutoSteeringPlaybackReconcileStaysDisabledForPhysicalKeys() {
-        assertFalse(
+    fun androidAutoSteeringPlaybackReconcileUsesNativeMediaCenterForPhysicalPlaybackKeys() {
+        assertTrue(
             DisplayAppLauncher.shouldScheduleAndroidAutoSteeringPlaybackTargetReconcileForTest(
                 keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                 action = KeyEvent.ACTION_UP,
@@ -1234,7 +1234,7 @@ class DisplayAppLauncherAndroidAutoClusterGuardTest {
                 androidAutoDesiredOnCluster = true
             )
         )
-        assertFalse(
+        assertTrue(
             DisplayAppLauncher.shouldScheduleAndroidAutoSteeringPlaybackTargetReconcileForTest(
                 keyCode = KeyEvent.KEYCODE_MEDIA_PLAY,
                 action = KeyEvent.ACTION_UP,
@@ -1244,7 +1244,7 @@ class DisplayAppLauncherAndroidAutoClusterGuardTest {
                 androidAutoDesiredOnCluster = true
             )
         )
-        assertFalse(
+        assertTrue(
             DisplayAppLauncher.shouldScheduleAndroidAutoSteeringPlaybackTargetReconcileForTest(
                 keyCode = KeyEvent.KEYCODE_MEDIA_PAUSE,
                 action = KeyEvent.ACTION_UP,
@@ -1254,7 +1254,7 @@ class DisplayAppLauncherAndroidAutoClusterGuardTest {
                 androidAutoDesiredOnCluster = true
             )
         )
-        assertFalse(
+        assertTrue(
             DisplayAppLauncher.shouldScheduleAndroidAutoSteeringPlaybackTargetReconcileForTest(
                 keyCode = 1004,
                 action = KeyEvent.ACTION_UP,

@@ -1494,7 +1494,10 @@ object DisplayAppLauncher {
             recoverAndroidAutoLinkDeviceForMediaCommand(reason)
         }
 
-        sendAndroidAutoVehicleInfoForMediaCommand(reason)
+        Log.w(
+            TAG,
+            "[$reason] Skipping Android Auto vehicle info refresh before media command"
+        )
         sendAndroidAutoMediaCommandFocus(
             displayId = targetDisplayId,
             reason = reason,
@@ -4960,9 +4963,9 @@ object DisplayAppLauncher {
         source: AndroidAutoMediaKeySource,
         nativeMediaCenterActive: Boolean = BottomBarService.isNativeAndroidAutoMediaCenterRouteActive()
     ): Boolean {
-        // The physical steering key is already delivered to the native MediaCenter.
-        // Sending the same command app-side immediately can double-skip tracks or
-        // undo play/pause. Keep MediaCenter commands for explicit dashboard taps.
+        // The physical steering key is delivered to the native MediaCenter first.
+        // Keep immediate app-side commands disabled to avoid double-skip or toggle
+        // undo loops; play/pause can be reconciled later with an explicit target.
         return false
     }
 
@@ -4976,13 +4979,13 @@ object DisplayAppLauncher {
     ): Boolean {
         if (source != AndroidAutoMediaKeySource.STEERING_INPUT) return false
         if (!isAndroidAutoSteeringPlaybackKey(keyCode)) return false
+        if (action != KeyEvent.ACTION_UP) return false
+        if (useAppCommandRoute) return false
+        if (!androidAutoDesiredOnCluster) return false
 
-        // Physical play/pause already travels through the headunit's native AA route.
-        // Re-emitting a delayed LinkCommand from Impulse has repeatedly produced
-        // stale-state pause/play loops when source 402 reports NOT_START or resumes
-        // after a short pause. Keep this path observational only; card taps still use
-        // their explicit command flow.
-        return false
+        // Native MediaCenter source 402 is now the verified play/pause route.
+        // Reconcile only playback targets, after the physical key had the first chance.
+        return nativeMediaCenterActive
     }
 
     private fun shouldSuppressAndroidAutoSteeringMediaInjection(
@@ -5333,6 +5336,9 @@ object DisplayAppLauncher {
             nativeMediaCenterActive &&
             !useAppCommandRoute
         ) {
+            BottomBarService.markAndroidAutoTrackCommandProgressReset(
+                "Android Auto steering ${androidAutoTrackCommandName(keyCode)}"
+            )
             skipFallbackScheduled = true
             scheduleAndroidAutoSteeringSkipFallbackIfUnchanged(
                 keyCode = keyCode,
@@ -5507,6 +5513,11 @@ object DisplayAppLauncher {
                 keyCode = keyCode,
                 reason = "${reason}_SKIP_FALLBACK"
             )
+            if (sent) {
+                BottomBarService.markAndroidAutoTrackCommandProgressReset(
+                    "Android Auto steering fallback ${androidAutoTrackCommandName(keyCode)}"
+                )
+            }
             Log.w(
                 TAG,
                 "[${reason}_SKIP_FALLBACK] Android Auto LinkCommand skip fallback " +
@@ -5523,7 +5534,7 @@ object DisplayAppLauncher {
         val targetLabel = if (targetPlaying) "play" else "pause"
         Log.w(
             TAG,
-            "[$reason] Scheduling Android Auto LinkCommand playback reconcile target=$targetLabel"
+            "[$reason] Scheduling Android Auto playback reconcile target=$targetLabel"
         )
         scope.launch {
             delay(ANDROID_AUTO_STEERING_PLAYBACK_RECONCILE_FIRST_DELAY_MS)
@@ -5553,13 +5564,21 @@ object DisplayAppLauncher {
             return false
         }
         val targetLabel = if (targetPlaying) "play" else "pause"
-        val sent = sendAndroidAutoPlaybackTargetDirectCommand(
-            targetPlaying = targetPlaying,
-            reason = reason
-        )
+        val sent =
+            if (BottomBarService.isNativeAndroidAutoMediaCenterRouteActive()) {
+                BottomBarService.sendAndroidAutoNativeMediaCenterPlaybackTarget(
+                    targetPlaying = targetPlaying,
+                    reason = "${reason}_MC"
+                )
+            } else {
+                sendAndroidAutoPlaybackTargetDirectCommand(
+                    targetPlaying = targetPlaying,
+                    reason = reason
+                )
+            }
         Log.w(
             TAG,
-            "[$reason] Android Auto LinkCommand playback reconcile target=$targetLabel sent=$sent"
+            "[$reason] Android Auto playback reconcile target=$targetLabel sent=$sent"
         )
         return sent
     }
@@ -5625,7 +5644,20 @@ object DisplayAppLauncher {
             }
             else -> false
         }
+        if (sent && isAndroidAutoSteeringSkipKey(keyCode)) {
+            BottomBarService.markAndroidAutoTrackCommandProgressReset(
+                "Android Auto app route ${androidAutoTrackCommandName(keyCode)}"
+            )
+        }
         return sent
+    }
+
+    private fun androidAutoTrackCommandName(keyCode: Int): String {
+        return when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "previous"
+            KeyEvent.KEYCODE_MEDIA_NEXT -> "next"
+            else -> "track"
+        }
     }
 
     suspend fun sendAndroidAutoDashboardPlaybackCommand(mediaIsPlayingHint: Boolean): Boolean {

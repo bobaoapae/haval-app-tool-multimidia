@@ -1,0 +1,3 @@
+sleep 20
+keycode media_play_pause
+sleep 18

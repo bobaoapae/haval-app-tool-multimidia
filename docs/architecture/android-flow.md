@@ -11,6 +11,83 @@ Atualizado em: 2026-06-18
 5. `ProjectorManager` cria projectors nos displays secundários.
 6. Telas Compose em `ui/screens` expõem configurações para usuário.
 
+## Atualizacao 2026-06-24 - Android Auto card sem monitor ativo
+
+- `AndroidAutoNowPlayingMonitor` fica desligado na build diagnostica atual para evitar bind,
+  callback e polling no service Android Auto.
+- Com o monitor desligado, o card Android Auto passa a aceitar `source=402` ou `audioSource=402`
+  do MediaCenter nativo como readiness passivo.
+- Metadata/capa/progresso do AA no card devem vir do MediaCenter:
+  - `getCurrentSource` / `getCurrentAudioSource`;
+  - `getPlayMediaInfoBySource(402)`;
+  - `getPlayStateBySource(402)`.
+- O parser de `getPlayMediaInfoBySource(402)` precisa pular o `Serializable` do reply sem
+  desserializar e ler o `MediaInfo` inline no `Parcel`.
+- Play/pause do card, quando a fonte AA `402` esta ativa, usa primeiro
+  `pauseMediaBySource(402)` / `resumeMediaBySource(402)` e exige verificacao do alvo antes de
+  marcar sucesso.
+- `SEND_VEHICLE_INFO`/`IfVehicleInfo` nao deve ser enviado antes de comandos de midia Android Auto
+  nesta build, porque o handoff externo reportou crash de desserializacao no service OEM.
+- Botao fisico/keycode `85` fica separado: o handoff externo indica caminho OEM
+  `BeanInputService`/`BeanInputManager`, ainda sem fix validado no app.
+
+### Complemento v251 - card e volante por alvo MediaCenter
+
+- Com a validacao manual de que o Media Center nativo/player do mapa pausa corretamente, o card do
+  dashboard passa a tratar `pauseMediaBySource(402)` / `resumeMediaBySource(402)` como rota
+  primaria quando source/audioSource `402` esta ativo.
+- O card segura o alvo visual depois de envio Binder aceito pelo MediaCenter. A verificacao
+  posterior continua registrada em log, mas uma leitura inconclusiva nao deve reabrir fallback
+  ativo LinkCommand/AAP na mesma tentativa.
+- O botao do volante continua sem comando app-side imediato para evitar duplo toggle.
+- Para play/pause do volante, `ACTION_UP` agenda uma reconciliacao atrasada e idempotente quando:
+  - a origem e `STEERING_INPUT`;
+  - Android Auto esta desejado no cluster;
+  - MediaCenter `402` esta ativo;
+  - nao houve rota app-side imediata.
+- Essa reconciliacao usa o alvo explicito nativo MediaCenter antes de qualquer LinkCommand.
+- Next/previous/mute nao fazem parte desta correcao v251.
+
+Evidencia pos-deploy v251:
+
+- Logs de 2026-06-24 entre 17:17 e 17:19 confirmaram o encadeamento mecanico:
+  - card/dashboard enviou `AA_BOTTOM_BAR_play_MC` transaction `28` e
+    `AA_BOTTOM_BAR_pause_MC` transaction `27` para source `402`;
+  - volante chegou por `BeanInputService`/`InputService` como `KEYCODE_MEDIA_PLAY_PAUSE`;
+  - reconcile atrasado do volante enviou transactions `27`/`28` para MediaCenter `402`.
+- Essa evidencia confirma a rota, mas nao confirma sucesso funcional de pause. No recorte
+  observado nao havia sessao Spotify ativa, o estado debug ja estava `playing=false` e o audio AA
+  atual estava `state:stopped`.
+
+### Complemento v252 - reset de progresso em previous/next
+
+- Quando `next`/`previous` Android Auto e aceito pelo fluxo do card, o card zera imediatamente o
+  progresso visual e abre a janela de regressao de progresso para aceitar `0`.
+- Quando `previous`/`next` fisico do volante chega em `ACTION_UP` com MediaCenter `402` ativo, o
+  mesmo reset acontece antes de eventual fallback tardio do Impulse.
+- Durante a janela pos-comando, leituras nativas de play state/progresso podem zerar a timeline
+  mesmo que a metadata nova ainda nao tenha mudado a assinatura da faixa.
+- Escopo: somente Android Auto/MediaCenter `402`; nao altera CarPlay, WebView, layout/display,
+  play/pause ou mute.
+
+### Contrato anti-regressao v250
+
+Validacao manual reportada pelo usuario apos instalar a v250:
+
+- play/pause pelo Spotify no celular esta corrigido;
+- pause pelo Media Center nativo da central, no player dentro do mapa nativo, esta corrigido;
+- ainda nao pausam corretamente: card de midia do dashboard Impulse e botao do volante.
+
+Regras de contrato:
+
+- Nao reativar `AndroidAutoNowPlayingMonitor` para resolver dashboard/volante sem evidencia nova;
+- nao voltar a enviar `SEND_VEHICLE_INFO`/`IfVehicleInfo` antes de comandos de midia Android Auto;
+- nao trocar o Android Auto nativo nem montar `AndroidAutoService.apk` para este problema sem
+  autorizacao explicita, veiculo parado e nova evidencia;
+- nao considerar resposta Binder, ACK, `sent=true` ou mudanca de icone como sucesso de pause;
+- qualquer mudanca futura em card/volante deve preservar os fluxos ja validados:
+  Spotify/celular e Media Center nativo/player do mapa.
+
 ## Atualizacao 2026-06-18 - Rollback Android Auto v216
 
 - A v216 `1.0.0.216-rollback-v194-debug` foi instalada na central real `192.168.15.101` como
@@ -393,6 +470,14 @@ Atualizado em: 2026-06-18
   stale, auto-retomada ou duplicidade. A regra atual preserva MediaCenter `402` somente para
   metadata/capa/progresso/play state. Nao usar MediaCenter `402` para `next`, `previous`,
   `play/pause` ou reconciliacao atrasada.
+- A v252/v253 adiciona apenas comportamento visual de progresso para `next/previous`: apos um
+  comando de faixa Android Auto aceito pelo card ou pelo fluxo do volante, o card zera
+  `mediaElapsedMs` localmente para evitar carregar a timeline da faixa anterior. O reset e
+  deliberadamente escopado a `mediaPackage=com.ts.androidauto` ou MediaCenter nativo `402`; nao e
+  uma autorizacao para voltar a usar MediaCenter `402` como rota primaria de comando de faixa.
+- Para aprovar `next/previous`, a troca real de faixa nao basta: o contrato exige que a timeline do
+  card volte para `0` e que o proximo snapshot nativo possa sobrescrever esse estado com a verdade
+  do MediaCenter/Android Auto.
 - `clear` transitorio do `AndroidAutoNowPlayingMonitor` durante uma projecao ainda ativa nao deve
   derrubar `BottomBarState.mediaIsPlaying`. Esse clear pode chegar em loop enquanto o MediaCenter
   ainda esta com fonte Android Auto `402`; se ele marcar `isPlaying=false`, o proximo toggle pode
