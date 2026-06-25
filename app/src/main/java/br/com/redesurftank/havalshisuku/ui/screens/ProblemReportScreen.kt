@@ -307,7 +307,7 @@ private fun LogCaptureStatusCard(
                 }
                 Switch(
                         checked = status.captureActive,
-                        enabled = status.debugBuild,
+                        enabled = status.diagnosticLoggingAvailable,
                         onCheckedChange = onEnabledChange,
                         colors =
                                 SwitchDefaults.colors(
@@ -364,7 +364,7 @@ private fun LogStatusLine(label: String, value: String) {
 }
 
 private fun logCaptureStatusText(status: ClusterLogCaptureStatus): String {
-    if (!status.debugBuild) return "Indisponível nesta build."
+    if (!status.diagnosticLoggingAvailable) return "Indisponível nesta build."
     return if (status.captureActive) {
         "Ativa: eventos novos entram no log persistente do dia."
     } else {
