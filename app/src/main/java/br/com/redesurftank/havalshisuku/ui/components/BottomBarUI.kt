@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioManager
 import android.os.SystemClock
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -1876,6 +1877,7 @@ private data class DashboardVehicleSnapshot(
         val powerReserve: String,
         val socTarget: String,
         val energyRecovery: String,
+        val onePedalEnabled: String,
         val steeringMode: String,
         val driverTemp: String,
         val passTemp: String,
@@ -1952,6 +1954,14 @@ private fun rememberDashboardVehicleSnapshot(
                 mutableStateOf(
                         serviceManager.getData(
                                 CarConstants.CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL.getValue()
+                        )
+                                ?: "0"
+                )
+        }
+        var onePedalEnabled by remember {
+                mutableStateOf(
+                        serviceManager.getData(
+                                CarConstants.CAR_CONFIGURE_PEDAL_CONTROL_ENABLE.getValue()
                         )
                                 ?: "0"
                 )
@@ -2149,6 +2159,8 @@ private fun rememberDashboardVehicleSnapshot(
                                                         .getValue() -> socTarget = value
                                                 CarConstants.CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL
                                                         .getValue() -> energyRecovery = value
+                                                CarConstants.CAR_CONFIGURE_PEDAL_CONTROL_ENABLE
+                                                        .getValue() -> onePedalEnabled = value
                                                 CarConstants
                                                         .CAR_DRIVE_SETTING_STEERING_WHEEL_ASSIST_MODE
                                                         .getValue() -> steeringMode = value
@@ -2246,6 +2258,7 @@ private fun rememberDashboardVehicleSnapshot(
                 powerReserve = powerReserve,
                 socTarget = socTarget,
                 energyRecovery = energyRecovery,
+                onePedalEnabled = onePedalEnabled,
                 steeringMode = steeringMode,
                 driverTemp = driverTemp,
                 passTemp = passTemp,
@@ -3192,6 +3205,7 @@ private fun DashboardSettingsPanel(
                 val powerOptions = listOf("0" to "HEV", "1" to "EV Prior.", "3" to "EV")
                 val regenOptions = listOf("2" to "Baixo", "0" to "Normal", "1" to "Alto")
                 val steeringOptions = listOf("2" to "Conforto", "0" to "Normal", "1" to "Sport")
+                val context = LocalContext.current
                 var showHevDialog by remember { mutableStateOf(false) }
                 if (showHevDialog) {
                         HevModeDialog(
@@ -3310,9 +3324,13 @@ private fun DashboardSettingsPanel(
                                         modifier = Modifier.weight(1f),
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
+                                        val onePedalOn =
+                                                snapshot.onePedalEnabled.trim() == "1"
                                         DashboardPremiumCycleControl(
                                                 label = "Regeneração",
-                                                value = regenLabel(snapshot.energyRecovery),
+                                                value =
+                                                        if (onePedalOn) "One Pedal"
+                                                        else regenLabel(snapshot.energyRecovery),
                                                 nextValue =
                                                         nextDashboardOptionLabel(
                                                                 snapshot.energyRecovery,
@@ -3320,17 +3338,55 @@ private fun DashboardSettingsPanel(
                                                         ),
                                                 icon = Icons.Default.Autorenew,
                                                 accent = Color(0xFFFFC857),
-                                                modifier = Modifier.weight(1f)
-                                        ) {
-                                                serviceManager.updateData(
-                                                        CarConstants
-                                                                .CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL
-                                                                .getValue(),
-                                                        nextDashboardOption(
-                                                                snapshot.energyRecovery,
-                                                                regenOptions
+                                                modifier = Modifier.weight(1f),
+                                                hideNext = onePedalOn,
+                                                hint =
+                                                        if (onePedalOn)
+                                                                "Segurar desativa One Pedal"
+                                                        else "Segurar ativa One Pedal",
+                                                onLongClick = {
+                                                        // Toque longo -> liga/desliga o One Pedal.
+                                                        // Independe do nível de regeneração (One
+                                                        // Pedal é um "nível" à parte). Lê o estado
+                                                        // fresco (igual à ação do volante) p/ evitar
+                                                        // race do cache logo após o boot.
+                                                        val current =
+                                                                serviceManager.getUpdatedData(
+                                                                        CarConstants
+                                                                                .CAR_CONFIGURE_PEDAL_CONTROL_ENABLE
+                                                                                .getValue()
+                                                                )
+                                                                        ?: snapshot.onePedalEnabled
+                                                        val turningOn = current.trim() != "1"
+                                                        serviceManager.updateData(
+                                                                CarConstants
+                                                                        .CAR_CONFIGURE_PEDAL_CONTROL_ENABLE
+                                                                        .getValue(),
+                                                                if (turningOn) "1" else "0"
                                                         )
-                                                )
+                                                        Toast.makeText(
+                                                                        context,
+                                                                        if (turningOn)
+                                                                                "One Pedal ativado"
+                                                                        else "One Pedal desativado",
+                                                                        Toast.LENGTH_SHORT
+                                                                )
+                                                                .show()
+                                                }
+                                        ) {
+                                                // Tap cicla a regeneração só com o One Pedal
+                                                // desligado (ligado, o nível é indiferente).
+                                                if (!onePedalOn) {
+                                                        serviceManager.updateData(
+                                                                CarConstants
+                                                                        .CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL
+                                                                        .getValue(),
+                                                                nextDashboardOption(
+                                                                        snapshot.energyRecovery,
+                                                                        regenOptions
+                                                                )
+                                                        )
+                                                }
                                         }
                                         DashboardPremiumCycleControl(
                                                 label = "Direção",
@@ -4839,6 +4895,8 @@ private fun DashboardPremiumCycleControl(
         icon: ImageVector,
         accent: Color,
         modifier: Modifier = Modifier,
+        hint: String? = null,
+        hideNext: Boolean = false,
         onLongClick: (() -> Unit)? = null,
         onClick: () -> Unit
 ) {
@@ -4874,21 +4932,43 @@ private fun DashboardPremiumCycleControl(
                                 modifier = Modifier.fillMaxSize(),
                                 verticalArrangement = Arrangement.SpaceBetween
                         ) {
-                                Box(
-                                        modifier =
-                                                Modifier.size(42.dp)
-                                                        .background(
-                                                                accent.copy(alpha = 0.18f),
-                                                                RoundedCornerShape(8.dp)
-                                                        ),
-                                        contentAlignment = Alignment.Center
+                                Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                        Icon(
-                                                icon,
-                                                contentDescription = null,
-                                                tint = accent,
-                                                modifier = Modifier.size(24.dp)
-                                        )
+                                        Box(
+                                                modifier =
+                                                        Modifier.size(42.dp)
+                                                                .background(
+                                                                        accent.copy(alpha = 0.18f),
+                                                                        RoundedCornerShape(8.dp)
+                                                                ),
+                                                contentAlignment = Alignment.Center
+                                        ) {
+                                                Icon(
+                                                        icon,
+                                                        contentDescription = null,
+                                                        tint = accent,
+                                                        modifier = Modifier.size(24.dp)
+                                                )
+                                        }
+                                        if (hint != null) {
+                                                Text(
+                                                        text = hint,
+                                                        color = Color.White.copy(alpha = 0.5f),
+                                                        fontSize = 10.sp,
+                                                        lineHeight = 12.sp,
+                                                        fontFamily = DashboardReadableFont,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        textAlign =
+                                                                androidx.compose.ui.text.style
+                                                                        .TextAlign.End,
+                                                        modifier =
+                                                                Modifier.weight(1f)
+                                                                        .padding(start = 8.dp)
+                                                )
+                                        }
                                 }
                                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                         Text(
@@ -4908,14 +4988,25 @@ private fun DashboardPremiumCycleControl(
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                         )
-                                        Text(
-                                                text = "Prox. $nextValue",
-                                                color = accent.copy(alpha = 0.86f),
-                                                fontSize = 11.sp,
-                                                fontFamily = DashboardReadableFont,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                        )
+                                        if (!hideNext) {
+                                                Text(
+                                                        text = "Prox. $nextValue",
+                                                        color = accent.copy(alpha = 0.86f),
+                                                        fontSize = 11.sp,
+                                                        fontFamily = DashboardReadableFont,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                )
+                                        } else {
+                                                // Placeholder invisível: mantém o valor na mesma
+                                                // altura dos outros cards quando o One Pedal liga.
+                                                Text(
+                                                        text = " ",
+                                                        fontSize = 11.sp,
+                                                        fontFamily = DashboardReadableFont,
+                                                        maxLines = 1
+                                                )
+                                        }
                                 }
                         }
                 }
