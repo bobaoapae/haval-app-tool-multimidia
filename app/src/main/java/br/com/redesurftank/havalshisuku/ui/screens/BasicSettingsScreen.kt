@@ -1577,6 +1577,35 @@ fun BasicSettingsTab() {
                                                                 mutableStateOf(false)
                                                         }
 
+                                                        var steeringWheelButton1ActionDouble by remember {
+                                                                mutableStateOf(
+                                                                        prefs.getString(
+                                                                                SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_DOUBLE.key,
+                                                                                SteeringWheelCustomActionType.DEFAULT.key
+                                                                        ) ?: SteeringWheelCustomActionType.DEFAULT.key
+                                                                )
+                                                        }
+                                                        var steeringWheelButton2ActionDouble by remember {
+                                                                mutableStateOf(
+                                                                        prefs.getString(
+                                                                                SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_DOUBLE.key,
+                                                                                SteeringWheelCustomActionType.DEFAULT.key
+                                                                        ) ?: SteeringWheelCustomActionType.DEFAULT.key
+                                                                )
+                                                        }
+                                                        var steeringWheelButton1PackageDouble by remember {
+                                                                mutableStateOf(
+                                                                        prefs.getString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_DOUBLE.key, "")
+                                                                                ?: ""
+                                                                )
+                                                        }
+                                                        var steeringWheelButton2PackageDouble by remember {
+                                                                mutableStateOf(
+                                                                        prefs.getString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_DOUBLE.key, "")
+                                                                                ?: ""
+                                                                )
+                                                        }
+
                                                         Column(
                                                                 verticalArrangement =
                                                                         Arrangement.spacedBy(12.dp)
@@ -1932,6 +1961,51 @@ fun BasicSettingsTab() {
                                                                                                 )
                                                                         )
                                                                 }
+                                                                HorizontalDivider(
+                                                                        color = Color(0xFF3A3F47),
+                                                                        thickness = 1.dp
+                                                                )
+                                                                Text(
+                                                                        "Toque duplo",
+                                                                        color = Color.White,
+                                                                        fontSize = 16.sp
+                                                                )
+                                                                SteeringActionPicker(
+                                                                        label = "Botão 1 (toque duplo)",
+                                                                        actionKey = steeringWheelButton1ActionDouble,
+                                                                        packageName = steeringWheelButton1PackageDouble,
+                                                                        onActionSelected = { newKey ->
+                                                                                steeringWheelButton1ActionDouble = newKey
+                                                                                prefs.edit {
+                                                                                        putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_DOUBLE.key, newKey)
+                                                                                }
+                                                                                ServiceManager.getInstance().ensureSteeringWheelButtonIntegration()
+                                                                        },
+                                                                        onPackageChanged = { newPkg ->
+                                                                                steeringWheelButton1PackageDouble = newPkg
+                                                                                prefs.edit {
+                                                                                        putString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_DOUBLE.key, newPkg)
+                                                                                }
+                                                                        }
+                                                                )
+                                                                SteeringActionPicker(
+                                                                        label = "Botão 2 (toque duplo)",
+                                                                        actionKey = steeringWheelButton2ActionDouble,
+                                                                        packageName = steeringWheelButton2PackageDouble,
+                                                                        onActionSelected = { newKey ->
+                                                                                steeringWheelButton2ActionDouble = newKey
+                                                                                prefs.edit {
+                                                                                        putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_DOUBLE.key, newKey)
+                                                                                }
+                                                                                ServiceManager.getInstance().ensureSteeringWheelButtonIntegration()
+                                                                        },
+                                                                        onPackageChanged = { newPkg ->
+                                                                                steeringWheelButton2PackageDouble = newPkg
+                                                                                prefs.edit {
+                                                                                        putString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_DOUBLE.key, newPkg)
+                                                                                }
+                                                                        }
+                                                                )
                                                         }
                                                 }
                                         } else null
@@ -2343,6 +2417,65 @@ fun BasicSettingsTab() {
                         dialog.setOnDismissListener { showEndPicker = false }
                         dialog.show()
                 }
+        }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SteeringActionPicker(
+        label: String,
+        actionKey: String,
+        packageName: String,
+        onActionSelected: (String) -> Unit,
+        onPackageChanged: (String) -> Unit,
+) {
+        var expanded by remember { mutableStateOf(false) }
+        Text(label, color = Color(0xFFB0B8C4), fontSize = 14.sp)
+        ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded }
+        ) {
+                TextField(
+                        value = SteeringWheelCustomActionType.entries
+                                .find { it.key == actionKey }?.description ?: "",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Tipo de Ação") },
+                        trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                        },
+                        colors = ExposedDropdownMenuDefaults.textFieldColors(),
+                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                )
+                ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                ) {
+                        SteeringWheelCustomActionType.entries.forEach { type ->
+                                DropdownMenuItem(
+                                        text = { Text(type.description) },
+                                        onClick = {
+                                                onActionSelected(type.key)
+                                                expanded = false
+                                        }
+                                )
+                        }
+                }
+        }
+        if (actionKey == SteeringWheelCustomActionType.OPEN_APP.key) {
+                TextField(
+                        value = packageName,
+                        onValueChange = { onPackageChanged(it) },
+                        label = { Text("Pacote do App") },
+                        colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color(0xFF2A2F37),
+                                unfocusedContainerColor = Color(0xFF2A2F37),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color(0xFFB0B8C4),
+                                focusedIndicatorColor = Color(0xFF4A9EFF),
+                                unfocusedIndicatorColor = Color(0xFF3A3F47)
+                        )
+                )
         }
 }
 

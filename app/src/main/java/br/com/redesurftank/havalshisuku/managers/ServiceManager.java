@@ -574,8 +574,8 @@ public class ServiceManager {
                     }
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
                         switch (keyEvent.getKeyCode()) {
-                            case 517: handleSteeringWheelCustomButton(sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.name()), 1); break;
-                            case 1031: handleSteeringWheelCustomButton(sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.name()), 2); break;
+                            case 517: onSteeringCustomShortPress(1); break;   // botao 1 curto
+                            case 1031: onSteeringCustomShortPress(2); break;  // botao 2 curto
                         }
                     }
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_MENU.getKey(), false)) {
@@ -807,18 +807,19 @@ public class ServiceManager {
 
     public void ensureSteeringWheelButtonIntegration() {
         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
-            String button1Action = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.getKey());
-            String button2Action = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.getKey());
-            Log.w(TAG, "Ensuring steering wheel button integration. Button 1 action: " + button1Action + ", Button 2 action: " + button2Action);
-            if (button1Action.equals(SteeringWheelCustomActionType.DEFAULT.getKey())) {
-                disableNativeSteeringWheelButton1();
-            } else {
+            // habilita o botao se o toque CURTO ou DUPLO tiver acao configurada
+            boolean button1Used = steeringActionConfigured(1, "SHORT") || steeringActionConfigured(1, "DOUBLE");
+            boolean button2Used = steeringActionConfigured(2, "SHORT") || steeringActionConfigured(2, "DOUBLE");
+            Log.w(TAG, "Ensuring steering wheel button integration. Button 1 used: " + button1Used + ", Button 2 used: " + button2Used);
+            if (button1Used) {
                 enableSteeringWheelButton1Integration();
-            }
-            if (button2Action.equals(SteeringWheelCustomActionType.DEFAULT.getKey())) {
-                disableNativeSteeringWheelButton2();
             } else {
+                disableNativeSteeringWheelButton1();
+            }
+            if (button2Used) {
                 enableSteeringWheelButton2Integration();
+            } else {
+                disableNativeSteeringWheelButton2();
             }
         } else {
             Log.w(TAG, "Steering wheel button integration disabled, restoring native functions");
@@ -828,7 +829,72 @@ public class ServiceManager {
 
     }
 
-    private void handleSteeringWheelCustomButton(String string, int button) {
+    // ===== Toques nos botoes personalizados do volante: curto / duplo =====
+    private static final long STEERING_DOUBLE_WINDOW_MS = 500L;    // janela pra detectar o 2o toque (botao fisico: mais folgado que touchscreen)
+    private static final long STEERING_PRESS_DEBOUNCE_MS = 120L;   // ignora repique do mesmo toque
+    private final Runnable[] steeringPendingSingle = new Runnable[2];
+    private final long[] steeringLastPressAtMs = {0L, 0L};
+
+    private String steeringActionKey(int button, String tapType) {
+        SharedPreferencesKeys key;
+        if (button == 1) {
+            key = tapType.equals("DOUBLE") ? SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_DOUBLE
+                    : SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION;
+        } else {
+            key = tapType.equals("DOUBLE") ? SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_DOUBLE
+                    : SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION;
+        }
+        return sharedPreferences.getString(key.getKey(), SteeringWheelCustomActionType.DEFAULT.getKey());
+    }
+
+    private String steeringOpenAppPackageKey(int button, String tapType) {
+        if (button == 1) {
+            return (tapType.equals("DOUBLE") ? SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_DOUBLE
+                    : SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1).getKey();
+        }
+        return (tapType.equals("DOUBLE") ? SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_DOUBLE
+                : SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2).getKey();
+    }
+
+    private boolean steeringActionConfigured(int button, String tapType) {
+        String k = steeringActionKey(button, tapType);
+        return k != null
+                && !k.equals(SteeringWheelCustomActionType.DEFAULT.getKey())
+                && !k.equals(SteeringWheelCustomActionType.DEFAULT.name());
+    }
+
+    // Toque curto. Se houver acao de DUPLO configurada, espera STEERING_DOUBLE_WINDOW_MS pra ver se
+    // vem um 2o toque (senao dispara o curto na hora, sem atraso). 2o toque na janela vira DUPLO.
+    private void onSteeringCustomShortPress(int button) {
+        final int idx = button - 1;
+        long now = System.currentTimeMillis();
+        synchronized (steeringPendingSingle) {
+            if (now - steeringLastPressAtMs[idx] < STEERING_PRESS_DEBOUNCE_MS) {
+                return; // repique do mesmo toque
+            }
+            steeringLastPressAtMs[idx] = now;
+            if (steeringPendingSingle[idx] != null) {
+                backgroundHandler.removeCallbacks(steeringPendingSingle[idx]);
+                steeringPendingSingle[idx] = null;
+                handleSteeringWheelCustomButton(steeringActionKey(button, "DOUBLE"), button, "DOUBLE");
+                return;
+            }
+            if (!steeringActionConfigured(button, "DOUBLE")) {
+                handleSteeringWheelCustomButton(steeringActionKey(button, "SHORT"), button, "SHORT");
+                return;
+            }
+            Runnable r = () -> {
+                synchronized (steeringPendingSingle) {
+                    steeringPendingSingle[idx] = null;
+                }
+                handleSteeringWheelCustomButton(steeringActionKey(button, "SHORT"), button, "SHORT");
+            };
+            steeringPendingSingle[idx] = r;
+            backgroundHandler.postDelayed(r, STEERING_DOUBLE_WINDOW_MS);
+        }
+    }
+
+    private void handleSteeringWheelCustomButton(String string, int button, String tapType) {
         SteeringWheelCustomActionType action = SteeringWheelCustomActionType.Companion.fromKey(string);
         if (action == null || action == SteeringWheelCustomActionType.DEFAULT) {
             return;
@@ -891,7 +957,7 @@ public class ServiceManager {
                 }
                 break;
             case OPEN_APP:
-                String packageName = sharedPreferences.getString(button == 1 ? SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1.getKey() : SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2.getKey(), "");
+                String packageName = sharedPreferences.getString(steeringOpenAppPackageKey(button, tapType), "");
                 if (!packageName.isEmpty()) {
                     Intent launchIntent = App.getContext().getPackageManager().getLaunchIntentForPackage(packageName);
                     if (launchIntent != null) {
