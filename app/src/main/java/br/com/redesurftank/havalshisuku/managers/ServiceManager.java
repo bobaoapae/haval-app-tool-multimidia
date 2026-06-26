@@ -1685,6 +1685,10 @@ public class ServiceManager {
             } else if (key.equals(CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG.getValue()) && value.trim().equals("2")) {
                 // Entrou em HEV Prioritario -> aplica o % desejado.
                 applyHevSocTargetIfActive("ENTER_PRIORITARIO");
+            } else if (key.equals(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.getValue()) && value.trim().equals("0")) {
+                // Mudou de EV para HEV -> reaplica o % desejado (o carro costuma cair pra 20%).
+                // applyHevSocTargetIfActive se auto-gateia (so atua em HEV Prioritario + persistencia ON).
+                applyHevSocTargetIfActive("ENTER_HEV");
             }
         } catch (Exception e) {
             Log.e(TAG, "Error in OnDataChanged", e);
@@ -1722,6 +1726,15 @@ public class ServiceManager {
         } catch (Exception e) {
             Log.e(TAG, "applyHevSocTargetIfActive falhou", e);
         }
+    }
+
+    // Define o % alvo do HEV Prioritario a partir da UI (barra estendida/config): salva a pref
+    // e escreve no carro. Clampa em 20..80.
+    public void setHevSocTargetValue(int value) {
+        int v = Math.max(20, Math.min(80, value));
+        sharedPreferences.edit().putInt(SharedPreferencesKeys.HEV_SOC_TARGET_VALUE.getKey(), v).apply();
+        updateData(CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.getValue(), String.valueOf(v));
+        Log.w(TAG, "[HEV-SOC UI_SET] alvo definido = " + v);
     }
 
     public boolean closeAllWindow() {
