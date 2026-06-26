@@ -1,6 +1,7 @@
 package br.com.redesurftank.havalshisuku.ui.components
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
 import android.os.SystemClock
 import android.util.Log
@@ -62,6 +63,7 @@ import kotlin.math.roundToLong
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.Modifier
 import androidx.core.content.edit
 private const val recycleIn = "data:image/png;base64,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"
 private const val recycleOut = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAAA8BAMAAADI0sRBAAAAJ1BMVEV6pf97nfh7o/12kO5bjPJlf+leVZZlk/ZHcExejvJgj/P//+0A/9FP0Or/AAAADXRSTlMeDBMG/QMBVQDLlQEBuyPuOwAAAtFJREFUOMt9Vc1q20AQHpaAcU6VdOpttQRMchPCL1AWjHw18RtYl/ZgjCEkTxBoDyEITG+mGIzzALkk51z6Uv1m9kerFvfDyDv7zcyORrMz9Ojw4+21BW4Dlix9PNLj93dZ/cZjdZuAFT7ovX1tv7bRsnaY8hp79NE6rBISWEyFp7a3XNQD8AGgl6uULASBp8GZVeZRVY6ntrcsiqwqooLwBM8LYSORKpAzraLbsiyNccuCaWY9lefG4AeFsoTI1otgCiOQeSkKePBeTT5e2UuRs4OCxJa9emitw1JoPlgkpUhddtba5ufLURk5H9ZZTkIq0pc2oFmzf9BZ9snu4ZJIjWyPZgP7jGCsoUuMg1uM7h5OnicO+t7OmR0HNXjCMQ3OJ45LH+wTjDp+BoCfm5xgrDWYNW2dDw8F/gnWiJp1G8S1jqTGS97bRmiOeotgZ9HSqRzshtg3jU78LsFY+/9r0Mi0I1PfTmsM2uibTtJw6iM7uj+hDdjmZc1JmXv77U4iuLCKDCLeud0OaneMrdu5sIbMtd17n6OuT/ku0FsbgwkxRhrOuzRXo9Q5h6b7bES40OjGPtMk/Q7DFyP7BSp7Ogeh1+fYEZxfn6VReb/+Q+MrbujKxi80hKIDvveVPZ49emboM2oKJT7IKL8LisU+G6SFRSXlEmvc17xCzpHoGemJTbHnjNo9qhDXp8PxKGUtkBqer3HZlDYZas2MxWLj7iFfUgljhksGOnfijinlLvClV8cd44s/OTU7lVx99dA1ezZmGrw2/yCXBkRJa8jzPDNeKtkW3aGSZmXEVexdxvWuoqbat6w8k2bFbMaauXQuik1tANHkvlYXKZ+0x6KoxLryW9yFpdGGjomhQK4ZV9KhK9eXnVTwyHA9ldd1kY6C0M//mhHTab/kabAK3X4aR9Ri6sVlS8lou20Hk44nGYWdpWchuNkjgh9UPb6lwtsfbTVCnXvwUeQAAAAASUVORK5CYII="
@@ -3537,8 +3539,24 @@ private fun DashboardMediaPanel(
                                         Image(
                                                 bitmap = mediaArtwork.asImageBitmap(),
                                                 contentDescription = null,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                                        .clickable {
+                                                                // Extraia o pacote do aplicativo que está controlando a mídia atual
+                                                                val activePackageName = mediaPackageName
+
+                                                                if (!activePackageName.isNullOrEmpty()) {
+                                                                        // Solicita ao Android a Intent padrão para abrir a tela inicial do App
+                                                                        val launchIntent = context.packageManager.getLaunchIntentForPackage(activePackageName)
+
+                                                                        if (launchIntent != null) {
+                                                                                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                                                context.startActivity(launchIntent)
+                                                                        } else {
+                                                                                Log.w("BottomBarUI", "Intent de lançamento não encontrada para o app: $activePackageName")
+                                                                        }
+                                                                }
+                                                        }
                                         )
                                         Box(
                                                 modifier =
@@ -3558,7 +3576,7 @@ private fun DashboardMediaPanel(
                                         DashboardArtworkFallback(
                                                 appIcon = appIcon,
                                                 activeProjectionPackage = activeProjectionPackage,
-                                                modifier = Modifier.fillMaxSize()
+                                                modifier = Modifier.fillMaxSize().
                                         )
                                 }
                                 Column(
