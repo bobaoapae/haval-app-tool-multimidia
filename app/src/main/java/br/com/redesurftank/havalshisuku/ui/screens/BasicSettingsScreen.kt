@@ -1606,6 +1606,35 @@ fun BasicSettingsTab() {
                                                                 )
                                                         }
 
+                                                        var steeringWheelButton1ActionLong by remember {
+                                                                mutableStateOf(
+                                                                        prefs.getString(
+                                                                                SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_LONG.key,
+                                                                                SteeringWheelCustomActionType.DEFAULT.key
+                                                                        ) ?: SteeringWheelCustomActionType.DEFAULT.key
+                                                                )
+                                                        }
+                                                        var steeringWheelButton2ActionLong by remember {
+                                                                mutableStateOf(
+                                                                        prefs.getString(
+                                                                                SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_LONG.key,
+                                                                                SteeringWheelCustomActionType.DEFAULT.key
+                                                                        ) ?: SteeringWheelCustomActionType.DEFAULT.key
+                                                                )
+                                                        }
+                                                        var steeringWheelButton1PackageLong by remember {
+                                                                mutableStateOf(
+                                                                        prefs.getString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_LONG.key, "")
+                                                                                ?: ""
+                                                                )
+                                                        }
+                                                        var steeringWheelButton2PackageLong by remember {
+                                                                mutableStateOf(
+                                                                        prefs.getString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_LONG.key, "")
+                                                                                ?: ""
+                                                                )
+                                                        }
+
                                                         Column(
                                                                 verticalArrangement =
                                                                         Arrangement.spacedBy(12.dp)
@@ -2003,6 +2032,51 @@ fun BasicSettingsTab() {
                                                                                 steeringWheelButton2PackageDouble = newPkg
                                                                                 prefs.edit {
                                                                                         putString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_DOUBLE.key, newPkg)
+                                                                                }
+                                                                        }
+                                                                )
+                                                                HorizontalDivider(
+                                                                        color = Color(0xFF3A3F47),
+                                                                        thickness = 1.dp
+                                                                )
+                                                                Text(
+                                                                        "Toque longo",
+                                                                        color = Color.White,
+                                                                        fontSize = 16.sp
+                                                                )
+                                                                SteeringActionPicker(
+                                                                        label = "Botão 1 (toque longo)",
+                                                                        actionKey = steeringWheelButton1ActionLong,
+                                                                        packageName = steeringWheelButton1PackageLong,
+                                                                        onActionSelected = { newKey ->
+                                                                                steeringWheelButton1ActionLong = newKey
+                                                                                prefs.edit {
+                                                                                        putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_LONG.key, newKey)
+                                                                                }
+                                                                                ServiceManager.getInstance().ensureSteeringWheelButtonIntegration()
+                                                                        },
+                                                                        onPackageChanged = { newPkg ->
+                                                                                steeringWheelButton1PackageLong = newPkg
+                                                                                prefs.edit {
+                                                                                        putString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_LONG.key, newPkg)
+                                                                                }
+                                                                        }
+                                                                )
+                                                                SteeringActionPicker(
+                                                                        label = "Botão 2 (toque longo)",
+                                                                        actionKey = steeringWheelButton2ActionLong,
+                                                                        packageName = steeringWheelButton2PackageLong,
+                                                                        onActionSelected = { newKey ->
+                                                                                steeringWheelButton2ActionLong = newKey
+                                                                                prefs.edit {
+                                                                                        putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_LONG.key, newKey)
+                                                                                }
+                                                                                ServiceManager.getInstance().ensureSteeringWheelButtonIntegration()
+                                                                        },
+                                                                        onPackageChanged = { newPkg ->
+                                                                                steeringWheelButton2PackageLong = newPkg
+                                                                                prefs.edit {
+                                                                                        putString(SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_LONG.key, newPkg)
                                                                                 }
                                                                         }
                                                                 )

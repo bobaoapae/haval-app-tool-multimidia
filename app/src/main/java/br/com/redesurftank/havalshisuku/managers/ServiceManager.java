@@ -576,6 +576,8 @@ public class ServiceManager {
                         switch (keyEvent.getKeyCode()) {
                             case 517: onSteeringCustomShortPress(1); break;   // botao 1 curto
                             case 1031: onSteeringCustomShortPress(2); break;  // botao 2 curto
+                            case 518: onSteeringCustomLongPress(1); break;    // botao 1 longo
+                            case 1032: onSteeringCustomLongPress(2); break;   // botao 2 longo
                         }
                     }
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_MENU.getKey(), false)) {
@@ -807,9 +809,9 @@ public class ServiceManager {
 
     public void ensureSteeringWheelButtonIntegration() {
         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
-            // habilita o botao se o toque CURTO ou DUPLO tiver acao configurada
-            boolean button1Used = steeringActionConfigured(1, "SHORT") || steeringActionConfigured(1, "DOUBLE");
-            boolean button2Used = steeringActionConfigured(2, "SHORT") || steeringActionConfigured(2, "DOUBLE");
+            // habilita o botao se o toque CURTO, DUPLO ou LONGO tiver acao configurada
+            boolean button1Used = steeringActionConfigured(1, "SHORT") || steeringActionConfigured(1, "DOUBLE") || steeringActionConfigured(1, "LONG");
+            boolean button2Used = steeringActionConfigured(2, "SHORT") || steeringActionConfigured(2, "DOUBLE") || steeringActionConfigured(2, "LONG");
             Log.w(TAG, "Ensuring steering wheel button integration. Button 1 used: " + button1Used + ", Button 2 used: " + button2Used);
             if (button1Used) {
                 enableSteeringWheelButton1Integration();
@@ -839,9 +841,11 @@ public class ServiceManager {
         SharedPreferencesKeys key;
         if (button == 1) {
             key = tapType.equals("DOUBLE") ? SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_DOUBLE
+                    : tapType.equals("LONG") ? SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_LONG
                     : SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION;
         } else {
             key = tapType.equals("DOUBLE") ? SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_DOUBLE
+                    : tapType.equals("LONG") ? SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_LONG
                     : SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION;
         }
         return sharedPreferences.getString(key.getKey(), SteeringWheelCustomActionType.DEFAULT.getKey());
@@ -850,9 +854,11 @@ public class ServiceManager {
     private String steeringOpenAppPackageKey(int button, String tapType) {
         if (button == 1) {
             return (tapType.equals("DOUBLE") ? SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_DOUBLE
+                    : tapType.equals("LONG") ? SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_LONG
                     : SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1).getKey();
         }
         return (tapType.equals("DOUBLE") ? SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_DOUBLE
+                : tapType.equals("LONG") ? SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_LONG
                 : SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2).getKey();
     }
 
@@ -891,6 +897,34 @@ public class ServiceManager {
             };
             steeringPendingSingle[idx] = r;
             backgroundHandler.postDelayed(r, STEERING_DOUBLE_WINDOW_MS);
+        }
+    }
+
+    // Toque longo. A config do volante da OEM SEMPRE abre no long-press e nao da pra cancelar o
+    // evento (so via Frida). Estrategia: pollar ate a config vir ao foco e entao fecha-la com um
+    // BACK in-process (AccessibilityService.globalBack), cortando o tempo visivel da tela.
+    private void onSteeringCustomLongPress(int button) {
+        if (!steeringActionConfigured(button, "LONG")) return; // sem acao de longo -> deixa a config do OEM
+        final String actionKey = steeringActionKey(button, "LONG");
+        final boolean isOpenApp =
+                SteeringWheelCustomActionType.Companion.fromKey(actionKey) == SteeringWheelCustomActionType.OPEN_APP;
+        final Runnable action = () -> handleSteeringWheelCustomButton(actionKey, button, "LONG");
+        final String reason = "STEER_LONG_b" + button;
+        if (isOpenApp) {
+            // OPEN_APP: quando a config vier ao foco, fecha (BACK) e reabre o app POR CIMA. Se a
+            // config nao aparecer (gaveup), abre o app mesmo assim.
+            Runnable onCfg = () -> {
+                br.com.redesurftank.havalshisuku.services.AccessibilityService.globalBack();
+                backgroundHandler.postDelayed(action, 350);
+            };
+            DisplayAppLauncher.INSTANCE.runWhenOemSteeringConfigForeground(reason, onCfg, action);
+        } else {
+            // Toggle: roda a acao JA (invisivel) e fecha a config quando vier ao foco.
+            backgroundHandler.post(action);
+            DisplayAppLauncher.INSTANCE.runWhenOemSteeringConfigForeground(
+                    reason,
+                    () -> br.com.redesurftank.havalshisuku.services.AccessibilityService.globalBack(),
+                    null);
         }
     }
 

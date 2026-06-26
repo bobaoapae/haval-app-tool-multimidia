@@ -7486,6 +7486,26 @@ object DisplayAppLauncher {
         return getTopPackageOnDisplay(displayId) != null
     }
 
+    // Long-press do volante: a config da OEM SEMPRE abre. Pollamos o topo do display 0 ate ela
+    // aparecer (com.beantechs.settings) e entao executamos onConfigForeground (tipicamente um
+    // globalBack pra fecha-la sem flash). Se nao aparecer em ~3s, chama onGaveUp (fallback).
+    fun runWhenOemSteeringConfigForeground(
+        reason: String,
+        onConfigForeground: Runnable,
+        onGaveUp: Runnable?
+    ) {
+        scope.launch {
+            repeat(20) {
+                if (getTopPackageOnDisplay(0) == "com.beantechs.settings") {
+                    onConfigForeground.run()
+                    return@launch
+                }
+                delay(150)
+            }
+            onGaveUp?.run()
+        }
+    }
+
     fun getTopPackageOnDisplay(displayId: Int): String? {
         try {
             val stackList = getStackList()

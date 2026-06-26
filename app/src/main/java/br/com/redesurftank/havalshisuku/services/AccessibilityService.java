@@ -10,6 +10,32 @@ public class AccessibilityService extends android.accessibilityservice.Accessibi
 
     private static final String TAG = "AccessibilityService";
 
+    private static volatile AccessibilityService instance;
+
+    @Override
+    public void onServiceConnected() {
+        super.onServiceConnected();
+        instance = this;
+    }
+
+    @Override
+    public void onDestroy() {
+        if (instance == this) instance = null;
+        super.onDestroy();
+    }
+
+    // BACK global IN-PROCESS (instantaneo) — bem mais rapido que spawnar "input keyevent 4"
+    // via Shizuku (~300ms). Usado para fechar o menu de config do volante da OEM sem flash.
+    public static boolean globalBack() {
+        AccessibilityService s = instance;
+        if (s == null) return false;
+        try {
+            return s.performGlobalAction(GLOBAL_ACTION_BACK);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
