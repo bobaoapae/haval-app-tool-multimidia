@@ -102,6 +102,18 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "bluetoothStateOnPowerOff",
             "Estado do Bluetooth ao desligar o veículo"
     ),
+    HOTSPOT_STATE_ON_POWER_OFF(
+            "hotspotStateOnPowerOff",
+            "Estado do ponto de acesso ao desligar o veículo"
+    ),
+    DISABLE_BLUETOOTH_ON_FOLD_MIRROR(
+            "disableBluetoothOnFoldMirror",
+            "Desativar Bluetooth ao recolher retrovisores"
+    ),
+    DISABLE_HOTSPOT_ON_FOLD_MIRROR(
+            "disableHotspotOnFoldMirror",
+            "Desativar ponto de acesso ao recolher retrovisores"
+    ),
     ENABLE_SEAT_VENTILATION_ON_AC_ON(
             "enableSeatVentilationOnAcOn",
             "Habilitar ventilação do banco do motorista ao ligar o ar-condicionado"
