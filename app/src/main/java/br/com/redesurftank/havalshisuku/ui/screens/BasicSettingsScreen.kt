@@ -1766,9 +1766,10 @@ fun BasicSettingsTab() {
                                                                                         .OPEN_APP
                                                                                         .key
                                                                 ) {
-                                                                        TextField(
-                                                                                value = steeringWheelButton1Package,
-                                                                                onValueChange = {
+                                                                        AppSelectorField(
+                                                                                packageName =
+                                                                                        steeringWheelButton1Package,
+                                                                                onPackageSelected = {
                                                                                         newPkg ->
                                                                                         steeringWheelButton1Package =
                                                                                                 newPkg
@@ -1780,38 +1781,7 @@ fun BasicSettingsTab() {
                                                                                                         newPkg
                                                                                                 )
                                                                                         }
-                                                                                },
-                                                                                label = {
-                                                                                        Text(
-                                                                                                "Pacote do App"
-                                                                                        )
-                                                                                },
-                                                                                colors =
-                                                                                        TextFieldDefaults
-                                                                                                .colors(
-                                                                                                        focusedContainerColor =
-                                                                                                                Color(
-                                                                                                                        0xFF2A2F37
-                                                                                                                ),
-                                                                                                        unfocusedContainerColor =
-                                                                                                                Color(
-                                                                                                                        0xFF2A2F37
-                                                                                                                ),
-                                                                                                        focusedTextColor =
-                                                                                                                Color.White,
-                                                                                                        unfocusedTextColor =
-                                                                                                                Color(
-                                                                                                                        0xFFB0B8C4
-                                                                                                                ),
-                                                                                                        focusedIndicatorColor =
-                                                                                                                Color(
-                                                                                                                        0xFF4A9EFF
-                                                                                                                ),
-                                                                                                        unfocusedIndicatorColor =
-                                                                                                                Color(
-                                                                                                                        0xFF3A3F47
-                                                                                                                )
-                                                                                                )
+                                                                                }
                                                                         )
                                                                 }
 
@@ -1942,9 +1912,10 @@ fun BasicSettingsTab() {
                                                                                         .OPEN_APP
                                                                                         .key
                                                                 ) {
-                                                                        TextField(
-                                                                                value = steeringWheelButton2Package,
-                                                                                onValueChange = {
+                                                                        AppSelectorField(
+                                                                                packageName =
+                                                                                        steeringWheelButton2Package,
+                                                                                onPackageSelected = {
                                                                                         newPkg ->
                                                                                         steeringWheelButton2Package =
                                                                                                 newPkg
@@ -1956,38 +1927,7 @@ fun BasicSettingsTab() {
                                                                                                         newPkg
                                                                                                 )
                                                                                         }
-                                                                                },
-                                                                                label = {
-                                                                                        Text(
-                                                                                                "Pacote do App"
-                                                                                        )
-                                                                                },
-                                                                                colors =
-                                                                                        TextFieldDefaults
-                                                                                                .colors(
-                                                                                                        focusedContainerColor =
-                                                                                                                Color(
-                                                                                                                        0xFF2A2F37
-                                                                                                                ),
-                                                                                                        unfocusedContainerColor =
-                                                                                                                Color(
-                                                                                                                        0xFF2A2F37
-                                                                                                                ),
-                                                                                                        focusedTextColor =
-                                                                                                                Color.White,
-                                                                                                        unfocusedTextColor =
-                                                                                                                Color(
-                                                                                                                        0xFFB0B8C4
-                                                                                                                ),
-                                                                                                        focusedIndicatorColor =
-                                                                                                                Color(
-                                                                                                                        0xFF4A9EFF
-                                                                                                                ),
-                                                                                                        unfocusedIndicatorColor =
-                                                                                                                Color(
-                                                                                                                        0xFF3A3F47
-                                                                                                                )
-                                                                                                )
+                                                                                }
                                                                         )
                                                                 }
                                                                 HorizontalDivider(
@@ -2537,18 +2477,9 @@ private fun SteeringActionPicker(
                 }
         }
         if (actionKey == SteeringWheelCustomActionType.OPEN_APP.key) {
-                TextField(
-                        value = packageName,
-                        onValueChange = { onPackageChanged(it) },
-                        label = { Text("Pacote do App") },
-                        colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color(0xFF2A2F37),
-                                unfocusedContainerColor = Color(0xFF2A2F37),
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color(0xFFB0B8C4),
-                                focusedIndicatorColor = Color(0xFF4A9EFF),
-                                unfocusedIndicatorColor = Color(0xFF3A3F47)
-                        )
+                AppSelectorField(
+                        packageName = packageName,
+                        onPackageSelected = onPackageChanged
                 )
         }
 }
