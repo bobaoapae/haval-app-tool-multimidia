@@ -3,6 +3,7 @@ package br.com.redesurftank.havalshisuku.managers;
 import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothManager;
+import android.net.wifi.WifiManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -225,6 +226,16 @@ public class ServiceManager {
     private static long timeBootReceived;
     private long timeStartInitialization;
     private long timeInitialized;
+    // Estado real processado do carro (power-off vs power-on). Usado pelos receivers de BT/hotspot
+    // em vez do cache de driving_ready (que fica defasado no boot e fazia o BT ser re-desligado).
+    private volatile boolean carPoweredOff = false;
+    // Estado atual do hotspot (Wi-Fi AP), alimentado pelo receiver WIFI_AP_STATE_CHANGED e
+    // semeado no init via getWifiApState(); usado pra saber se o hotspot estava ligado ao recolher/desligar.
+    private volatile boolean wifiTetherEnabled = false;
+    private static final long RADIO_RESTORE_RETRY_MS = 4000L;
+    // 8 tentativas x 4s ≈ 28s: o tether (hotspot) pode demorar a subir no boot deste OEM.
+    // O loop para assim que o rádio liga, então tentativas extras são de graça p/ o BT (rápido).
+    private static final int RADIO_RESTORE_MAX_ATTEMPTS = 8;
     private CarInfo carInfo;
     private IIntelligentVehicleControlService controlService;
     private IVehicle vehicle;
@@ -748,8 +759,9 @@ public class ServiceManager {
                     if (intent.getAction().equals(BluetoothAdapter.ACTION_STATE_CHANGED) || intent.getAction().equals(BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED)) {
                         int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
                         if (state == BluetoothAdapter.STATE_ON) {
-                            String drivingReady = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
-                            if ((drivingReady.equals("-1") || drivingReady.equals("0")) && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false)) {
+                            // Só re-desliga se o carro está REALMENTE desligado (estado já processado),
+                            // não pelo cache de driving_ready (que fica defasado no boot e matava o BT).
+                            if (carPoweredOff && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false)) {
                                 disableBluetooth();
                             }
                         }
@@ -762,11 +774,15 @@ public class ServiceManager {
                 @Override
                 public void onReceive(Context context, Intent intent) {
                     if ("android.net.wifi.WIFI_AP_STATE_CHANGED".equals(intent.getAction())) {
-                        if (intent.getIntExtra("wifi_state", 0) == 13) {
-                            String drivingReady = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
-                            if ((drivingReady.equals("-1") || drivingReady.equals("0")) && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false)) {
+                        int apState = intent.getIntExtra("wifi_state", 0);
+                        // 13 = WIFI_AP_STATE_ENABLED, 11 = WIFI_AP_STATE_DISABLED
+                        if (apState == 13) {
+                            wifiTetherEnabled = true;
+                            if (carPoweredOff && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false)) {
                                 disableWifiTether();
                             }
+                        } else if (apState == 11) {
+                            wifiTetherEnabled = false;
                         }
                     }
                 }
@@ -796,6 +812,9 @@ public class ServiceManager {
         }
         MainUiManager.getInstance().updateScreen();
         timeInitialized = SystemClock.uptimeMillis();
+        // Semeia o estado atual do hotspot (o receiver WIFI_AP só dispara em MUDANÇA; se já estava
+        // ligado antes do serviço subir, a flag ficaria falsa).
+        wifiTetherEnabled = currentWifiTetherState();
         Log.w(TAG, "Services initialized successfully");
         backgroundHandler.post(() -> {
             try {
@@ -1700,6 +1719,13 @@ public class ServiceManager {
                 if (closeSunRoofOnFoldMirror) {
                     closeSunRoof(true);
                 }
+                // Desligar BT/hotspot ao recolher retrovisores (salvam o estado p/ religar ao ligar o carro).
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_FOLD_MIRROR.getKey(), false)) {
+                    shutdownBluetoothForRestore();
+                }
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_FOLD_MIRROR.getKey(), false)) {
+                    shutdownWifiTetherForRestore();
+                }
             } else if (key.equals(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue())) {
                 float currentSpeed = Float.parseFloat(value);
                 boolean closeWindowOnSpeed = sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_WINDOWS_ON_SPEED.getKey(), false);
@@ -1735,25 +1761,22 @@ public class ServiceManager {
                 }
             } else if (key.equals(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue())) {
                 if ((value.equals("-1") || value.equals("0"))) {
-                    boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
-                    boolean currentBluetoothState = currentBluetoothState();
-                    if (currentBluetoothState && disableBluetoothOnPowerOff) {
-                        sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), true).apply();
-                        disableBluetooth();
+                    carPoweredOff = true;
+                    if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false)) {
+                        shutdownBluetoothForRestore();
                     }
-                    boolean disableHotspotOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false);
-                    if (disableHotspotOnPowerOff) {
-                        disableWifiTether();
+                    if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false)) {
+                        shutdownWifiTetherForRestore();
                     }
                     if (isMaxAcActive) {
                         cancelMaxAcMode();
                     }
                 } else {
-                    boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
-                    boolean bluetoothStateOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false);
-                    if (disableBluetoothOnPowerOff && bluetoothStateOnPowerOff && !currentBluetoothState()) {
-                        enableBluetooth();
-                    }
+                    carPoweredOff = false;
+                    // Religa BT/hotspot que NÓS desligamos (por power-off OU ao recolher retrovisor),
+                    // com delay+retry: no power-on o adapter/serviços podem não estar prontos ainda.
+                    restoreBluetoothIfWasDisabled();
+                    restoreWifiTetherIfWasDisabled();
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), false)) {
                         if (!isMaxAcActive) enableMaxAcOn();
                     }
@@ -1988,6 +2011,7 @@ public class ServiceManager {
     }
 
     public void disableWifiTether() {
+        if (connectivityManager == null) return;
         try {
             connectivityManager.stopTethering(0, "br.com.redesurftank.havalshisuku");
         } catch (NoSuchMethodError e) {
@@ -2004,6 +2028,7 @@ public class ServiceManager {
     }
 
     public void enableWifiTether() {
+        if (connectivityManager == null) return;
         try {
             ResultReceiver receiver = new ResultReceiver(new Handler(Looper.getMainLooper())) {
                 @Override
@@ -2018,6 +2043,89 @@ public class ServiceManager {
             connectivityManager.startTethering(0, receiver, false, "br.com.redesurftank.havalshisuku");
         } catch (Exception e) {
             Log.e(TAG, "Error enabling Wi-Fi", e);
+        }
+    }
+
+    // ---- BT/Hotspot: estado, desligamento com tracking e restauração com retry ----
+
+    private boolean currentWifiTetherState() {
+        try {
+            WifiManager wifiManager = (WifiManager) App.getContext().getSystemService(Context.WIFI_SERVICE);
+            if (wifiManager != null) {
+                Object r = wifiManager.getClass().getMethod("getWifiApState").invoke(wifiManager);
+                if (r instanceof Integer) {
+                    return ((Integer) r) == 13; // 13 = WIFI_AP_STATE_ENABLED
+                }
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "Error reading Wi-Fi AP state", t);
+        }
+        return wifiTetherEnabled;
+    }
+
+    // Desliga o BT salvando que estava ligado (p/ religar no próximo power-on). Não sobrescreve um
+    // "estava ligado" anterior com false (caso recolher-retrovisor + power-off no mesmo ciclo).
+    private void shutdownBluetoothForRestore() {
+        if (currentBluetoothState()) {
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), true).apply();
+            disableBluetooth();
+        }
+    }
+
+    private void shutdownWifiTetherForRestore() {
+        if (currentWifiTetherState()) {
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey(), true).apply();
+            disableWifiTether();
+        }
+    }
+
+    private void restoreBluetoothIfWasDisabled() {
+        if (sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false)) {
+            attemptRestoreBluetooth(0);
+        }
+    }
+
+    private void attemptRestoreBluetooth(int attempt) {
+        if (!sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false)) {
+            return; // flag limpa por outra restauração
+        }
+        if (carPoweredOff) {
+            return; // carro desligou no meio: mantém a intenção p/ o próximo power-on
+        }
+        if (currentBluetoothState()) {
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false).apply();
+            return; // já ligou: sucesso
+        }
+        enableBluetooth();
+        if (attempt + 1 < RADIO_RESTORE_MAX_ATTEMPTS) {
+            backgroundHandler.postDelayed(() -> attemptRestoreBluetooth(attempt + 1), RADIO_RESTORE_RETRY_MS);
+        } else {
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false).apply();
+        }
+    }
+
+    private void restoreWifiTetherIfWasDisabled() {
+        if (sharedPreferences.getBoolean(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey(), false)) {
+            attemptRestoreWifiTether(0);
+        }
+    }
+
+    private void attemptRestoreWifiTether(int attempt) {
+        if (!sharedPreferences.getBoolean(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey(), false)) {
+            return;
+        }
+        if (carPoweredOff) {
+            return;
+        }
+        if (currentWifiTetherState()) {
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey(), false).apply();
+            return;
+        }
+        enableWifiTether();
+        if (attempt + 1 < RADIO_RESTORE_MAX_ATTEMPTS) {
+            backgroundHandler.postDelayed(() -> attemptRestoreWifiTether(attempt + 1), RADIO_RESTORE_RETRY_MS);
+        } else {
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey(), false).apply();
         }
     }
 

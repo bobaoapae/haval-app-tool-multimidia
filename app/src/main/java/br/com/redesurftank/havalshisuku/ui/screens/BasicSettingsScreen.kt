@@ -175,6 +175,22 @@ fun BasicSettingsTab() {
                         )
                 )
         }
+        var disableBluetoothOnFoldMirror by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_FOLD_MIRROR.key,
+                                false
+                        )
+                )
+        }
+        var disableHotspotOnFoldMirror by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.DISABLE_HOTSPOT_ON_FOLD_MIRROR.key,
+                                false
+                        )
+                )
+        }
         var closeSunroofSunShadeOnCloseSunroof by remember {
                 mutableStateOf(
                         prefs.getBoolean(
@@ -1749,6 +1765,60 @@ fun BasicSettingsTab() {
                                 }
                         ),
                         SettingItem(
+                                title = "Desligar ponto de acesso ao desligar",
+                                description =
+                                        SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF
+                                                .description,
+                                checked = disableHotspotOnPowerOff,
+                                onCheckedChange = {
+                                        disableHotspotOnPowerOff = it
+                                        prefs.edit {
+                                                putBoolean(
+                                                        SharedPreferencesKeys
+                                                                .DISABLE_HOTSPOT_ON_POWER_OFF
+                                                                .key,
+                                                        it
+                                                )
+                                        }
+                                }
+                        ),
+                        SettingItem(
+                                title = "Desativar Bluetooth ao recolher retrovisores",
+                                description =
+                                        SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_FOLD_MIRROR
+                                                .description,
+                                checked = disableBluetoothOnFoldMirror,
+                                onCheckedChange = {
+                                        disableBluetoothOnFoldMirror = it
+                                        prefs.edit {
+                                                putBoolean(
+                                                        SharedPreferencesKeys
+                                                                .DISABLE_BLUETOOTH_ON_FOLD_MIRROR
+                                                                .key,
+                                                        it
+                                                )
+                                        }
+                                }
+                        ),
+                        SettingItem(
+                                title = "Desativar ponto de acesso ao recolher retrovisores",
+                                description =
+                                        SharedPreferencesKeys.DISABLE_HOTSPOT_ON_FOLD_MIRROR
+                                                .description,
+                                checked = disableHotspotOnFoldMirror,
+                                onCheckedChange = {
+                                        disableHotspotOnFoldMirror = it
+                                        prefs.edit {
+                                                putBoolean(
+                                                        SharedPreferencesKeys
+                                                                .DISABLE_HOTSPOT_ON_FOLD_MIRROR
+                                                                .key,
+                                                        it
+                                                )
+                                        }
+                                }
+                        ),
+                        SettingItem(
                                 title = "Ativar Ambient Light BLE",
                                 description =
                                         "Exibe o recurso opcional para LEDs externos instalados pelo usuario",
@@ -1767,24 +1837,6 @@ fun BasicSettingsTab() {
                                                 AmbientLightService.startIfEnabled(context)
                                         } else {
                                                 AmbientLightService.stop(context)
-                                        }
-                                }
-                        ),
-                        SettingItem(
-                                title = "Desligar ponto de acesso ao desligar",
-                                description =
-                                        SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF
-                                                .description,
-                                checked = disableHotspotOnPowerOff,
-                                onCheckedChange = {
-                                        disableHotspotOnPowerOff = it
-                                        prefs.edit {
-                                                putBoolean(
-                                                        SharedPreferencesKeys
-                                                                .DISABLE_HOTSPOT_ON_POWER_OFF
-                                                                .key,
-                                                        it
-                                                )
                                         }
                                 }
                         ),
