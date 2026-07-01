@@ -22,6 +22,7 @@ class AmbientLightService : Service() {
     private lateinit var controller: AmbientLightBleController
     private lateinit var animationController: AmbientLightAnimationController
     private lateinit var musicVisualizerController: MusicVisualizerController
+    private lateinit var albumWaveMusicController: AlbumWaveMusicController
     private var driveModeListenerRegistered = false
     private var currentDriveMode = DriveMode.UNKNOWN
 
@@ -44,6 +45,13 @@ class AmbientLightService : Service() {
                 settingsProvider = { AmbientLightSettings.load() },
                 baseColorProvider = { musicBaseColor() }
             )
+        albumWaveMusicController =
+            AlbumWaveMusicController(
+                controller = controller,
+                scope = serviceScope,
+                settingsProvider = { AmbientLightSettings.load() },
+                baseColorProvider = { musicBaseColor() }
+            )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -61,7 +69,7 @@ class AmbientLightService : Service() {
         }
 
         when (action) {
-            ACTION_CONNECT -> connectSavedDevice(settings)
+            ACTION_CONNECT -> connectSavedDevice(settingsWithIntentDevice(intent, settings))
             ACTION_DISCONNECT -> disconnectLed()
             ACTION_SET_BRIGHTNESS -> handleSetBrightness(intent, settings)
             ACTION_TEST_COLOR -> handleTestColor(intent, settings)
@@ -79,7 +87,7 @@ class AmbientLightService : Service() {
 
     override fun onDestroy() {
         unregisterDriveModeListener()
-        musicVisualizerController.stop()
+        stopMusicEffects()
         animationController.cancel()
         controller.disconnect()
         serviceScope.cancel()
@@ -94,16 +102,17 @@ class AmbientLightService : Service() {
     ) {
         val address = settings.deviceAddress
         if (address.isNullOrBlank()) {
-            Log.i(TAG, "no saved LED device")
-            musicVisualizerController.stop()
+            Log.w(TAG, "connect ignored: no saved LED device")
+            stopMusicEffects()
+            controller.disconnect()
             return
         }
         serviceScope.launch {
             if (settings.musicAnimationEnabled) {
                 animationController.cancel()
-                musicVisualizerController.start()
+                startSelectedMusicEffect(settings)
             } else {
-                musicVisualizerController.stop()
+                stopMusicEffects()
             }
 
             val wasConnected = controller.isConnectedTo(address)
@@ -123,7 +132,7 @@ class AmbientLightService : Service() {
 
     private fun disconnectLed() {
         serviceScope.launch {
-            musicVisualizerController.stop()
+            stopMusicEffects()
             animationController.cancel()
             controller.disconnect()
         }
@@ -153,7 +162,7 @@ class AmbientLightService : Service() {
         val g = intent?.getIntExtra(EXTRA_G, 0) ?: 0
         val b = intent?.getIntExtra(EXTRA_B, 0) ?: 0
         serviceScope.launch {
-            musicVisualizerController.stop()
+            stopMusicEffects()
             animationController.cancel()
             if (connectAndWait(address, settings.autoReconnect)) {
                 controller.setRgb(r, g, b, settings.colorOrder, settings.bleColorOrder, settings.output)
@@ -169,7 +178,7 @@ class AmbientLightService : Service() {
             return
         }
         serviceScope.launch {
-            musicVisualizerController.stop()
+            stopMusicEffects()
             animationController.cancel()
             if (connectAndWait(address, settings.autoReconnect)) {
                 controller.sendHex(hex)
@@ -218,7 +227,7 @@ class AmbientLightService : Service() {
         if (mode == currentDriveMode) return
         currentDriveMode = mode
         if (settings.musicAnimationEnabled) {
-            Log.i(TAG, "drive mode changed: ${mode.name} music_base_updated")
+            Log.i(TAG, "drive mode changed: ${mode.name} music_effect_active")
             return
         }
         animationController.applyDriveMode(mode)
@@ -226,10 +235,36 @@ class AmbientLightService : Service() {
 
     private fun stopAmbientLight() {
         unregisterDriveModeListener()
-        musicVisualizerController.stop()
+        stopMusicEffects()
         animationController.cancel()
         controller.disconnect()
         stopSelf()
+    }
+
+    private fun startSelectedMusicEffect(settings: AmbientLightConfig) {
+        when (settings.musicMode) {
+            AmbientLightMusicMode.BASS -> {
+                albumWaveMusicController.stop()
+                musicVisualizerController.start()
+            }
+            AmbientLightMusicMode.ALBUM_WAVE -> {
+                musicVisualizerController.stop()
+                albumWaveMusicController.start()
+            }
+        }
+    }
+
+    private fun stopMusicEffects() {
+        musicVisualizerController.stop()
+        albumWaveMusicController.stop()
+    }
+
+    private fun settingsWithIntentDevice(intent: Intent?, settings: AmbientLightConfig): AmbientLightConfig {
+        val address = intent?.getStringExtra(EXTRA_DEVICE_ADDRESS)?.takeIf { it.isNotBlank() }
+            ?: return settings
+        val name = intent.getStringExtra(EXTRA_DEVICE_NAME)
+        AmbientLightSettings.saveDevice(address, name)
+        return AmbientLightSettings.load()
     }
 
     private fun musicBaseColor(): LedColor =
@@ -256,6 +291,8 @@ class AmbientLightService : Service() {
         private const val EXTRA_BRIGHTNESS = "extra_brightness"
         private const val EXTRA_HEX = "extra_hex"
         private const val EXTRA_DRIVE_MODE = "extra_drive_mode"
+        private const val EXTRA_DEVICE_ADDRESS = "extra_device_address"
+        private const val EXTRA_DEVICE_NAME = "extra_device_name"
 
         @JvmStatic
         fun createStartIntent(context: Context): Intent =
@@ -266,8 +303,19 @@ class AmbientLightService : Service() {
             Intent(context, AmbientLightService::class.java).setAction(ACTION_STOP)
 
         @JvmStatic
-        fun createConnectIntent(context: Context): Intent =
-            Intent(context, AmbientLightService::class.java).setAction(ACTION_CONNECT)
+        fun createConnectIntent(
+            context: Context,
+            address: String? = null,
+            name: String? = null
+        ): Intent =
+            Intent(context, AmbientLightService::class.java)
+                .setAction(ACTION_CONNECT)
+                .apply {
+                    if (!address.isNullOrBlank()) {
+                        putExtra(EXTRA_DEVICE_ADDRESS, address)
+                        putExtra(EXTRA_DEVICE_NAME, name)
+                    }
+                }
 
         @JvmStatic
         fun createDisconnectIntent(context: Context): Intent =

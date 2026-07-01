@@ -61,4 +61,43 @@ class AmbientLightProtocolTest {
         assertEquals("7EFF050300FF00FFEF", AmbientLightProtocol.bytesToHex(AmbientLightProtocol.setBleRgbPayload(0, 255, 0)))
         assertEquals("7EFF05030000FFFFEF", AmbientLightProtocol.bytesToHex(AmbientLightProtocol.setBleRgbPayload(0, 0, 255)))
     }
+
+    @Test
+    fun ledLampModePayloadsMatchCar01BleAndDmxFrames() {
+        val payloads =
+            AmbientLightProtocol.ledLampModePayloads(
+                modeId = 13,
+                output = AmbientLightOutput.BOTH
+            ).map { AmbientLightProtocol.bytesToHex(it) }
+
+        assertEquals(listOf("7BFF030DFFFFFFFFBF", "7EFF030D03FFFFFFEF"), payloads)
+    }
+
+    @Test
+    fun ledLampSpeedPayloadsMatchCar01BleAndDmxFrames() {
+        val payloads =
+            AmbientLightProtocol.ledLampSpeedPayloads(
+                speed = 50,
+                output = AmbientLightOutput.BOTH
+            ).map { AmbientLightProtocol.bytesToHex(it) }
+
+        assertEquals(listOf("7BFF0232FF00FFFFBF", "7EFF023200FFFFFFEF"), payloads)
+    }
+
+    @Test
+    fun dmxCustomEffectPayloadCarriesAlbumColorModeAndSpeed() {
+        assertEquals(
+            "7B00070A1E140D32BF",
+            AmbientLightProtocol.bytesToHex(
+                AmbientLightProtocol.setDmxLedLampCustomEffectPayload(
+                    r = 10,
+                    g = 20,
+                    b = 30,
+                    modeId = 13,
+                    speed = 50,
+                    colorOrder = ColorOrderMapper.RBG
+                )
+            )
+        )
+    }
 }

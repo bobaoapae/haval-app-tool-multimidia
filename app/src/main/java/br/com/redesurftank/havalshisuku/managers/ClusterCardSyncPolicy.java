@@ -19,6 +19,8 @@ public final class ClusterCardSyncPolicy {
             long sinceSyntheticMs,
             int lastSyntheticTarget
     ) {
+        if (previousCard == nextCard) return true;
+
         if (isRecentSyntheticClusterCardNavigation(sinceSyntheticMs, lastSyntheticTarget)) {
             return nextCard != lastSyntheticTarget;
         }

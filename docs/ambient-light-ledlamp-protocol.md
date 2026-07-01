@@ -128,6 +128,79 @@ Padroes v2.1:
 | Amarelo | `7B0007FF00FF00FFBF` | `7EFF0503FFFF00FFEF` | corrigido por ordem independente |
 | Roxo | `7B0007FFFF0000FFBF` | `7EFF0503FF00FFFFEF` | corrigido por ordem independente |
 
+## Atualizacao v4 - presets Pulse/album inspirados no LED Lamp
+
+Em 2026-06-30 foi feita leitura complementar do APK LED Lamp para a tela `modo` enviada no print do
+usuario. O print mostra o seletor `BLE/DMX`, speed `50` e o modo `13.Forward 6 colors BU`
+selecionado.
+
+Trechos confirmados no APK:
+
+- `resources/res/values/arrays.xml`, array `ble_mode`:
+  - `11:Forward 6 Colors GN,11`;
+  - `12:Backward 6 Colors GN,12`;
+  - `13:Forward 6 Colors BU,13`;
+  - `14:Backward 6 Colors BU,14`;
+  - `15:Forward 6 Colors CN,15`;
+  - `16:Backward 6 Colors CN,16`.
+- `resources/res/values/arrays.xml`, array `Effect_Mode_Array`:
+  - `Pulse, 12`.
+- `resources/res/values/arrays.xml`, lista DMX:
+  - `95:Forward Run 7 Colors,95`;
+  - `96:Backward Run 7 Colors,96`;
+  - `123:Forward Flow 7 Colors,123`;
+  - `124:Backward Flow 7 Colors,124`.
+
+Frames LEDCAR-01 usados como referencia e cobertos por teste:
+
+| Funcao | Payload HEX | Observacao |
+| --- | --- | --- |
+| Modo BLE, exemplo `MM=13` | `7E FF 03 0D 03 FF FF FF EF` | `NetConnectBle#setRgbMode(..., z=false)` |
+| Modo DMX, exemplo `MM=13` | `7B FF 03 0D FF FF FF FF BF` | `NetConnectBle#setRgbMode(..., z=true)` |
+| Speed BLE, exemplo `SS=50` | `7E FF 02 32 00 FF FF FF EF` | `NetConnectBle#setSpeed(..., z2=false)` |
+| Speed DMX, exemplo `SS=50` | `7B FF 02 32 FF 00 FF FF BF` | `NetConnectBle#setSpeed(..., z2=true)` |
+| Custom DMX cor/modo/speed | `7B 00 07 RR GG BB MM SS BF` | `NetConnectBle#setDmxCustom` |
+
+Decisao de implementacao no Haval Tool v277/v284:
+
+- a UI expõe presets inspirados nesses modos dentro de `Onda do album`;
+- o loop principal continua app-side e envia RGB com a paleta do album, porque acionar apenas o modo
+  nativo do firmware pode trocar para as cores fixas do LED Lamp e perder a cor base da capa;
+- o caminho DMX tem frame nativo custom com `RGB + modo + speed`, mas o caminho BLE do `LEDCAR-01`
+  nao carrega cor base no mesmo frame;
+- a partir da v284, quando `DMX` esta em `Animado` e o preset possui `modeId`, o app envia o frame
+  custom DMX `7B 00 07 RR GG BB MM SS BF` com a cor base do album, modo e speed;
+- o caminho BLE continua usando simulacao RGB app-side para preservar a cor do album;
+- `BLE` e `DMX` podem ser configurados separadamente como `Animado` ou `Estatico`. `Estatico` fixa
+  a cor base do album; `Animado` segue o preset selecionado quando a saida estiver incluida em
+  `Aplicar em`.
+- a partir da v286, quando a musica esta pausada mas ainda ha titulo/artista/album/capa ativos, o
+  app fixa a cor base do album; a cor do modo de conducao so volta quando nao ha mais
+  album/metadata/capa util.
+
+## Atualizacao v5 - identificacao BLE e fallback manual historico
+
+Em 2026-06-30, durante teste na central, o dispositivo conhecido `C0:00:00:00:00:DD` /
+`LEDCAR-01-00DD` deixou de aparecer no scan. Outros dispositivos BLE sem nome apareceram com RSSI
+forte, mas nao anunciavam `FFE0` e falharam com erros GATT/timeout.
+
+Decisao operacional v280:
+
+- considerar `FFE0` no service UUID ou no advertisement como evidencia forte de LEDLAMP;
+- continuar aceitando nomes `LEDCAR`, `LEDDMX` ou `LED` como candidatos;
+- marcar dispositivos sem nome/sem `FFE0` como `BLE nao identificado`;
+- v280 adicionou temporariamente conexao manual por MAC para tentar o ultimo LED conhecido
+  (`C0:00:00:00:00:DD`) quando ele sumiu do scan.
+
+A v281 adicionou `BluetoothGatt.refresh()` antes de fechar o GATT. Na central, o refresh retornou
+`true`, mas o MAC `C0:00:00:00:00:DD` continuou caindo imediatamente com GATT `133`. Portanto, nesse
+estado a proxima verificacao e fisica: liberar/desligar o controlador LED antes de insistir em novos
+payloads/protocolo.
+
+Em seguida, o usuario reportou que o LED voltou a conectar e pediu remover a conexao manual. A v282
+removeu da UI os controles `Conexao manual`, `Conectar MAC` e `Ultimo LED`, mantendo o scan/lista e
+os logs de identificacao por `FFE0`.
+
 ## Atualizacao v3 - sincronizacao com graves no Haval Tool
 
 A primeira implementacao de sincronizacao com graves no Haval Tool nao usa ainda os modos musicais

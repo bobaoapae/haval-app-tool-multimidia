@@ -41,21 +41,17 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.TAG
 import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
-import br.com.redesurftank.havalshisuku.models.ReleaseInfo
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.UpdateCheckResult
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
 import br.com.redesurftank.havalshisuku.ui.components.AppDimensions
+import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import kotlinx.coroutines.*
-import org.json.JSONArray
 import java.io.BufferedInputStream
-import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
-import kotlin.math.min
 
 
 
@@ -154,82 +150,6 @@ fun InformacoesTab() {
                                 }
                         delay(100)
                 }
-        }
-
-        suspend fun getAllReleaseInfo(): UpdateCheckResult {
-                return withContext(Dispatchers.IO) {
-                        try {
-                                val url =
-                                        URL(
-                                                "https://api.github.com/repos/bobaoapae/haval-app-tool-multimidia/releases"
-                                        )
-                                val conn = url.openConnection() as HttpURLConnection
-                                conn.requestMethod = "GET"
-                                conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
-                                if (conn.responseCode == 200) {
-                                        val reader =
-                                                BufferedReader(InputStreamReader(conn.inputStream))
-                                        val response = reader.use { it.readText() }
-                                        val releases = JSONArray(response)
-
-                                        var latestRelease: ReleaseInfo? = null
-                                        var latestPreview: ReleaseInfo? = null
-
-                                        for (i in 0 until releases.length()) {
-                                                val release = releases.getJSONObject(i)
-                                                val isPrerelease = release.getBoolean("prerelease")
-                                                val tag = release.getString("tag_name")
-                                                val assets = release.getJSONArray("assets")
-                                                var dlUrl: String? = null
-                                                for (j in 0 until assets.length()) {
-                                                        val asset = assets.getJSONObject(j)
-                                                        if (asset.getString("name").endsWith(".apk")
-                                                        ) {
-                                                                dlUrl =
-                                                                        asset.getString(
-                                                                                "browser_download_url"
-                                                                        )
-                                                                break
-                                                        }
-                                                }
-                                                if (dlUrl != null) {
-                                                        val info =
-                                                                ReleaseInfo(
-                                                                        tag,
-                                                                        dlUrl,
-                                                                        isPrerelease
-                                                                )
-                                                        if (isPrerelease && latestPreview == null) {
-                                                                latestPreview = info
-                                                        } else if (!isPrerelease &&
-                                                                        latestRelease == null
-                                                        ) {
-                                                                latestRelease = info
-                                                        }
-                                                }
-                                                if (latestRelease != null && latestPreview != null)
-                                                        break
-                                        }
-
-                                        UpdateCheckResult(latestRelease, latestPreview)
-                                } else UpdateCheckResult(null, null)
-                        } catch (e: Exception) {
-                                Log.w(TAG, "Error fetching release info", e)
-                                UpdateCheckResult(null, null)
-                        }
-                }
-        }
-
-        fun compareVersions(v1: String, v2: String): Int {
-                val clean1 = v1.removeSuffix("-preview")
-                val clean2 = v2.removeSuffix("-preview")
-                val parts1 = clean1.split(".").map { it.toIntOrNull() ?: 0 }
-                val parts2 = clean2.split(".").map { it.toIntOrNull() ?: 0 }
-                for (i in 0 until min(parts1.size, parts2.size)) {
-                        if (parts1[i] > parts2[i]) return 1
-                        if (parts1[i] < parts2[i]) return -1
-                }
-                return parts1.size.compareTo(parts2.size)
         }
 
         fun startDownload(url: String, resetTargetVersion: String? = null) {
@@ -453,7 +373,9 @@ fun InformacoesTab() {
                                                 onClick = {
                                                         isCheckingUpdates = true
                                                         scope.launch {
-                                                                val result = getAllReleaseInfo()
+                                                                val result =
+                                                                        ReleaseUpdateChecker
+                                                                                .getAllReleaseInfo()
                                                                 updateCheckResult = result
                                                                 isCheckingUpdates = false
                                                                 showUpdateCheckDialog = true
@@ -661,14 +583,14 @@ fun InformacoesTab() {
                                                 // --- Usuário está em Preview ---
                                                 val hasPreviewUpdate =
                                                         result.latestPreview != null &&
-                                                                compareVersions(
+                                                                ReleaseUpdateChecker.compareVersions(
                                                                         result.latestPreview.tag
                                                                                 .removePrefix("v"),
                                                                         currentClean
                                                                 ) > 0
                                                 val hasReleaseUpgrade =
                                                         result.latestRelease != null &&
-                                                                compareVersions(
+                                                                ReleaseUpdateChecker.compareVersions(
                                                                         result.latestRelease.tag
                                                                                 .removePrefix("v"),
                                                                         currentClean
@@ -837,7 +759,7 @@ fun InformacoesTab() {
                                                 // --- Usuário está em Release (Estável) ---
                                                 val hasReleaseUpdate =
                                                         result.latestRelease != null &&
-                                                                compareVersions(
+                                                                ReleaseUpdateChecker.compareVersions(
                                                                         result.latestRelease.tag
                                                                                 .removePrefix("v"),
                                                                         currentClean
@@ -845,7 +767,7 @@ fun InformacoesTab() {
                                                 val hasPreviewAvailable =
                                                         showBetaUpdates &&
                                                                 result.latestPreview != null &&
-                                                                compareVersions(
+                                                                ReleaseUpdateChecker.compareVersions(
                                                                         result.latestPreview.tag
                                                                                 .removePrefix("v"),
                                                                         currentClean

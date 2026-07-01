@@ -48,6 +48,17 @@ deixar pulsos nativos de TTS/LCA entrarem no caminho pesado de warning e card fl
 - `setCardId(Int)`
 - `saveSetting(String, String)`
 
+## Readiness e Reload do WebView
+
+`InstrumentProjector2` trata `onPageStarted`, reload por watchdog e troca de tema como estado
+`loading`: `webViewsLoaded=false`, fila pendente antiga descartada e heartbeat renovado. Isso
+evita que chamadas como `control(...)`, `updateWarning(...)`, `focus(...)` e `showScreen(...)`
+sejam executadas contra uma pagina em reload antes de o modulo JS reinstalar `window.control` e
+demais funcoes globais.
+
+Em `onPageFinished`, o heartbeat e renovado antes do sync completo para impedir reload prematuro
+do watchdog enquanto o primeiro `window.Android.heartbeat()` ainda nao disparou.
+
 ## Arquivos Relacionados
 
 - `InstrumentProjector2.kt`

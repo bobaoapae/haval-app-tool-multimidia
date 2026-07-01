@@ -19,7 +19,9 @@ data class AmbientLightScanResult(
     val name: String?,
     val address: String,
     val rssi: Int,
-    val isLikelyLedLamp: Boolean
+    val isLikelyLedLamp: Boolean,
+    val hasLedLampService: Boolean,
+    val advertisementHex: String?
 )
 
 class AmbientLightDeviceScanner(private val context: Context) {
@@ -115,17 +117,33 @@ class AmbientLightDeviceScanner(private val context: Context) {
         if (!seenAddresses.add(address)) return
 
         val name = result.scanRecord?.deviceName ?: safeDeviceName(device)
+        val serviceUuids =
+            result.scanRecord?.serviceUuids
+                .orEmpty()
+                .map { it.uuid.toString() }
+        val advertisementHex = result.scanRecord?.bytes?.let { AmbientLightProtocol.bytesToHex(it).take(96) }
+        val hasLedLampService =
+            serviceUuids.any { it.equals(AmbientLightProtocol.SERVICE_UUID, ignoreCase = true) } ||
+                advertisementHex?.contains("E0FF", ignoreCase = true) == true ||
+                advertisementHex?.contains("FFE0", ignoreCase = true) == true
         val likelyLedLamp =
-            name?.contains("LEDCAR", ignoreCase = true) == true ||
+            hasLedLampService ||
+                name?.contains("LEDCAR", ignoreCase = true) == true ||
                 name?.contains("LEDDMX", ignoreCase = true) == true ||
                 name?.contains("LED", ignoreCase = true) == true
 
+        Log.w(
+            TAG,
+            "scan result address=$address name=${name ?: "-"} rssi=${result.rssi} services=${serviceUuids.ifEmpty { listOf("-") }} ledService=$hasLedLampService likelyLedLamp=$likelyLedLamp adv=${advertisementHex ?: "-"}"
+        )
         onResult(
             AmbientLightScanResult(
                 name = name,
                 address = address,
                 rssi = result.rssi,
-                isLikelyLedLamp = likelyLedLamp
+                isLikelyLedLamp = likelyLedLamp,
+                hasLedLampService = hasLedLampService,
+                advertisementHex = advertisementHex
             )
         )
     }

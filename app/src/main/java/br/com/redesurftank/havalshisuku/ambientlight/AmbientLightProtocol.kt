@@ -101,6 +101,90 @@ object AmbientLightProtocol {
         )
     }
 
+    fun setBleLedLampModePayload(modeId: Int): ByteArray {
+        val mode = modeId.coerceIn(0, 255)
+        return byteArrayOf(
+            0x7E.toByte(),
+            0xFF.toByte(),
+            0x03.toByte(),
+            mode.toByte(),
+            0x03.toByte(),
+            0xFF.toByte(),
+            0xFF.toByte(),
+            0xFF.toByte(),
+            0xEF.toByte()
+        )
+    }
+
+    fun setDmxLedLampModePayload(modeId: Int): ByteArray {
+        val mode = modeId.coerceIn(0, 255)
+        return byteArrayOf(
+            0x7B.toByte(),
+            0xFF.toByte(),
+            0x03.toByte(),
+            mode.toByte(),
+            0xFF.toByte(),
+            0xFF.toByte(),
+            0xFF.toByte(),
+            0xFF.toByte(),
+            0xBF.toByte()
+        )
+    }
+
+    fun setBleLedLampSpeedPayload(speed: Int, voiceMode: Boolean = false): ByteArray {
+        val safeSpeed = speed.coerceIn(1, 100)
+        return byteArrayOf(
+            0x7E.toByte(),
+            0xFF.toByte(),
+            0x02.toByte(),
+            safeSpeed.toByte(),
+            (if (voiceMode) 0x01 else 0x00).toByte(),
+            0xFF.toByte(),
+            0xFF.toByte(),
+            0xFF.toByte(),
+            0xEF.toByte()
+        )
+    }
+
+    fun setDmxLedLampSpeedPayload(speed: Int): ByteArray {
+        val safeSpeed = speed.coerceIn(1, 100)
+        return byteArrayOf(
+            0x7B.toByte(),
+            0xFF.toByte(),
+            0x02.toByte(),
+            safeSpeed.toByte(),
+            0xFF.toByte(),
+            0x00.toByte(),
+            0xFF.toByte(),
+            0xFF.toByte(),
+            0xBF.toByte()
+        )
+    }
+
+    fun setDmxLedLampCustomEffectPayload(
+        r: Int,
+        g: Int,
+        b: Int,
+        modeId: Int,
+        speed: Int,
+        colorOrder: ColorOrderMapper = ColorOrderMapper.DEFAULT_DMX
+    ): ByteArray {
+        val color = colorOrder.apply(LedColor(r, g, b))
+        val mode = modeId.coerceIn(0, 255)
+        val safeSpeed = speed.coerceIn(1, 100)
+        return byteArrayOf(
+            0x7B.toByte(),
+            0x00.toByte(),
+            0x07.toByte(),
+            color.r.toByte(),
+            color.g.toByte(),
+            color.b.toByte(),
+            mode.toByte(),
+            safeSpeed.toByte(),
+            0xBF.toByte()
+        )
+    }
+
     fun rgbPayloads(
         r: Int,
         g: Int,
@@ -132,6 +216,20 @@ object AmbientLightProtocol {
             AmbientLightOutput.BLE -> listOf(setBleBrightnessPayload(percent))
             AmbientLightOutput.DMX -> listOf(setDmxBrightnessPayload(percent))
             AmbientLightOutput.BOTH -> listOf(setDmxBrightnessPayload(percent), setBleBrightnessPayload(percent))
+        }
+
+    fun ledLampModePayloads(modeId: Int, output: AmbientLightOutput): List<ByteArray> =
+        when (output) {
+            AmbientLightOutput.BLE -> listOf(setBleLedLampModePayload(modeId))
+            AmbientLightOutput.DMX -> listOf(setDmxLedLampModePayload(modeId))
+            AmbientLightOutput.BOTH -> listOf(setDmxLedLampModePayload(modeId), setBleLedLampModePayload(modeId))
+        }
+
+    fun ledLampSpeedPayloads(speed: Int, output: AmbientLightOutput): List<ByteArray> =
+        when (output) {
+            AmbientLightOutput.BLE -> listOf(setBleLedLampSpeedPayload(speed))
+            AmbientLightOutput.DMX -> listOf(setDmxLedLampSpeedPayload(speed))
+            AmbientLightOutput.BOTH -> listOf(setDmxLedLampSpeedPayload(speed), setBleLedLampSpeedPayload(speed))
         }
 
     fun setRgbHex(

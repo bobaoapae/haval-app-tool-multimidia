@@ -61,6 +61,7 @@ class AmbientLightBleController private constructor(context: Context) {
     private var bluetoothGatt: BluetoothGatt? = null
     private var writeCharacteristic: BluetoothGattCharacteristic? = null
     private var reconnectJob: Job? = null
+    private var connectTimeoutJob: Job? = null
     private var targetAddress: String? = null
     private var reconnectEnabled = false
     private var manualDisconnect = false
@@ -83,10 +84,17 @@ class AmbientLightBleController private constructor(context: Context) {
         object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
                 val address = gatt.device?.address.orEmpty()
+                if (!isActiveCallback(gatt, address)) {
+                    Log.w(TAG, "ignoring stale GATT callback address=$address status=$status state=$newState target=${targetAddress ?: "-"}")
+                    closeGatt(gatt)
+                    return
+                }
                 if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                     Log.i(TAG, "connected to ${safeDeviceName(gatt.device) ?: address}")
                     reconnectAttempt = 0
+                    scheduleConnectTimeout(address, DISCOVER_SERVICES_TIMEOUT_MS, "descobrir servicos BLE")
                     if (!hasConnectPermission()) {
+                        cancelConnectTimeout()
                         setError("Permissao BLUETOOTH_CONNECT ausente")
                         closeGatt(gatt)
                         return
@@ -95,6 +103,7 @@ class AmbientLightBleController private constructor(context: Context) {
                         @SuppressLint("MissingPermission")
                         gatt.discoverServices()
                     }.onFailure {
+                        cancelConnectTimeout()
                         setError("Falha ao descobrir servicos: ${it.message}")
                         closeGatt(gatt)
                         scheduleReconnect()
@@ -102,8 +111,12 @@ class AmbientLightBleController private constructor(context: Context) {
                     return
                 }
 
+                cancelConnectTimeout()
                 if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     Log.w(TAG, "disconnected from $address status=$status")
+                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                        recordGattFailure(address, status)
+                    }
                     writeCharacteristic = null
                     closeGatt(gatt)
                     if (!manualDisconnect) {
@@ -111,10 +124,25 @@ class AmbientLightBleController private constructor(context: Context) {
                     } else {
                         _state.value = AmbientLightConnectionState.Idle
                     }
+                } else if (status != BluetoothGatt.GATT_SUCCESS) {
+                    Log.w(TAG, "connection failed address=$address status=$status state=$newState")
+                    recordGattFailure(address, status)
+                    writeCharacteristic = null
+                    closeGatt(gatt)
+                    if (!manualDisconnect) {
+                        scheduleReconnect()
+                    }
                 }
             }
 
             override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+                val address = gatt.device?.address.orEmpty()
+                if (!isActiveCallback(gatt, address)) {
+                    Log.w(TAG, "ignoring stale services callback address=$address status=$status target=${targetAddress ?: "-"}")
+                    closeGatt(gatt)
+                    return
+                }
+                cancelConnectTimeout()
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     setError("Falha ao descobrir servicos BLE: $status")
                     closeGatt(gatt)
@@ -173,6 +201,7 @@ class AmbientLightBleController private constructor(context: Context) {
         manualDisconnect = true
         reconnectEnabled = false
         reconnectJob?.cancel()
+        connectTimeoutJob?.cancel()
         scope.launch {
             connectMutex.withLock {
                 closeGatt(bluetoothGatt)
@@ -249,6 +278,7 @@ class AmbientLightBleController private constructor(context: Context) {
             reconnectEnabled = reconnect
             manualDisconnect = false
             reconnectJob?.cancel()
+            connectTimeoutJob?.cancel()
             writeCharacteristic = null
             closeGatt(bluetoothGatt)
             bluetoothGatt = null
@@ -271,13 +301,22 @@ class AmbientLightBleController private constructor(context: Context) {
                         return
                     }
 
+            Log.w(TAG, "connecting to BLE device $address reconnect=$reconnect")
             _state.value = AmbientLightConnectionState.Connecting(address)
             runCatching {
                 @SuppressLint("MissingPermission")
-                bluetoothGatt = device.connectGatt(appContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+                device.connectGatt(appContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
             }.onFailure {
                 setError("Falha ao conectar BLE: ${it.message}")
                 scheduleReconnect()
+            }.onSuccess { gatt ->
+                if (gatt == null) {
+                    setError("connectGatt retornou nulo")
+                    scheduleReconnect()
+                } else {
+                    bluetoothGatt = gatt
+                    scheduleConnectTimeout(address, CONNECT_TIMEOUT_MS, "conectar BLE")
+                }
             }
         }
     }
@@ -307,7 +346,7 @@ class AmbientLightBleController private constructor(context: Context) {
                 }
 
                 val hex = AmbientLightProtocol.bytesToHex(payload)
-                Log.i(TAG, "send: $hex")
+                Log.w(TAG, "send: $hex")
                 characteristic.value = payload
                 @SuppressLint("MissingPermission")
                 val sent = gatt.writeCharacteristic(characteristic)
@@ -347,6 +386,42 @@ class AmbientLightBleController private constructor(context: Context) {
             }
     }
 
+    private fun isActiveCallback(gatt: BluetoothGatt, address: String): Boolean {
+        val target = targetAddress
+        if (!target.isNullOrBlank() && address.isNotBlank() && !address.equals(target, ignoreCase = true)) {
+            return false
+        }
+        val activeGatt = bluetoothGatt
+        return activeGatt == null || activeGatt == gatt
+    }
+
+    private fun scheduleConnectTimeout(address: String, timeoutMs: Long, operation: String) {
+        connectTimeoutJob?.cancel()
+        connectTimeoutJob =
+            scope.launch {
+                delay(timeoutMs)
+                connectMutex.withLock {
+                    val state = _state.value
+                    if (
+                        state is AmbientLightConnectionState.Connecting &&
+                        state.address.equals(address, ignoreCase = true) &&
+                        !manualDisconnect
+                    ) {
+                        Log.w(TAG, "$operation timeout for $address")
+                        writeCharacteristic = null
+                        closeGatt(bluetoothGatt)
+                        setError("Timeout ao $operation")
+                        scheduleReconnect()
+                    }
+                }
+            }
+    }
+
+    private fun cancelConnectTimeout() {
+        connectTimeoutJob?.cancel()
+        connectTimeoutJob = null
+    }
+
     private fun hasConnectPermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             ContextCompat.checkSelfPermission(appContext, Manifest.permission.BLUETOOTH_CONNECT) ==
@@ -368,6 +443,11 @@ class AmbientLightBleController private constructor(context: Context) {
         _debugState.value = _debugState.value.copy(lastError = message)
     }
 
+    private fun recordGattFailure(address: String, status: Int) {
+        _debugState.value =
+            _debugState.value.copy(lastError = "GATT $status em ${address.ifBlank { "dispositivo" }}")
+    }
+
     @SuppressLint("MissingPermission")
     private fun safeDeviceName(device: BluetoothDevice?): String? {
         if (device == null || !hasConnectPermission()) return null
@@ -382,14 +462,30 @@ class AmbientLightBleController private constructor(context: Context) {
                 gatt.disconnect()
             }
         }
+        refreshGattCache(gatt)
         runCatching { gatt.close() }
         if (bluetoothGatt == gatt) {
             bluetoothGatt = null
         }
     }
 
+    private fun refreshGattCache(gatt: BluetoothGatt) {
+        val address = runCatching { gatt.device?.address }.getOrNull().orEmpty()
+        runCatching {
+            val method = gatt.javaClass.getMethod("refresh")
+            method.isAccessible = true
+            method.invoke(gatt) as? Boolean ?: false
+        }.onSuccess { refreshed ->
+            Log.w(TAG, "refresh GATT cache address=${address.ifBlank { "-" }} result=$refreshed")
+        }.onFailure {
+            Log.w(TAG, "refresh GATT cache unavailable address=${address.ifBlank { "-" }}: ${it.message}")
+        }
+    }
+
     companion object {
         private const val TAG = "AmbientLight"
+        private const val CONNECT_TIMEOUT_MS = 12_000L
+        private const val DISCOVER_SERVICES_TIMEOUT_MS = 10_000L
 
         @Volatile
         private var INSTANCE: AmbientLightBleController? = null

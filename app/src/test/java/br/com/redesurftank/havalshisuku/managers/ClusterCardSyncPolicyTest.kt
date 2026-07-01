@@ -20,8 +20,8 @@ class ClusterCardSyncPolicyTest {
     }
 
     @Test
-    fun recentSyntheticNavigationAcceptsMatchingNativeEcho() {
-        assertFalse(
+    fun recentSyntheticNavigationIgnoresMatchingNativeEcho() {
+        assertTrue(
             ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
                 1,
                 1,

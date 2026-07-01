@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import br.com.redesurftank.havalshisuku.BuildConfig
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterLogCaptureStatus
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.diagnostics.ProblemReportBuilder
@@ -28,6 +29,7 @@ import br.com.redesurftank.havalshisuku.diagnostics.ProblemReportSubmitResult
 import br.com.redesurftank.havalshisuku.diagnostics.ProblemReportSubmitter
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
 import br.com.redesurftank.havalshisuku.ui.components.AppDimensions
+import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -44,13 +46,31 @@ fun ProblemReportTab() {
     var description by remember { mutableStateOf("") }
     var isCreating by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
+    var latestPreviewVersion by remember { mutableStateOf<String?>(null) }
+    var isCheckingLatestPreview by remember { mutableStateOf(false) }
+    var latestPreviewCheckFailed by remember { mutableStateOf(false) }
     var logCaptureStatus by remember {
         mutableStateOf(
                 ClusterPersistentEventLogger.getTodayLogCaptureStatus(context.applicationContext)
         )
     }
 
+    val isCurrentVersionOutdated =
+            latestPreviewVersion?.let {
+                ReleaseUpdateChecker.isNewer(it, BuildConfig.VERSION_NAME)
+            }
     val canCreateIssue = description.trim().length >= 10
+
+    fun refreshLatestPreviewVersion() {
+        scope.launch {
+            isCheckingLatestPreview = true
+            latestPreviewCheckFailed = false
+            val result = ReleaseUpdateChecker.getAllReleaseInfo()
+            latestPreviewVersion = result.latestPreview?.tag
+            latestPreviewCheckFailed = result.latestPreview == null
+            isCheckingLatestPreview = false
+        }
+    }
 
     fun refreshLogCaptureStatus() {
         scope.launch {
@@ -61,6 +81,8 @@ fun ProblemReportTab() {
                     }
         }
     }
+
+    LaunchedEffect(Unit) { refreshLatestPreviewVersion() }
 
     Column(
             modifier =
@@ -111,6 +133,15 @@ fun ProblemReportTab() {
                     }
                 }
 
+                ProblemReportVersionStatus(
+                        currentVersion = BuildConfig.VERSION_NAME,
+                        latestPreviewVersion = latestPreviewVersion,
+                        isChecking = isCheckingLatestPreview,
+                        checkFailed = latestPreviewCheckFailed,
+                        isOutdated = isCurrentVersionOutdated,
+                        onRefresh = { refreshLatestPreviewVersion() }
+                )
+
                 TextField(
                         value = description,
                         onValueChange = { description = it },
@@ -148,7 +179,13 @@ fun ProblemReportTab() {
 
                 Button(
                         onClick = {
-                            val input = buildProblemReportInput(description)
+                            val input =
+                                    buildProblemReportInput(
+                                            description = description,
+                                            latestPreviewVersion = latestPreviewVersion,
+                                            currentVersionOutdated = isCurrentVersionOutdated,
+                                            latestPreviewCheckFailed = latestPreviewCheckFailed
+                                    )
                             isCreating = true
                             statusMessage = null
                             scope.launch {
@@ -201,7 +238,11 @@ fun ProblemReportTab() {
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                     }
-                    Text("Enviar relatório", color = Color.White)
+                    Text(
+                            if (isCurrentVersionOutdated == true) "Enviar relatório mesmo assim"
+                            else "Enviar relatório",
+                            color = Color.White
+                    )
                 }
 
                 if (!canCreateIssue) {
@@ -249,7 +290,13 @@ fun ProblemReportTab() {
             ) {
                 OutlinedButton(
                         onClick = {
-                            val input = buildProblemReportInput(description)
+                            val input =
+                                    buildProblemReportInput(
+                                            description = description,
+                                            latestPreviewVersion = latestPreviewVersion,
+                                            currentVersionOutdated = isCurrentVersionOutdated,
+                                            latestPreviewCheckFailed = latestPreviewCheckFailed
+                                    )
                             scope.launch {
                                 val report =
                                         withContext(Dispatchers.IO) {
@@ -268,6 +315,56 @@ fun ProblemReportTab() {
                     Text("Copiar relatório", color = AppColors.TextPrimary)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ProblemReportVersionStatus(
+        currentVersion: String,
+        latestPreviewVersion: String?,
+        isChecking: Boolean,
+        checkFailed: Boolean,
+        isOutdated: Boolean?,
+        onRefresh: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(
+                text = "Versão do app",
+                color = AppColors.TextPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+        )
+        VersionStatusLine(label = "Instalada", value = currentVersion)
+        VersionStatusLine(
+                label = "Última preview",
+                value =
+                        when {
+                            isChecking -> "Verificando..."
+                            latestPreviewVersion != null -> latestPreviewVersion
+                            else -> "Não verificada"
+                        }
+        )
+        Text(
+                text =
+                        when {
+                            isOutdated == true ->
+                                    "Esta versão está desatualizada. Atualize antes de enviar se possível; o problema pode já ter sido corrigido."
+                            isOutdated == false -> "Você está na última preview conhecida."
+                            checkFailed ->
+                                    "Não foi possível verificar a última preview agora. Se possível, confira Atualizações em Informações antes de enviar."
+                            else -> "Verificando se existe preview mais recente antes do envio."
+                        },
+                color = if (isOutdated == true) Color(0xFFFF9800) else AppColors.TextSecondary,
+                fontSize = 13.sp
+        )
+        OutlinedButton(
+                onClick = onRefresh,
+                enabled = !isChecking,
+                shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius),
+                modifier = Modifier.height(38.dp)
+        ) {
+            Text("Verificar novamente", color = AppColors.TextPrimary, fontSize = 13.sp)
         }
     }
 }
@@ -356,6 +453,14 @@ private fun LogCaptureStatusCard(
 }
 
 @Composable
+private fun VersionStatusLine(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(text = label, color = AppColors.TextSecondary, fontSize = 13.sp)
+        Text(text = value, color = AppColors.TextPrimary, fontSize = 13.sp)
+    }
+}
+
+@Composable
 private fun LogStatusLine(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(text = label, color = AppColors.TextSecondary, fontSize = 13.sp)
@@ -386,7 +491,12 @@ private fun formatLastModified(lastModifiedMs: Long): String {
     return SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(lastModifiedMs))
 }
 
-private fun buildProblemReportInput(description: String): ProblemReportInput {
+private fun buildProblemReportInput(
+        description: String,
+        latestPreviewVersion: String?,
+        currentVersionOutdated: Boolean?,
+        latestPreviewCheckFailed: Boolean
+): ProblemReportInput {
     return ProblemReportInput(
             description = description,
             carPlayConnected = false,
@@ -394,7 +504,10 @@ private fun buildProblemReportInput(description: String): ProblemReportInput {
             mirroredOnD3 = false,
             notMirroredOnD3 = false,
             mapReturnedToNormal = false,
-            acReturnedToMainMenu = false
+            acReturnedToMainMenu = false,
+            latestPreviewVersionName = latestPreviewVersion,
+            currentVersionOutdated = currentVersionOutdated,
+            latestPreviewCheckFailed = latestPreviewCheckFailed
     )
 }
 
