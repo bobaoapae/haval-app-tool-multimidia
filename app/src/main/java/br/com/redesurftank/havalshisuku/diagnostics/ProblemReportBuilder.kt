@@ -16,7 +16,10 @@ data class ProblemReportInput(
         val mirroredOnD3: Boolean,
         val notMirroredOnD3: Boolean,
         val mapReturnedToNormal: Boolean,
-        val acReturnedToMainMenu: Boolean
+        val acReturnedToMainMenu: Boolean,
+        val latestPreviewVersionName: String? = null,
+        val currentVersionOutdated: Boolean? = null,
+        val latestPreviewCheckFailed: Boolean = false
 )
 
 data class ProblemReport(
@@ -112,6 +115,12 @@ object ProblemReportBuilder {
             appendLine("- Version code: ${BuildConfig.VERSION_CODE}")
             appendLine("- Build type: ${BuildConfig.BUILD_TYPE}")
             appendLine("- Debug: ${BuildConfig.DEBUG}")
+            appendLine("- Ultima preview conhecida: ${input.latestPreviewVersionName ?: "Nao verificada"}")
+            appendLine(
+                    "- Versao instalada desatualizada: " +
+                            input.currentVersionOutdated?.let(::yesNo)
+                                    ?: if (input.latestPreviewCheckFailed) "A confirmar" else "Nao"
+            )
             appendLine(
                     "- Diagnostico de logs habilitado: " +
                             yesNo(captureStatus.diagnosticLoggingAvailable)

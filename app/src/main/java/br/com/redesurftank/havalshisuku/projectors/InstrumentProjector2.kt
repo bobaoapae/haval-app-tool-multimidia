@@ -146,7 +146,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                         "rootVisible" to (::root.isInitialized && root.isVisible)
                                 )
                         )
-                        ensureUi { webView?.reload() }
+                        ensureUi {
+                            webView?.let { wv ->
+                                markWebViewLoading(wv, "WATCHDOG_RELOAD")
+                                wv.reload()
+                            }
+                        }
                         lastHeartbeatTime =
                                 System.currentTimeMillis() // Reset to avoid immediate re-trigger
                     }
@@ -220,13 +225,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                         key == SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key
                         ) {
                             Log.d(TAG, "Theme changed, reloading WebView")
-                            webView?.loadDataWithBaseURL(
-                                    getThemeBaseUrl(),
-                                    readAppContent(outerContext),
-                                    "text/html",
-                                    "UTF-8",
-                                    null
-                            )
+                            webView?.let { wv ->
+                                markWebViewLoading(wv, "THEME_CHANGED")
+                                wv.loadDataWithBaseURL(
+                                        getThemeBaseUrl(),
+                                        readAppContent(outerContext),
+                                        "text/html",
+                                        "UTF-8",
+                                        null
+                                )
+                            }
                         }
                         if (key == SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key) {
                             val unit = getClusterFuelDisplayUnit()
@@ -1252,6 +1260,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         settings.allowContentAccess = true
                         webViewClient =
                                 object : WebViewClient() {
+                                    override fun onPageStarted(
+                                            view: WebView?,
+                                            url: String?,
+                                            favicon: android.graphics.Bitmap?
+                                    ) {
+                                        super.onPageStarted(view, url, favicon)
+                                        view?.let { markWebViewLoading(it, "PAGE_STARTED", url) }
+                                    }
+
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         super.onPageFinished(view, url)
                                         view?.let { wv: android.webkit.WebView ->
@@ -1266,6 +1283,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
                                             // Mark the WebView as fully loaded first so that any new incoming
                                             // telemetry events are processed instantly instead of being queued.
+                                            lastHeartbeatTime = System.currentTimeMillis()
                                             webViewsLoaded[wv] = true
 
                                             // Discard all stale, redundant telemetry updates queued during page load
@@ -1845,6 +1863,19 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         } else {
             pendingJsQueues.getOrPut(webView) { mutableListOf() }.add(js)
         }
+    }
+
+    private fun markWebViewLoading(webView: WebView, reason: String, url: String? = null) {
+        webViewsLoaded[webView] = false
+        pendingJsQueues.remove(webView)
+        lastHeartbeatTime = System.currentTimeMillis()
+        logClusterPerfEvent(
+                "webview_loading",
+                mapOf(
+                        "reason" to reason,
+                        "url" to (url ?: "")
+                )
+        )
     }
 
     private fun getThemeBaseUrl(): String {

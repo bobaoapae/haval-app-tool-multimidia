@@ -5,6 +5,10 @@ enum class AmbientLightOutput(val label: String) {
     DMX("DMX"),
     BOTH("BLE + DMX");
 
+    fun includesBle(): Boolean = this == BLE || this == BOTH
+
+    fun includesDmx(): Boolean = this == DMX || this == BOTH
+
     companion object {
         val DEFAULT = DMX
 

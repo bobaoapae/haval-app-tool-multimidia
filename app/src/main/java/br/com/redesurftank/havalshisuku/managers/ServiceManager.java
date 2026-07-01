@@ -279,6 +279,21 @@ public class ServiceManager {
         ClusterPersistentEventLogger.logText(event, detail);
     }
 
+    private void logPersistentClusterEvent(String event, Map<String, ?> details) {
+        ClusterPersistentEventLogger.log(event, details);
+    }
+
+    private Map<String, Object> persistentEventDetails(Object... values) {
+        Map<String, Object> details = new HashMap<>();
+        for (int i = 0; i + 1 < values.length; i += 2) {
+            Object key = values[i];
+            if (key != null) {
+                details.put(String.valueOf(key), values[i + 1]);
+            }
+        }
+        return details;
+    }
+
     // Counter-pulse for `bean.pui.scene_notify`:
     // the native Its_IntelligentVehicleControlService raises this signal to value 8
     // (SCENE_BACKCAMERA) when AVM/backup camera activates, which makes the CarPlay
@@ -1562,24 +1577,80 @@ public class ServiceManager {
     }
 
     public void updateData(String key, String value) {
+        boolean isHvacCommand = hvacKeysToSuspend.contains(key);
         if (!isControlServiceAlive()) {
             Log.e(TAG, "ControlService not initialized");
+            if (isHvacCommand) {
+                logPersistentClusterEvent(
+                        "hvac_update_skipped",
+                        persistentEventDetails(
+                                "key", key,
+                                "value", value,
+                                "reason", "control_service_not_alive"
+                        )
+                );
+            }
             return;
         }
 
-        boolean shouldSuspend = hvacKeysToSuspend.contains(key);
+        boolean shouldSuspend = isHvacCommand;
         if (shouldSuspend) {
             ensureHvacSuspended(key);
         }
 
         try {
+            if (isHvacCommand) {
+                logPersistentClusterEvent(
+                        "hvac_update_request",
+                        persistentEventDetails(
+                                "key", key,
+                                "value", value
+                        )
+                );
+            }
             controlService.request("cmd.common.request.set", key, value);
+            if (isHvacCommand) {
+                publishOptimisticHvacValue(key, value);
+            }
         } catch (Exception e) {
             Log.e(TAG, "Error updating data", e);
+            if (isHvacCommand) {
+                logPersistentClusterEvent(
+                        "hvac_update_failed",
+                        persistentEventDetails(
+                                "key", key,
+                                "value", value,
+                                "error", e.getClass().getSimpleName(),
+                                "message", e.getMessage()
+                        )
+                );
+            }
         }
 
         if (shouldSuspend) {
             scheduleHvacResumption();
+        }
+    }
+
+    private void publishOptimisticHvacValue(String key, String value) {
+        String previous = dataCache.put(key, value);
+        if (value != null && value.equals(previous)) {
+            return;
+        }
+        logPersistentClusterEvent(
+                "hvac_update_optimistic",
+                persistentEventDetails(
+                        "key", key,
+                        "previous", previous,
+                        "value", value
+                )
+        );
+        for (IDataChanged listener : new ArrayList<>(dataChangedListeners)) {
+            try {
+                listener.onDataChanged(key, value);
+            } catch (Exception e) {
+                Log.e(TAG, "Error notifying optimistic HVAC listener", e);
+            }
         }
     }
 

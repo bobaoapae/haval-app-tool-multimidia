@@ -283,6 +283,30 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "ambientLightMusicAnimationEnabled",
             "Ativar animação do Ambient Light com música"
     ),
+    AMBIENT_LIGHT_MUSIC_MODE(
+            "ambientLightMusicMode",
+            "Modo da animação do Ambient Light com música"
+    ),
+    AMBIENT_LIGHT_ALBUM_EFFECT(
+            "ambientLightAlbumEffect",
+            "Efeito da animação do Ambient Light com tons do álbum"
+    ),
+    AMBIENT_LIGHT_ALBUM_EFFECT_SPEED(
+            "ambientLightAlbumEffectSpeed",
+            "Velocidade do efeito do Ambient Light com tons do álbum"
+    ),
+    AMBIENT_LIGHT_ALBUM_EFFECT_OUTPUT(
+            "ambientLightAlbumEffectOutput",
+            "Saída do efeito do Ambient Light com tons do álbum"
+    ),
+    AMBIENT_LIGHT_ALBUM_BLE_MODE(
+            "ambientLightAlbumBleMode",
+            "Comportamento BLE do efeito do Ambient Light com tons do álbum"
+    ),
+    AMBIENT_LIGHT_ALBUM_DMX_MODE(
+            "ambientLightAlbumDmxMode",
+            "Comportamento DMX do efeito do Ambient Light com tons do álbum"
+    ),
     AMBIENT_LIGHT_COLOR_ORDER(
             "ambientLightColorOrder",
             "Ordem dos canais de cor DMX do Ambient Light"

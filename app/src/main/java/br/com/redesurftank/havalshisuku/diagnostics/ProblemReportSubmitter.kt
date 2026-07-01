@@ -218,7 +218,13 @@ object ProblemReportSubmitter {
                                 "versionName" to BuildConfig.VERSION_NAME,
                                 "versionCode" to BuildConfig.VERSION_CODE,
                                 "buildType" to BuildConfig.BUILD_TYPE,
-                                "debug" to BuildConfig.DEBUG
+                                "debug" to BuildConfig.DEBUG,
+                                "latestPreviewVersionName" to
+                                        report.input.latestPreviewVersionName,
+                                "currentVersionOutdated" to
+                                        report.input.currentVersionOutdated,
+                                "latestPreviewCheckFailed" to
+                                        report.input.latestPreviewCheckFailed
                         ),
                 "generatedAt" to report.generatedAt,
                 "timeZone" to report.timeZoneId,

@@ -1,6 +1,6 @@
 # Android Flow
 
-Atualizado em: 2026-06-25
+Atualizado em: 2026-06-30
 
 ## Fluxo Identificado
 
@@ -10,6 +10,20 @@ Atualizado em: 2026-06-25
 4. `ServiceManager` integra serviços veiculares, cache de dados e eventos para UI/projectors.
 5. `ProjectorManager` cria projectors nos displays secundários.
 6. Telas Compose em `ui/screens` expõem configurações para usuário.
+
+## Atualizacao 2026-06-30 - Dashboard Impulse background por album
+
+- `ExpandedImpulseDashboard` calcula uma paleta compartilhada da capa via
+  `BottomBarState.mediaArtwork` e `AlbumBackgroundService.extractColors`.
+- O root do Dashboard desenha `DashboardAlbumDynamicBackground` em tela cheia atras dos cards.
+- `DashboardMediaPanel` reutiliza a paleta compartilhada, evitando extracao duplicada da capa.
+- Na v285, os cards `Dinamica` e `Climatizacao` tambem podem receber essa mesma paleta dentro do
+  `DashboardPanel`, como teste visual solicitado pelo usuario.
+- Os cards do Dashboard mantem scrim escuro e opacidade controlada para preservar legibilidade.
+- O caminho v285 nao adiciona nova extracao de capa, timer ou loop por card; ele reaproveita o
+  `DashboardAlbumBackgroundState` ja calculado para o dashboard.
+- Escopo: Compose no display 0; nao altera WebView, bridge JS, resolucao, display secundario,
+  CarPlay, Android Auto ou comandos de midia.
 
 ## Atualizacao 2026-06-25 - Ambient Light BLE externo
 
@@ -21,6 +35,12 @@ Atualizado em: 2026-06-25
   nem reinicia `ForegroundService`, `BottomBarService`, `ProjectorManager`, Android Auto ou
   CarPlay.
 - O scanner BLE e manual pela tela de Recursos e nao roda no boot.
+- A partir da v280, o scanner registra nome, RSSI, service UUIDs e trecho do advertisement em HEX.
+  A UI diferencia `LEDLAMP FFE0` de `BLE nao identificado`; RSSI forte sozinho nao deve ser usado
+  para assumir que um dispositivo e o LED.
+- A v282 removeu a UI de conexao manual por MAC (`Conectar MAC`/`Ultimo LED`) a pedido do usuario.
+  O fluxo suportado na tela volta a ser scan/lista, dispositivo salvo, `Testar conexao`,
+  `Desconectar LED` e `Esquecer`.
 - O protocolo inicial escreve no servico `FFE0` e caracteristica `FFE1` usando o frame validado
   `7B 00 07 RR GG BB 00 FF BF`.
 - A v2 adiciona `ColorOrderMapper`; no `LEDCAR-01-00DD`, o padrao DMX e `RBG`, porque testes reais
@@ -33,17 +53,33 @@ Atualizado em: 2026-06-25
   `7B FF 01 SCALED PERCENT 00 FF FF BF`.
 - A tela Ambient Light inclui desconexao manual, reconexao automatica configuravel, slider de
   brilho e um bloco `Ambient Light Debug` com status, RSSI, UUIDs, ultimo payload e ultimo erro.
-- A sincronizacao opcional com graves usa uma cadeia conservadora quando
-  `AMBIENT_LIGHT_MUSIC_ANIMATION_ENABLED=true`: primeiro escuta a propriedade OEM
-  `car.light_setting.ambient_light.sync_music_freq`; se ela nao chegar em `3s`, tenta
-  `android.media.audiofx.Visualizer` na sessao global `0`; se o firmware negar essa captura, usa
-  fallback por `AudioRecord`/microfone. Se todas as capturas falharem, o erro fica restrito ao
-  debug e nao altera o fluxo BLE manual.
-- Enquanto a sincronizacao com graves esta ativa, `AmbientLightService` cancela animacoes de modo
-  de conducao para evitar concorrencia no GATT. O modo de conducao continua atualizando a cor base
-  usada apos cada pulso de grave.
-- O detector de graves opera por callback FFT, sem loop infinito, com minimo de `220ms` entre
-  batidas e com o throttle BLE de `50ms` por payload preservado.
+- O efeito opcional com musica e controlado por `AMBIENT_LIGHT_MUSIC_ANIMATION_ENABLED=true` e pelo
+  modo persistido em `AMBIENT_LIGHT_MUSIC_MODE`.
+- `AmbientLightMusicMode.BASS` (`Graves`) preserva a sincronizacao por graves: registra a propriedade
+  OEM `car.light_setting.ambient_light.sync_music_freq` como secundaria/fallback, tenta
+  `android.media.audiofx.Visualizer` na sessao global `0` sem aguardar a central e so inicia
+  `AudioRecord`/microfone se o `Visualizer` falhar ou ficar `3s` sem sinal digital util. Quando o
+  sinal digital volta, o fallback de microfone e parado.
+- `AmbientLightMusicMode.ALBUM_WAVE` (`Onda do album`) nao captura audio. Ele observa
+  `BottomBarState.mediaArtwork/mediaIsPlaying`, extrai tons com `AlbumBackgroundService` e envia uma
+  onda de cores enquanto houver musica tocando, capa disponivel e BLE conectado. A v277 adiciona
+  presets inspirados no LED Lamp (`13 Forward 6 Colors BU` como default, GN/BU/CN forward/backward,
+  `Pulse`, `Run` e `Flow`), speed `1..100` e saida especifica do efeito (`BLE`, `DMX` ou
+  `BLE + DMX`), preservando a paleta do album no loop app-side. A v284 adiciona modo por saida
+  (`BLE: Animado/Estatico`, `DMX: Animado/Estatico`), usa frame custom DMX com cor/modeId/speed para
+  presets animados que possuem `modeId`. A v286 mantem a cor base do album quando a musica esta
+  pausada mas ainda ha titulo/artista/album/capa ativos; a cor do modo de conducao so volta quando
+  nao ha mais album/metadata/capa util. A assinatura da capa nao usa `Bitmap.generationId` para
+  evitar resetar a animacao quando o player republica o mesmo artwork.
+- Enquanto qualquer efeito de musica esta ativo, `AmbientLightService` cancela animacoes de modo de
+  conducao para evitar concorrencia no GATT. O modo de conducao continua atualizando a cor base usada
+  pelo modo `Graves`.
+- `AmbientLightBleController` trata timeout de conexao/descoberta de servicos, fecha GATT antigo,
+  chama `BluetoothGatt.refresh()` antes do close a partir da v281 e ignora callbacks atrasados que
+  nao pertencem ao endereco/GATT ativo.
+- O detector digital de graves opera por callback FFT com limiar de onset/ataque, rearme por queda
+  de energia, minimo de `380ms` entre batidas, retorno de pulso em `120ms` e throttle BLE de `50ms`
+  por payload preservado. O detector de microfone usa bandas graves por Goertzel apenas como backup.
 - A sincronizacao com modo de conducao usa somente leitura do
   `ServiceManager.addDataChangedListener` para `car.drive_setting.drive_mode`.
 - Mapeamento inicial:
@@ -213,16 +249,21 @@ Regras de contrato:
   exclusivamente no backend Supabase.
 - Fluxo:
   1. usuario abre `Reportar problema`;
-  2. preenche descricao obrigatoria citando data, hora, minutos aproximados e detalhamento do
+  2. a tela mostra a versao instalada e consulta a ultima preview publicada no GitHub Releases pelo
+     mesmo contrato usado em `InformacoesScreen`;
+  3. se a versao instalada estiver atrasada em relacao a ultima preview, a tela avisa o usuario que
+     o problema pode ja ter sido corrigido e troca o botao para `Enviar relatório mesmo assim`;
+  4. preenche descricao obrigatoria citando data, hora, minutos aproximados e detalhamento do
      incidente;
-  3. a tela mostra um exemplo com data/hora, app/tela em uso e comportamento observado;
-  4. o botao `Enviar relatório` fica logo apos o campo de descricao;
-  5. app monta versao, build, data/hora de geracao, timezone, trecho do log persistente do dia
+  5. a tela mostra um exemplo com data/hora, app/tela em uso e comportamento observado;
+  6. o botao `Enviar relatório` fica logo apos o campo de descricao;
+  7. app monta versao, build, ultima preview conhecida, estado desatualizado, data/hora de geracao,
+     timezone, trecho do log persistente do dia
      atual e snapshot recente/filtrado de `logcat`;
-  6. app faz `POST` para a Edge Function com publishable key;
-  7. Edge Function valida payload/rate limit, grava em `public.impulse_problem_reports` com
+  8. app faz `POST` para a Edge Function com publishable key;
+  9. Edge Function valida payload/rate limit, grava em `public.impulse_problem_reports` com
      service role e, se secrets GitHub existirem, cria issue server-side;
-  8. Edge Function salva uma copia `.txt` do corpo do relatorio/logs no bucket privado
+  10. Edge Function salva uma copia `.txt` do corpo do relatorio/logs no bucket privado
      `impulse-problem-report-logs` e grava `log_storage_bucket`, `log_storage_path` e
      `log_storage_size_bytes` na linha do report.
 - A tabela `public.impulse_problem_reports` tem RLS habilitado e policy apenas para `service_role`.
@@ -233,6 +274,9 @@ Regras de contrato:
 - Rate limit inicial: ate `8` relatos por `installationId` em 24h.
 - Se o envio falhar ou a build nao estiver configurada, o app copia o relatorio completo para a
   area de transferencia.
+- O aviso de versao desatualizada nao bloqueia o envio, porque um usuario em campo ainda pode
+  precisar registrar um problema urgente; o estado `latestPreviewVersionName`,
+  `currentVersionOutdated` e `latestPreviewCheckFailed` fica no corpo/payload do report para triagem.
 - O log persistente diario tambem inclui `webview_console`, capturado via `WebChromeClient`, para
   registrar `console.log/warn/error` do dashboard sem alterar o contrato Kotlin/JS.
 - A captura persistente fica disponivel em `debug`/`leanDebug` e em builds release com

@@ -63,6 +63,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.core.content.edit
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 private const val recycleIn = "data:image/png;base64,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"
 private const val recycleOut = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAAA8BAMAAADI0sRBAAAAJ1BMVEV6pf97nfh7o/12kO5bjPJlf+leVZZlk/ZHcExejvJgj/P//+0A/9FP0Or/AAAADXRSTlMeDBMG/QMBVQDLlQEBuyPuOwAAAtFJREFUOMt9Vc1q20AQHpaAcU6VdOpttQRMchPCL1AWjHw18RtYl/ZgjCEkTxBoDyEITG+mGIzzALkk51z6Uv1m9kerFvfDyDv7zcyORrMz9Ojw4+21BW4Dlix9PNLj93dZ/cZjdZuAFT7ovX1tv7bRsnaY8hp79NE6rBISWEyFp7a3XNQD8AGgl6uULASBp8GZVeZRVY6ntrcsiqwqooLwBM8LYSORKpAzraLbsiyNccuCaWY9lefG4AeFsoTI1otgCiOQeSkKePBeTT5e2UuRs4OCxJa9emitw1JoPlgkpUhddtba5ufLURk5H9ZZTkIq0pc2oFmzf9BZ9snu4ZJIjWyPZgP7jGCsoUuMg1uM7h5OnicO+t7OmR0HNXjCMQ3OJ45LH+wTjDp+BoCfm5xgrDWYNW2dDw8F/gnWiJp1G8S1jqTGS97bRmiOeotgZ9HSqRzshtg3jU78LsFY+/9r0Mi0I1PfTmsM2uibTtJw6iM7uj+hDdjmZc1JmXv77U4iuLCKDCLeud0OaneMrdu5sIbMtd17n6OuT/ku0FsbgwkxRhrOuzRXo9Q5h6b7bES40OjGPtMk/Q7DFyP7BSp7Ogeh1+fYEZxfn6VReb/+Q+MrbujKxi80hKIDvveVPZ49emboM2oKJT7IKL8LisU+G6SFRSXlEmvc17xCzpHoGemJTbHnjNo9qhDXp8PxKGUtkBqer3HZlDYZas2MxWLj7iFfUgljhksGOnfijinlLvClV8cd44s/OTU7lVx99dA1ezZmGrw2/yCXBkRJa8jzPDNeKtkW3aGSZmXEVexdxvWuoqbat6w8k2bFbMaauXQuik1tANHkvlYXKZ+0x6KoxLryW9yFpdGGjomhQK4ZV9KhK9eXnVTwyHA9ldd1kY6C0M//mhHTab/kabAK3X4aR9Ri6sVlS8lou20Hk44nGYWdpWchuNkjgh9UPb6lwtsfbTVCnXvwUeQAAAAASUVORK5CYII="
 private const val BOTTOM_BAR_TAG = "BottomBarUI"
@@ -2377,6 +2378,7 @@ private fun ExpandedImpulseDashboard() {
         }
         var layoutEditMode by remember { mutableStateOf(false) }
         var shortcutMenuExpanded by remember { mutableStateOf(false) }
+        val albumBackground = rememberDashboardAlbumBackgroundState()
         var dashboardShortcutButton1Action by remember {
                 mutableStateOf(
                         prefs.getString(
@@ -2527,6 +2529,19 @@ private fun ExpandedImpulseDashboard() {
                                         }
                                 }
         ) {
+                DashboardAlbumDynamicBackground(
+                        primary = albumBackground.primary,
+                        secondary = albumBackground.secondary,
+                        accent = albumBackground.accent,
+                        dark = albumBackground.dark,
+                        hasArtwork = albumBackground.hasArtwork,
+                        modifier = Modifier.matchParentSize(),
+                        cornerRadius = 0.dp,
+                        artworkAlpha = 0.9f,
+                        fallbackAlpha = 0.42f,
+                        artworkScrimAlpha = 0.5f,
+                        fallbackScrimAlpha = 0.66f
+                )
                 Column(
                         modifier =
                                 Modifier.fillMaxSize()
@@ -2575,6 +2590,7 @@ private fun ExpandedImpulseDashboard() {
                                                 appLabel = appInfo?.label,
                                                 appIcon = appInfo?.icon,
                                                 activeProjectionPackage = activeProjectionPackage,
+                                                albumBackground = albumBackground,
                                                 modifier =
                                                         Modifier.weight(dashboardSlotWeight(index))
                                                                 .fillMaxHeight(),
@@ -2918,6 +2934,7 @@ private fun DashboardCardSlot(
         appLabel: String?,
         appIcon: android.graphics.drawable.Drawable?,
         activeProjectionPackage: String?,
+        albumBackground: DashboardAlbumBackgroundState,
         modifier: Modifier,
         onMoveCard: (DashboardCardId, Int) -> Unit
 ) {
@@ -2941,6 +2958,7 @@ private fun DashboardCardSlot(
                                         appLabel = appLabel,
                                         appIcon = appIcon,
                                         activeProjectionPackage = activeProjectionPackage,
+                                        albumBackground = albumBackground,
                                         volume = snapshot.volume,
                                         serviceManager = serviceManager,
                                         layoutControls = controls,
@@ -2950,6 +2968,7 @@ private fun DashboardCardSlot(
                                 DashboardSettingsPanel(
                                         snapshot = snapshot,
                                         serviceManager = serviceManager,
+                                        albumBackground = albumBackground,
                                         layoutControls = controls,
                                         modifier = contentModifier
                                 )
@@ -2957,6 +2976,7 @@ private fun DashboardCardSlot(
                                 DashboardHvacPanel(
                                         snapshot = snapshot,
                                         serviceManager = serviceManager,
+                                        albumBackground = albumBackground,
                                         layoutControls = controls,
                                         modifier = contentModifier
                                 )
@@ -3184,10 +3204,11 @@ private fun DashboardEnergyPanel(snapshot: DashboardVehicleSnapshot, modifier: M
 private fun DashboardSettingsPanel(
         snapshot: DashboardVehicleSnapshot,
         serviceManager: ServiceManager,
+        albumBackground: DashboardAlbumBackgroundState? = null,
         layoutControls: @Composable (() -> Unit)? = null,
         modifier: Modifier
 ) {
-        DashboardPanel(modifier = modifier) {
+        DashboardPanel(modifier = modifier, albumBackground = albumBackground) {
                 val driveOptions = listOf("2" to "Eco", "0" to "Normal", "1" to "Sport")
                 val powerOptions = listOf("0" to "HEV", "1" to "EV Prior.", "3" to "EV")
                 val regenOptions = listOf("2" to "Baixo", "0" to "Normal", "1" to "Alto")
@@ -3365,6 +3386,7 @@ private fun DashboardMediaPanel(
         appLabel: String?,
         appIcon: android.graphics.drawable.Drawable?,
         activeProjectionPackage: String?,
+        albumBackground: DashboardAlbumBackgroundState,
         volume: String,
         serviceManager: ServiceManager,
         layoutControls: @Composable (() -> Unit)? = null,
@@ -3388,48 +3410,10 @@ private fun DashboardMediaPanel(
                         progressUpdatedAtMs = progressUpdatedAtMs,
                         isPlaying = isPlaying
                 )
-        val artworkKey =
-                remember(mediaPackageName, mediaTitle, mediaArtist, mediaAlbum, mediaArtwork) {
-                        listOfNotNull(
-                                        mediaPackageName,
-                                        mediaTitle,
-                                        mediaArtist,
-                                        mediaAlbum,
-                                        mediaArtwork?.generationId?.toString()
-                                )
-                                .joinToString("|")
-                }
-        var albumColors by remember { mutableStateOf(AlbumBackgroundService.fallbackColors) }
-        LaunchedEffect(artworkKey, mediaArtwork) {
-                albumColors =
-                        withContext(Dispatchers.Default) {
-                                AlbumBackgroundService.extractColors(mediaArtwork, artworkKey)
-                        }
-        }
-        val dynamicPrimary by
-                animateColorAsState(
-                        targetValue = Color(albumColors.primary),
-                        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
-                        label = "albumPrimary"
-                )
-        val dynamicSecondary by
-                animateColorAsState(
-                        targetValue = Color(albumColors.secondary),
-                        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
-                        label = "albumSecondary"
-                )
-        val dynamicAccent by
-                animateColorAsState(
-                        targetValue = Color(albumColors.accent),
-                        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
-                        label = "albumAccent"
-                )
-        val dynamicDark by
-                animateColorAsState(
-                        targetValue = Color(albumColors.dark),
-                        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
-                        label = "albumDark"
-                )
+        val dynamicPrimary = albumBackground.primary
+        val dynamicSecondary = albumBackground.secondary
+        val dynamicAccent = albumBackground.accent
+        val dynamicDark = albumBackground.dark
         val title =
                 mediaTitle
                         ?: appLabel
@@ -3734,6 +3718,73 @@ private fun rememberMediaElapsedMs(
         }
 }
 
+private data class DashboardAlbumBackgroundState(
+        val primary: Color,
+        val secondary: Color,
+        val accent: Color,
+        val dark: Color,
+        val hasArtwork: Boolean
+)
+
+@Composable
+private fun rememberDashboardAlbumBackgroundState(): DashboardAlbumBackgroundState {
+        val mediaTitle = BottomBarState.mediaTitle?.takeIf { it.isNotBlank() }
+        val mediaArtist = BottomBarState.mediaArtist?.takeIf { it.isNotBlank() }
+        val mediaAlbum = BottomBarState.mediaAlbum?.takeIf { it.isNotBlank() }
+        val mediaArtwork = BottomBarState.mediaArtwork
+        val mediaPackageName = BottomBarState.mediaPackageName
+        val artworkKey =
+                remember(mediaPackageName, mediaTitle, mediaArtist, mediaAlbum, mediaArtwork) {
+                        listOfNotNull(
+                                        mediaPackageName,
+                                        mediaTitle,
+                                        mediaArtist,
+                                        mediaAlbum,
+                                        mediaArtwork?.width?.toString(),
+                                        mediaArtwork?.height?.toString()
+                                )
+                                .joinToString("|")
+                }
+        var albumColors by remember { mutableStateOf(AlbumBackgroundService.fallbackColors) }
+        LaunchedEffect(artworkKey, mediaArtwork) {
+                albumColors =
+                        withContext(Dispatchers.Default) {
+                                AlbumBackgroundService.extractColors(mediaArtwork, artworkKey)
+                        }
+        }
+        val dynamicPrimary by
+                animateColorAsState(
+                        targetValue = Color(albumColors.primary),
+                        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+                        label = "dashboardAlbumPrimary"
+                )
+        val dynamicSecondary by
+                animateColorAsState(
+                        targetValue = Color(albumColors.secondary),
+                        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+                        label = "dashboardAlbumSecondary"
+                )
+        val dynamicAccent by
+                animateColorAsState(
+                        targetValue = Color(albumColors.accent),
+                        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+                        label = "dashboardAlbumAccent"
+                )
+        val dynamicDark by
+                animateColorAsState(
+                        targetValue = Color(albumColors.dark),
+                        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+                        label = "dashboardAlbumDark"
+                )
+        return DashboardAlbumBackgroundState(
+                primary = dynamicPrimary,
+                secondary = dynamicSecondary,
+                accent = dynamicAccent,
+                dark = dynamicDark,
+                hasArtwork = mediaArtwork != null
+        )
+}
+
 @Composable
 private fun DashboardAlbumDynamicBackground(
         primary: Color,
@@ -3741,13 +3792,18 @@ private fun DashboardAlbumDynamicBackground(
         accent: Color,
         dark: Color,
         hasArtwork: Boolean,
-        modifier: Modifier = Modifier
+        modifier: Modifier = Modifier,
+        cornerRadius: Dp = 8.dp,
+        artworkAlpha: Float = 1f,
+        fallbackAlpha: Float = 0.56f,
+        artworkScrimAlpha: Float = 0.42f,
+        fallbackScrimAlpha: Float = 0.58f
 ) {
         Canvas(
                 modifier =
                         modifier.fillMaxSize()
-                                .clip(RoundedCornerShape(8.dp))
-                                .alpha(if (hasArtwork) 1f else 0.56f)
+                                .clip(RoundedCornerShape(cornerRadius))
+                                .alpha(if (hasArtwork) artworkAlpha else fallbackAlpha)
         ) {
                 drawRect(
                         brush =
@@ -3806,7 +3862,7 @@ private fun DashboardAlbumDynamicBackground(
                         radius = size.maxDimension * 0.48f,
                         center = Offset(size.width * 0.62f, size.height * 0.12f)
                 )
-                drawRect(Color.Black.copy(alpha = if (hasArtwork) 0.42f else 0.58f))
+                drawRect(Color.Black.copy(alpha = if (hasArtwork) artworkScrimAlpha else fallbackScrimAlpha))
         }
 }
 
@@ -4107,6 +4163,7 @@ private fun DashboardQuickActionsPanel(
 private fun DashboardHvacPanel(
         snapshot: DashboardVehicleSnapshot,
         serviceManager: ServiceManager,
+        albumBackground: DashboardAlbumBackgroundState? = null,
         layoutControls: @Composable (() -> Unit)? = null,
         modifier: Modifier
 ) {
@@ -4127,7 +4184,7 @@ private fun DashboardHvacPanel(
                 passengerSeatVentilation = snapshot.passengerSeatVentilation
         }
 
-        DashboardPanel(modifier = modifier) {
+        DashboardPanel(modifier = modifier, albumBackground = albumBackground) {
                 Column(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.SpaceBetween
@@ -4307,27 +4364,51 @@ private fun DashboardHvacPanel(
 }
 
 @Composable
-private fun DashboardPanel(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+private fun DashboardPanel(
+        modifier: Modifier = Modifier,
+        albumBackground: DashboardAlbumBackgroundState? = null,
+        content: @Composable BoxScope.() -> Unit
+) {
+        val shape = RoundedCornerShape(8.dp)
         Box(
                 modifier =
-                        modifier.background(
+                        modifier.clip(shape)
+                                .background(
                                         Brush.linearGradient(
                                                 colors =
                                                         listOf(
-                                                                Color(0xFF171D22).copy(alpha = 0.96f),
-                                                                Color(0xFF0E1115).copy(alpha = 0.98f)
+                                                                Color(0xFF171D22).copy(alpha = 0.86f),
+                                                                Color(0xFF0E1115).copy(alpha = 0.9f)
                                                         )
                                         ),
-                                        RoundedCornerShape(8.dp)
+                                        shape
                                 )
                                 .border(
                                         1.dp,
                                         Color.White.copy(alpha = 0.12f),
-                                        RoundedCornerShape(8.dp)
+                                        shape
                                 )
-                                .padding(18.dp),
-                content = content
-        )
+        ) {
+                if (albumBackground != null) {
+                        DashboardAlbumDynamicBackground(
+                                primary = albumBackground.primary,
+                                secondary = albumBackground.secondary,
+                                accent = albumBackground.accent,
+                                dark = albumBackground.dark,
+                                hasArtwork = albumBackground.hasArtwork,
+                                modifier = Modifier.matchParentSize(),
+                                cornerRadius = 8.dp,
+                                artworkAlpha = 0.86f,
+                                fallbackAlpha = 0.34f,
+                                artworkScrimAlpha = 0.58f,
+                                fallbackScrimAlpha = 0.72f
+                        )
+                }
+                Box(
+                        modifier = Modifier.fillMaxSize().padding(18.dp),
+                        content = content
+                )
+        }
 }
 
 @Composable
@@ -5070,7 +5151,10 @@ private fun DashboardTempAdjuster(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-                DashboardIconButton(Icons.Default.Remove, size = 62.dp) { if (enabled) onDelta(-0.5f) }
+                DashboardIconButton(Icons.Default.Remove, size = 62.dp) {
+                        if (enabled) onDelta(-0.5f)
+                        else logDashboardTemperatureDisabled(label, temp, -0.5f)
+                }
                 Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                                 text = label,
@@ -5087,7 +5171,10 @@ private fun DashboardTempAdjuster(
                                 maxLines = 1
                         )
                 }
-                DashboardIconButton(Icons.Default.Add, size = 62.dp) { if (enabled) onDelta(0.5f) }
+                DashboardIconButton(Icons.Default.Add, size = 62.dp) {
+                        if (enabled) onDelta(0.5f)
+                        else logDashboardTemperatureDisabled(label, temp, 0.5f)
+                }
         }
 }
 
@@ -5367,7 +5454,29 @@ private fun updateTemperature(
 ) {
         val current = currentValue.toFloatOrNull() ?: 22.0f
         val next = (current + delta).coerceIn(16.0f, 32.0f)
-        serviceManager.updateData(key.getValue(), String.format(java.util.Locale.US, "%.1f", next))
+        val nextValue = String.format(java.util.Locale.US, "%.1f", next)
+        ClusterPersistentEventLogger.log(
+                "dashboard_hvac_temperature_command",
+                mapOf(
+                        "key" to key.getValue(),
+                        "current" to currentValue,
+                        "delta" to delta,
+                        "next" to nextValue
+                )
+        )
+        serviceManager.updateData(key.getValue(), nextValue)
+}
+
+private fun logDashboardTemperatureDisabled(label: String, temp: String, delta: Float) {
+        ClusterPersistentEventLogger.log(
+                "dashboard_hvac_temperature_disabled",
+                mapOf(
+                        "label" to label,
+                        "temp" to temp,
+                        "delta" to delta,
+                        "reason" to "hvac_power_off"
+                )
+        )
 }
 
 internal fun resolveDashboardMediaVolumeAfterDelta(current: Int, delta: Int): Int {

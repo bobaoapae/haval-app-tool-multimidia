@@ -4,9 +4,11 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.SystemClock
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -57,6 +59,12 @@ data class AmbientLightConfig(
     val syncDriveMode: Boolean,
     val animationsEnabled: Boolean,
     val musicAnimationEnabled: Boolean,
+    val musicMode: AmbientLightMusicMode,
+    val albumEffect: AmbientLightAlbumEffect,
+    val albumEffectSpeed: Int,
+    val albumEffectOutput: AmbientLightOutput,
+    val albumBleMode: AmbientLightAlbumOutputMode,
+    val albumDmxMode: AmbientLightAlbumOutputMode,
     val colorOrder: ColorOrderMapper,
     val bleColorOrder: ColorOrderMapper,
     val brightnessPercent: Int,
@@ -78,6 +86,31 @@ object AmbientLightSettings {
             animationsEnabled = prefs.getBoolean(SharedPreferencesKeys.AMBIENT_LIGHT_ANIMATIONS_ENABLED.key, false),
             musicAnimationEnabled =
                 prefs.getBoolean(SharedPreferencesKeys.AMBIENT_LIGHT_MUSIC_ANIMATION_ENABLED.key, false),
+            musicMode =
+                AmbientLightMusicMode.fromStored(
+                    prefs.getString(SharedPreferencesKeys.AMBIENT_LIGHT_MUSIC_MODE.key, null)
+                ),
+            albumEffect =
+                AmbientLightAlbumEffect.fromStored(
+                    prefs.getString(SharedPreferencesKeys.AMBIENT_LIGHT_ALBUM_EFFECT.key, null)
+                ),
+            albumEffectSpeed =
+                prefs.getInt(
+                    SharedPreferencesKeys.AMBIENT_LIGHT_ALBUM_EFFECT_SPEED.key,
+                    DEFAULT_ALBUM_EFFECT_SPEED
+                ).coerceIn(MIN_ALBUM_EFFECT_SPEED, MAX_ALBUM_EFFECT_SPEED),
+            albumEffectOutput =
+                AmbientLightOutput.fromStored(
+                    prefs.getString(SharedPreferencesKeys.AMBIENT_LIGHT_ALBUM_EFFECT_OUTPUT.key, null)
+                ),
+            albumBleMode =
+                AmbientLightAlbumOutputMode.fromStored(
+                    prefs.getString(SharedPreferencesKeys.AMBIENT_LIGHT_ALBUM_BLE_MODE.key, null)
+                ),
+            albumDmxMode =
+                AmbientLightAlbumOutputMode.fromStored(
+                    prefs.getString(SharedPreferencesKeys.AMBIENT_LIGHT_ALBUM_DMX_MODE.key, null)
+                ),
             colorOrder =
                 ColorOrderMapper.fromStored(
                     prefs.getString(SharedPreferencesKeys.AMBIENT_LIGHT_COLOR_ORDER.key, null),
@@ -107,11 +140,12 @@ object AmbientLightSettings {
     }
 
     fun saveDevice(address: String, name: String?) {
+        Log.w(TAG, "saving BLE device address=$address name=${name ?: "-"}")
         prefs()
             .edit()
             .putString(SharedPreferencesKeys.AMBIENT_LIGHT_BLE_DEVICE_MAC.key, address)
             .putString(SharedPreferencesKeys.AMBIENT_LIGHT_BLE_DEVICE_NAME.key, name)
-            .apply()
+            .commit()
     }
 
     fun forgetDevice() {
@@ -132,6 +166,36 @@ object AmbientLightSettings {
 
     fun setMusicAnimationEnabled(enabled: Boolean) {
         prefs().edit().putBoolean(SharedPreferencesKeys.AMBIENT_LIGHT_MUSIC_ANIMATION_ENABLED.key, enabled).apply()
+    }
+
+    fun setMusicMode(mode: AmbientLightMusicMode) {
+        prefs().edit().putString(SharedPreferencesKeys.AMBIENT_LIGHT_MUSIC_MODE.key, mode.name).apply()
+    }
+
+    fun setAlbumEffect(effect: AmbientLightAlbumEffect) {
+        prefs().edit().putString(SharedPreferencesKeys.AMBIENT_LIGHT_ALBUM_EFFECT.key, effect.name).apply()
+    }
+
+    fun setAlbumEffectSpeed(speed: Int) {
+        prefs()
+            .edit()
+            .putInt(
+                SharedPreferencesKeys.AMBIENT_LIGHT_ALBUM_EFFECT_SPEED.key,
+                speed.coerceIn(MIN_ALBUM_EFFECT_SPEED, MAX_ALBUM_EFFECT_SPEED)
+            )
+            .apply()
+    }
+
+    fun setAlbumEffectOutput(output: AmbientLightOutput) {
+        prefs().edit().putString(SharedPreferencesKeys.AMBIENT_LIGHT_ALBUM_EFFECT_OUTPUT.key, output.name).apply()
+    }
+
+    fun setAlbumBleMode(mode: AmbientLightAlbumOutputMode) {
+        prefs().edit().putString(SharedPreferencesKeys.AMBIENT_LIGHT_ALBUM_BLE_MODE.key, mode.name).apply()
+    }
+
+    fun setAlbumDmxMode(mode: AmbientLightAlbumOutputMode) {
+        prefs().edit().putString(SharedPreferencesKeys.AMBIENT_LIGHT_ALBUM_DMX_MODE.key, mode.name).apply()
     }
 
     fun setColorOrder(colorOrder: ColorOrderMapper) {
@@ -156,6 +220,11 @@ object AmbientLightSettings {
     fun setAutoReconnect(enabled: Boolean) {
         prefs().edit().putBoolean(SharedPreferencesKeys.AMBIENT_LIGHT_AUTO_RECONNECT.key, enabled).apply()
     }
+
+    private const val TAG = "AmbientLight"
+    const val DEFAULT_ALBUM_EFFECT_SPEED = 50
+    const val MIN_ALBUM_EFFECT_SPEED = 1
+    const val MAX_ALBUM_EFFECT_SPEED = 100
 }
 
 @Composable
@@ -168,6 +237,7 @@ fun AmbientLightSettingsScreen(onBackToFeatures: () -> Unit) {
     val devices = remember { mutableStateListOf<AmbientLightScanResult>() }
     var config by remember { mutableStateOf(AmbientLightSettings.load()) }
     var brightnessDraft by remember { mutableStateOf(config.brightnessPercent.toFloat()) }
+    var albumEffectSpeedDraft by remember { mutableStateOf(config.albumEffectSpeed.toFloat()) }
     var scanning by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
 
@@ -214,10 +284,13 @@ fun AmbientLightSettingsScreen(onBackToFeatures: () -> Unit) {
     val audioPermissionLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             AmbientLightSettings.setMusicAnimationEnabled(granted)
+            if (granted) {
+                AmbientLightSettings.setMusicMode(AmbientLightMusicMode.BASS)
+            }
             refreshConfig()
             if (granted) {
                 AmbientLightService.startIfEnabled(context)
-                statusMessage = "Sincronizacao com graves ativada"
+                statusMessage = "Efeito com graves ativado"
             } else {
                 statusMessage = "Permissao de audio negada"
             }
@@ -229,6 +302,10 @@ fun AmbientLightSettingsScreen(onBackToFeatures: () -> Unit) {
 
     LaunchedEffect(config.brightnessPercent) {
         brightnessDraft = config.brightnessPercent.toFloat()
+    }
+
+    LaunchedEffect(config.albumEffectSpeed) {
+        albumEffectSpeedDraft = config.albumEffectSpeed.toFloat()
     }
 
     Column(
@@ -336,10 +413,18 @@ fun AmbientLightSettingsScreen(onBackToFeatures: () -> Unit) {
                     ) {
                         devices.take(12).forEach { device ->
                             DeviceResultRow(device = device) {
+                                scanner.stopScan()
+                                scanning = false
                                 AmbientLightSettings.saveDevice(device.address, device.name)
                                 refreshConfig()
-                                context.startService(AmbientLightService.createConnectIntent(context))
-                                statusMessage = "Dispositivo salvo: ${device.address}"
+                                context.startService(
+                                    AmbientLightService.createConnectIntent(
+                                        context = context,
+                                        address = device.address,
+                                        name = device.name
+                                    )
+                                )
+                                statusMessage = "Conectando em ${device.address}"
                             }
                         }
                     }
@@ -480,11 +565,11 @@ fun AmbientLightSettingsScreen(onBackToFeatures: () -> Unit) {
                     }
                 )
                 SettingSwitchRow(
-                    title = "Sincronizar com graves",
-                    description = "Usa captura de audio da central quando o Android permitir.",
+                    title = "Efeito com musica",
+                    description = "Anima os LEDs quando houver musica tocando.",
                     checked = config.musicAnimationEnabled,
                     onCheckedChange = { checked ->
-                        if (checked && !hasAudioCapturePermission(context)) {
+                        if (checked && config.musicMode == AmbientLightMusicMode.BASS && !hasAudioCapturePermission(context)) {
                             statusMessage = "Permissao de audio necessaria para capturar graves"
                             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         } else {
@@ -493,13 +578,115 @@ fun AmbientLightSettingsScreen(onBackToFeatures: () -> Unit) {
                             AmbientLightService.startIfEnabled(context)
                             statusMessage =
                                 if (checked) {
-                                    "Sincronizacao com graves ativada"
+                                    "Efeito com musica ativado"
                                 } else {
-                                    "Sincronizacao com graves desativada"
+                                    "Efeito com musica desativado"
                                 }
                         }
                     }
                 )
+                Text("Modo do efeito: ${config.musicMode.label}", color = AppColors.TextSecondary, fontSize = 14.sp)
+                OptionButtonWrap(
+                    options = AmbientLightMusicMode.values().map { it.label to it },
+                    selected = config.musicMode,
+                    enabled = true,
+                    onSelect = { mode ->
+                        AmbientLightSettings.setMusicMode(mode)
+                        if (config.musicAnimationEnabled && mode == AmbientLightMusicMode.BASS && !hasAudioCapturePermission(context)) {
+                            AmbientLightSettings.setMusicAnimationEnabled(false)
+                            refreshConfig()
+                            statusMessage = "Permissao de audio necessaria para capturar graves"
+                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            refreshConfig()
+                            AmbientLightService.startIfEnabled(context)
+                            statusMessage = "Modo musical: ${mode.label}"
+                        }
+                    }
+                )
+                if (config.musicMode == AmbientLightMusicMode.ALBUM_WAVE) {
+                    Text("Efeito: ${config.albumEffect.label}", color = AppColors.TextSecondary, fontSize = 14.sp)
+                    OptionButtonWrap(
+                        options = AmbientLightAlbumEffect.values().map { it.shortLabel to it },
+                        selected = config.albumEffect,
+                        enabled = true,
+                        onSelect = { effect ->
+                            AmbientLightSettings.setAlbumEffect(effect)
+                            refreshConfig()
+                            AmbientLightService.startIfEnabled(context)
+                            statusMessage = "Efeito: ${effect.label}"
+                        }
+                    )
+                    Text("Aplicar em: ${config.albumEffectOutput.label}", color = AppColors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    OptionButtonWrap(
+                        options = AmbientLightOutput.values().map { it.label to it },
+                        selected = config.albumEffectOutput,
+                        enabled = true,
+                        onSelect = { output ->
+                            AmbientLightSettings.setAlbumEffectOutput(output)
+                            refreshConfig()
+                            AmbientLightService.startIfEnabled(context)
+                            statusMessage = "Efeito aplicado em ${output.label}"
+                        }
+                    )
+                    Text("BLE: ${config.albumBleMode.label}", color = AppColors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    OptionButtonWrap(
+                        options = AmbientLightAlbumOutputMode.values().map { it.label to it },
+                        selected = config.albumBleMode,
+                        enabled = true,
+                        onSelect = { mode ->
+                            AmbientLightSettings.setAlbumBleMode(mode)
+                            refreshConfig()
+                            AmbientLightService.startIfEnabled(context)
+                            statusMessage = "BLE ${mode.label}"
+                        }
+                    )
+                    Text("DMX: ${config.albumDmxMode.label}", color = AppColors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    OptionButtonWrap(
+                        options = AmbientLightAlbumOutputMode.values().map { it.label to it },
+                        selected = config.albumDmxMode,
+                        enabled = true,
+                        onSelect = { mode ->
+                            AmbientLightSettings.setAlbumDmxMode(mode)
+                            refreshConfig()
+                            AmbientLightService.startIfEnabled(context)
+                            statusMessage = "DMX ${mode.label}"
+                        }
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            "Speed: ${albumEffectSpeedDraft.roundToInt().coerceIn(AmbientLightSettings.MIN_ALBUM_EFFECT_SPEED, AmbientLightSettings.MAX_ALBUM_EFFECT_SPEED)}",
+                            color = AppColors.TextPrimary,
+                            fontSize = 16.sp
+                        )
+                        Slider(
+                            value = albumEffectSpeedDraft,
+                            onValueChange = {
+                                albumEffectSpeedDraft =
+                                    it.coerceIn(
+                                        AmbientLightSettings.MIN_ALBUM_EFFECT_SPEED.toFloat(),
+                                        AmbientLightSettings.MAX_ALBUM_EFFECT_SPEED.toFloat()
+                                    )
+                            },
+                            onValueChangeFinished = {
+                                val speed =
+                                    albumEffectSpeedDraft.roundToInt()
+                                        .coerceIn(
+                                            AmbientLightSettings.MIN_ALBUM_EFFECT_SPEED,
+                                            AmbientLightSettings.MAX_ALBUM_EFFECT_SPEED
+                                        )
+                                AmbientLightSettings.setAlbumEffectSpeed(speed)
+                                refreshConfig()
+                                AmbientLightService.startIfEnabled(context)
+                                statusMessage = "Speed: $speed"
+                            },
+                            valueRange =
+                                AmbientLightSettings.MIN_ALBUM_EFFECT_SPEED.toFloat()..
+                                    AmbientLightSettings.MAX_ALBUM_EFFECT_SPEED.toFloat(),
+                            steps = AmbientLightSettings.MAX_ALBUM_EFFECT_SPEED - AmbientLightSettings.MIN_ALBUM_EFFECT_SPEED - 1
+                        )
+                    }
+                }
             }
         }
 
@@ -513,9 +700,23 @@ fun AmbientLightSettingsScreen(onBackToFeatures: () -> Unit) {
                 DebugLine("Payload", debugState.lastPayloadHex ?: "Nenhum")
                 DebugLine("Ultimo erro", debugState.lastError ?: "Nenhum")
                 DebugLine("Musica", if (debugState.musicVisualizerActive) "Ativo" else "Inativo")
+                DebugLine("Modo musica", config.musicMode.label)
+                if (config.musicMode == AmbientLightMusicMode.ALBUM_WAVE) {
+                    DebugLine("Efeito", config.albumEffect.label)
+                    DebugLine("Efeito saida", config.albumEffectOutput.label)
+                    DebugLine("BLE modo", config.albumBleMode.label)
+                    DebugLine("DMX modo", config.albumDmxMode.label)
+                    DebugLine("Efeito speed", config.albumEffectSpeed.toString())
+                }
                 DebugLine("Fonte musica", debugState.musicCaptureSource)
-                DebugLine("Grave", "${(debugState.musicBassLevel * 100).roundToInt().coerceIn(0, 100)}%")
-                DebugLine("Ultima batida", musicBeatAge(debugState.musicLastBeatElapsedMs))
+                DebugLine(
+                    if (config.musicMode == AmbientLightMusicMode.BASS) "Grave" else "Onda",
+                    "${(debugState.musicBassLevel * 100).roundToInt().coerceIn(0, 100)}%"
+                )
+                DebugLine(
+                    if (config.musicMode == AmbientLightMusicMode.BASS) "Ultima batida" else "Ultimo passo",
+                    musicBeatAge(debugState.musicLastBeatElapsedMs)
+                )
                 DebugLine("Erro musica", debugState.musicLastError ?: "Nenhum")
             }
         }
@@ -525,7 +726,10 @@ fun AmbientLightSettingsScreen(onBackToFeatures: () -> Unit) {
 @Composable
 private fun DeviceResultRow(device: AmbientLightScanResult, onSelect: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onSelect),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -626,10 +830,11 @@ private fun previewRgbHex(color: LedColor, config: AmbientLightConfig): String =
 private fun deviceType(device: AmbientLightScanResult): String {
     val name = device.name.orEmpty()
     return when {
+        device.hasLedLampService -> "LEDLAMP FFE0"
         name.contains("LEDCAR", ignoreCase = true) -> "LEDCAR"
         name.contains("LEDDMX", ignoreCase = true) -> "LEDDMX"
         name.contains("LED", ignoreCase = true) -> "LED"
-        else -> "BLE"
+        else -> "BLE nao identificado"
     }
 }
 
