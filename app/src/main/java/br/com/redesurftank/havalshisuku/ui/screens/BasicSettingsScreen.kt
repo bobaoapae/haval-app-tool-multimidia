@@ -84,6 +84,13 @@ private fun SteeringActionPicker(
                         value = packageName,
                         onValueChange = { onPackageChanged(it) },
                         label = { Text("Pacote do App") },
+                        placeholder = { Text("com.exemplo.app ou com.exemplo.app/.MainActivity") },
+                        supportingText = {
+                                Text(
+                                        "Para CarPlay ou Android Auto, use as opções dedicadas na lista de ações acima. Para outros apps sem ícone/launcher, use pacote/Activity.",
+                                        color = Color(0xFFB0B8C4)
+                                )
+                        },
                         colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color(0xFF2A2F37),
                                 unfocusedContainerColor = Color(0xFF2A2F37),

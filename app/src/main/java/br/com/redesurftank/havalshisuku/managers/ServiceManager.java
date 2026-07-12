@@ -1027,17 +1027,29 @@ public class ServiceManager {
             case OPEN_APP:
                 String packageName = sharedPreferences.getString(steeringOpenAppPackageKey(button, tapType), "");
                 if (!packageName.isEmpty()) {
-                    Intent launchIntent = App.getContext().getPackageManager().getLaunchIntentForPackage(packageName);
-                    if (launchIntent != null) {
-                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        App.getContext().startActivity(launchIntent);
-                        Log.w(TAG, "Launching app: " + packageName);
-                        DisplayAppLauncher.INSTANCE.preserveCarPlayClusterContract("SERVICE_OPEN_APP_" + packageName);
-                        DisplayAppLauncher.INSTANCE.preserveAndroidAutoClusterContract("SERVICE_OPEN_APP_" + packageName);
-                    } else {
-                        Log.e(TAG, "App not found: " + packageName);
+                    String target = packageName.trim();
+                    String pkg = target;
+                    String activity = null;
+                    int slashIdx = target.indexOf('/');
+                    if (slashIdx >= 0) {
+                        pkg = target.substring(0, slashIdx);
+                        String cls = target.substring(slashIdx + 1);
+                        activity = cls.startsWith(".") ? pkg + cls : cls;
                     }
+                    // Delegates to DisplayAppLauncher, which resolves PREDEFINED_APPS (and
+                    // saved configs) automatically; an explicit "pacote/Activity" override
+                    // still works here for anything not covered by that list.
+                    Log.w(TAG, "Launching app via DisplayAppLauncher: " + pkg + (activity != null ? " (" + activity + ")" : ""));
+                    DisplayAppLauncher.INSTANCE.launchAnyAppFromJava(App.getContext(), pkg, activity);
                 }
+                break;
+            case OPEN_CARPLAY:
+                Log.w(TAG, "Launching CarPlay via DisplayAppLauncher");
+                DisplayAppLauncher.INSTANCE.launchAnyAppFromJava(App.getContext(), DisplayAppLauncher.CARPLAY_PACKAGE, null);
+                break;
+            case OPEN_ANDROID_AUTO:
+                Log.w(TAG, "Launching Android Auto via DisplayAppLauncher");
+                DisplayAppLauncher.INSTANCE.launchAnyAppFromJava(App.getContext(), DisplayAppLauncher.ANDROID_AUTO_PACKAGE, null);
                 break;
             case CLIMATE_COMMAND:
                 handleSteeringWheelClimateCommand(button);
