@@ -122,7 +122,9 @@ object DisplayAppLauncher {
     )
 
     private const val TAG = "DisplayAppLauncher"
-    private const val ANDROID_AUTO_PACKAGE = "com.ts.androidauto.app"
+    // Public so callers (e.g. ServiceManager's steering wheel handler) can target
+    // these without duplicating the literal package name.
+    const val ANDROID_AUTO_PACKAGE = "com.ts.androidauto.app"
     private const val ANDROID_AUTO_MEDIA_PACKAGE = "com.ts.androidauto"
     private const val ANDROID_AUTO_SERVICE_PACKAGE = "com.ts.androidauto.projectionservice"
     private const val ANDROID_AUTO_ACTIVITY = "com.ts.androidauto.app.display.AapActivity"
@@ -306,7 +308,7 @@ object DisplayAppLauncher {
         }
     }
 
-    private const val CARPLAY_PACKAGE = "com.ts.carplay.app"
+    const val CARPLAY_PACKAGE = "com.ts.carplay.app"
     private const val CARPLAY_ACTIVITY = "com.ts.carplay.app.ui.display.view.CarPlayDisplayActivity"
     private const val CARPLAY_HOST_PROCESS = "com.ts.carplay"
     private const val CARPLAY_HOST_SERVICE = "com.ts.carplay/.CarPlayService"
@@ -7080,6 +7082,14 @@ object DisplayAppLauncher {
         } catch (e: Exception) {
             Log.e(TAG, "Error launching $packageName", e)
         }
+    }
+
+    /**
+     * Fire-and-forget entry point for callers that can't use coroutines directly (e.g. Java,
+     * such as ServiceManager's steering wheel button handler).
+     */
+    fun launchAnyAppFromJava(context: Context, packageName: String, activityName: String? = null) {
+        scope.launch { launchAnyApp(context, packageName, activityName) }
     }
 
     /**
