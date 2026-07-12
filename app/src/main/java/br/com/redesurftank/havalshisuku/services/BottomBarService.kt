@@ -83,6 +83,13 @@ class BottomBarService : LifecycleService() {
     private var androidAutoNowPlayingMonitor: AndroidAutoNowPlayingMonitor? = null
     private var carPlayUsbDisconnectMonitorJob: Job? = null
     private var lastCarPlayUsbReadyState: Boolean? = null
+    // Timestamp (elapsedRealtime) of the last real CarPlay now-playing update. An
+    // actively streaming CarPlay session is the authoritative "still connected"
+    // signal — far more reliable than the USB gadget state file, which reads
+    // "not connected" for wireless CarPlay and flaps transiently even when wired.
+    // The USB-disconnect monitor uses this to avoid wiping live media on a false
+    // USB "disconnect" read (that false positive was the album-art/progress flicker).
+    @Volatile private var lastCarPlayNowPlayingUpdateAtMs: Long = 0L
     private var nativeMediaStateListener: IDataChanged? = null
     private var androidAutoMonitorRefreshJob: Job? = null
     private var audioMuteStateListener: IDataChanged? = null
@@ -763,6 +770,11 @@ class BottomBarService : LifecycleService() {
                         clearCarPlayMediaState("now playing cleared")
                         return@CarPlayNowPlayingMonitor
                     }
+                    // Mark the CarPlay session as alive: a real now-playing update just
+                    // arrived. The USB-disconnect monitor consults this before wiping
+                    // media so a transient/erroneous USB "disconnect" read can't clear
+                    // artwork + progress out from under an actively playing session.
+                    lastCarPlayNowPlayingUpdateAtMs = SystemClock.elapsedRealtime()
                     val previousSignature = lastCarPlayMediaSignature
                     val nextSignature =
                             carPlayMediaSignature(update.title, update.artist, update.artworkPath)
@@ -788,7 +800,15 @@ class BottomBarService : LifecycleService() {
                         BottomBarState.mediaAlbum = null
                     }
 
-                    if (sourceChanged || trackChanged || update.artwork != null) {
+                    // Do NOT null the artwork just because the track/source changed: CarPlay's
+                    // AIDL callback frequently reports the new title/artist a beat before the new
+                    // artwork bytes arrive in a follow-up update, so clearing here made the
+                    // Impulse dashboard's album art flash off and back on on every track change.
+                    // Only replace it once a real bitmap shows up (mirrors the Android Auto
+                    // now-playing path below, which already "holds" the last artwork this way);
+                    // it still gets wiped by the explicit update.clear branch above when the
+                    // CarPlay session actually ends.
+                    if (update.artwork != null) {
                         BottomBarState.mediaArtwork = update.artwork
                     }
 
@@ -829,11 +849,16 @@ class BottomBarService : LifecycleService() {
                                         .cleanupStaleAndroidAutoVisualStacksIfDisconnected(
                                                 "projection USB disconnected"
                                         )
+                                val carPlayStreamingAlive =
+                                        SystemClock.elapsedRealtime() -
+                                                lastCarPlayNowPlayingUpdateAtMs <
+                                                CARPLAY_NOWPLAYING_ALIVE_WINDOW_MS
                                 withContext(Dispatchers.Main) {
-                                    if (shouldClearCarPlayMediaOnUsbState(
-                                                    BottomBarState.mediaPackageName,
-                                                    rawState
-                                            )
+                                    if (!carPlayStreamingAlive &&
+                                                    shouldClearCarPlayMediaOnUsbState(
+                                                            BottomBarState.mediaPackageName,
+                                                            rawState
+                                                    )
                                     ) {
                                         clearCarPlayMediaState("projection USB disconnected")
                                     }
@@ -1789,6 +1814,18 @@ class BottomBarService : LifecycleService() {
                                             0L
                     val packageName = selected.packageName
                     logMediaSelection(packageName, title, artist, album, artwork, metadata)
+
+                    if (isCarPlayMediaPackage(packageName) && !hasMetadata) {
+                        // The CarPlay bridge exposes itself as a normal MediaSession too, and it
+                        // sends transient blank metadata blips between real updates (e.g. during
+                        // track transitions). shouldKeepProjectionMediaState() lets CarPlay's own
+                        // updates through unconditionally, which bypasses
+                        // CarPlayNowPlayingMonitor's debounce on this path — mirror that debounce
+                        // here so a blank blip doesn't wipe the Impulse dashboard's album artwork.
+                        // A subsequent real update cancels mediaMetadataPublishJob and supersedes
+                        // this delay before it applies.
+                        delay(CARPLAY_MEDIA_SESSION_BLANK_DEBOUNCE_MS)
+                    }
 
                     withContext(Dispatchers.Main) {
                         val androidAutoFallbackPackage =
@@ -3697,6 +3734,7 @@ class BottomBarService : LifecycleService() {
         private const val EXTRA_DEBUG_MEDIA_DEV_ID = "devId"
         private const val CARPLAY_MEDIA_PACKAGE = "com.ts.carplay"
         private const val CARPLAY_MEDIA_APP_PACKAGE = "com.ts.carplay.app"
+        private const val CARPLAY_MEDIA_SESSION_BLANK_DEBOUNCE_MS = 1_500L
         private const val ANDROID_AUTO_MEDIA_PACKAGE = "com.ts.androidauto"
         private const val ANDROID_AUTO_MEDIA_APP_PACKAGE = "com.ts.androidauto.app"
         private const val ANDROID_AUTO_MEDIA_SERVICE_PACKAGE = "com.ts.androidauto.projectionservice"
@@ -3711,6 +3749,11 @@ class BottomBarService : LifecycleService() {
         private const val DASHBOARD_CONTROL_FOCUS_SUPPRESS_MS = 1_500L
         private const val PROJECTION_USB_STATE_PATH = "/sys/class/android_usb/android0/state"
         private const val CARPLAY_USB_MEDIA_STATE_POLL_MS = 1_500L
+        // If CarPlay pushed a real now-playing update within this window, treat the
+        // session as alive and ignore a USB "disconnect" read. The CarPlay bridge
+        // keep-alives at ~2Hz, so any genuine disconnect goes stale well within this
+        // window and the USB monitor still clears media as a backup.
+        private const val CARPLAY_NOWPLAYING_ALIVE_WINDOW_MS = 4_000L
         private const val PROJECTION_USB_STATE_CACHE_MS = 3_000L
         private const val ANDROID_AUTO_MEDIA_SESSION_READY_CACHE_MS = 1_500L
         private const val NATIVE_AUDIO_MUTE_TOGGLE_ACTION = "2"
