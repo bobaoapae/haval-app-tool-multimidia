@@ -38,6 +38,18 @@ class CarPlayNowPlayingMonitor(
     private var lastServiceBindAttemptAtMs = 0L
     private var lastSubscriptionAttemptAtMs = 0L
     private var lastUpdateAtMs = 0L
+    private var pendingClearJob: Job? = null
+
+    // The native CarPlay bridge resends the full now-playing payload as a
+    // ~2Hz keep-alive, including the same artwork bytes over and over even
+    // when nothing changed. Decoding a fresh Bitmap every time handed the UI a
+    // new object identity on every heartbeat, so Compose treated it as a brand
+    // new image and re-uploaded/redrew it constantly — that churn was the
+    // actual flicker, not artwork being cleared. Cache the last raw bytes and
+    // reuse the same decoded Bitmap while the payload is unchanged.
+    private var lastArtworkBytes: ByteArray? = null
+    private var lastArtworkBitmap: Bitmap? = null
+    private var lastArtworkPath: String? = null
 
     private val connection =
             object : ServiceConnection {
@@ -79,6 +91,8 @@ class CarPlayNowPlayingMonitor(
     fun stop() {
         subscriptionWatchdogJob?.cancel()
         subscriptionWatchdogJob = null
+        pendingClearJob?.cancel()
+        pendingClearJob = null
         stopNowPlayingUpdates()
         if (bound) {
             runCatching { appContext.unbindService(connection) }
@@ -86,6 +100,9 @@ class CarPlayNowPlayingMonitor(
         bound = false
         serviceBinder = null
         callbackRegistered = false
+        lastArtworkBytes = null
+        lastArtworkBitmap = null
+        lastArtworkPath = null
     }
 
     private fun bindCarPlayService(reason: String): Boolean {
@@ -389,20 +406,47 @@ class CarPlayNowPlayingMonitor(
                         "path=${update.artworkPath ?: "-"} playing=${update.isPlaying}"
             }
             withContext(Dispatchers.Main) {
+                // A real update arrived: drop any clear that was scheduled for a
+                // previous transient blip so it doesn't wipe this one out.
+                pendingClearJob?.cancel()
+                pendingClearJob = null
                 onUpdate(update)
             }
         }
     }
 
+    /**
+     * The native CarPlay bridge sends transient "no data" updates in between real
+     * metadata pushes (e.g. during track transitions), so clearing is debounced:
+     * only wipe the dashboard's now-playing state if nothing real arrives within
+     * [NOW_PLAYING_CLEAR_DEBOUNCE_MS]. Without this, the album artwork flickers
+     * in and out on the Impulse dashboard every time one of those blips lands.
+     */
     private fun publishClear(reason: String) {
-        debugLog { "Clearing CarPlay now playing metadata: $reason" }
         scope.launch(Dispatchers.Main) {
-            onUpdate(CarPlayNowPlayingUpdate(clear = true))
+            // Confine cancel + (re)assign of pendingClearJob to the main thread so it
+            // can't race with the cancellation performed on the real-update path
+            // (see the withContext(Dispatchers.Main) block above). publishClear is
+            // called from the binder callback thread, an IO coroutine, and
+            // onServiceDisconnected on the main thread, so without this the
+            // cancel/assign here could interleave with that other cancellation and
+            // let a stale clear slip through, defeating the debounce.
+            pendingClearJob?.cancel()
+            pendingClearJob =
+                    launch {
+                        delay(NOW_PLAYING_CLEAR_DEBOUNCE_MS)
+                        debugLog { "Clearing CarPlay now playing metadata: $reason" }
+                        onUpdate(CarPlayNowPlayingUpdate(clear = true))
+                        pendingClearJob = null
+                    }
         }
     }
 
     private fun decodeArtworkBytes(bytes: ByteArray?): Bitmap? {
         if (bytes == null || bytes.isEmpty()) return null
+        lastArtworkBytes?.let { cached ->
+            if (cached.contentEquals(bytes)) return lastArtworkBitmap
+        }
         return try {
             val bounds =
                     BitmapFactory.Options().apply {
@@ -415,6 +459,10 @@ class CarPlayNowPlayingMonitor(
                     }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.let {
                 normalizeArtwork(it)
+            }?.also {
+                lastArtworkBytes = bytes
+                lastArtworkBitmap = it
+                lastArtworkPath = null
             }
         } catch (e: Exception) {
             debugLog { "Failed to decode CarPlay artwork bytes: ${e.message}" }
@@ -424,6 +472,7 @@ class CarPlayNowPlayingMonitor(
 
     private fun decodeArtworkPath(path: String?): Bitmap? {
         if (path.isNullOrBlank()) return null
+        if (path == lastArtworkPath) return lastArtworkBitmap
         return try {
             val uri = Uri.parse(path)
             val scheme = uri.scheme?.lowercase()
@@ -431,6 +480,7 @@ class CarPlayNowPlayingMonitor(
 
             if (scheme.isNullOrBlank()) {
                 return BitmapFactory.decodeFile(path)?.let { normalizeArtwork(it) }
+                        ?.also { cacheArtworkForPath(path, it) }
             }
 
             val bounds =
@@ -448,6 +498,7 @@ class CarPlayNowPlayingMonitor(
             appContext.contentResolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, options)
             }?.let { normalizeArtwork(it) }
+                    ?.also { cacheArtworkForPath(path, it) }
         } catch (e: SecurityException) {
             debugLog { "CarPlay artwork path denied: $path" }
             null
@@ -494,6 +545,12 @@ class CarPlayNowPlayingMonitor(
         return Bitmap.createScaledBitmap(bitmap, width, height, true)
     }
 
+    private fun cacheArtworkForPath(path: String, bitmap: Bitmap) {
+        lastArtworkPath = path
+        lastArtworkBitmap = bitmap
+        lastArtworkBytes = null
+    }
+
     private data class RawNowPlayingInfo(
             val title: String?,
             val artist: String?,
@@ -532,6 +589,7 @@ class CarPlayNowPlayingMonitor(
         private const val NOW_PLAYING_SERVICE_BIND_RETRY_MS = 5_000L
         private const val NOW_PLAYING_SUBSCRIPTION_RETRY_MS = 15_000L
         private const val NOW_PLAYING_UPDATE_STALE_MS = 20_000L
+        private const val NOW_PLAYING_CLEAR_DEBOUNCE_MS = 1_500L
 
         internal fun shouldRetryCarPlayServiceBindForTest(
                 nowMs: Long,
