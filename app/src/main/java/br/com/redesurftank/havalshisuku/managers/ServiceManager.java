@@ -346,6 +346,33 @@ public class ServiceManager {
         return instance;
     }
 
+    public synchronized boolean initializeServicesSimulated(Context context) {
+        timeStartInitialization = SystemClock.uptimeMillis();
+        Log.w(TAG, "Initializing services (Simulator Mode)");
+        sharedPreferences = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
+        handlerThread = new HandlerThread("ServiceManagerHandlerThread");
+        handlerThread.start();
+        backgroundHandler = new Handler(handlerThread.getLooper());
+
+        servicesInitialized = true;
+        timeInitialized = SystemClock.uptimeMillis();
+        
+        Log.w(TAG, "Starting SimulatorGateway");
+        try {
+            // Instantiate using reflection or direct call since it's in the same project but different source set
+            Object simulator = Class.forName("br.com.redesurftank.havalshisuku.simulator.SimulatorGateway")
+                    .getConstructor(ServiceManager.class)
+                    .newInstance(this);
+            simulator.getClass().getMethod("start").invoke(simulator);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start SimulatorGateway", e);
+        }
+
+        Log.w(TAG, "Services initialized successfully (Simulator Mode)");
+        new Handler(Looper.getMainLooper()).post(() -> ProjectorManager.getInstance().initialize());
+        return true;
+    }
+
     public synchronized boolean initializeServices(Context context) {
         if (timeBootReceived <= 0) {
             timeBootReceived = SystemClock.uptimeMillis();
@@ -681,11 +708,6 @@ public class ServiceManager {
                             if (!duplicateClusterInput) {
                                 lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
                                 lastHandledClusterInputAtMs = now;
-                                if (!isThemeDecentralized) {
-                                    if (key == ClusterKey.LEFT || key == ClusterKey.RIGHT) {
-                                        handleClusterCardNavigationKey(key);
-                                    }
-                                }
                                 if (key == ClusterKey.BACK) {
                                     dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
                                 }
@@ -1589,6 +1611,10 @@ public class ServiceManager {
     }
 
     public void updateData(String key, String value) {
+        if (br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE) {
+            OnDataChanged(key, value);
+            return;
+        }
         boolean isHvacCommand = hvacKeysToSuspend.contains(key);
         if (!isControlServiceAlive()) {
             Log.e(TAG, "ControlService not initialized");
@@ -1721,7 +1747,7 @@ public class ServiceManager {
         return new HashMap<>(dataCache);
     }
 
-    private void OnDataChanged(String key, String value) {
+    public void OnDataChanged(String key, String value) {
         Intent broadcastIntent = new Intent("android.intent.haval." + key);
         broadcastIntent.putExtra("value", value);
         broadcastIntent.setPackage(App.getContext().getPackageName());

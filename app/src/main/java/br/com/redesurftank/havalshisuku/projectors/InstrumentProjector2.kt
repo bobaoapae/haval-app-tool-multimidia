@@ -27,6 +27,7 @@ import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.models.ClusterKey
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType
+import br.com.redesurftank.havalshisuku.models.SteeringWheelAcControlType
 import br.com.redesurftank.havalshisuku.bridge.IBridgeContext
 import java.io.File
 import java.text.SimpleDateFormat
@@ -804,7 +805,6 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             syncSecondaryDisplayApps(3)
         }
 
-        MainUiManager.getInstance().handleCardChange(currentCard)
         if (ClusterCardFlowPolicy.isCardBackedMenu(currentCard)) {
             isWarningDismissed = false
         }
@@ -1411,23 +1411,13 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         formatTemp(sm.getData(CarConstants.CAR_BASIC_INSIDE_TEMP.value))
             }
             ClusterCardIds.MAIN_MENU_CARD -> {
-                val evMode = sm.getData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.value)
-                updates["evMode"] = MainMenu.EvModeOptions.getLabel(evMode)
-
-                val drivingMode = sm.getData(CarConstants.CAR_DRIVE_SETTING_DRIVE_MODE.value)
-                val drivingModeLabel = MainMenu.DrivingModeOptions.getLabel(drivingMode)
-                updates["drivingMode"] = drivingModeLabel
-                updates["evModeLabel"] = drivingModeLabel
-
-                val steerMode =
-                        sm.getData(CarConstants.CAR_DRIVE_SETTING_STEERING_WHEEL_ASSIST_MODE.value)
-                updates["steerMode"] = MainMenu.SteerModeOptions.getLabel(steerMode)
-
-                val espStatus = sm.getData(CarConstants.CAR_DRIVE_SETTING_ESP_ENABLE.value)
-                updates["espStatus"] = MainMenu.EspOptions.getLabel(espStatus)
-
-                val regenLevel = sm.getData(CarConstants.CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL.value)
-                updates["regenMode"] = RegenScreen.RegenOptions.getLabel(regenLevel)
+                updates["evMode"] = sm.getData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.value) ?: ""
+                val drivingMode = sm.getData(CarConstants.CAR_DRIVE_SETTING_DRIVE_MODE.value) ?: ""
+                updates["drivingMode"] = drivingMode
+                updates["evModeLabel"] = drivingMode
+                updates["steerMode"] = sm.getData(CarConstants.CAR_DRIVE_SETTING_STEERING_WHEEL_ASSIST_MODE.value) ?: ""
+                updates["espStatus"] = sm.getData(CarConstants.CAR_DRIVE_SETTING_ESP_ENABLE.value) ?: ""
+                updates["regenMode"] = sm.getData(CarConstants.CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL.value) ?: ""
             }
         }
 

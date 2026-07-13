@@ -48,6 +48,10 @@ var stateManager = new StateManager({
     display: 'Normal', //Display mode, should be either Normal, Esportivo, Reduzido or Clean
     displayFocus: 'sel_template',
     appInDash: false,
+    carPlayInDash: false,
+    projectionMirrorInDash: false,
+    projectionPreparingD3: false,
+    projectionCardOverlayAllowed: false,
     clusterEnabled: true,
     brightness: 100,
     fuelRange: 0,

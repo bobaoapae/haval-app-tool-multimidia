@@ -2214,26 +2214,52 @@ canvas.graph-chart {
 }
 
 /* Clean Mode */
-.display-clean {
+/* Clean/Mapa Modes */
+.display-clean,
+.display-mapa {
   --display-scale: 1;
+  --map-sidebar-width: 145px;
+}
+
+.display-mapa {
+  --map-projection-dim-edge: rgba(0, 0, 0, 0.62);
+  --map-projection-dim-mid: rgba(0, 0, 0, 0.40);
+  --map-projection-dim-center: rgba(0, 0, 0, 0.26);
 }
 
 .display-clean .mask-circle,
+.display-mapa .mask-circle,
 .display-clean .mask-circle-border,
+.display-mapa .mask-circle-border,
 .display-clean .needle-trail-wrapper,
+.display-mapa .needle-trail-wrapper,
 .display-clean .speed-needle-container,
-.display-clean .dashboard-speed-dial {
+.display-mapa .speed-needle-container,
+.display-clean .dashboard-speed-dial,
+.display-mapa .dashboard-speed-dial {
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
 }
 
 .display-clean .dashboard-menu-container,
+.display-mapa .dashboard-menu-container,
 .display-clean .mask-circle.right,
-.display-clean .mask-circle-border.right {
+.display-mapa .mask-circle.right,
+.display-clean .mask-circle-border.right,
+.display-mapa .mask-circle-border.right {
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
+}
+
+.display-clean .dashboard-speed-container,
+.display-mapa .dashboard-speed-container {
+  left: 0 !important;
+  top: 0 !important;
+  transform: none !important;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 /* Cluster Disabled Mode */
@@ -2266,17 +2292,17 @@ canvas.graph-chart {
   pointer-events: none !important;
 }
 
-.display-clean .dashboard-speed-content {
+.display-clean .dashboard-speed-content,
+.display-mapa .dashboard-speed-content {
   display: flex !important;
   opacity: 1 !important;
   visibility: visible !important;
   pointer-events: none !important;
-  position: fixed !important;
+  position: absolute !important;
   left: 50% !important;
-  top: 10px !important;
+  top: 110px !important;
   transform: translateX(-50%) scale(0.8) !important;
   width: 500px !important;
-  height: 160px !important;
   border-radius: 20px !important;
   transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
   background: radial-gradient(circle at center, var(--bg-black-30) 20%, var(--color-purple-20) 100%) !important;
@@ -2286,20 +2312,31 @@ canvas.graph-chart {
   z-index: 9999 !important;
 }
 
-.display-clean .dashboard-speed-esportivo-widget {
+.display-clean .dashboard-speed-content {
+  height: 160px !important;
+}
+
+.display-mapa .dashboard-speed-content {
+  height: 220px !important;
+}
+
+.display-clean .dashboard-speed-esportivo-widget,
+.display-mapa .dashboard-speed-esportivo-widget {
   display: none !important;
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
 }
 
-#app.theme-light.display-clean .dashboard-speed-content {
+#app.theme-light.display-clean .dashboard-speed-content,
+#app.theme-light.display-mapa .dashboard-speed-content {
   background: radial-gradient(circle at center, var(--bg-25) 20%, rgba(200, 220, 255, 0.2) 100%) !important;
   border: 1px solid rgba(255, 255, 255, 0.4) !important;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05) !important;
 }
 
-.display-clean .speed-inner-circle {
+.display-clean .speed-inner-circle,
+.display-mapa .speed-inner-circle {
   position: fixed;
   /* Move relative to screen */
   left: 50%;
@@ -3608,4 +3645,207 @@ canvas.graph-chart {
 #app.theme-light.native-mock-enabled.app-in-dash-disabled .dev-background {
   background-image: none !important;
   background-color: #d1d5db !important; /* Premium neutral light gray testing background */
+}
+
+/* ==========================================================================
+   CARPLAY & ANDROID AUTO PROJECTION OVERLAY SYSTEMS
+   ========================================================================== */
+
+/* Projection mirror uses the effective Mapa display; only hide invasive chrome. */
+.theme-mirror-cluster .mask-circle,
+.theme-mirror-cluster .mask-circle-border,
+.theme-mirror-cluster .no-app-mask-l,
+.theme-mirror-cluster .no-app-mask-r,
+.theme-mirror-cluster .partial-app-mask,
+.theme-mirror-cluster .warn-mask,
+.theme-mirror-cluster .needle-trail-wrapper,
+.theme-mirror-cluster .speed-needle-container,
+.theme-mirror-cluster .dashboard-speed-dial,
+.theme-mirror-cluster .dashboard-speed-esportivo-widget {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.theme-mirror-cluster .mask-bottom-bar,
+.theme-mirror-cluster .dashboard-warning-label,
+.theme-mirror-cluster .alert-indicators-container,
+.theme-mirror-cluster .trip-analysis-indicator,
+.theme-mirror-cluster:not(.projection-card-overlay-active) .dashboard-menu-container {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.theme-mirror-cluster .dashboard-info-container {
+  z-index: 1000;
+}
+
+.theme-mirror-cluster .dashboard-speed-container {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: none !important;
+  z-index: 1100;
+  overflow: visible !important;
+  border-radius: 0 !important;
+}
+
+.theme-mirror-cluster .dashboard-speed-content {
+  display: flex !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: none !important;
+  text-shadow: 0 4px 18px rgba(0, 0, 0, 0.96), 0 0 16px rgba(0, 160, 255, 0.48);
+}
+
+.theme-mirror-cluster:not(.display-mapa) .dashboard-speed-content {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+.theme-mirror-cluster.display-mapa .mask-top-bar {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: none !important;
+}
+
+.theme-mirror-cluster.screen-main-menu:not(.projection-card-overlay-active) .dashboard-menu-container {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.projection-map-display-active {
+  background: transparent !important;
+}
+
+.projection-map-display-active:not(.projection-card-overlay-active) .dashboard-menu-container,
+.projection-map-display-active:not(.projection-card-overlay-active) .main-container {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.theme-mirror-cluster.screen-aircon:not(.projection-card-overlay-active) .main-container {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.theme-mirror-cluster.screen-aircon:not(.projection-card-overlay-active) .ac-outer-ring,
+.theme-mirror-cluster.screen-aircon:not(.projection-card-overlay-active) .ac-inner-ring,
+.theme-mirror-cluster.screen-aircon:not(.projection-card-overlay-active) .ac-inner-ring-shadow {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.projection-card-overlay-active.screen-main-menu .dashboard-menu-container,
+.projection-card-overlay-active.screen-aircon .dashboard-menu-container {
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: none !important;
+  z-index: 1200;
+}
+
+.projection-card-overlay-active.screen-main-menu .main-menu-container,
+.projection-card-overlay-active.screen-aircon .main-container {
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.theme-mirror-cluster .main-container,
+.theme-mirror-cluster .main-menu-container,
+.theme-mirror-cluster .menu-carousel,
+.theme-mirror-cluster .ac-circle-container {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.theme-mirror-cluster.projection-card-overlay-active.screen-main-menu .menu-carousel,
+.theme-mirror-cluster.projection-card-overlay-active.screen-display-selection .menu-carousel {
+  background: rgba(3, 8, 14, 0.76) !important;
+  background-color: rgba(3, 8, 14, 0.76) !important;
+  background-image: none !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1) !important;
+}
+
+.display-mapa.screen-main-menu:not(.theme-mirror-cluster) .dashboard-info-container,
+.display-mapa.screen-aircon:not(.theme-mirror-cluster) .dashboard-info-container {
+  z-index: 320;
+}
+
+.display-mapa.screen-main-menu:not(.theme-mirror-cluster) .dashboard-menu-container,
+.display-mapa.screen-aircon:not(.theme-mirror-cluster) .dashboard-menu-container {
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: none !important;
+}
+
+.theme-mirror-cluster .dashboard-speed-container::after {
+  content: none !important;
+}
+
+.display-clean.screen-main-menu .dashboard-menu-container,
+.display-clean .mask-circle.right,
+.display-mapa .mask-circle.right,
+.display-clean .mask-circle-border.right,
+.display-mapa .mask-circle-border.right {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.native-mock-enabled.display-mapa .cluster-mask-bg {
+  background-image: url('../assets/mapa.jpeg');
+  background-size: 1920px 720px;
+  background-position: left top;
+  background-repeat: no-repeat;
+}
+
+.display-mapa .cluster-mask-bg::before,
+.projection-map-display-active .cluster-mask-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  clip-path: inset(0 0 0 var(--map-sidebar-width, 145px));
+  pointer-events: none;
+  background:
+    linear-gradient(
+      90deg,
+      var(--map-projection-dim-edge, rgba(0, 0, 0, 0.68)) 0%,
+      var(--map-projection-dim-mid, rgba(0, 0, 0, 0.48)) 18%,
+      var(--map-projection-dim-center, rgba(0, 0, 0, 0.34)) 50%,
+      var(--map-projection-dim-mid, rgba(0, 0, 0, 0.48)) 76%,
+      var(--map-projection-dim-edge, rgba(0, 0, 0, 0.68)) 100%
+    ),
+    radial-gradient(
+      ellipse 72% 92% at 62% 51%,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 0.02) 46%,
+      rgba(0, 0, 0, 0.20) 78%,
+      rgba(0, 0, 0, 0.34) 100%
+    );
+}
+
+.projection-map-display-active .cluster-mask-bg::before {
+  content: none !important;
+  background: none !important;
 }

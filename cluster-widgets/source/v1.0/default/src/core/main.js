@@ -31,6 +31,38 @@ let menuWrapper = null;
 let dashboardCleanup = null;
 const screenCache = {};
 
+function isProjectionMapDisplayActive() {
+    return get('projectionMirrorInDash') === true ||
+        get('carPlayInDash') === true ||
+        get('projectionPreparingD3') === true;
+}
+
+function isProjectionCardOverlayActive() {
+    if (!isProjectionMapDisplayActive()) {
+        return false;
+    }
+    if (get('projectionCardOverlayAllowed') !== true) {
+        return false;
+    }
+    const screen = get('screen');
+    return isMainMenuSessionScreen(screen) || screen === 'aircon';
+}
+
+function isMainMenuDetailScreen(screen) {
+    return screen === 'graph' || screen === 'graphs' || screen === 'regen' || screen === 'display_selection';
+}
+
+function isMainMenuSessionScreen(screen) {
+    return screen === 'main_menu' || isMainMenuDetailScreen(screen);
+}
+
+function getEffectiveDisplayMode() {
+    if (isProjectionMapDisplayActive()) {
+        return 'Mapa';
+    }
+    return get('display') || 'Normal';
+}
+
 // Initial state from URL parameters
 const urlParams = new URLSearchParams(window.location.search);
 const nativeMockEnabled =
@@ -120,12 +152,13 @@ function initializeLayout() {
 function render() {
     logger.enter('render', { screen: get('screen'), display: get('display') });
     const screen = get('screen');
-    const displayMode = get('display') || 'Normal';
+    const projectionMapDisplayActive = isProjectionMapDisplayActive();
+    const displayMode = getEffectiveDisplayMode();
 
     // Update app class based on display mode
     if (appContainer) {
         logger.log('Rendering screen:', screen);
-        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'app-in-dash-disabled' && c !== 'menu-minimized');
+        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'app-in-dash-disabled' && c !== 'menu-minimized' && c !== 'carplay-in-dash' && c !== 'projection-mirror-in-dash' && c !== 'projection-preparing-d3' && c !== 'projection-map-display-active' && c !== 'projection-card-overlay-active');
         classes.push('display-' + displayMode.toLowerCase());
 
         if (get('clusterEnabled') === false) {
@@ -150,8 +183,28 @@ function render() {
             classes.push('hide-header');
         }
 
+        if (projectionMapDisplayActive) {
+            classes.push('theme-mirror-cluster');
+            classes.push('projection-mirror-in-dash');
+            classes.push('projection-map-display-active');
+            if (get('projectionPreparingD3') === true) {
+                classes.push('projection-preparing-d3');
+            }
+            if (isProjectionCardOverlayActive()) {
+                classes.push('projection-card-overlay-active');
+            }
+        }
+
+        if (get('carPlayInDash') === true) {
+            classes.push('carplay-in-dash');
+        }
+
         const currentMode = (get('mode') || 'Dark').toLowerCase();
-        classes.push('theme-' + currentMode);
+        if (!projectionMapDisplayActive) {
+            classes.push('theme-' + currentMode);
+        } else {
+            classes.push('theme-mirror-cluster');
+        }
 
         const currentGaugeStyle = (get('gaugeStyle') || 'Esportivo').toLowerCase();
         classes.push('gauge-style-' + currentGaugeStyle);
@@ -180,6 +233,13 @@ function render() {
         if (el && el.parentNode === menuWrapper) {
             menuWrapper.removeChild(el);
         }
+    }
+
+    if (menuWrapper) {
+        const cardId = get('cardId');
+        const projectionCardOverlayActive = isProjectionCardOverlayActive();
+        const rightMenuVisible = (cardId != 0);
+        menuWrapper.style.display = (!rightMenuVisible || (projectionMapDisplayActive && !projectionCardOverlayActive)) ? 'none' : 'block';
     }
 
     if (screenCache[screen]) {
@@ -246,6 +306,10 @@ subscribe('gaugeStyle', render);
 
 subscribe('clusterEnabled', render);
 subscribe('appInDash', render);
+subscribe('carPlayInDash', render);
+subscribe('projectionMirrorInDash', render);
+subscribe('projectionPreparingD3', render);
+subscribe('projectionCardOverlayAllowed', render);
 render();
 
 // Setup Decentralized Bridge & Key events
@@ -275,7 +339,7 @@ function handleSteeringWheelKey(keyName) {
     lastKeyTime = now;
 
     // Wake up from Clean mode to Normal display mode on any key event
-    if (get('display') === 'Clean') {
+    if (get('display') === 'Clean' && get('screen') !== 'display_selection') {
         setState('display', 'Normal');
         bridge.updateCarData('display', 'Normal');
         logger.log(`[Steering Wheel] Clean display mode active. Returning to Normal display mode on key event: ${keyName}`);
@@ -368,7 +432,7 @@ function handleSteeringWheelKey(keyName) {
             setState('screen', 'main_menu');
         }
     } else if (screen === 'display_selection') {
-        const displays = ['Normal', 'Reduzido', 'Clean'];
+        const displays = ['Normal', 'Reduzido', 'Clean', 'Mapa'];
         let currentIdx = displays.indexOf(get('display'));
         if (currentIdx === -1) currentIdx = 0;
         
@@ -503,7 +567,11 @@ async function initDecentralizedBridge() {
         
         "warningActive",
         "bsdLeft",
-        "bsdRight"
+        "bsdRight",
+        "carPlayInDash",
+        "projectionMirrorInDash",
+        "projectionPreparingD3",
+        "projectionCardOverlayAllowed"
     ];
     
     bridge.subscribe(keysToSubscribe, (key, value) => {
@@ -629,7 +697,10 @@ subscribe('cardId', (cardId) => {
 
     // 0 = hide the right menu display
     if (menuWrapper) {
-        menuWrapper.style.display = (cardId == 0) ? 'none' : 'block';
+        const projectionMapDisplayActive = isProjectionMapDisplayActive();
+        const projectionCardOverlayActive = isProjectionCardOverlayActive();
+        const rightMenuVisible = (cardId != 0);
+        menuWrapper.style.display = (!rightMenuVisible || (projectionMapDisplayActive && !projectionCardOverlayActive)) ? 'none' : 'block';
     }
 
     if (cardId == 1) {
@@ -686,6 +757,31 @@ window.control = function (key, value) {
     } catch (e) {
         console.error('[Error] Bridge control failed for key ' + key + ':', e);
     }
+};
+
+window.__havalProjectionDebug = function () {
+    const app = document.getElementById('app');
+    const menu = document.querySelector('.dashboard-menu-container');
+    const main = document.querySelector('.main-container');
+    return {
+        carPlayInDash: get('carPlayInDash'),
+        projectionMirrorInDash: get('projectionMirrorInDash'),
+        projectionPreparingD3: get('projectionPreparingD3'),
+        cardId: get('cardId'),
+        screen: get('screen'),
+        display: get('display'),
+        effectiveDisplay: getEffectiveDisplayMode(),
+        projectionCardOverlayAllowed: get('projectionCardOverlayAllowed'),
+        projectionMapDisplayActive: isProjectionMapDisplayActive(),
+        projectionCardOverlayActive: isProjectionCardOverlayActive(),
+        appClass: app ? app.className : null,
+        menuDisplay: menu ? getComputedStyle(menu).display : null,
+        menuVisibility: menu ? getComputedStyle(menu).visibility : null,
+        menuOpacity: menu ? getComputedStyle(menu).opacity : null,
+        mainDisplay: main ? getComputedStyle(main).display : null,
+        mainVisibility: main ? getComputedStyle(main).visibility : null,
+        mainOpacity: main ? getComputedStyle(main).opacity : null,
+    };
 };
 
 window.cleanup = function () {

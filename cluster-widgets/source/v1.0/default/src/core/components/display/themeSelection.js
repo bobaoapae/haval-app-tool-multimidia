@@ -5,6 +5,7 @@ const getIconNormal = (fill) => `data:image/svg+xml;base64,${btoa('<svg width="4
 const getIconSport = (fill) => `data:image/svg+xml;base64,${btoa('<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="5" width="20" height="14" rx="2" stroke="' + fill + '" stroke-width="2"/><circle cx="8" cy="12" r="3" stroke="' + fill + '" stroke-width="1.5"/><circle cx="16" cy="12" r="3" stroke="' + fill + '" stroke-width="1.5"/></svg>')}`;
 const getIconReduced = (fill) => `data:image/svg+xml;base64,${btoa('<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="5" width="20" height="14" rx="2" stroke="' + fill + '" stroke-width="2"/><circle cx="8" cy="12" r="1.5" stroke="' + fill + '" stroke-width="1.5"/><circle cx="16" cy="12" r="1.5" stroke="' + fill + '" stroke-width="1.5"/></svg>')}`;
 const getIconClean = (fill) => `data:image/svg+xml;base64,${btoa('<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="5" width="20" height="14" rx="2" stroke="' + fill + '" stroke-width="2"/></svg>')}`;
+const getIconMap = (fill) => `data:image/svg+xml;base64,${btoa('<svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="4" width="18" height="16" rx="2" stroke="' + fill + '" stroke-width="2"/><path d="M8 4V20M16 4V20M4 9L8 7L16 10L20 8M4 15L8 13L16 16L20 14" stroke="' + fill + '" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>')}`;
 
 export function createDisplaySelectionScreen() {
     const main = document.createElement('main');
@@ -104,7 +105,8 @@ export function createDisplaySelectionScreen() {
             { id: 'title_mask', label: 'Modos do Tema', type: 'title' },
             { id: 'mode_normal', label: 'Normal', type: 'mode', value: 'Normal', iconSrc: getIconNormal(themeBlue) },
             { id: 'mode_reduzido', label: 'Reduzido', type: 'mode', value: 'Reduzido', iconSrc: getIconReduced(themeBlue) },
-            { id: 'mode_clean', label: 'Clean', type: 'mode', value: 'Clean', iconSrc: getIconClean(themeBlue) }
+            { id: 'mode_clean', label: 'Clean', type: 'mode', value: 'Clean', iconSrc: getIconClean(themeBlue) },
+            { id: 'mode_mapa', label: 'Mapa', type: 'mode', value: 'Mapa', iconSrc: getIconMap(themeBlue) }
         ];
 
         const itemElements = {};

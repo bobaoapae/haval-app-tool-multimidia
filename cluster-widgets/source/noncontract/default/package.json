@@ -12,12 +12,11 @@
     "dev": "parcel index.html",
     "dev-controls": "npm run dev",
     "clear": "rimraf dist .parcel-cache",
-    "build": "bun run clear && parcel build index.html --dist-dir dist --public-url ./ --no-source-maps && node inline.js",
-    "prerelease": "bun run build"
+    "build": "parcel build index.html --dist-dir dist --public-url ./ --no-source-maps && node inline.js",
+    "prerelease": "npm run build"
   },
   "devDependencies": {
     "baseline-browser-mapping": "^2.10.11",
-    "bun": "^1.3.0",
     "parcel": "^2.16.4",
     "rimraf": "^6.0.1"
   },

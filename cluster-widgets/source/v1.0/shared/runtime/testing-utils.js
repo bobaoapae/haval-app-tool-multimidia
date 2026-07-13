@@ -26,7 +26,7 @@ export function initSimulationHarness(stateManager, menuItems) {
         ac_control: ['fan', 'temp'],
         regen: ['Baixo', 'Normal', 'Alto'],
         graph: ['evConsumption', 'gasConsumption', 'carSpeed'],
-        display_selection: ['title_mask', 'mode_normal', 'mode_reduzido', 'mode_clean']
+        display_selection: ['title_mask', 'mode_normal', 'mode_reduzido', 'mode_clean', 'mode_mapa']
     };
 
     // If running under dev-controls (index.html), add a red background to help identify the environment
