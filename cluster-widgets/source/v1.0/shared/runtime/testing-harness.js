@@ -67,8 +67,9 @@ export function initTestHarness(stateManager, menuItems) {
             let currentIndex = cardSequence.indexOf(currentCard);
             if (currentIndex === -1) currentIndex = 1; // Default to Menu card (1)
             
+            // LEFT advances card cycle; RIGHT goes back (car wheel mapping)
             let nextIndex;
-            if (keyName === 'RIGHT') {
+            if (keyName === 'LEFT') {
                 nextIndex = (currentIndex + 1) % cardSequence.length;
             } else {
                 nextIndex = (currentIndex - 1 + cardSequence.length) % cardSequence.length;
@@ -1031,6 +1032,71 @@ export function initTestHarness(stateManager, menuItems) {
                             <span>Próx Revisão Data (nextRevisionDate)</span>
                             <input type="date" id="state-date-nextRevisionDate" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.08); padding: 4px 6px; border-radius: 6px; font-size: 11px; color: #fff; width: 115px; outline: none; border-color: rgba(255,255,255,0.15);">
                         </div>
+
+                        <div style="font-size: 10px; font-weight: 700; color: #64748b; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px; margin-top: 8px; text-transform: uppercase;">AC / HVAC</div>
+
+                        <!-- AC Power -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+                            <span>AC Power (power)</span>
+                            <div id="state-pill-power" style="display: flex; gap: 2px; background: rgba(15,23,42,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 2px;">
+                                <button data-val="0" style="background: transparent; border: none; color: #94a3b8; padding: 2px 8px; font-size: 9px; border-radius: 10px; cursor: pointer; font-weight: bold;">OFF</button>
+                                <button data-val="1" style="background: transparent; border: none; color: #94a3b8; padding: 2px 8px; font-size: 9px; border-radius: 10px; cursor: pointer; font-weight: bold;">ON</button>
+                            </div>
+                        </div>
+
+                        <!-- AUTO -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+                            <span>AUTO (auto)</span>
+                            <div id="state-pill-auto" style="display: flex; gap: 2px; background: rgba(15,23,42,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 2px;">
+                                <button data-val="0" style="background: transparent; border: none; color: #94a3b8; padding: 2px 8px; font-size: 9px; border-radius: 10px; cursor: pointer; font-weight: bold;">OFF</button>
+                                <button data-val="1" style="background: transparent; border: none; color: #94a3b8; padding: 2px 8px; font-size: 9px; border-radius: 10px; cursor: pointer; font-weight: bold;">ON</button>
+                            </div>
+                        </div>
+
+                        <!-- MAX AUTO -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+                            <span>MAX AUTO (maxauto)</span>
+                            <div id="state-pill-maxauto" style="display: flex; gap: 2px; background: rgba(15,23,42,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 2px;">
+                                <button data-val="0" style="background: transparent; border: none; color: #94a3b8; padding: 2px 8px; font-size: 9px; border-radius: 10px; cursor: pointer; font-weight: bold;">OFF</button>
+                                <button data-val="1" style="background: transparent; border: none; color: #94a3b8; padding: 2px 8px; font-size: 9px; border-radius: 10px; cursor: pointer; font-weight: bold;">ON</button>
+                            </div>
+                        </div>
+
+                        <!-- Recycle -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+                            <span>RECYCLE (recycle)</span>
+                            <div id="state-pill-recycle" style="display: flex; gap: 2px; background: rgba(15,23,42,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 2px;">
+                                <button data-val="0" style="background: transparent; border: none; color: #94a3b8; padding: 2px 8px; font-size: 9px; border-radius: 10px; cursor: pointer; font-weight: bold;">OFF</button>
+                                <button data-val="1" style="background: transparent; border: none; color: #94a3b8; padding: 2px 8px; font-size: 9px; border-radius: 10px; cursor: pointer; font-weight: bold;">ON</button>
+                            </div>
+                        </div>
+
+                        <!-- Fan -->
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 11px;">
+                                <span>Fan (fan)</span>
+                                <span id="val-fan" style="color: #a855f7; font-weight: bold;">0</span>
+                            </div>
+                            <input type="range" id="state-range-fan" min="0" max="7" value="0" step="1" style="width: 100%; height: 4px; border-radius: 2px; outline: none; cursor: pointer; accent-color: #a855f7;">
+                        </div>
+
+                        <!-- HVAC Temp -->
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 11px;">
+                                <span>AC Temp (temp)</span>
+                                <span id="val-temp" style="color: #a855f7; font-weight: bold;">22°C</span>
+                            </div>
+                            <input type="range" id="state-range-temp" min="16" max="32" value="22" step="0.5" style="width: 100%; height: 4px; border-radius: 2px; outline: none; cursor: pointer; accent-color: #a855f7;">
+                        </div>
+
+                        <!-- Focus Area -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+                            <span>AC Focus (focusArea)</span>
+                            <div id="state-pill-focusArea" style="display: flex; gap: 2px; background: rgba(15,23,42,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 2px;">
+                                <button data-val="fan" style="background: transparent; border: none; color: #94a3b8; padding: 2px 8px; font-size: 9px; border-radius: 10px; cursor: pointer; font-weight: bold;">FAN</button>
+                                <button data-val="temp" style="background: transparent; border: none; color: #94a3b8; padding: 2px 8px; font-size: 9px; border-radius: 10px; cursor: pointer; font-weight: bold;">TEMP</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1057,22 +1123,24 @@ export function initTestHarness(stateManager, menuItems) {
                 }
             };
             
-            const bindPill = (key) => {
+            const bindPill = (key, { numeric = false } = {}) => {
                 const container = document.getElementById(`state-pill-${key}`);
                 if (!container) return;
                 
                 const buttons = container.querySelectorAll('button');
                 buttons.forEach(btn => {
                     btn.addEventListener('click', () => {
-                        const val = btn.getAttribute('data-val');
+                        const raw = btn.getAttribute('data-val');
+                        const val = numeric ? Number(raw) : raw;
                         stateManager.set(key, val);
                     });
                 });
                 
-                stateManager.subscribe(key, (val) => {
-                    if (!val) return;
+                const paint = (val) => {
+                    if (val === undefined || val === null) return;
+                    const str = String(val);
                     buttons.forEach(btn => {
-                        if (btn.getAttribute('data-val') === val) {
+                        if (btn.getAttribute('data-val') === str) {
                             btn.style.background = 'rgba(168, 85, 247, 0.25)';
                             btn.style.color = '#c084fc';
                             btn.style.boxShadow = '0 0 6px rgba(168, 85, 247, 0.3)';
@@ -1082,7 +1150,9 @@ export function initTestHarness(stateManager, menuItems) {
                             btn.style.boxShadow = 'none';
                         }
                     });
-                });
+                };
+                stateManager.subscribe(key, paint);
+                paint(stateManager.get(key));
             };
             
             bindRange('carSpeed', ' km/h');
@@ -1093,6 +1163,8 @@ export function initTestHarness(stateManager, menuItems) {
             bindRange('batteryPercent', '%');
             bindRange('inside_temp', '°C');
             bindRange('outside_temp', '°C');
+            bindRange('fan', '');
+            bindRange('temp', '°C');
             
             const odoInput = document.getElementById('state-num-odometer');
             if (odoInput) {
@@ -1176,6 +1248,12 @@ export function initTestHarness(stateManager, menuItems) {
             bindPill('evMode');
             bindPill('steerMode');
             bindPill('espStatus');
+            // AC / HVAC (numeric 0/1 flags from state.js)
+            bindPill('power', { numeric: true });
+            bindPill('auto', { numeric: true });
+            bindPill('maxauto', { numeric: true });
+            bindPill('recycle', { numeric: true });
+            bindPill('focusArea');
             
             const dashSwitch = document.getElementById('sim-control-appInDash');
             if (dashSwitch) {

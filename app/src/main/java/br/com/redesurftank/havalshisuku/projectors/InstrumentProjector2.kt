@@ -861,18 +861,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                             "screen" to currentClusterScreenName
                                     )
                             )
-                            if (action is SteeringWheelAcControlType) {
-                                when (action) {
-                                    SteeringWheelAcControlType.FAN_SPEED ->
-                                            evaluateJsIfReady(webView, "focus('fan')")
-                                    SteeringWheelAcControlType.TEMPERATURE ->
-                                            evaluateJsIfReady(webView, "focus('temp')")
-                                    SteeringWheelAcControlType.POWER ->
-                                            evaluateJsIfReady(webView, "focus('power')")
-                                }
-                            } else if (action is String) {
-                                evaluateJsIfReady(webView, "control('acAction', '$action')")
-                            }
+                            // Focus injections removed. Frontend is the single source of truth for navigation.
                             br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
                                     .preserveCarPlayClusterContract("STEERING_WHEEL_AC_CONTROL")
                             br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
@@ -883,7 +872,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             if (screen is String) {
                                 currentGraphName = screen
                                 logClusterPerfEvent("graph_navigation", mapOf("targetGraph" to screen))
-                                evaluateJsIfReady(webView, "control('currentGraph','$screen')")
+                                // control injection removed. Frontend is the single source of truth for navigation.
                             }
                         }
                         ServiceManagerEventType.UPDATE_SCREEN -> {
@@ -891,7 +880,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             if (arg0 is String) {
                                 currentClusterScreenName = arg0
                                 logClusterPerfEvent("screen_update", mapOf("targetScreen" to arg0))
-                                evaluateJsIfReady(webView, "showScreen('$arg0')")
+                                // showScreen injection removed. Frontend is the single source of truth for navigation.
                                 if (arg0 == "aircon") {
                                     br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
                                             .preserveCarPlayClusterContract("UPDATE_SCREEN_AIRCON")
@@ -905,10 +894,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         ServiceManagerEventType.MENU_ITEM_NAVIGATION -> {
                             val menuNav = args[0] as String
                             logMenuNavigationPerfEventIfNeeded(menuNav)
-                            evaluateJsIfReady(
-                                    webView,
-                                    "(function(){control('menuNav', '$menuNav');focus('$menuNav');})()"
-                            )
+                            // focus injection removed. Frontend is the single source of truth for navigation.
                         }
                         ServiceManagerEventType.MAX_AUTO_AC_STATUS_CHANGED -> {
                             val status = args[0]
@@ -2055,6 +2041,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
     override fun updateHeartbeat() {
         lastHeartbeatTime = System.currentTimeMillis()
+    }
+
+    override fun refreshDisplayBounds() {
+        Log.d(TAG, "refreshDisplayBounds: Triggering display app sync from frontend")
+        ensureUi {
+            if (hasManagedSecondaryDisplayWork(3)) {
+                lastAppliedConfigs.clear()
+                syncSecondaryDisplayApps(3)
+            }
+        }
     }
 
     private fun pushVirtualDisplayState(displayId: Int) {

@@ -208,6 +208,20 @@ if (isBrowser) {
             mockState.preferences.set(key, value);
         },
 
+        setClusterBackground: (type, value) => {
+            console.log(`[Mock Bridge] setClusterBackground type=${type} value=${value}`);
+            localStorage.setItem('pref_customBackgroundTypeD1', String(type || 'THEME'));
+            localStorage.setItem('pref_customBackgroundValueD1', String(value || ''));
+            localStorage.setItem('pref_enableCustomBackgroundD1', 'true');
+        },
+
+        setThemeBackground: (relativePath) => {
+            console.log(`[Mock Bridge] setThemeBackground path=${relativePath}`);
+            localStorage.setItem('pref_customBackgroundTypeD1', 'THEME');
+            localStorage.setItem('pref_customBackgroundValueD1', String(relativePath || ''));
+            localStorage.setItem('pref_enableCustomBackgroundD1', 'true');
+        },
+
         getPreference: (key, defaultValue) => {
             const cached = localStorage.getItem(`pref_${key}`);
             return cached !== null ? cached : defaultValue;

@@ -373,7 +373,7 @@ function handleSteeringWheelKey(keyName) {
         }
     } else if (screen === 'aircon') {
         const focusArea = get('focusArea') || 'fan';
-        if (keyName === 'LEFT' || keyName === 'RIGHT') {
+        if (keyName === 'LEFT' || keyName === 'RIGHT' || keyName === 'ENTER') {
             setState('focusArea', focusArea === 'fan' ? 'temp' : 'fan');
         } else if (keyName === 'UP' || keyName === 'DOWN') {
             if (focusArea === 'fan') {

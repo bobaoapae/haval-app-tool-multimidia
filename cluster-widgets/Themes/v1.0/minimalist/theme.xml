@@ -1,0 +1,16 @@
+<theme>
+    <name>Minimalist</name>
+    <description>Clean, square edges, flat menu, and minimalist typography.</description>
+    <version>1.1.8</version>
+    <minBridgeVersion>1</minBridgeVersion>
+    <thumbnail>thumbnail.png</thumbnail>
+    <mainFile>app.html</mainFile>
+    <!-- Cluster Display-1 wallpaper shipped with the theme (used when bg mode = THEME) -->
+    <background>car-bg.png</background>
+    <AppDefaultPosition>
+        <x>0</x>
+        <y>62</y>
+        <width>1920</width>
+        <height>596</height>
+    </AppDefaultPosition>
+</theme>

@@ -9,7 +9,8 @@
     "android >= 9"
   ],
   "scripts": {
-    "dev": "node dev.js",
+    "dev": "vite --port 1235",
+    "dev-parcel": "node dev.js",
     "dev-controls": "npm run dev",
     "clear": "rimraf dist .parcel-cache",
     "build": "npm run clear && parcel build index.html --dist-dir dist --public-url ./ --no-source-maps && node inline.js",
@@ -18,7 +19,8 @@
   "devDependencies": {
     "baseline-browser-mapping": "^2.10.11",
     "parcel": "^2.16.4",
-    "rimraf": "^6.0.1"
+    "rimraf": "^6.0.1",
+    "vite": "^8.1.4"
   },
   "dependencies": {
     "chartjs-adapter-date-fns": "^3.0.0",

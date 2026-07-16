@@ -1,7 +1,7 @@
 //log always on in dev mode local). Set the log for the other scenarios
 var DEBUG = false;
 if (process.env.NODE_ENV === 'development') {
-    //DEBUG = true;
+    DEBUG = true;
 }
 
 export const logger = {

@@ -117,10 +117,20 @@ export function initSimulationHarness(stateManager, menuItems) {
                 return;
             }
 
-            if (e.key === 'Backspace') {
-                if (currentScreen !== 'main_menu') {
-                    window.showScreen('main_menu');
-                }
+            // Dispatch standard navigation keys to the frontend via window.onKeyEvent
+            const keyMap = {
+                'ArrowUp': 'UP',
+                'ArrowDown': 'DOWN',
+                'ArrowLeft': 'LEFT',
+                'ArrowRight': 'RIGHT',
+                'Enter': 'ENTER',
+                'Backspace': 'BACK',
+                'Escape': 'BACK'
+            };
+            
+            if (keyMap[e.key] && window.onKeyEvent) {
+                e.preventDefault();
+                window.onKeyEvent(keyMap[e.key]);
                 return;
             }
 

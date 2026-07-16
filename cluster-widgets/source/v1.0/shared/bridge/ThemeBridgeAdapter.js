@@ -295,6 +295,43 @@ export class ThemeBridgeAdapter {
     }
 
     /**
+     * Set the Display-1 cluster wallpaper via the v1.0 JNI bridge.
+     * @param {string} type - THEME | PRESET | IMAGE_URL | FILE | YOUTUBE | WEB_URL
+     * @param {string} value - type-specific path/url
+     */
+    setClusterBackground(type, value = "") {
+        if (this.rawBridge && typeof this.rawBridge.setClusterBackground === "function") {
+            try {
+                this.rawBridge.setClusterBackground(String(type || "THEME"), String(value || ""));
+            } catch (e) {
+                console.error("[BridgeAdapter] setClusterBackground failed:", e);
+            }
+        } else {
+            console.info("[BridgeAdapter] setClusterBackground unsupported (dev/browser).");
+        }
+    }
+
+    /**
+     * Announce the active theme package wallpaper (relative path).
+     * Applied only when native mode is THEME.
+     * @param {string} relativePath - e.g. "car-bg.png"
+     */
+    setThemeBackground(relativePath) {
+        if (this.rawBridge && typeof this.rawBridge.setThemeBackground === "function") {
+            try {
+                this.rawBridge.setThemeBackground(String(relativePath || ""));
+            } catch (e) {
+                console.error("[BridgeAdapter] setThemeBackground failed:", e);
+            }
+        } else if (this.rawBridge && typeof this.rawBridge.setClusterBackground === "function") {
+            // Fallback for older partial bridges
+            this.setClusterBackground("THEME", relativePath);
+        } else {
+            console.info("[BridgeAdapter] setThemeBackground unsupported (dev/browser).");
+        }
+    }
+
+    /**
      * Resets the adapter's listeners for HMR reload scenarios.
      */
     reset() {

@@ -25,6 +25,13 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
     }
 
     @JavascriptInterface
+    fun setAppDefaultDimensions(x: Int, y: Int, width: Int, height: Int) {
+        Log.d(TAG, "setAppDefaultDimensions: x=$x y=$y width=$width height=$height")
+        DisplayAppLauncher.dynamicThemeBounds = intArrayOf(x, y, width, height)
+        context.refreshDisplayBounds()
+    }
+
+    @JavascriptInterface
     fun setCardId(cardId: Int) {
         context.setCardId(cardId)
     }
@@ -82,6 +89,64 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
     @JavascriptInterface
     fun savePreference(key: String, value: String) {
         context.preferences.edit().putString(key, value).apply()
+    }
+
+    /**
+     * Theme → native bridge: set the Display-1 cluster wallpaper.
+     *
+     * Types:
+     *  - "THEME"      value = relative path inside the active theme package (e.g. "car-bg.png");
+     *                 empty value uses `<background>` from theme.xml
+     *  - "PRESET"     value = asset filename under assets/backgrounds/
+     *  - "IMAGE_URL"  value = http(s) URL
+     *  - "FILE"       value = absolute filesystem path
+     *  - "YOUTUBE"    value = youtube URL / id
+     *  - "WEB_URL"    value = page URL rendered in a WebView
+     *
+     * Enables custom background automatically. Safe no-op when type is blank.
+     */
+    @JavascriptInterface
+    fun setClusterBackground(type: String, value: String) {
+        val normalizedType = type.trim().uppercase().ifBlank { "THEME" }
+        val normalizedValue = value.trim()
+        Log.d(TAG, "setClusterBackground type=$normalizedType value=$normalizedValue")
+        try {
+            context.preferences.edit()
+                .putBoolean(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+                .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, normalizedType)
+                .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, normalizedValue)
+                .apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "setClusterBackground failed", e)
+        }
+    }
+
+    /**
+     * Convenience: announce the theme package's wallpaper path without changing
+     * the user's selected mode. Only applies when mode is THEME (or unset).
+     */
+    @JavascriptInterface
+    fun setThemeBackground(relativePath: String) {
+        val path = relativePath.trim()
+        if (path.isEmpty()) return
+        Log.d(TAG, "setThemeBackground path=$path")
+        try {
+            val prefs = context.preferences
+            val currentType = prefs.getString(
+                br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key,
+                "THEME"
+            ) ?: "THEME"
+            // Always remember the theme-declared path as value when in THEME mode
+            if (currentType.equals("THEME", ignoreCase = true)) {
+                prefs.edit()
+                    .putBoolean(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+                    .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME")
+                    .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, path)
+                    .apply()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "setThemeBackground failed", e)
+        }
     }
 
     @JavascriptInterface

@@ -44,6 +44,9 @@ data class ResolvedAppInfo(
 )
 
 object DisplayAppLauncher {
+    
+    @Volatile
+    var dynamicThemeBounds: IntArray? = null
 
     /**
      * Attempts to launch Android Auto using common system package names.
@@ -6703,20 +6706,28 @@ object DisplayAppLauncher {
         var height = config.height
 
         if (!config.overrideThemeDimensions && virtualClusterEnabled && config.displayId == 3) {
-            val themeFolderName = prefs.getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Básico") ?: "Básico"
-            if (themeFolderName == "Default" || themeFolderName == "Básico" || themeFolderName == "Light") {
-                x = 0
-                y = 62
-                width = 1920
-                height = 596
+            val dynamicBounds = dynamicThemeBounds
+            if (dynamicBounds != null && dynamicBounds.size == 4) {
+                x = dynamicBounds[0]
+                y = dynamicBounds[1]
+                width = dynamicBounds[2]
+                height = dynamicBounds[3]
             } else {
-                val themeManager = ThemeManager.getInstance(App.getContext())
-                val metadata = themeManager.getThemeMetadata(themeFolderName)
-                if (metadata != null && metadata.x != null && metadata.y != null && metadata.width != null && metadata.height != null) {
-                    x = metadata.x!!
-                    y = metadata.y!!
-                    width = metadata.width!!
-                    height = metadata.height!!
+                val themeFolderName = prefs.getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Básico") ?: "Básico"
+                if (themeFolderName == "Default" || themeFolderName == "Básico" || themeFolderName == "Light") {
+                    x = 0
+                    y = 62
+                    width = 1920
+                    height = 596
+                } else {
+                    val themeManager = ThemeManager.getInstance(App.getContext())
+                    val metadata = themeManager.getThemeMetadata(themeFolderName)
+                    if (metadata != null && metadata.x != null && metadata.y != null && metadata.width != null && metadata.height != null) {
+                        x = metadata.x!!
+                        y = metadata.y!!
+                        width = metadata.width!!
+                        height = metadata.height!!
+                    }
                 }
             }
         }

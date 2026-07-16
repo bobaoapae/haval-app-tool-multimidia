@@ -12,4 +12,5 @@ interface IBridgeContext {
     fun setCardId(cardId: Int)
     fun saveClusterDisplay(value: String)
     fun updateHeartbeat()
+    fun refreshDisplayBounds()
 }

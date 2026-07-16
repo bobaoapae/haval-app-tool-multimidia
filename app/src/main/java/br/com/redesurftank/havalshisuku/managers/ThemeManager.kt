@@ -30,7 +30,8 @@ class ThemeManager private constructor(val context: Context) {
 
     companion object {
         private const val TAG = "ThemeManager"
-        const val THEME_REPO_URL = "https://github.com/netseek/haval-app-tool-multimidia/tree/themes-v1.0/cluster-widgets/Themes/v1.0"
+        /** GitHub tree where packaged themes are listed (Telas → fetch/download). Path stays Themes/v1.0; branch is v7. */
+        const val THEME_REPO_URL = "https://github.com/netseek/haval-app-tool-multimidia/tree/v7/cluster-widgets/Themes/v1.0"
         
         @Volatile
         private var instance: ThemeManager? = null
@@ -95,6 +96,7 @@ class ThemeManager private constructor(val context: Context) {
             var version = ""
             var thumbnail = ""
             var mainFile = "index.html"
+            var background = ""
             var x: Int? = null
             var y: Int? = null
             var width: Int? = null
@@ -125,6 +127,7 @@ class ThemeManager private constructor(val context: Context) {
                         "version" -> version = parser.nextText()
                         "thumbnail" -> thumbnail = parser.nextText()
                         "mainFile" -> mainFile = parser.nextText()
+                        "background" -> background = parser.nextText().trim()
                         "AppDefaultPosition" -> inAppDefaultPosition = true
                         "x" -> if (inAppDefaultPosition) x = parser.nextText().toIntOrNull()
                         "y" -> if (inAppDefaultPosition) y = parser.nextText().toIntOrNull()
@@ -168,6 +171,12 @@ class ThemeManager private constructor(val context: Context) {
             } else {
                 thumbnail
             }
+
+            val resolvedBackgroundAbs = if (isLocal && background.isNotEmpty()) {
+                File(File(themesDir, folderName), background).takeIf { it.exists() }?.absolutePath ?: ""
+            } else {
+                ""
+            }
             
             return ThemeMetadata(
                 name = name,
@@ -183,7 +192,9 @@ class ThemeManager private constructor(val context: Context) {
                 height = height,
                 decentralized = decentralized,
                 minBridgeVersion = minBridgeVersion,
-                configurations = configurations
+                configurations = configurations,
+                background = background,
+                backgroundAbsolutePath = resolvedBackgroundAbs
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing theme.xml in $folderName", e)
@@ -389,7 +400,7 @@ class ThemeManager private constructor(val context: Context) {
                     val fullPath = if (info.path.isNotEmpty()) "${info.path}/${metadata.folderName}" else metadata.folderName
                     "https://api.github.com/repos/${info.owner}/${info.repo}/contents/$fullPath?ref=${info.branch}"
                 } else {
-                    "https://api.github.com/repos/netseek/haval-app-tool-multimidia/contents/cluster-widgets/Themes/${metadata.folderName}?ref=themes-v1.0"
+                    "https://api.github.com/repos/netseek/haval-app-tool-multimidia/contents/cluster-widgets/Themes/v1.0/${metadata.folderName}?ref=v7"
                 }
                 
                 Log.d(TAG, "Downloading theme from API: $apiUrl")
@@ -431,6 +442,40 @@ class ThemeManager private constructor(val context: Context) {
     fun getThemeFile(folderName: String, filename: String): File? {
         val file = File(File(themesDir, folderName), filename)
         return if (file.exists()) file else null
+    }
+
+    /**
+     * Resolve the active virtual-cluster theme's background image file, if any.
+     * [relativeHint] is an optional relative path (e.g. car-bg.png) from prefs or the bridge.
+     */
+    fun getActiveThemeBackgroundFile(relativeHint: String? = null): File? {
+        val prefs = App.getDeviceProtectedContext()
+            .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+        val folder = prefs.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "")
+            ?.takeIf { it.isNotBlank() && !it.equals("Default", ignoreCase = true) }
+            ?: return null
+
+        val meta = getThemeMetadata(folder)
+        val relative = relativeHint?.takeIf { it.isNotBlank() }
+            ?: meta?.background?.takeIf { it.isNotBlank() }
+            ?: return null
+
+        // Allow only relative paths inside the theme folder (no path traversal)
+        val safeName = relative
+            .replace('\\', '/')
+            .removePrefix("./")
+            .substringAfterLast('/') // flatten nested hints to basename if needed
+        if (safeName.isBlank() || safeName.contains("..")) return null
+
+        // Prefer exact relative path first, then basename fallback
+        getThemeFile(folder, relative.replace('\\', '/').removePrefix("./"))?.let { return it }
+        return getThemeFile(folder, safeName)
+    }
+
+    fun getThemeBackgroundAbsolutePath(folderName: String): String {
+        if (folderName.isBlank() || folderName.equals("Default", ignoreCase = true)) return ""
+        val meta = getThemeMetadata(folderName) ?: return ""
+        return meta.backgroundAbsolutePath
     }
     
     fun isNewerVersion(current: String, remote: String): Boolean {

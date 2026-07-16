@@ -328,5 +328,8 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "Reconectar automaticamente o Ambient Light"
     ),
     ENABLE_PERSIST_HEV_SOC_TARGET("enablePersistHevSocTarget", "Manter o % de bateria escolhido no HEV Prioritário"),
-    HEV_SOC_TARGET_VALUE("hevSocTargetValue", "% de bateria a manter no HEV Prioritário (20-80)")
+    HEV_SOC_TARGET_VALUE("hevSocTargetValue", "% de bateria a manter no HEV Prioritário (20-80)"),
+    ENABLE_CUSTOM_BACKGROUND_D1("enableCustomBackgroundD1", "Habilitar fundo personalizado no Display 1"),
+    CUSTOM_BACKGROUND_TYPE_D1("customBackgroundTypeD1", "Tipo de fundo do Display 1"),
+    CUSTOM_BACKGROUND_VALUE_D1("customBackgroundValueD1", "Valor do fundo do Display 1")
 }
