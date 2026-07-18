@@ -653,10 +653,10 @@ button {
 .main-container.ac-main,
 .ac-main {
   left: calc(var(--mask-right-x) + var(--display-right-offset) - 122px) !important;
-  top: calc(var(--mask-center-y) - 175px) !important;
+  top: calc(var(--mask-center-y) - 200px) !important;
   transform: none !important;
-  width: 310px !important;
-  height: 350px !important; /* slightly taller */
+  width: 335px !important;
+  height: 415px !important; /* slightly taller */
   position: absolute !important;
   z-index: 220 !important;
   background: none !important;
@@ -697,7 +697,7 @@ button {
 /* AC ON: white labels/values; green accent on focused section label */
 .ac-section-label {
   font-family: 'Khand', sans-serif;
-  font-size: 14px;
+  font-size: 20px;
   font-weight: 500;
   letter-spacing: 0.22em;
   color: #ffffff;
@@ -716,7 +716,7 @@ button {
 .ac-section .ac-section-value,
 .ac-temp-value {
   font-family: 'Khand', sans-serif;
-  font-size: 46px;
+  font-size: 60px;
   font-weight: 300;
   color: #ffffff;
   line-height: 0.95;
@@ -858,7 +858,7 @@ button {
 
 .ac-pill {
   font-family: 'Khand', sans-serif;
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 500;
   letter-spacing: 0.12em;
   color: rgba(255, 255, 255, 0.28);
@@ -2475,20 +2475,13 @@ canvas.graph-chart {
   pointer-events: none !important;
 }
 
-/* Warning mode: hide right chrome; top menu stays available (minimalist) */
+/* Warning mode: hide right-side chrome (mirrors default theme) */
+.warn-is-active .dashboard-menu-container,
 .warn-is-active .mask-circle.right,
 .warn-is-active .mask-circle-border.right {
   opacity: 0 !important;
   visibility: hidden !important;
   display: none !important;
-  pointer-events: none !important;
-}
-
-/* Keep top menu visible even during warnings / card 0 */
-.warn-is-active .dashboard-menu-container {
-  opacity: 1 !important;
-  visibility: visible !important;
-  display: flex !important;
   pointer-events: none !important;
 }
 
