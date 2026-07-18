@@ -2466,7 +2466,8 @@ canvas.graph-chart {
 /* Warning mode: hide right-side chrome (mirrors default theme) */
 .warn-is-active .dashboard-menu-container,
 .warn-is-active .mask-circle.right,
-.warn-is-active .mask-circle-border.right {
+.warn-is-active .mask-circle-border.right,
+.warn-is-active .mask-panel.right {
   opacity: 0 !important;
   visibility: hidden !important;
   display: none !important;
