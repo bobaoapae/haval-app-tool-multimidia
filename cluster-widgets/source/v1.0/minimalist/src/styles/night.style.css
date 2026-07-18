@@ -2467,7 +2467,14 @@ canvas.graph-chart {
 .warn-is-active .dashboard-menu-container,
 .warn-is-active .mask-circle.right,
 .warn-is-active .mask-circle-border.right,
-.warn-is-active .mask-panel.right {
+.warn-is-active .mask-panel.right,
+.warn-is-active .graph-screen,
+.warn-is-active .ac-main,
+.warn-is-active .main-container.ac-main,
+.warn-is-active .ajustes-screen,
+.warn-is-active .regen-screen,
+.warn-is-active .info-screen,
+.warn-is-active .main-theme-container {
   opacity: 0 !important;
   visibility: hidden !important;
   display: none !important;
@@ -4125,14 +4132,20 @@ body.app-in-dash-active .mask-panel.right {
 }
 
 /*
- * Card 0: hide right mask + any right-side menu/content.
- * Top main menu (center) stays available.
+ * Card 0: hide right mask + any right-side menu/content, same as card 3 (AC).
  */
 .card-0-active .mask-panel.right,
 body.card-0-active .mask-panel.right,
-.cluster-mask-bg.card-0-active .mask-panel.right {
+.cluster-mask-bg.card-0-active .mask-panel.right,
+.card-0-active .dashboard-menu-container,
+body.card-0-active .dashboard-menu-container,
+.card-0-active .mask-circle.right,
+.card-0-active .mask-circle-border.right,
+body.card-0-active .mask-circle.right,
+body.card-0-active .mask-circle-border.right {
   opacity: 0 !important;
   visibility: hidden !important;
+  display: none !important;
   pointer-events: none !important;
 }
 
@@ -4200,7 +4213,7 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 
 .main-theme-container, .ajustes-screen {
     left: calc(var(--mask-right-x) + var(--display-right-offset) - 810px) !important;
-    top: calc(var(--mask-center-y) - 20px) !important;
+    top: calc(var(--mask-center-y) + 20px) !important;
     transform: translate(-50%, -50%) scale(var(--display-scale)) !important;
     z-index: 100 !important;
     background: none !important;
@@ -4341,7 +4354,12 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 }
 
 /* Preview (no Enter): never highlight — all items stay dim */
-.ajustes-item.focused:not(.active-focus) .ajustes-item-label,
+.ajustes-item.focused:not(.active-focus) .ajustes-item-label {
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 200;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9), 0 2px 4px rgba(0, 0, 0, 0.85);
+}
+
 .ajustes-item.focused:not(.active-focus) .ajustes-item-value {
   color: rgba(255, 255, 255, 0.4);
   font-weight: 200;
@@ -4679,7 +4697,7 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 .info-screen {
   position: absolute !important;
   left: calc(var(--mask-right-x) + var(--display-right-offset) - 750px) !important;
-  top: calc(var(--mask-center-y) - 20px) !important;
+  top: calc(var(--mask-center-y) + 20px) !important;
   transform: translate(-50%, -50%) scale(var(--display-scale)) !important;
   width: 350px !important;
   height: 456px !important;
@@ -4753,14 +4771,14 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 }
 
 .info-item-val .unit {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 300;
   color: rgba(255, 255, 255, 0.45);
   margin-left: 3px;
 }
 
 .info-item-val .range {
-  font-size: 15px;
+  font-size: 24px;
   font-weight: 300;
   color: rgba(255, 255, 255, 0.35);
   margin-left: 8px;
