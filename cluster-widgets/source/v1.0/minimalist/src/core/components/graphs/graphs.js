@@ -5,7 +5,7 @@ import { Chart, registerables } from 'chart.js';
 import streamingPlugin from 'chartjs-plugin-streaming';
 import 'chartjs-adapter-date-fns';
 import { WarpTunnelAnimation } from './warpTunnel.js';
-Chart.register(...registerables, streamingPlugin);
+Chart.register(...registerables, ...streamingPlugin);
 
 const HISTORY_DURATION = 30000; //ms
 const TIMER_HIDE_DELAY = 30000; //ms

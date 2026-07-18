@@ -8,6 +8,8 @@
 export const KEYS = {
     // Physical Car CAN values
     VEHICLE_SPEED: "car.basic.vehicle_speed",
+    ENGINE_SPEED: "car.basic.engine_speed",
+    INSTANT_FUEL_CONSUMPTION: "car.basic.instant_fuel_consumption",
     TOTAL_ODOMETER: "car.basic.total_odometer",
     GEAR_STATUS: "car.basic.gear_status",
     ESP_ENABLE: "car.drive_setting.esp_enable",
@@ -16,12 +18,18 @@ export const KEYS = {
     STEER_ASSIST_MODE: "car.drive_setting.steering_wheel_assist_mode",
     REGEN_LEVEL: "car.ev_setting.energy_recovery_level",
     PEDAL_CONTROL_ENABLE: "car.ev.setting.pedal_control_enable",
+    ENERGY_OUTPUT_PERCENTAGE: "car.ev_info.energy_output_percentage",
+    CHARGE_CURRENT: "car.ev_info.cur_charge_current",
+    BATTERY_VOLTAGE: "car.ev_info.power_battery_voltage",
+    INSTANT_ENERGY_CONSUMPTION: "car.ev_info.Instant_energy_consumption",
     
     // HVAC Controls
     HVAC_POWER: "car.hvac.power_mode",
     HVAC_FAN_SPEED: "car.hvac.fan_speed",
     HVAC_DRIVER_TEMP: "car.hvac.driver_temperature",
     HVAC_CYCLE_MODE: "car.hvac.cycle_mode",
+    HVAC_AUTO: "car.hvac.auto_enable",
+    HVAC_ANION: "car.hvac.anion_enable",
 
     // Virtual Telemetry / Multi-Display / App Launcher Keys
     APP_DISPLAY_1_ACTIVE_APP: "app.display.1.active_app",
@@ -83,9 +91,9 @@ export const VALUE_LABELS = {
         "0": "--"
     },
     [KEYS.REGEN_LEVEL]: {
-        "0": "Baixo",
-        "1": "Normal",
-        "2": "Alto"
+        "0": "Normal",
+        "1": "Alto",
+        "2": "Baixo"
     },
     [KEYS.PEDAL_CONTROL_ENABLE]: {
         "0": "OFF",
@@ -99,14 +107,14 @@ export const CYCLE_VALUES = {
     [KEYS.POWER_MODEL_CONFIG]: ["3", "1", "0"], // EV -> EVP -> HEV
     [KEYS.DRIVE_MODE]: ["0", "2", "1"], // Normal -> Eco -> Sport
     [KEYS.STEER_ASSIST_MODE]: ["2", "0", "1"], // Conforto -> Normal -> Esportiva
-    [KEYS.REGEN_LEVEL]: ["0", "1", "2"],
+    [KEYS.REGEN_LEVEL]: ["2", "0", "1"], // Baixo -> Normal -> Alto
     [KEYS.PEDAL_CONTROL_ENABLE]: ["0", "1"]
 };
 
 /**
  * Resolves a human-readable display label for any key/value pair.
- * @param {string} key 
- * @param {string|number} value 
+ * @param {string} key
+ * @param {string|number} value
  * @returns {string}
  */
 export function getLabel(key, value) {
@@ -115,4 +123,35 @@ export function getLabel(key, value) {
         return VALUE_LABELS[key][stringVal];
     }
     return stringVal || "--";
+}
+
+// 4. Friendly theme-state key aliases for the canonical CAN keys above.
+// Native pushes some raw CAN snapshots to the WebView using these short,
+// UI-facing names (e.g. control('espStatus', '1')) instead of the dotted
+// canonical key, so getLabel() can't be reached directly from that channel.
+// Deliberately excludes boolean-consumed keys like 'onepedal': ON/OFF are
+// both non-empty (truthy) strings, so labelling them would break truthy checks.
+export const FRIENDLY_KEY_TO_CAN_KEY = {
+    espStatus: KEYS.ESP_ENABLE,
+    evMode: KEYS.POWER_MODEL_CONFIG,
+    drivingMode: KEYS.DRIVE_MODE,
+    steerMode: KEYS.STEER_ASSIST_MODE,
+    regenMode: KEYS.REGEN_LEVEL,
+    gearState: KEYS.GEAR_STATUS
+};
+
+/**
+ * Translates a raw CAN value arriving under a friendly theme-state key name
+ * (e.g. 'espStatus') into its display label, via the same VALUE_LABELS table
+ * getLabel() uses. Safe to call unconditionally: keys with no known CAN
+ * mapping, and values that are already labels (not present as a raw-value
+ * entry in VALUE_LABELS), pass through unchanged.
+ * @param {string} friendlyKey
+ * @param {string|number} value
+ * @returns {string|number}
+ */
+export function translateFriendlyValue(friendlyKey, value) {
+    const canonicalKey = FRIENDLY_KEY_TO_CAN_KEY[friendlyKey];
+    if (!canonicalKey) return value;
+    return getLabel(canonicalKey, value);
 }

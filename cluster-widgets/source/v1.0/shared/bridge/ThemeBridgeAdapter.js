@@ -94,7 +94,9 @@ export class ThemeBridgeAdapter {
             KEYS.HVAC_POWER,
             KEYS.HVAC_FAN_SPEED,
             KEYS.HVAC_DRIVER_TEMP,
-            KEYS.HVAC_CYCLE_MODE
+            KEYS.HVAC_CYCLE_MODE,
+            KEYS.HVAC_AUTO,
+            KEYS.HVAC_ANION
         ];
         this.supportedKeys = new Set(legacyKeys);
     }

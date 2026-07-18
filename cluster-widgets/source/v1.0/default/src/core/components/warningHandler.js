@@ -56,11 +56,9 @@ export function initWarningHandler() {
         logger.log('Clearing all warnings via DISMISS_WARNING');
         stateManager.set('warnings', {});
         stateManager.set('warningActive', false);
-        
-        const cardId = stateManager.get('cardId');
 
         if (window.Android && window.Android.setWarningActive) {
-            window.Android.setWarningActive(shouldBeWarnActive);
+            window.Android.setWarningActive(false);
         }
     };
 }

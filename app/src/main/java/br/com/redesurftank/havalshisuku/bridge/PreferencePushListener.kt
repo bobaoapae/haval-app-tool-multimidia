@@ -11,8 +11,13 @@ class PreferencePushListener(
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         if (key == null || sharedPreferences == null) return
         
-        val activeTheme = sharedPreferences.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default") ?: "Default"
-        
+        // Must match the identifier ThemeSettingsDialog scopes its saves with
+        // (theme.folderName, e.g. "minimalist"), NOT VIRTUAL_CLUSTER_THEME
+        // (theme.name display label, e.g. "Minimalist") — those differ in case
+        // for every non-Default theme, so this listener never matched the prefix.
+        val activeCustomTheme = sharedPreferences.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
+        val activeTheme = activeCustomTheme.ifBlank { "Default" }
+
         // 1. Scoped theme configuration change for the active theme
         val prefix = "theme_config_${activeTheme}_"
         if (key.startsWith(prefix)) {

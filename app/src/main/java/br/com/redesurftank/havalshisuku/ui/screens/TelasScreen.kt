@@ -164,28 +164,48 @@ fun CompactThemeCard(
                             modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(20.dp)
                     )
                 }
+
+                // Delete button: top-left of the thumbnail, on a dark scrim for visibility
+                if (canDelete) {
+                    Box(
+                            modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(4.dp)
+                                    .size(28.dp)
+                                    .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+                                    .clickable { onDelete() },
+                            contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Excluir",
+                                tint = Color(0xFFFF4B4B),
+                                modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Theme Name
-            Text(
-                    text = theme.name,
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-            )
-
-            // Description / Status
-            Spacer(modifier = Modifier.height(2.dp))
+            // [Name (row1) | Status (row2)]  ...far right...  [update badge] [gear]
             Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
+                    // Row 1: Theme Name
+                    Text(
+                            text = theme.name,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                    )
+
+                    // Row 2: Description / Status
+                    Spacer(modifier = Modifier.height(2.dp))
                     if (isDownloading) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -231,65 +251,54 @@ fun CompactThemeCard(
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Dynamic Theme Configuration Gear Icon
-                    if (theme.configurations.isNotEmpty() && isDownloaded) {
-                        var showSettingsDialog by remember { mutableStateOf(false) }
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Configurar Tema",
-                            tint = Color(0xFF4A9EFF),
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clickable { showSettingsDialog = true }
-                        )
-                        
-                        if (showSettingsDialog) {
-                            ThemeSettingsDialog(
-                                theme = theme,
-                                onDismiss = { showSettingsDialog = false }
+                // Push the update badge + gear to the far right
+                Spacer(modifier = Modifier.weight(1f))
+
+                if (hasUpdate && !isDownloading) {
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFFE5A93B), RoundedCornerShape(6.dp))
+                            .clickable { onUpdate() }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Update,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = "Atualizar",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
-                    // Update Button in bottom right if update is available
-                    if (hasUpdate && !isDownloading) {
-                        Box(
-                            modifier = Modifier
-                                .background(Color(0xFFE5A93B), RoundedCornerShape(6.dp))
-                                .clickable { onUpdate() }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Update,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Text(
-                                    text = "Atualizar",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                }
 
-                    // Delete button for custom installed themes
-                    if (canDelete) {
-                        Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Excluir",
-                                tint = Color(0xFFFF4B4B).copy(alpha = 0.8f),
-                                modifier = Modifier.size(20.dp).clickable { onDelete() }
+                // Config gear on the far right of the name/status row
+                if (theme.configurations.isNotEmpty() && isDownloaded) {
+                    var showSettingsDialog by remember { mutableStateOf(false) }
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Configurar Tema",
+                        tint = Color(0xFF4A9EFF),
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clickable { showSettingsDialog = true }
+                    )
+
+                    if (showSettingsDialog) {
+                        ThemeSettingsDialog(
+                            theme = theme,
+                            onDismiss = { showSettingsDialog = false }
                         )
                     }
                 }
@@ -297,6 +306,49 @@ fun CompactThemeCard(
         }
     }
 }
+
+// Default ships embedded in the APK (res/raw/app.html), built from
+// cluster-widgets/source/v1.0/default. It is intentionally NOT part of the
+// GitHub-hosted downloadable Themes/v1.0 tree, so this metadata (kept in sync
+// with that theme's theme.xml <configurations> block) is the sole source for
+// its Telas card — no GitHub/local-folder fetch involved.
+private val EMBEDDED_DEFAULT_THEME = ThemeMetadata(
+        name = "Default",
+        description = "Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.",
+        version = "1.4.20",
+        thumbnailUrl = "",
+        mainFile = "index.html",
+        folderName = "Default",
+        isLocal = true,
+        isDownloaded = true,
+        hasUpdate = false,
+        configurations = listOf(
+                ThemeConfig(
+                        id = "hidden_bars",
+                        label = "Ocultar Barras",
+                        type = "combo",
+                        defaultValue = "Nenhuma",
+                        stateVariable = "hiddenBars",
+                        options = listOf("Nenhuma", "Superior", "Inferior", "Ambas")
+                ),
+                ThemeConfig(
+                        id = "theme_mode",
+                        label = "Modo Visual",
+                        type = "combo",
+                        defaultValue = "Dark",
+                        stateVariable = "mode",
+                        options = listOf("Dark", "Light")
+                ),
+                ThemeConfig(
+                        id = "gauge_style",
+                        label = "Estilo dos Marcadores",
+                        type = "combo",
+                        defaultValue = "Esportivo",
+                        stateVariable = "gaugeStyle",
+                        options = listOf("Esportivo", "Clássico")
+                )
+        )
+)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -617,77 +669,14 @@ fun TelasTab() {
                                 remember(githubThemes, localThemes) {
                                     val merged = mutableListOf<ThemeMetadata>()
 
-                                    // Find remote "Default" and local "Default"
-                                    val remoteDefault =
-                                            githubThemes.firstOrNull {
-                                                it.folderName == "Default" || it.name == "Default"
-                                            }
-                                    val localDefault =
-                                            localThemes.firstOrNull {
-                                                it.folderName == "Default" || it.name == "Default"
-                                            }
-
-                                    if (localDefault != null) {
-                                        // Default theme is downloaded locally
-                                        val hasUpdate =
-                                                if (remoteDefault != null) {
-                                                    ThemeManager.getInstance(context)
-                                                            .isNewerVersion(
-                                                                    localDefault.version,
-                                                                    remoteDefault.version
-                                                            )
-                                                } else false
-
-                                        merged.add(
-                                                ThemeMetadata(
-                                                        name = "Default",
-                                                        description =
-                                                                localDefault.description.ifEmpty {
-                                                                    remoteDefault?.description
-                                                                            ?: "Visual clássico do carro"
-                                                                },
-                                                        version = localDefault.version,
-                                                        thumbnailUrl =
-                                                                localDefault.thumbnailUrl.ifEmpty {
-                                                                    remoteDefault?.thumbnailUrl
-                                                                            ?: ""
-                                                                },
-                                                        mainFile = localDefault.mainFile,
-                                                        folderName = "Default",
-                                                        isLocal = true,
-                                                        isDownloaded = true,
-                                                        hasUpdate = hasUpdate,
-                                                        configurations = localDefault.configurations
-                                                )
-                                        )
-                                    } else {
-                                        // Default theme is not downloaded locally, using embedded
-                                        val hasUpdate =
-                                                if (remoteDefault != null) {
-                                                    ThemeManager.getInstance(context)
-                                                            .isEmbeddedDifferent(
-                                                                    remoteDefault.remoteSha,
-                                                                    remoteDefault.remoteSize
-                                                            )
-                                                } else false
-
-                                        merged.add(
-                                                ThemeMetadata(
-                                                        name = "Default",
-                                                        description = remoteDefault?.description
-                                                                        ?: "Visual clássico do carro",
-                                                        version = remoteDefault?.version ?: "1.0.0",
-                                                        thumbnailUrl = remoteDefault?.thumbnailUrl
-                                                                        ?: "",
-                                                        mainFile = remoteDefault?.mainFile ?: "",
-                                                        folderName = "Default",
-                                                        isLocal = true,
-                                                        isDownloaded = true,
-                                                        hasUpdate = hasUpdate,
-                                                        configurations = remoteDefault?.configurations ?: emptyList()
-                                                )
-                                        )
-                                    }
+                                    // Default ships embedded in the APK (res/raw/app.html) — it is
+                                    // NOT a downloadable/GitHub-hosted theme, so its metadata (incl.
+                                    // the settings gear's configurations list) must not depend on a
+                                    // network fetch. Previously this fell back to remoteDefault's
+                                    // GitHub-fetched configurations, which came back empty whenever
+                                    // the fetch failed (or once Default is removed from the repo),
+                                    // silently hiding the settings gear.
+                                    merged.add(EMBEDDED_DEFAULT_THEME)
 
                                     // Now add rest of remote themes (excluding Default)
                                     githubThemes.forEach { remote ->
@@ -877,7 +866,65 @@ fun TelasTab() {
                         }
                         Spacer(Modifier.height(16.dp))
                     }
+                }
 
+                // Background do Cluster - nested inside the Painel Virtual card, right after theme selection
+                HorizontalDivider(color = Color(0xFF2C3139))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Background do Cluster",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Papel de parede do painel (Display 1). Por padrão usa a imagem do tema ativo, se existir.",
+                            color = Color(0xFFB0B8C4),
+                            fontSize = 14.sp
+                        )
+                    }
+                    Switch(
+                        checked = enableCustomBg,
+                        enabled = allClusterFunctionsEnabled,
+                        onCheckedChange = { checked ->
+                            enableCustomBg = checked
+                            prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, checked) }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF4A9EFF)
+                        )
+                    )
+                }
+
+                if (enableCustomBg && allClusterFunctionsEnabled) {
+                    Button(
+                        onClick = { showBackgroundSettingsDialog = true },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF2C3139),
+                            contentColor = Color(0xFF4A9EFF)
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFF4A9EFF)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Configurar Background", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                // App defaults / odometer / revision — continues inside the same Painel Virtual card
+                if (enableMask) {
                     HorizontalDivider(color = Color(0xFF2C3139))
                     Spacer(Modifier.height(16.dp))
 
@@ -1337,67 +1384,6 @@ fun TelasTab() {
                                 }
                             }
                         }
-                    }
-                }
-            }
-        }
-
-        // CUSTOM DISPLAY 1 BACKGROUND CARD
-        val customBgAlpha = if (allClusterFunctionsEnabled) 1f else 0.4f
-        StyledCard(modifier = Modifier.padding(horizontal = 8.dp).alpha(customBgAlpha)) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "Background do Cluster",
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "Papel de parede do painel (Display 1). Por padrão usa a imagem do tema ativo, se existir.",
-                            color = Color(0xFFB0B8C4),
-                            fontSize = 14.sp
-                        )
-                    }
-                    Switch(
-                        checked = enableCustomBg,
-                        enabled = allClusterFunctionsEnabled,
-                        onCheckedChange = { checked ->
-                            enableCustomBg = checked
-                            prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, checked) }
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF4A9EFF)
-                        )
-                    )
-                }
-
-                if (enableCustomBg && allClusterFunctionsEnabled) {
-                    Button(
-                        onClick = { showBackgroundSettingsDialog = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2C3139),
-                            contentColor = Color(0xFF4A9EFF)
-                        ),
-                        border = BorderStroke(1.dp, Color(0xFF4A9EFF)),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Configurar Background", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -2249,16 +2235,21 @@ fun ClusterBackgroundSettingsDialog(
         mutableStateOf(prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: "")
     }
     var currentView by remember { mutableStateOf("SETTINGS") } // "SETTINGS" or "SYNC"
+    var uploadedRefreshToken by remember { mutableIntStateOf(0) }
+    val uploadedImages = remember(uploadedRefreshToken) {
+        BackgroundSyncServer.listUploadedImages()
+    }
 
     val localIp = remember { BackgroundSyncServer.getLocalIpAddress() ?: "127.0.0.1" }
     val portalUrl = "http://$localIp:8080"
-    
+
     val syncServer = remember {
         BackgroundSyncServer {
             scope.launch {
                 delay(500)
                 customBgType = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "PRESET") ?: "PRESET"
                 customBgValue = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: ""
+                uploadedRefreshToken++
             }
         }
     }
@@ -2280,14 +2271,18 @@ fun ClusterBackgroundSettingsDialog(
     ) {
         Card(
             modifier = Modifier
-                .width(440.dp)
+                .fillMaxWidth(0.6f)
+                .heightIn(max = 640.dp)
                 .padding(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2228)),
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(1.5.dp, Color(0xFF4A9EFF))
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (currentView == "SYNC") {
@@ -2360,7 +2355,7 @@ fun ClusterBackgroundSettingsDialog(
                             "THEME" to "Tema",
                             "PRESET" to "Presets",
                             "IMAGE_URL" to "Web",
-                            "YOUTUBE" to "YouTube"
+                            "FILE" to "Enviados"
                         ).forEach { (type, label) ->
                             val isSelected = customBgType == type
                             Button(
@@ -2370,6 +2365,7 @@ fun ClusterBackgroundSettingsDialog(
                                     val defaultValue = when (type) {
                                         "THEME" -> "" // load from active theme.xml <background>
                                         "PRESET" -> localAssetList.firstOrNull() ?: ""
+                                        "FILE" -> uploadedImages.firstOrNull()?.absolutePath ?: ""
                                         else -> ""
                                     }
                                     customBgValue = defaultValue
@@ -2392,7 +2388,6 @@ fun ClusterBackgroundSettingsDialog(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f, fill = false)
                     ) {
                         when (customBgType) {
                             "THEME" -> {
@@ -2592,80 +2587,67 @@ fun ClusterBackgroundSettingsDialog(
                                     }
                                 }
                             }
-                            "YOUTUBE" -> {
+                            "FILE" -> {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("Vídeos do YouTube (Loops Ambientais)", color = Color(0xFFB0B8C4), fontSize = 12.sp)
-                                    
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        StyledTextField(
-                                            value = customBgValue,
-                                            onValueChange = { customBgValue = it },
-                                            label = { Text("Cole a URL do YouTube...") },
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Button(
-                                            onClick = {
-                                                prefs.edit { putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, customBgValue) }
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF)),
-                                            shape = RoundedCornerShape(8.dp)
-                                        ) {
-                                            Text("Aplicar", fontSize = 11.sp)
-                                        }
-                                    }
-
-                                    val curatedVideos = listOf(
-                                        "Cyberpunk Drive" to "https://www.youtube.com/watch?v=5Wq6Tq_U3f8",
-                                        "Rain Drive" to "https://www.youtube.com/watch?v=21YJcUPUNhY",
-                                        "Synthwave" to "https://www.youtube.com/watch?v=4xDx9Yy_E-4",
-                                        "Nebula Voyage" to "https://www.youtube.com/watch?v=9g0H23g1rjg",
-                                        "Aquarium" to "https://www.youtube.com/watch?v=uK7V81T5V0s"
+                                    Text(
+                                        "Imagens Enviadas pelo Celular (via Sincronização Wi-Fi)",
+                                        color = Color(0xFFB0B8C4),
+                                        fontSize = 12.sp
                                     )
-
-                                    LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        items(curatedVideos) { (name, url) ->
-                                            val isSelected = customBgValue == url
-                                            val borderColor = if (isSelected) Color(0xFF4A9EFF) else Color.Transparent
-                                            val videoId = url.substringAfter("v=")
-                                            Card(
-                                                modifier = Modifier
-                                                    .width(120.dp)
-                                                    .height(70.dp)
-                                                    .border(2.dp, borderColor, RoundedCornerShape(8.dp))
-                                                    .clickable {
-                                                        customBgValue = url
-                                                        prefs.edit { putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, url) }
-                                                    },
-                                                colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A))
-                                            ) {
-                                                Box(modifier = Modifier.fillMaxSize()) {
-                                                    AsyncImage(
-                                                        model = "https://img.youtube.com/vi/$videoId/0.jpg",
-                                                        contentDescription = name,
-                                                        contentScale = ContentScale.Crop,
-                                                        modifier = Modifier.fillMaxSize()
-                                                    )
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .background(Color.Black.copy(alpha = 0.5f))
-                                                            .align(Alignment.BottomCenter)
-                                                            .padding(vertical = 2.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = name,
-                                                            color = Color.White,
-                                                            fontSize = 10.sp,
-                                                            textAlign = TextAlign.Center,
-                                                            modifier = Modifier.fillMaxWidth()
+                                    if (uploadedImages.isEmpty()) {
+                                        Text(
+                                            "Nenhuma imagem enviada ainda. Use \"Celular\" abaixo para escanear o QR Code e enviar uma foto.",
+                                            color = Color(0xFF718096),
+                                            fontSize = 12.sp
+                                        )
+                                    } else {
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            items(uploadedImages, key = { it.absolutePath }) { file ->
+                                                val isSelected = customBgValue == file.absolutePath
+                                                val borderColor = if (isSelected) Color(0xFF4A9EFF) else Color.Transparent
+                                                Card(
+                                                    modifier = Modifier
+                                                        .width(150.dp)
+                                                        .height(90.dp)
+                                                        .border(2.dp, borderColor, RoundedCornerShape(8.dp))
+                                                        .clickable {
+                                                            customBgValue = file.absolutePath
+                                                            prefs.edit { putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, file.absolutePath) }
+                                                        },
+                                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A))
+                                                ) {
+                                                    Box(modifier = Modifier.fillMaxSize()) {
+                                                        AsyncImage(
+                                                            model = file,
+                                                            contentDescription = file.name,
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
                                                         )
+                                                        IconButton(
+                                                            onClick = {
+                                                                if (BackgroundSyncServer.deleteUploadedImage(file.name)) {
+                                                                    if (customBgValue == file.absolutePath) {
+                                                                        customBgValue = ""
+                                                                        prefs.edit { putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") }
+                                                                    }
+                                                                    uploadedRefreshToken++
+                                                                }
+                                                            },
+                                                            modifier = Modifier
+                                                                .align(Alignment.TopEnd)
+                                                                .size(28.dp)
+                                                                .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(bottomStart = 8.dp))
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Delete,
+                                                                contentDescription = "Excluir imagem enviada",
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             }
@@ -2677,7 +2659,7 @@ fun ClusterBackgroundSettingsDialog(
                     }
 
                     Spacer(modifier = Modifier.height(4.dp))
-                    
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)

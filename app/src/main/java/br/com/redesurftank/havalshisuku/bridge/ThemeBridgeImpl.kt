@@ -100,7 +100,6 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
      *  - "PRESET"     value = asset filename under assets/backgrounds/
      *  - "IMAGE_URL"  value = http(s) URL
      *  - "FILE"       value = absolute filesystem path
-     *  - "YOUTUBE"    value = youtube URL / id
      *  - "WEB_URL"    value = page URL rendered in a WebView
      *
      * Enables custom background automatically. Safe no-op when type is blank.
@@ -151,13 +150,21 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
 
     @JavascriptInterface
     fun getPreference(key: String, defaultValue: String): String {
-        val activeTheme = context.preferences.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default") ?: "Default"
+        // Must match the identifier ThemeSettingsDialog scopes its saves with
+        // (theme.folderName, e.g. "minimalist"), NOT VIRTUAL_CLUSTER_THEME
+        // (theme.name display label, e.g. "Minimalist") — those differ in case
+        // for every non-Default theme, so scoped config lookups always missed.
+        val activeCustomTheme = context.preferences.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
+        val activeTheme = activeCustomTheme.ifBlank { "Default" }
         val scopedKey = "theme_config_${activeTheme}_$key"
-        
+
         // Transparent theme-scoped lookup fallback
         if (context.preferences.contains(scopedKey)) {
-            return context.preferences.getString(scopedKey, defaultValue) ?: defaultValue
+            val result = context.preferences.getString(scopedKey, defaultValue) ?: defaultValue
+            Log.w(TAG, "getPreference: key=$key scopedKey=$scopedKey (HIT) -> $result")
+            return result
         }
+        Log.w(TAG, "getPreference: key=$key scopedKey=$scopedKey (MISS, activeCustomTheme='$activeCustomTheme') -> unscoped fallback")
         return context.preferences.getString(key, defaultValue) ?: defaultValue
     }
 
@@ -250,9 +257,33 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
     fun getAvailableKeys(): String {
         val keys = listOf(
             "car.basic.vehicle_speed",
+            "car.basic.engine_speed",
+            "car.basic.instant_fuel_consumption",
+            "car.basic.total_odometer",
             "car.basic.gear_status",
             "car.basic.inside_temp",
             "car.basic.outside_temp",
+            "car.configure.default_temp_unit",
+            // Drive/EV settings: already in ServiceManager.DEFAULT_KEYS (continuously
+            // monitored), but were missing here, so ThemeBridgeAdapter.hasKey() silently
+            // rejected any theme's Android.subscribe() call for them — the values only
+            // ever reached themes via a one-shot card-entry snapshot push, never live.
+            "car.drive_setting.esp_enable",
+            "car.ev_setting.power_model_config",
+            "car.drive_setting.drive_mode",
+            "car.drive_setting.steering_wheel_assist_mode",
+            "car.ev_setting.energy_recovery_level",
+            "car.ev.setting.pedal_control_enable",
+            "car.ev_info.energy_output_percentage",
+            "car.ev_info.cur_charge_current",
+            "car.ev_info.power_battery_voltage",
+            "car.ev_info.Instant_energy_consumption",
+            "car.hvac.power_mode",
+            "car.hvac.fan_speed",
+            "car.hvac.driver_temperature",
+            "car.hvac.cycle_mode",
+            "car.hvac.auto_enable",
+            "car.hvac.anion_enable",
             "app.display.1.active_app",
             "app.display.1.active_app_label",
             "app.display.1.active_app_icon",
@@ -271,7 +302,13 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "app.phone.state",
             "app.phone.caller_name",
             "app.phone.caller_number",
-            "app.phone.call_duration"
+            "app.phone.call_duration",
+            "bsdLeft",
+            "bsdRight",
+            "carPlayInDash",
+            "projectionMirrorInDash",
+            "projectionPreparingD3",
+            "projectionCardOverlayAllowed"
         )
         return JSONArray(keys).toString()
     }
@@ -279,6 +316,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
     fun pushOnDataChanged(key: String, value: String) {
         val quotedValue = JSONObject.quote(value)
         val webView = context.webView ?: return
+        Log.d(TAG, "[DIAG] pushOnDataChanged: key=$key value=$value")
         context.runOnUiThread {
             webView.evaluateJavascript("javascript:if (window.onDataChanged) window.onDataChanged('$key', $quotedValue);", null)
         }

@@ -12,8 +12,8 @@ import { initializeConstants } from '../utils/constants.js';
 import { initWarningHandler } from './components/warningHandler.js';
 import { bridge } from '../../../shared/bridge/ThemeBridgeAdapter.js';
 import { bootstrapThemeFromManifest, themeEngine } from '../../../shared/runtime/clusterRuntime.js';
-import { KEYS, getLabel } from '../../../shared/car/carConstants.js';
-import { getAdjustedSpeed } from '../../../shared/car/carDerivations.js';
+import { KEYS, getLabel, translateFriendlyValue, FRIENDLY_KEY_TO_CAN_KEY } from '../../../shared/car/carConstants.js';
+import { createGraphTelemetryHandler, getAdjustedSpeed } from '../../../shared/car/carDerivations.js';
 import { initSimulationHarness } from '../../../shared/runtime/testing-utils.js';
 
 initializeConstants();
@@ -158,7 +158,7 @@ function render() {
     // Update app class based on display mode
     if (appContainer) {
         logger.log('Rendering screen:', screen);
-        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'app-in-dash-disabled' && c !== 'menu-minimized' && c !== 'carplay-in-dash' && c !== 'projection-mirror-in-dash' && c !== 'projection-preparing-d3' && c !== 'projection-map-display-active' && c !== 'projection-card-overlay-active');
+        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'hide-bottom' && c !== 'app-in-dash-disabled' && c !== 'menu-minimized' && c !== 'carplay-in-dash' && c !== 'projection-mirror-in-dash' && c !== 'projection-preparing-d3' && c !== 'projection-map-display-active' && c !== 'projection-card-overlay-active');
         classes.push('display-' + displayMode.toLowerCase());
 
         if (get('clusterEnabled') === false) {
@@ -179,8 +179,12 @@ function render() {
         if (nativeMockEnabled) {
             classes.push('native-mock-enabled');
         }
-        if (get('headerVisible') === false) {
+        const hiddenBars = get('hiddenBars') || 'Nenhuma';
+        if (hiddenBars === 'Superior' || hiddenBars === 'Ambas') {
             classes.push('hide-header');
+        }
+        if (hiddenBars === 'Inferior' || hiddenBars === 'Ambas') {
+            classes.push('hide-bottom');
         }
 
         if (projectionMapDisplayActive) {
@@ -297,8 +301,8 @@ subscribe('screen', (screenName) => {
     render();
 });
 subscribe('display', render);
-subscribe('headerVisible', (val) => {
-    console.log(`[STATE TRACE] headerVisible changed to: ${val}`);
+subscribe('hiddenBars', (val) => {
+    console.log(`[STATE TRACE] hiddenBars changed to: ${val}`);
     render();
 });
 subscribe('mode', render);
@@ -412,18 +416,18 @@ function handleSteeringWheelKey(keyName) {
     } else if (screen === 'regen') {
         if (keyName === 'UP' || keyName === 'DOWN') {
             const currentRegen = get('regenMode');
-            let nextVal = '1';
+            let nextVal = '0';
             if (keyName === 'UP') {
-                if (currentRegen === 'Baixo') nextVal = '1';
-                else if (currentRegen === 'Normal') nextVal = '2';
-                else nextVal = '2';
+                if (currentRegen === 'Baixo') nextVal = '0'; // Normal
+                else if (currentRegen === 'Normal') nextVal = '1'; // Alto
+                else nextVal = '1'; // Alto stays
             } else {
-                if (currentRegen === 'Alto') nextVal = '1';
-                else if (currentRegen === 'Normal') nextVal = '0';
-                else nextVal = '0';
+                if (currentRegen === 'Alto') nextVal = '0'; // Normal
+                else if (currentRegen === 'Normal') nextVal = '2'; // Baixo
+                else nextVal = '2'; // Baixo stays
             }
             bridge.updateCarData('car.ev_setting.energy_recovery_level', nextVal);
-        } else if (keyName === 'ENTER' || keyName === 'ENTER_LONG') {
+        } else if (keyName === 'ENTER_LONG') {
             const onepedal = get('onepedal');
             const nextVal = onepedal ? '0' : '1';
             bridge.updateCarData('car.ev.setting.pedal_control_enable', nextVal);
@@ -496,11 +500,9 @@ async function initDecentralizedBridge() {
     }
     
     // Initialize preferences and initial states
-    bridge.bindThemeSetting('headerVisible', true, setState);
+    bridge.bindThemeSetting('hiddenBars', 'Nenhuma', setState);
     bridge.bindThemeSetting('mode', 'Dark', setState);
     bridge.bindThemeSetting('gaugeStyle', 'Esportivo', setState);
-    const enableAdj = bridge.getPreference('enableSpeedAdjustment', 'false') === 'true';
-    const speedOffset = parseFloat(bridge.getPreference('speedAdjustmentOffset', '0')) || 0.0;
     const enableOdometer = bridge.getPreference('enableOdometer', 'true') === 'true';
     const enableRevisionWarning = bridge.getPreference('enableRevisionWarning', 'false') === 'true';
     const nextRevisionKm = Number(bridge.getPreference('nextRevisionKm', '0')) || 0;
@@ -517,9 +519,23 @@ async function initDecentralizedBridge() {
     const initialCardId = Number(bridge.getCarData('cardId')) || 1;
     setState('cardId', initialCardId);
 
+    const handleGraphTelemetry = createGraphTelemetryHandler(setState, {
+        adjustSpeed: (rawSpeed) => {
+            const enabled = bridge.getPreference('enableSpeedAdjustment', 'false') === 'true';
+            const offset = parseFloat(bridge.getPreference('speedAdjustmentOffset', '0')) || 0.0;
+            return getAdjustedSpeed(rawSpeed, enabled, offset);
+        }
+    });
+
     // Subscribe to CAN and virtual telemetry keys
     const keysToSubscribe = [
-        "car.basic.vehicle_speed",
+        KEYS.VEHICLE_SPEED,
+        KEYS.ENGINE_SPEED,
+        KEYS.INSTANT_FUEL_CONSUMPTION,
+        KEYS.ENERGY_OUTPUT_PERCENTAGE,
+        KEYS.CHARGE_CURRENT,
+        KEYS.BATTERY_VOLTAGE,
+        KEYS.INSTANT_ENERGY_CONSUMPTION,
         "car.basic.total_odometer",
         "car.basic.gear_status",
         "car.drive_setting.esp_enable",
@@ -564,8 +580,13 @@ async function initDecentralizedBridge() {
         "app.phone.caller_name",
         "app.phone.caller_number",
         "app.phone.call_duration",
-        
-        "warningActive",
+
+        // NOTE: "warningActive" is intentionally NOT subscribed here. It's a
+        // theme-computed derived value (see warningHandler.js) that already
+        // reaches us as a typed boolean via window.control('warningActive', ...).
+        // Subscribing it here as if it were native telemetry double-delivers
+        // it through onDataChanged as a STRING ("false"/"true"), which is
+        // always truthy and corrupts the boolean state.
         "bsdLeft",
         "bsdRight",
         "carPlayInDash",
@@ -575,19 +596,14 @@ async function initDecentralizedBridge() {
     ];
     
     bridge.subscribe(keysToSubscribe, (key, value) => {
+        if (handleGraphTelemetry(key, value)) return;
+
         let val = value;
         if (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) {
             val = Number(value);
         }
         
         switch (key) {
-            case "car.basic.vehicle_speed": {
-                const enableAdj = bridge.getPreference('enableSpeedAdjustment', 'false') === 'true';
-                const offset = parseFloat(bridge.getPreference('speedAdjustmentOffset', '0')) || 0.0;
-                const speed = getAdjustedSpeed(value, enableAdj, offset);
-                setState('carSpeed', Number(speed));
-                break;
-            }
             case "car.basic.total_odometer":
                 setState('odometer', val);
                 break;
@@ -608,9 +624,9 @@ async function initDecentralizedBridge() {
                 break;
             case "car.ev_setting.energy_recovery_level": {
                 let regenLabel = "Normal";
-                if (value === "0" || value === 0) regenLabel = "Baixo";
-                else if (value === "1" || value === 1) regenLabel = "Normal";
-                else if (value === "2" || value === 2) regenLabel = "Alto";
+                if (value === "0" || value === 0) regenLabel = "Normal";
+                else if (value === "1" || value === 1) regenLabel = "Alto";
+                else if (value === "2" || value === 2) regenLabel = "Baixo";
                 setState('regenMode', regenLabel);
                 break;
             }
@@ -747,8 +763,15 @@ window.control = function (key, value) {
         }
         logger.enter('window.control', { key, value });
         let val = value;
-        // Automatically convert numeric strings to numbers for compatibility with components
-        if (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) {
+        if (FRIENDLY_KEY_TO_CAN_KEY[key]) {
+            // Raw CAN value pushed under a friendly display key (e.g. espStatus
+            // '1') -> translate to its label via the shared car constants table.
+            // Covers the native card-entry/snapshot refresh path, which pushes
+            // raw values here (the live bridge.subscribe path below already
+            // applies getLabel() per-key and is unaffected).
+            val = translateFriendlyValue(key, value);
+        } else if (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) {
+            // Automatically convert numeric strings to numbers for compatibility with components
             val = Number(value);
         }
         setState(key, val);
@@ -758,6 +781,26 @@ window.control = function (key, value) {
         console.error('[Error] Bridge control failed for key ' + key + ':', e);
     }
 };
+
+// Backend-driven card change (contract: window.onCardChanged). The backend owns
+// the active card and notifies here exclusively — no legacy control('cardId', ...)
+// fallback. The subscribe('cardId', ...) handler above reacts to the state change.
+// Chained: clusterRuntime's themeEngine already wraps window.onCardChanged to
+// dispatch window.onCardTransition; preserve that instead of clobbering it.
+(function () {
+    const prevOnCardChanged = window.onCardChanged;
+    window.onCardChanged = function (cardId) {
+        if (typeof prevOnCardChanged === 'function') {
+            try { prevOnCardChanged(cardId); } catch (e) { console.error(e); }
+        }
+        try {
+            logger.log('[onCardChanged] cardId:', cardId);
+            setState('cardId', Number(cardId));
+        } catch (e) {
+            console.error('[Error] Bridge onCardChanged failed:', e);
+        }
+    };
+})();
 
 window.__havalProjectionDebug = function () {
     const app = document.getElementById('app');

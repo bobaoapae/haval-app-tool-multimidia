@@ -1,11 +1,11 @@
 <theme>
     <name>Default</name>
     <description>Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.</description>
-    <version>1.4.18</version>
+    <version>1.4.20</version>
     <thumbnail>thumbnail.png</thumbnail>
     <mainFile>index.html</mainFile>
     <decentralized>true</decentralized>
-    <minBridgeVersion>1.1.8</minBridgeVersion>
+    <minBridgeVersion>1.1.9</minBridgeVersion>
     <AppDefaultPosition>
         <x>0</x>
         <y>62</y>
@@ -34,11 +34,12 @@
     -->
     <configurations>
         <configuration>
-            <id>header_visible</id>
-            <label>Cabeçalho Visível</label>
-            <type>boolean</type>
-            <default>true</default>
-            <stateVariable>headerVisible</stateVariable>
+            <id>hidden_bars</id>
+            <label>Ocultar Barras</label>
+            <type>combo</type>
+            <options>Nenhuma, Superior, Inferior, Ambas</options>
+            <default>Nenhuma</default>
+            <stateVariable>hiddenBars</stateVariable>
         </configuration>
         <configuration>
             <id>theme_mode</id>

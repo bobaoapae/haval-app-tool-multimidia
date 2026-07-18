@@ -4,7 +4,7 @@ import {div, img, span} from '../../../../../shared/utils/createElement.js';
 import { Chart, registerables } from 'chart.js';
 import streamingPlugin from 'chartjs-plugin-streaming';
 import 'chartjs-adapter-date-fns';
-Chart.register(...registerables, streamingPlugin);
+Chart.register(...registerables, ...streamingPlugin);
 
 export const regenItems = [
     {id: 'Alto', displayLabel: 'ALTO'},

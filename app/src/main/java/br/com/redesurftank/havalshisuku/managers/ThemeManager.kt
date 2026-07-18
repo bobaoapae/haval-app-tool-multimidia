@@ -30,8 +30,8 @@ class ThemeManager private constructor(val context: Context) {
 
     companion object {
         private const val TAG = "ThemeManager"
-        /** GitHub tree where packaged themes are listed (Telas → fetch/download). Path stays Themes/v1.0; branch is v7. */
-        const val THEME_REPO_URL = "https://github.com/netseek/haval-app-tool-multimidia/tree/v7/cluster-widgets/Themes/v1.0"
+        /** GitHub tree where packaged themes are listed (Telas → fetch/download). Path stays Themes/v1.0; branch is feature/new-screen-enhancements-v7. */
+        const val THEME_REPO_URL = "https://github.com/netseek/haval-app-tool-multimidia/tree/feature/new-screen-enhancements-v7/cluster-widgets/Themes/v1.0"
         
         @Volatile
         private var instance: ThemeManager? = null
@@ -400,7 +400,7 @@ class ThemeManager private constructor(val context: Context) {
                     val fullPath = if (info.path.isNotEmpty()) "${info.path}/${metadata.folderName}" else metadata.folderName
                     "https://api.github.com/repos/${info.owner}/${info.repo}/contents/$fullPath?ref=${info.branch}"
                 } else {
-                    "https://api.github.com/repos/netseek/haval-app-tool-multimidia/contents/cluster-widgets/Themes/v1.0/${metadata.folderName}?ref=v7"
+                    "https://api.github.com/repos/netseek/haval-app-tool-multimidia/contents/cluster-widgets/Themes/v1.0/${metadata.folderName}?ref=feature/new-screen-enhancements-v7"
                 }
                 
                 Log.d(TAG, "Downloading theme from API: $apiUrl")

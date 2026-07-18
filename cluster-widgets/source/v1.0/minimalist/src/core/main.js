@@ -13,6 +13,9 @@ import { logger } from '../../../shared/utils/logger.js';
 import { initializeConstants } from '../utils/constants.js';
 import { initWarningHandler } from './components/warningHandler.js';
 import { loadPrefIn, savePref } from '../../../shared/utils/preferences.js';
+import { bridge } from '../../../shared/bridge/ThemeBridgeAdapter.js';
+import { translateFriendlyValue, FRIENDLY_KEY_TO_CAN_KEY, KEYS, getLabel } from '../../../shared/car/carConstants.js';
+import { createGraphTelemetryHandler, getAdjustedSpeed } from '../../../shared/car/carDerivations.js';
 
 initializeConstants();
 initWarningHandler();
@@ -367,8 +370,12 @@ window.control = function (key, value) {
         }
         logger.enter('window.control', { key, value });
         let val = value;
-        // Automatically convert numeric strings to numbers for compatibility with components
-        if (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) {
+        if (FRIENDLY_KEY_TO_CAN_KEY[key]) {
+            // Raw CAN value pushed under a friendly display key (e.g. espStatus
+            // '1') -> translate to its label via the shared car constants table.
+            val = translateFriendlyValue(key, value);
+        } else if (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) {
+            // Automatically convert numeric strings to numbers for compatibility with components
             val = Number(value);
         }
         setState(key, val);
@@ -378,6 +385,298 @@ window.control = function (key, value) {
         console.error('[Error] Bridge control failed for key ' + key + ':', e);
     }
 };
+
+// ===== Backend-driven card change (contract: window.onCardChanged) =====
+// The backend owns the active card and notifies the frontend exclusively here;
+// there is no legacy control('cardId', ...) fallback. The existing cardId
+// subscribers react to the state change (render + screen selection + bridge echo).
+window.onCardChanged = function (cardId) {
+    try {
+        logger.log('[onCardChanged] cardId:', cardId);
+        setState('cardId', Number(cardId));
+    } catch (e) {
+        console.error('[Error] Bridge onCardChanged failed:', e);
+    }
+};
+
+// ===== Steering wheel key handling (decentralized navigation) =====
+// The backend forwards raw wheel inputs via window.onKeyEvent(keyName) and no longer
+// injects focus/screen changes itself. The theme owns all navigation. Car settings are
+// committed through window.Android.updateCarData using raw CAN values (mirroring the
+// Default theme); the backend then echoes the applied value back via control(...).
+const AJUSTES_CAR_KEYS = {
+    ajuste_esp: { key: 'car.drive_setting.esp_enable', values: ['1', '0'] },
+    ajuste_ev: { key: 'car.ev_setting.power_model_config', values: ['3', '1', '0'] },
+    ajuste_driving: { key: 'car.drive_setting.drive_mode', values: ['0', '2', '1'] },
+    ajuste_steer: { key: 'car.drive_setting.steering_wheel_assist_mode', values: ['2', '0', '1'] }
+};
+const AJUSTES_ORDER = ['ajuste_driving', 'ajuste_ev', 'ajuste_steer', 'ajuste_esp'];
+const GRAPH_NAV_IDS = graphList.map((g) => g.id);
+
+let lastKeyTimeMs = 0;
+const KEY_DEBOUNCE_MS = 50;
+
+function androidUpdateCarData(key, value) {
+    try {
+        if (window.Android && typeof window.Android.updateCarData === 'function') {
+            window.Android.updateCarData(key, String(value));
+        }
+    } catch (e) {
+        console.error('[onKeyEvent] updateCarData failed:', key, value, e);
+    }
+}
+
+// Cycle a CAN setting by reading its current raw value from the bridge, so the
+// index stays correct even though the UI state may hold a translated label.
+function cycleCarSetting(carKey, values, direction) {
+    let current = '';
+    try {
+        if (window.Android && typeof window.Android.getCarData === 'function') {
+            current = String(window.Android.getCarData(carKey));
+        }
+    } catch (e) {
+        current = '';
+    }
+    let idx = values.indexOf(current);
+    if (idx === -1) idx = 0;
+    const step = direction >= 0 ? 1 : -1;
+    const nextIdx = (idx + step + values.length) % values.length;
+    androidUpdateCarData(carKey, values[nextIdx]);
+}
+
+function handleMainMenuKey(keyName) {
+    const focusArea = get('menuFocusArea') || 'main';
+    const menuIds = menuItems.map((m) => m.id);
+    const focused = get('focusedMenuItem');
+
+    if (focusArea === 'main') {
+        const idx = Math.max(0, menuIds.indexOf(focused));
+        if (keyName === 'UP') {
+            setState('focusedMenuItem', menuIds[(idx - 1 + menuIds.length) % menuIds.length]);
+        } else if (keyName === 'DOWN') {
+            setState('focusedMenuItem', menuIds[(idx + 1) % menuIds.length]);
+        } else if (keyName === 'ENTER') {
+            if (focused === 'option_info') return; // Informações is view-only
+            setState('menuFocusArea', 'sub');
+            if (focused === 'option_ajustes') {
+                setState('focusedAjustesItem', 'ajuste_driving');
+            }
+        }
+        return;
+    }
+
+    // Sub-focus: behaviour depends on which main item is active
+    if (focused === 'option_ajustes') {
+        const idx = Math.max(0, AJUSTES_ORDER.indexOf(get('focusedAjustesItem') || 'ajuste_driving'));
+        if (keyName === 'UP') {
+            setState('focusedAjustesItem', AJUSTES_ORDER[(idx - 1 + AJUSTES_ORDER.length) % AJUSTES_ORDER.length]);
+        } else if (keyName === 'DOWN') {
+            setState('focusedAjustesItem', AJUSTES_ORDER[(idx + 1) % AJUSTES_ORDER.length]);
+        } else if (keyName === 'ENTER') {
+            const cfg = AJUSTES_CAR_KEYS[get('focusedAjustesItem') || 'ajuste_driving'];
+            if (cfg) cycleCarSetting(cfg.key, cfg.values, 1);
+        }
+    } else if (focused === 'option_6') {
+        // Regeneração: UP/DOWN change recovery level, ENTER toggles one-pedal
+        if (keyName === 'UP') {
+            cycleCarSetting('car.ev_setting.energy_recovery_level', ['2', '0', '1'], 1); // Baixo -> Normal -> Alto
+        } else if (keyName === 'DOWN') {
+            cycleCarSetting('car.ev_setting.energy_recovery_level', ['2', '0', '1'], -1);
+        } else if (keyName === 'ENTER_LONG') {
+            const next = get('onepedal') ? '0' : '1';
+            androidUpdateCarData('car.ev.setting.pedal_control_enable', next);
+            setState('onepedal', !get('onepedal'));
+        }
+    } else if (focused === 'option_7') {
+        // Gráficos: cycle the visible graph (pure UI state)
+        if (!GRAPH_NAV_IDS.length) return;
+        const idx = Math.max(0, GRAPH_NAV_IDS.indexOf(get('currentGraph')));
+        if (keyName === 'UP') {
+            setState('currentGraph', GRAPH_NAV_IDS[(idx - 1 + GRAPH_NAV_IDS.length) % GRAPH_NAV_IDS.length]);
+        } else if (keyName === 'DOWN' || keyName === 'ENTER') {
+            setState('currentGraph', GRAPH_NAV_IDS[(idx + 1) % GRAPH_NAV_IDS.length]);
+        }
+    }
+}
+
+function handleAirconKey(keyName) {
+    const focusArea = get('focusArea') || 'fan';
+
+    // LEFT/RIGHT are reserved for backend-driven card navigation and are not
+    // forwarded to the theme, so ENTER toggles the fan/temp focus here.
+    if (keyName === 'ENTER') {
+        setState('focusArea', focusArea === 'fan' ? 'temp' : 'fan');
+        return;
+    }
+    if (keyName === 'ENTER_LONG') {
+        try {
+            if (window.Android && typeof window.Android.triggerSystemAction === 'function') {
+                window.Android.triggerSystemAction('CANCEL_MAX_AC');
+            }
+        } catch (e) {
+            console.error('[onKeyEvent] triggerSystemAction failed:', e);
+        }
+        return;
+    }
+    if (keyName !== 'UP' && keyName !== 'DOWN') return;
+
+    if (focusArea === 'fan') {
+        const currentFan = parseInt(get('fan'), 10) || 0;
+        const nextFan = keyName === 'UP' ? Math.min(7, currentFan + 1) : Math.max(0, currentFan - 1);
+        if (currentFan === 0 && nextFan > 0) {
+            androidUpdateCarData('car.hvac.power_mode', '1');
+        } else if (nextFan === 0) {
+            androidUpdateCarData('car.hvac.power_mode', '0');
+        }
+        androidUpdateCarData('car.hvac.fan_speed', String(nextFan));
+    } else {
+        // The HVAC setpoint advances in half-degree increments.
+        const currentTemp = parseFloat(get('temp')) || 22;
+        const delta = keyName === 'UP' ? 0.5 : -0.5;
+        const nextTemp = Math.min(32, Math.max(16, Math.round((currentTemp + delta) * 2) / 2));
+        androidUpdateCarData('car.hvac.driver_temperature', nextTemp.toFixed(1));
+    }
+}
+
+function handleSteeringWheelKey(keyName) {
+    try {
+        const now = Date.now();
+        if (now - lastKeyTimeMs < KEY_DEBOUNCE_MS) {
+            logger.log('[onKeyEvent] debounced duplicate:', keyName);
+            return;
+        }
+        lastKeyTimeMs = now;
+
+        const screen = get('screen');
+        logger.log('[onKeyEvent]', keyName, 'screen:', screen);
+
+        // Clean display mode: any key wakes back to Normal and is consumed
+        if (get('display') === 'Clean' && screen !== 'display_selection') {
+            setState('display', 'Normal');
+            androidUpdateCarData('display', 'Normal');
+            return;
+        }
+
+        // BACK: leave sub-focus first, then return dynamic screens to the main menu.
+        // aircon is tied to card 3 (backend-driven), so BACK does not force it away.
+        if (keyName === 'BACK' || keyName === 'BACK_LONG') {
+            if (screen === 'main_menu' && get('menuFocusArea') === 'sub') {
+                setState('menuFocusArea', 'main');
+            } else if (screen !== 'main_menu' && screen !== 'aircon') {
+                setState('screen', 'main_menu');
+            }
+            return;
+        }
+
+        if (screen === 'main_menu') {
+            handleMainMenuKey(keyName);
+        } else if (screen === 'aircon') {
+            handleAirconKey(keyName);
+        }
+    } catch (e) {
+        console.error('[Error] Bridge onKeyEvent failed:', e);
+    }
+}
+
+// Route steering wheel keys through the shared ThemeBridgeAdapter (matches the
+// Default theme) instead of clobbering window.onKeyEvent directly. This gives
+// Minimalist dynamic capability discovery (getAvailableKeys) and safe chaining
+// with any other listener bound to the same global hook.
+// Contract (THEME_GUIDE "Client-Driven Subscriptions"): native only streams
+// live updates for CAN keys a theme explicitly subscribes to via
+// Android.subscribe(). Without this, these settings only ever get a one-shot
+// refresh from the native card-entry snapshot and never update again live —
+// onepedal in particular has NO native push path at all outside this channel.
+const SETTINGS_KEYS_TO_SUBSCRIBE = [
+    KEYS.ESP_ENABLE,
+    KEYS.POWER_MODEL_CONFIG,
+    KEYS.DRIVE_MODE,
+    KEYS.STEER_ASSIST_MODE,
+    KEYS.REGEN_LEVEL,
+    KEYS.PEDAL_CONTROL_ENABLE,
+    KEYS.HVAC_POWER,
+    KEYS.HVAC_FAN_SPEED,
+    KEYS.HVAC_DRIVER_TEMP,
+    KEYS.HVAC_CYCLE_MODE,
+    KEYS.HVAC_AUTO,
+    KEYS.HVAC_ANION
+];
+
+const GRAPH_KEYS_TO_SUBSCRIBE = [
+    KEYS.VEHICLE_SPEED,
+    KEYS.ENGINE_SPEED,
+    KEYS.INSTANT_FUEL_CONSUMPTION,
+    KEYS.ENERGY_OUTPUT_PERCENTAGE,
+    KEYS.CHARGE_CURRENT,
+    KEYS.BATTERY_VOLTAGE,
+    KEYS.INSTANT_ENERGY_CONSUMPTION
+];
+
+const handleGraphTelemetry = createGraphTelemetryHandler(setState, {
+    adjustSpeed: (rawSpeed) => {
+        const enabled = bridge.getPreference('enableSpeedAdjustment', 'false') === 'true';
+        const offset = parseFloat(bridge.getPreference('speedAdjustmentOffset', '0')) || 0.0;
+        return getAdjustedSpeed(rawSpeed, enabled, offset);
+    }
+});
+
+function handleSettingsTelemetry(key, value) {
+    switch (key) {
+        case KEYS.ESP_ENABLE:
+            setState('espStatus', getLabel(KEYS.ESP_ENABLE, value));
+            break;
+        case KEYS.POWER_MODEL_CONFIG:
+            setState('evMode', getLabel(KEYS.POWER_MODEL_CONFIG, value));
+            break;
+        case KEYS.DRIVE_MODE:
+            setState('drivingMode', getLabel(KEYS.DRIVE_MODE, value));
+            break;
+        case KEYS.STEER_ASSIST_MODE:
+            setState('steerMode', getLabel(KEYS.STEER_ASSIST_MODE, value));
+            break;
+        case KEYS.REGEN_LEVEL:
+            setState('regenMode', getLabel(KEYS.REGEN_LEVEL, value));
+            break;
+        case KEYS.PEDAL_CONTROL_ENABLE:
+            setState('onepedal', value === "1" || value === 1 || value === "true" || value === true);
+            break;
+        case KEYS.HVAC_POWER:
+            setState('power', Number(value));
+            break;
+        case KEYS.HVAC_FAN_SPEED:
+            setState('fan', Number(value));
+            break;
+        case KEYS.HVAC_DRIVER_TEMP:
+            setState('temp', Number(value));
+            break;
+        case KEYS.HVAC_CYCLE_MODE:
+            setState('recycle', Number(value));
+            break;
+        case KEYS.HVAC_AUTO:
+            setState('auto', Number(value));
+            break;
+        case KEYS.HVAC_ANION:
+            setState('aion', Number(value));
+            break;
+        default:
+            break;
+    }
+}
+
+async function initMinimalistBridge() {
+    if (typeof bridge.reset === 'function') bridge.reset();
+    await bridge.init();
+    bridge.subscribeKeys(handleSteeringWheelKey);
+    bridge.subscribe(
+        [...SETTINGS_KEYS_TO_SUBSCRIBE, ...GRAPH_KEYS_TO_SUBSCRIBE],
+        (key, value) => {
+            if (!handleGraphTelemetry(key, value)) {
+                handleSettingsTelemetry(key, value);
+            }
+        }
+    );
+}
+initMinimalistBridge().catch((e) => console.error('[Bridge] init failed:', e));
 
 window.cleanup = function () {
     try {

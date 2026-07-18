@@ -88,3 +88,66 @@ export function getRegenPower(outputPercentage) {
     const floatVal = parseFloat(outputPercentage) || 0.0;
     return Math.max(0.0, -1.0 * floatVal);
 }
+
+/**
+ * Creates the common reducer used by every v1.0 theme for live graph telemetry.
+ * Raw voltage/current and fuel payloads need combining/translation before they
+ * match the state keys consumed by graphs.js.
+ *
+ * @param {(key: string, value: *) => void} setState
+ * @param {{adjustSpeed?: (rawValue: *) => number|string}} options
+ * @returns {(key: string, value: *) => boolean} true when the key was handled
+ */
+export function createGraphTelemetryHandler(setState, options = {}) {
+    let batteryVoltage = 0.0;
+    let batteryCurrent = 0.0;
+
+    const asNumber = (value) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const updateBatteryPower = () => {
+        setState('evPowerKw', Number(getBatteryKW(batteryVoltage, batteryCurrent)));
+    };
+
+    return (key, value) => {
+        switch (key) {
+            case 'car.basic.vehicle_speed':
+                setState(
+                    'carSpeed',
+                    Number(options.adjustSpeed ? options.adjustSpeed(value) : value) || 0
+                );
+                return true;
+            case 'car.basic.engine_speed':
+                setState('engineRPM', asNumber(value));
+                return true;
+            case 'car.ev_info.energy_output_percentage': {
+                const output = asNumber(value);
+                setState('evPowerFactor', output);
+                setState('evPowerRegen', getRegenPower(output));
+                return true;
+            }
+            case 'car.ev_info.power_battery_voltage':
+                batteryVoltage = asNumber(value);
+                updateBatteryPower();
+                return true;
+            case 'car.ev_info.cur_charge_current':
+                batteryCurrent = asNumber(value);
+                updateBatteryPower();
+                return true;
+            case 'car.basic.instant_fuel_consumption': {
+                const gas = deriveGasConsumption(value);
+                setState('gasConsumptionMode', gas.mode);
+                setState('gasConsumption', gas.mode === 'Running' ? gas.value : 0);
+                setState('gasConsumptionIdle', gas.mode === 'Idle' ? gas.value : 0);
+                return true;
+            }
+            case 'car.ev_info.Instant_energy_consumption':
+                setState('instantEVConsumption', asNumber(value));
+                return true;
+            default:
+                return false;
+        }
+    };
+}

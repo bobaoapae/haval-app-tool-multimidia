@@ -2624,7 +2624,7 @@ canvas.graph-chart {
   position: absolute;
   top: 0;
   height: 100%;
-  width: 500px;
+  width: 800px;
   background-color: transparent;
   transition: all .6s cubic-bezier(.4, 0, .2, 1);
   z-index: 50;
@@ -2632,12 +2632,12 @@ canvas.graph-chart {
 
 .mask-panel.left {
   left: 0;
-  background: linear-gradient(to right, var(--mask-circle-bg) 60%, transparent 100%);
+  background: linear-gradient(to right, var(--mask-circle-bg) 50%, transparent 100%);
 }
 
 .mask-panel.right {
   right: 0;
-  background: linear-gradient(to left, var(--mask-circle-bg) 60%, transparent 100%);
+  background: linear-gradient(to left, var(--mask-circle-bg) 50%, transparent 100%);
 }
 
 /* ==========================================================================
@@ -3903,12 +3903,12 @@ canvas.graph-chart {
 
 .menu-item.focused .menu-label {
   color: var(--menu-item-text-focused) !important;
-  font-size: 38px !important;
+  font-size: 46px !important;
   font-weight: 300 !important;
 }
 
 .menu-arrow {
-  font-size: 10px !important;
+  font-size: 14px !important;
   color: #94a3b8 !important;
   cursor: pointer !important;
   padding: 0 20px !important;
@@ -3929,7 +3929,7 @@ canvas.graph-chart {
 /* 3. Restored default theme bottom bar layout styling */
 .dashboard-bottom-gauges {
   position: absolute !important;
-  bottom: 26px !important;
+  bottom: 18px !important;
   height: auto !important;
   width: 100% !important;
   display: flex !important;
@@ -4063,11 +4063,11 @@ canvas.graph-chart {
 
 .gauge-labels-container {
   position: absolute !important;
-  bottom: -16px !important;
+  bottom: -10px !important;
   width: 185px !important;
   display: flex !important;
   justify-content: space-between !important;
-  font-size: 20px !important;
+  font-size: 16px !important;
   font-weight: 500 !important;
   color: var(--menu-text) !important;
   pointer-events: none !important;
@@ -4090,10 +4090,10 @@ canvas.graph-chart {
 /* Speedometer positioning overrides */
 .dashboard-speed-value {
   font-family: 'Eurostile', sans-serif !important;
-  font-size: 120px !important;
+  font-size: 150px !important;
   font-weight: 400 !important;
   line-height: 1 !important;
-  left: -34px !important;
+  left: -28px !important;
   text-align: right !important;
   position: absolute !important;
   width: 300px !important;
@@ -4106,7 +4106,7 @@ canvas.graph-chart {
   margin-top: -10px !important;
   position: absolute !important;
   top: 238px !important;
-  left: 272px !important;
+  left: 295px !important;
 }
 
 .dashboard-sport-fixed-overlay {
@@ -4476,7 +4476,7 @@ body.native-mock-enabled .dashboard-fixed-overlay {
   position: absolute !important;
   top: 12px !important;
   bottom: auto !important;
-  left: 50% !important;
+  left: 40% !important;
   transform: translateX(-50%) !important;
   font-family: 'Khand', sans-serif !important;
   font-weight: 200 !important;

@@ -224,10 +224,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     "control('enableRevisionWarning', ${enabled && nextKm > 0})"
                             )
                         }
-                        if (key == SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key ||
-                                        key == SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key
-                        ) {
-                            Log.d(TAG, "Theme changed, reloading WebView")
+                        if (key == SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key) {
+                            // ACTIVE_CUSTOM_THEME is the sole source of truth for what
+                            // content loads (see getActiveCustomThemeName()); it's also
+                            // the only key some flows (e.g. download-then-activate) write.
+                            // VIRTUAL_CLUSTER_THEME is UI-display bookkeeping only (Telas'
+                            // selectedTheme) and is always written in the same transaction
+                            // as ACTIVE_CUSTOM_THEME when switching via the theme picker, so
+                            // reacting to it too only double-fired this reload per switch.
+                            Log.w(TAG, "Theme changed, reloading WebView (key=$key)")
                             webView?.let { wv ->
                                 markWebViewLoading(wv, "THEME_CHANGED")
                                 wv.loadDataWithBaseURL(
@@ -790,7 +795,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 snapshot.active
         )
 
-        evaluateJsIfReady(webView, "control('cardId', $currentCard)")
+        // Contract (THEME_GUIDE): backend owns the active card and informs the
+        // frontend exclusively via window.onCardChanged(cardId). All v1.0 themes
+        // (Default, Minimalist) implement this; no legacy control('cardId', ...) push.
+        evaluateJsIfReady(webView, "if (window.onCardChanged) window.onCardChanged($currentCard);")
 
         if (decision.updateVirtualClusterVisibility) {
             updateVirtualClusterVisibility(
@@ -975,7 +983,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         }
                         ServiceManagerEventType.RAW_KEY_EVENT -> {
                             val key = args[0] as br.com.redesurftank.havalshisuku.models.ClusterKey
-                            evaluateJsIfReady(webView, "if (window.onKeyEvent) window.onKeyEvent('${key.name}');")
+                            // LEFT/RIGHT are the cluster card-navigation keys. Card changes are
+                            // backend-driven (native msgId=133 -> onCardChanged), so we do NOT forward
+                            // them to the theme; doing so lets a theme consume them and the card
+                            // change gets lost. Matches the THEME_GUIDE contract (UP/DOWN/ENTER/BACK...).
+                            if (key != br.com.redesurftank.havalshisuku.models.ClusterKey.LEFT &&
+                                    key != br.com.redesurftank.havalshisuku.models.ClusterKey.RIGHT) {
+                                evaluateJsIfReady(webView, "if (window.onKeyEvent) window.onKeyEvent('${key.name}');")
+                            }
                         }
                         else -> {}
                     }
@@ -1083,6 +1098,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 val themeBridge = this.themeBridge
                 if (themeBridge != null) {
                     val themeKey = br.com.redesurftank.havalshisuku.bridge.BridgeContractTranslator.translateCanonicalToThemeKey(key)
+                    if (key == CarConstants.CAR_BASIC_VEHICLE_SPEED.value || key == CarConstants.CAR_BASIC_ENGINE_SPEED.value || key == CarConstants.CAR_EV_INFO_ENERGY_OUTPUT_PERCENTAGE.value) {
+                        Log.d(TAG, "[DIAG] key=$key themeKey=$themeKey value=$value subscribed(themeKey)=${subscribedKeys.contains(themeKey)} subscribed(key)=${subscribedKeys.contains(key)} subscribedKeys=$subscribedKeys")
+                    }
                     if (subscribedKeys.contains(themeKey)) {
                         themeBridge.pushOnDataChanged(themeKey, value)
                     } else if (subscribedKeys.contains(key)) {
@@ -1228,6 +1246,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                         return super.onConsoleMessage(consoleMessage)
                                     }
                                 }
+                        // addJavascriptInterface MUST run before the page load starts: WebView
+                        // only guarantees window.Android is visible to a page's own scripts
+                        // (including deferred <script type="module">) if the interface is
+                        // registered before loadDataWithBaseURL kicks off loading. Registering
+                        // after is a race — themes' bridge.init()/Android.subscribe() calls can
+                        // silently no-op if they run before the interface actually attaches.
+                        themeBridge = br.com.redesurftank.havalshisuku.bridge.ThemeBridgeImpl(this@InstrumentProjector2)
+                        addJavascriptInterface(themeBridge!!, "Android")
                         loadDataWithBaseURL(
                                 getThemeBaseUrl(),
                                 readAppContent(outerContext),
@@ -1235,8 +1261,6 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                 "UTF-8",
                                 null
                         )
-                        themeBridge = br.com.redesurftank.havalshisuku.bridge.ThemeBridgeImpl(this@InstrumentProjector2)
-                        addJavascriptInterface(themeBridge!!, "Android")
                     }
             parent.addView(webView)
         }

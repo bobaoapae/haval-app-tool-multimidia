@@ -146,13 +146,23 @@ processHtml(indexHtmlPath, appOutputPath);
 // Inline dynamic assets (css referenced in JS)
 inlineDynamicAssets(appOutputPath);
 
-// Copy to Android resources
+// Copy to Android resources (default theme only)
 var androidRawPath = path.join(__dirname, '..', '..', '..', '..', 'app', 'src', 'main', 'res', 'raw', 'app.html');
 try {
   fs.copyFileSync(appOutputPath, androidRawPath);
   console.log(`\u2705 Copiado para Android: ${androidRawPath}`);
 } catch (err) {
   console.error(`❌ Erro ao copiar para Android: ${err.message}`);
+}
+
+// Copy to Themes/v1.0/Default folder
+var themesOutputPath = path.join(__dirname, '..', '..', '..', 'Themes', 'v1.0', 'Default', 'index.html');
+try {
+  fs.mkdirSync(path.dirname(themesOutputPath), { recursive: true });
+  fs.copyFileSync(appOutputPath, themesOutputPath);
+  console.log(`\u2705 Copiado para Themes: ${themesOutputPath}`);
+} catch (err) {
+  console.error(`❌ Erro ao copiar para Themes: ${err.message}`);
 }
 
 // Remove pasta assets vazia
@@ -175,5 +185,7 @@ cssFiles.forEach(function(cssFile) {
   }
 });
 
-console.log('🎉 Build completo! Arquivo gerado:');
-console.log('  📄 app.html (unificado)');
+console.log('🎉 Build completo! Arquivos gerados:');
+console.log('  📄 dist/app.html (unificado)');
+console.log('  📄 res/raw/app.html (Android)');
+console.log('  📄 Themes/v1.0/Default/app.html');

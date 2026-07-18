@@ -13,12 +13,9 @@ StateManager.prototype.get = function (key) {
 };
 
 StateManager.prototype.set = function (key, value) {
-    if (key === 'evMode') {
-        const valStr = String(value).trim().toUpperCase();
-        if (valStr === '0' || valStr === 'HEV') value = 'HEV';
-        else if (valStr === '1' || valStr === 'EVP') value = 'EVP';
-        else if (valStr === '3' || valStr === 'EV') value = 'EV';
-    }
+    // Raw-CAN-value -> label translation (espStatus, evMode, drivingMode, ...)
+    // happens upstream in window.control via the shared carConstants helper,
+    // so no per-key special-casing is needed here.
     if (this._state[key] !== value) {
         this._state[key] = value;
         this._notifyListeners(key, value);
@@ -191,7 +188,7 @@ subscribe('carSpeed', updateInstantConsumption);
 
 // Synchronize driving mode with top bar label
 subscribe('drivingMode', (val) => {
-    setState('evModeLabel', val.toUpperCase());
+    setState('evModeLabel', String(val).toUpperCase());
 });
 
 export { stateManager, getState, setState, subscribe, state };

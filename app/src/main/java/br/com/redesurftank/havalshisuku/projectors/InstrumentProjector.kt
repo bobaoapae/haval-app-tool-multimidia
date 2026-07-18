@@ -25,7 +25,7 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
     private lateinit var rootLayout: RelativeLayout
     private lateinit var imageView: ImageView
     private var webView: WebView? = null
-    
+
     private var isAnyAppOnDisplay1 = false
 
     private val sharedPreferences by lazy {
@@ -101,7 +101,31 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
                 databaseEnabled = true
                 mediaPlaybackRequiresUserGesture = false // Allow autoplay without user touch
             }
-            webViewClient = WebViewClient()
+            webViewClient = object : WebViewClient() {
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?,
+                    error: android.webkit.WebResourceError?
+                ) {
+                    super.onReceivedError(view, request, error)
+                    Log.e(TAG, "WebView error loading ${request?.url}: ${error?.errorCode} ${error?.description}")
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?,
+                    errorResponse: android.webkit.WebResourceResponse?
+                ) {
+                    super.onReceivedHttpError(view, request, errorResponse)
+                    Log.e(TAG, "WebView HTTP error loading ${request?.url}: ${errorResponse?.statusCode}")
+                }
+            }
+            webChromeClient = object : android.webkit.WebChromeClient() {
+                override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage): Boolean {
+                    Log.d(TAG, "WebView console: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
+                    return true
+                }
+            }
             setBackgroundColor(Color.TRANSPARENT)
             isVisible = false
         }
@@ -139,11 +163,13 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
         when (type) {
             "THEME" -> {
                 webView?.isVisible = false
-                imageView.isVisible = true
-                if (!loadThemeBackground(value)) {
-                    // Fall back to solid black if the active theme has no wallpaper
+                if (loadThemeBackground(value)) {
+                    imageView.isVisible = true
+                } else {
+                    // Active theme has no wallpaper declared: stay transparent instead of solid black
+                    imageView.isVisible = false
                     imageView.setImageDrawable(null)
-                    imageView.setBackgroundColor(Color.BLACK)
+                    rootLayout.setBackgroundColor(Color.TRANSPARENT)
                 }
             }
             "PRESET" -> {
@@ -182,25 +208,6 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
                     wv.isVisible = true
                     if (value.isNotEmpty() && wv.url != value) {
                         wv.loadUrl(value)
-                    }
-                }
-            }
-            "YOUTUBE" -> {
-                imageView.isVisible = false
-                webView?.let { wv ->
-                    wv.isVisible = true
-                    if (value.isNotEmpty()) {
-                        val videoId = extractYoutubeVideoId(value)
-                        if (videoId != null) {
-                            val embedUrl = "https://www.youtube.com/embed/$videoId?autoplay=1&mute=1&loop=1&playlist=$videoId&controls=0&modestbranding=1&rel=0"
-                            if (wv.url != embedUrl) {
-                                wv.loadUrl(embedUrl)
-                            }
-                        } else {
-                            wv.loadUrl("about:blank")
-                        }
-                    } else {
-                        wv.loadUrl("about:blank")
                     }
                 }
             }
@@ -277,22 +284,6 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
             imageView.setImageDrawable(null)
             imageView.setBackgroundColor(Color.BLACK)
         }
-    }
-
-    private fun extractYoutubeVideoId(url: String): String? {
-        if (url.length == 11) return url
-        val patterns = listOf(
-            Regex("v=([^&]+)"),
-            Regex("youtu\\.be/([^?#]+)"),
-            Regex("embed/([^?#]+)")
-        )
-        for (pattern in patterns) {
-            val match = pattern.find(url)
-            if (match != null && match.groupValues.size > 1) {
-                return match.groupValues[1]
-            }
-        }
-        return null
     }
 
     private fun updateBackgroundVisibility() {

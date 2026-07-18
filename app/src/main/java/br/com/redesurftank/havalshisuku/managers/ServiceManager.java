@@ -255,7 +255,6 @@ public class ServiceManager {
     private boolean isClusterHeartbeatRunning = false;
     private int clusterHeartBeatCount = 0;
     private int clusterCardView = 0;
-    private static final int[] CLUSTER_CARD_SEQUENCE = new int[] {0, 1, 3};
     private long lastClusterInputAtMs = 0L;
     private int lastClusterInputKeyCode = -1;
     private String lastClusterInputKeyName = "";
@@ -705,14 +704,24 @@ public class ServiceManager {
                             boolean duplicateClusterInput =
                                     lastHandledClusterInputKeyCode == keyEvent.getKeyCode()
                                             && now - lastHandledClusterInputAtMs <= CLUSTER_INPUT_DEDUP_WINDOW_MS;
-                            if (!duplicateClusterInput) {
+                            boolean isPhysicalClusterAction =
+                                    ClusterCardNavigationPolicy.shouldHandleInputAction(
+                                            keyEvent.getAction()
+                                    );
+                            if (!duplicateClusterInput && isPhysicalClusterAction) {
                                 lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
                                 lastHandledClusterInputAtMs = now;
-                                if (key == ClusterKey.BACK) {
-                                    dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
+                                if (ClusterCardNavigationPolicy.isCardNavigationKey(key)) {
+                                    // Card ownership stays in the backend. Themes receive the
+                                    // resulting CLUSTER_CARD_CHANGED callback, never LEFT/RIGHT.
+                                    handleClusterCardNavigationKey(key);
+                                } else {
+                                    if (key == ClusterKey.BACK) {
+                                        dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
+                                    }
+                                    dispatchServiceManagerEvent(ServiceManagerEventType.RAW_KEY_EVENT, key);
                                 }
-                                dispatchServiceManagerEvent(ServiceManagerEventType.RAW_KEY_EVENT, key);
-                            } else {
+                            } else if (duplicateClusterInput) {
                                 Log.w(
                                         TAG,
                                         "Cluster input duplicate ignored: "
@@ -1192,14 +1201,7 @@ public class ServiceManager {
 
     private void handleClusterCardNavigationKey(ClusterKey key) {
         int currentCard = clusterCardView;
-        if (!isKnownClusterCard(currentCard)) {
-            currentCard = 0;
-        }
-
-        int currentIndex = indexOfClusterCard(currentCard);
-        int direction = key == ClusterKey.RIGHT ? 1 : -1;
-        int nextIndex = (currentIndex + direction + CLUSTER_CARD_SEQUENCE.length) % CLUSTER_CARD_SEQUENCE.length;
-        int nextCard = CLUSTER_CARD_SEQUENCE[nextIndex];
+        int nextCard = ClusterCardNavigationPolicy.nextCard(currentCard, key);
         int previousCard = clusterCardView;
         clusterCardView = nextCard;
         lastSyntheticClusterCardNavigationAtMs = SystemClock.uptimeMillis();
@@ -1224,19 +1226,6 @@ public class ServiceManager {
                         + " previousServiceCard=" + previousCard
         );
         dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, clusterCardView);
-    }
-
-    private boolean isKnownClusterCard(int card) {
-        return indexOfClusterCard(card) >= 0;
-    }
-
-    private int indexOfClusterCard(int card) {
-        for (int i = 0; i < CLUSTER_CARD_SEQUENCE.length; i++) {
-            if (CLUSTER_CARD_SEQUENCE[i] == card) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     private void handleSteeringWheelProjectionDisplayToggle(int button) {

@@ -6,7 +6,7 @@ import br.com.redesurftank.havalshisuku.models.ThemeMetadata
 
 object CompatTranslationLayer {
     private const val TAG = "CompatTranslation"
-    const val CURRENT_BRIDGE_VERSION = "1.1.8"
+    const val CURRENT_BRIDGE_VERSION = "1.1.9"
 
     fun injectPolyfillsIfNecessary(webView: WebView?, metadata: ThemeMetadata?) {
         if (webView == null) return

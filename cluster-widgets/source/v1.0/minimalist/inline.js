@@ -146,16 +146,15 @@ processHtml(indexHtmlPath, appOutputPath);
 // Inline dynamic assets (css referenced in JS)
 inlineDynamicAssets(appOutputPath);
 
-// Copy to Android resources (disabled for Minimalist theme to not overwrite Default)
-/*
-var androidRawPath = path.join(__dirname, '..', '..', 'app', 'src', 'main', 'res', 'raw', 'app.html');
+// Copy to Themes/v1.0/minimalist folder
+var themesOutputPath = path.join(__dirname, '..', '..', '..', 'Themes', 'v1.0', 'minimalist', 'app.html');
 try {
-  fs.copyFileSync(appOutputPath, androidRawPath);
-  console.log(`✅ Copiado para Android: ${androidRawPath}`);
+  fs.mkdirSync(path.dirname(themesOutputPath), { recursive: true });
+  fs.copyFileSync(appOutputPath, themesOutputPath);
+  console.log(`✅ Copiado para Themes: ${themesOutputPath}`);
 } catch (err) {
-  console.error(`❌ Erro ao copiar para Android: ${err.message}`);
+  console.error(`❌ Erro ao copiar para Themes: ${err.message}`);
 }
-*/
 
 // Remove pasta assets vazia
 var assetsDir = path.join(__dirname, 'dist', 'assets');
@@ -177,5 +176,6 @@ cssFiles.forEach(function(cssFile) {
   }
 });
 
-console.log('🎉 Build completo! Arquivo gerado:');
-console.log('  📄 app.html (unificado)');
+console.log('🎉 Build completo! Arquivos gerados:');
+console.log('  📄 dist/app.html (unificado)');
+console.log('  📄 Themes/v1.0/minimalist/app.html');

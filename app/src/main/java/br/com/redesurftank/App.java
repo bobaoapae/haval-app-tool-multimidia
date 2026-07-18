@@ -3,6 +3,7 @@ package br.com.redesurftank;
 import android.app.Application;
 import android.content.Context;
 import android.content.Intent;
+import android.webkit.WebView;
 
 import br.com.redesurftank.havalshisuku.BuildConfig;
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger;
@@ -32,6 +33,9 @@ public class App extends Application {
     public void onCreate() {
         super.onCreate();
         sApplication = this;
+        if (BuildConfig.DEBUG) {
+            WebView.setWebContentsDebuggingEnabled(true);
+        }
         ClusterPersistentEventLogger.logText(
                 "app_start",
                 "versionCode=" + BuildConfig.VERSION_CODE + " versionName=" + BuildConfig.VERSION_NAME

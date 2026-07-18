@@ -186,7 +186,8 @@
 }
 
 #app {
-  background-color: var(--bg-color);
+  /* Transparent so the native Display 1 background layer (theme wallpaper / preset / image) shows through. */
+  background-color: transparent;
   color: var(--text-main);
   position: absolute;
   top: 0;
@@ -3484,13 +3485,21 @@ canvas.graph-chart {
   }
 }
 
-/* Header suppression rules */
-.hide-header .mask-top-bar,
-.hide-header .dashboard-top-center {
+/* Bar suppression rules - hide only the decorative mask bar, never the
+   actual readouts (dashboard-top-center / dashboard-bottom-*) sitting on it */
+.hide-header .mask-top-bar {
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
   transform: translateY(-50px) !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.hide-bottom .mask-bottom-bar {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transform: translateY(50px) !important;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
@@ -3499,6 +3508,9 @@ canvas.graph-chart {
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .mask-top-bar {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.mask-bottom-bar {
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 

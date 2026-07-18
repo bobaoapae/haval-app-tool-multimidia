@@ -358,13 +358,16 @@ export function initTestHarness(stateManager, menuItems) {
             await h.dispatchKeyEvent('DOWN');
             h.assertEqual(h.getState('regenMode'), 'Baixo', "Recovery level shifts DOWN to Baixo");
 
-            // 4. Test One-Pedal toggling on short ENTER
+            // 4. Test One-Pedal toggling requires a LONG press; short ENTER is a no-op
             h.assertEqual(h.getState('onepedal'), false, "One-Pedal starts disabled");
             await h.dispatchKeyEvent('ENTER');
-            h.assertEqual(h.getState('onepedal'), true, "Short ENTER press activates One-Pedal");
-            
-            await h.dispatchKeyEvent('ENTER');
-            h.assertEqual(h.getState('onepedal'), false, "Short ENTER press deactivates One-Pedal");
+            h.assertEqual(h.getState('onepedal'), false, "Short ENTER press does not activate One-Pedal");
+
+            await h.dispatchKeyEvent('ENTER_LONG');
+            h.assertEqual(h.getState('onepedal'), true, "Long ENTER press activates One-Pedal");
+
+            await h.dispatchKeyEvent('ENTER_LONG');
+            h.assertEqual(h.getState('onepedal'), false, "Long ENTER press deactivates One-Pedal");
 
             // 5. Return to main menu
             await h.dispatchKeyEvent('BACK');

@@ -120,7 +120,7 @@ subscribe('carSpeed', updateInstantConsumption);
 
 // Synchronize driving mode with top bar label
 subscribe('drivingMode', (val) => {
-    setState('evModeLabel', val.toUpperCase());
+    setState('evModeLabel', String(val).toUpperCase());
 });
 
 export { stateManager, getState, setState, subscribe, state };
