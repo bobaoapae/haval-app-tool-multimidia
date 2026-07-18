@@ -1425,9 +1425,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             }
             ClusterCardIds.MAIN_MENU_CARD -> {
                 updates["evMode"] = sm.getData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.value) ?: ""
-                val drivingMode = sm.getData(CarConstants.CAR_DRIVE_SETTING_DRIVE_MODE.value) ?: ""
-                updates["drivingMode"] = drivingMode
-                updates["evModeLabel"] = drivingMode
+                // 'drivingMode' is a translated (friendly) key: the WebView's window.control()
+                // maps its raw CAN value through the label table and derives evModeLabel from
+                // it (see state.js). Do NOT also push a raw "evModeLabel" here — that key isn't
+                // in FRIENDLY_KEY_TO_CAN_KEY, so it lands untranslated and clobbers the label
+                // the drivingMode push just correctly derived (e.g. showing "0" instead of "NORMAL").
+                updates["drivingMode"] = sm.getData(CarConstants.CAR_DRIVE_SETTING_DRIVE_MODE.value) ?: ""
                 updates["steerMode"] = sm.getData(CarConstants.CAR_DRIVE_SETTING_STEERING_WHEEL_ASSIST_MODE.value) ?: ""
                 updates["espStatus"] = sm.getData(CarConstants.CAR_DRIVE_SETTING_ESP_ENABLE.value) ?: ""
                 updates["regenMode"] = sm.getData(CarConstants.CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL.value) ?: ""
