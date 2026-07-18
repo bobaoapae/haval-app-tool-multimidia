@@ -1098,9 +1098,6 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 val themeBridge = this.themeBridge
                 if (themeBridge != null) {
                     val themeKey = br.com.redesurftank.havalshisuku.bridge.BridgeContractTranslator.translateCanonicalToThemeKey(key)
-                    if (key == CarConstants.CAR_BASIC_VEHICLE_SPEED.value || key == CarConstants.CAR_BASIC_ENGINE_SPEED.value || key == CarConstants.CAR_EV_INFO_ENERGY_OUTPUT_PERCENTAGE.value) {
-                        Log.d(TAG, "[DIAG] key=$key themeKey=$themeKey value=$value subscribed(themeKey)=${subscribedKeys.contains(themeKey)} subscribed(key)=${subscribedKeys.contains(key)} subscribedKeys=$subscribedKeys")
-                    }
                     if (subscribedKeys.contains(themeKey)) {
                         themeBridge.pushOnDataChanged(themeKey, value)
                     } else if (subscribedKeys.contains(key)) {
@@ -1192,8 +1189,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                             lastHeartbeatTime = System.currentTimeMillis()
                                             webViewsLoaded[wv] = true
 
-                                            // Discard all stale, redundant telemetry updates queued during page load
-                                            pendingJsQueues.remove(wv)
+                                            // Replay any JS queued while the page was loading instead of
+                                            // discarding it silently — it may include one-off, authoritative
+                                            // calls (e.g. window.onCardChanged) that have no other delivery
+                                            // path. Stale telemetry values it also contains get overwritten
+                                            // by the full-state sync below, so replaying first is harmless.
+                                            pendingJsQueues.remove(wv)?.forEach { queuedJs ->
+                                                wv.evaluateJavascript(queuedJs, null)
+                                            }
 
                                             // Perform a single, consolidated, full-state synchronization
                                             // using the latest car metrics to guarantee perfect UI consistency.
@@ -2006,29 +2009,36 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         // changing semantics — the JS bridge can stay chatty; we no-op.
         if (isActive == isWarningActive) return
 
-        if (isActive && !isWarningActive) {
-            lastWarningActiveTime = System.currentTimeMillis()
-            Log.w(TAG, "updateWarningUI: warning transition to active, setting onset time")
+        // setWarningActive() is a @JavascriptInterface method invoked on the
+        // WebView's JavaBridge thread, but everything below touches the
+        // WebView (evaluateJavascript) and must run on the main thread.
+        ensureUi {
+            if (isActive == isWarningActive) return@ensureUi
+
+            if (isActive && !isWarningActive) {
+                lastWarningActiveTime = System.currentTimeMillis()
+                Log.w(TAG, "updateWarningUI: warning transition to active, setting onset time")
+            }
+
+            isWarningActive = isActive
+            lastAppliedConfigs.clear() // Invalidate cache on warning toggle to force re-sync
+            if (isActive) {
+                Log.w(TAG, "Warning detected. currentCard=$currentCard. Triggering visibility update.")
+            } else {
+                Log.w(TAG, "Warnings cleared.")
+            }
+            logClusterPerfEvent(
+                    "warning_state_changed",
+                    mapOf("active" to isActive)
+            )
+
+            updateVirtualClusterVisibility(reason = "WARNING_STATE_CHANGED")
+            syncSecondaryDisplayApps(3)
+
+            // Propagate current warning state
+            evaluateJsIfReady(webView, "control('warningActive', $isActive)")
+            themeBridge?.pushOnDataChanged("warningActive", isActive.toString())
         }
-
-        isWarningActive = isActive
-        lastAppliedConfigs.clear() // Invalidate cache on warning toggle to force re-sync
-        if (isActive) {
-            Log.w(TAG, "Warning detected. currentCard=$currentCard. Triggering visibility update.")
-        } else {
-            Log.w(TAG, "Warnings cleared.")
-        }
-        logClusterPerfEvent(
-                "warning_state_changed",
-                mapOf("active" to isActive)
-        )
-
-        updateVirtualClusterVisibility(reason = "WARNING_STATE_CHANGED")
-        syncSecondaryDisplayApps(3)
-
-        // Propagate current warning state
-        evaluateJsIfReady(webView, "control('warningActive', $isActive)")
-        themeBridge?.pushOnDataChanged("warningActive", isActive.toString())
     }
 
     override fun runOnUiThread(action: Runnable) {
