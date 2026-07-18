@@ -179,8 +179,14 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
                 context.subscribedKeys.add(rawKey)
                 
                 val canonicalKey = BridgeContractTranslator.translateThemeKeyToCanonical(rawKey)
-                
-                if (canonicalKey.startsWith("app.")) {
+
+                if (canonicalKey.startsWith("app.preferences.")) {
+                    // Initial value already delivered via getPreference() at theme init
+                    // (see ThemeBridgeAdapter.bindThemeSetting). VirtualTelemetryManager has
+                    // no notion of scoped preferences, so pushing its value here (always "")
+                    // would clobber the correct value with an empty string right after load —
+                    // this is only registering for future PreferencePushListener pushes.
+                } else if (canonicalKey.startsWith("app.")) {
                     val virtualVal = VirtualTelemetryManager.getVirtualValue(contextApp, canonicalKey)
                     pushValueToTheme(rawKey, virtualVal)
                 } else {
