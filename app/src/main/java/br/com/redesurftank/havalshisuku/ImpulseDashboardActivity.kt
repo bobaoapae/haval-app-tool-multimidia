@@ -9,6 +9,7 @@ import android.view.Window
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import br.com.redesurftank.havalshisuku.models.BottomBarState
@@ -74,6 +75,7 @@ class ImpulseDashboardActivity : ComponentActivity() {
     }
 
     private fun applyCarPlayStyleFullscreen() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         window.setFlags(
                 WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -81,7 +83,6 @@ class ImpulseDashboardActivity : ComponentActivity() {
         window.addFlags(
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
                         WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {

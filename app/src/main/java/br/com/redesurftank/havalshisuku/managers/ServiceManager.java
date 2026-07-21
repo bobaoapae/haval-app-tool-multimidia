@@ -156,7 +156,16 @@ public class ServiceManager {
             CarConstants.CAR_IPK_LIGHT_TPMS_WARNING,
             CarConstants.CAR_BASIC_ENGINE_SPEED,
             CarConstants.CAR_EV_INFO_INSTANT_ENERGY_CONSUMPTION,
-            CarConstants.CAR_IPK_LIGHT_FUEL_LOW
+            CarConstants.CAR_IPK_LIGHT_FUEL_LOW,
+            CarConstants.SYS_BASIC_AUDIO_SOURCE_APP,
+            CarConstants.SYS_RADIO_CUR_CHANNEL_INFO,
+            CarConstants.SYS_RADIO_PLAY_STATE,
+            CarConstants.SYS_RADIO_FM_FAVORITES_STATION_LIST,
+            CarConstants.SYS_RADIO_SEARCH_STATE,
+            CarConstants.SYS_RADIO_RDS_CUR_CHANNEL_INFO,
+            CarConstants.SYS_RADIO_RDS_REGIONAL_INFO,
+            CarConstants.SYS_RADIO_RDS_TRAFFIC_ANNOUNCEMENT_ACTIVE_STATE,
+            CarConstants.SYS_OTHER_KEYEVENT_NOTIFY
     };
 
     private static final CarConstants[] KEYS_TO_SAVE = {
@@ -602,6 +611,14 @@ public class ServiceManager {
                         Log.w(TAG, "Android Auto handled steering media key: " + keyEvent.getKeyCode());
                         return;
                     }
+                    if (keyEvent.getAction() == KeyEvent.ACTION_UP &&
+                            sharedPreferences.getBoolean(SharedPreferencesKeys.STEERING_WHEEL_MEDIA_ARROWS_NAVIGATE_FAVORITES.getKey(), false)) {
+                        if (keyEvent.getKeyCode() == 87) {
+                            dispatchServiceManagerEvent(ServiceManagerEventType.RADIO_NAVIGATE, "next");
+                        } else if (keyEvent.getKeyCode() == 88) {
+                            dispatchServiceManagerEvent(ServiceManagerEventType.RADIO_NAVIGATE, "prev");
+                        }
+                    }
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
                         switch (keyEvent.getKeyCode()) {
                             case 517: onSteeringCustomShortPress(1); break;   // botao 1 curto
@@ -758,6 +775,12 @@ public class ServiceManager {
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "enabled_accessibility_services", "br.com.redesurftank.havalshisuku/.services.AccessibilityService"});
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "accessibility_enabled", "1"});
             ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "grant", context.getPackageName(), "android.permission.WRITE_SECURE_SETTINGS"});
+            String nlComponent = context.getPackageName() + "/br.com.redesurftank.havalshisuku.services.MediaNotificationListenerService";
+            String existingNl = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "secure", "enabled_notification_listeners"}).trim();
+            if (!existingNl.contains(context.getPackageName())) {
+                String newNl = (existingNl.isEmpty() || existingNl.equals("null")) ? nlComponent : existingNl + ":" + nlComponent;
+                ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "enabled_notification_listeners", newNl});
+            }
             controlService.registerDataChangedListener(context.getPackageName(), listener);
             controlService.addListenerKey(App.getContext().getPackageName(), getCombinedKeys());
 
@@ -2664,11 +2687,13 @@ public class ServiceManager {
     }
 
     public void ensureSystemApps() {
-        if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_PROJECTOR.getKey(), false) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
-            disableSystemApp("com.beantechs.multidisplay");
-        } else {
-            enableSystemApp("com.beantechs.multidisplay");
-        }
+        // Used to uninstall com.beantechs.multidisplay here when the cluster projector +
+        // custom media integration were both on, presumably to stop it competing with our
+        // virtual cluster on display 3. Confirmed via live device debugging that multidisplay
+        // also drives the native home/menu wallpaper on display 0 — uninstalling it left that
+        // menu rendering solid black for as long as the cluster toggle stayed on. Always keep
+        // it enabled instead.
+        enableSystemApp("com.beantechs.multidisplay");
     }
 
     public void disableSystemApp(String packageName) {

@@ -1,7 +1,7 @@
 package br.com.redesurftank.havalshisuku.models
 
 enum class SteeringWheelCustomActionType(val key: String, val description: String) {
-    DEFAULT("default", "Padrão da multimidia."),
+    DEFAULT("default", "Original do carro"),
     CHANGE_REGENERATION_LEVEL(
             "change_regeneration_level",
             "Alterar nível de regeneração: Baixo, Médio, Alto."

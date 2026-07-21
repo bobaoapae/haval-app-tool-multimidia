@@ -1,4 +1,4 @@
-package br.com.redesurftank.havalshisuku
+﻿package br.com.redesurftank.havalshisuku
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -24,5 +24,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isResumed = true
+    }
+
+    override fun onPause() {
+        super.onPause()
+        isResumed = false
+    }
+
+    companion object {
+        @Volatile var isResumed = false
     }
 }

@@ -4,7 +4,7 @@
    THEME CONFIGURATION
    ==========================================================================
    This section contains all color and layout variables. To create a new theme
-   (e.g., light.style.css), simply duplicate this file and modify the values 
+   (e.g., light.style.css), simply duplicate this file and modify the values
    in this :root section.
 ========================================================================== */
 
@@ -2111,6 +2111,265 @@ canvas.graph-chart {
   z-index: 10;
 }
 
+.menu-carousel.focus-6 .menu-item[data-index="7"] {
+  transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * 1)) scale(0.8);
+  opacity: 0.8;
+  z-index: 9;
+}
+
+.menu-carousel.focus-7 .menu-item[data-index="3"] {
+  transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -2)) scale(0.2);
+  opacity: 0;
+  z-index: 6;
+}
+
+.menu-carousel.focus-7 .menu-item[data-index="4"] {
+  transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -1.8)) scale(0.4);
+  opacity: 0;
+  z-index: 7;
+}
+
+.menu-carousel.focus-7 .menu-item[data-index="5"] {
+  transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -1.5)) scale(0.6);
+  opacity: 0.6;
+  z-index: 8;
+}
+
+.menu-carousel.focus-7 .menu-item[data-index="6"] {
+  transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * -1)) scale(0.8);
+  opacity: 0.8;
+  z-index: 9;
+}
+
+.menu-carousel.focus-7 .menu-item[data-index="7"] {
+  transform: translate(-50%, -50%) translateY(0) scale(1);
+  opacity: 1;
+  z-index: 10;
+}
+
+/* Also show item[7] from focus-5 */
+.menu-carousel.focus-5 .menu-item[data-index="7"] {
+  transform: translate(-50%, -50%) translateY(calc(var(--item-gap) * 1.5)) scale(0.6);
+  opacity: 0.6;
+  z-index: 8;
+}
+
+
+/* ============================================= */
+/*              MEDIA SCREEN STYLES              */
+/* ============================================= */
+
+.media-screen {
+  position: relative;
+  width: 452px;
+  height: 452px;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.media-outer-ring {
+  position: absolute;
+  width: 452px;
+  height: 452px;
+  border: 3px solid var(--primary-blue, #1d4ed8);
+  border-radius: 50%;
+  box-shadow: 0 0 15px rgba(29, 78, 216, 0.7);
+  -webkit-mask: radial-gradient(circle at center, transparent 196px, white 197px);
+  mask: radial-gradient(circle at center, transparent 196px, white 197px);
+  z-index: 0;
+}
+
+.media-inner-ring-shadow {
+  box-shadow: 0 0 12px 5px rgb(0 0 0 / 50%);
+  position: absolute;
+  width: 392px;
+  height: 392px;
+  border-radius: 50%;
+  z-index: 1;
+}
+
+.media-inner-ring {
+  position: absolute;
+  width: 392px;
+  height: 392px;
+  border: 3px solid #053477;
+  border-radius: 50%;
+  background: radial-gradient(circle, #0a2345 0%, #000000 90%);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.media-source-badge {
+  font-family: 'Khand', sans-serif;
+  font-weight: 300;
+  font-size: 20px;
+  letter-spacing: 3px;
+  color: #00beff;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  padding: 3px 14px;
+  border: 1px solid rgba(0, 190, 255, 0.35);
+  border-radius: 20px;
+}
+
+.media-title-wrapper {
+  width: 300px;
+  overflow: hidden;
+  text-align: center;
+}
+
+.media-title {
+  display: inline-block;
+  font-family: 'Khand', sans-serif;
+  font-weight: 300;
+  font-size: 42px;
+  color: #ffffff;
+  white-space: nowrap;
+  text-shadow: 0 0 10px rgba(0, 190, 255, 0.35);
+}
+
+.media-title.marquee {
+  animation: media-marquee 14s linear infinite;
+}
+
+@keyframes media-marquee {
+  0%     { transform: translateX(0); }
+  10%    { transform: translateX(0); }
+  60%    { transform: translateX(calc(-100% + 300px)); }
+  85%    { transform: translateX(calc(-100% + 300px)); }
+  85.01% { transform: translateX(0); }
+  100%   { transform: translateX(0); }
+}
+
+.media-artist {
+  font-family: 'Khand', sans-serif;
+  font-weight: 100;
+  font-size: 26px;
+  color: #7a9ec5;
+  margin-top: 8px;
+  text-align: center;
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.media-play-indicator {
+  display: flex;
+  gap: 5px;
+  margin-top: 22px;
+  align-items: flex-end;
+  height: 22px;
+}
+
+.media-play-dot {
+  width: 5px;
+  background-color: rgba(77, 151, 255, 0.2);
+  border-radius: 3px;
+  height: 8px;
+  transition: background-color 0.3s ease;
+}
+
+.media-play-indicator.playing .media-play-dot {
+  background-color: #4d97ff;
+  animation: media-bar-bounce 0.7s ease-in-out infinite alternate;
+}
+
+.media-play-indicator.playing .media-play-dot:nth-child(1) { animation-delay: 0s;    animation-duration: 0.7s; }
+.media-play-indicator.playing .media-play-dot:nth-child(2) { animation-delay: 0.12s; animation-duration: 0.9s; }
+.media-play-indicator.playing .media-play-dot:nth-child(3) { animation-delay: 0.25s; animation-duration: 0.65s; }
+.media-play-indicator.playing .media-play-dot:nth-child(4) { animation-delay: 0.38s; animation-duration: 0.8s; }
+
+@keyframes media-bar-bounce {
+  from { height: 6px;  opacity: 0.7; }
+  to   { height: 22px; opacity: 1; }
+}
+
+.media-fav-nav {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 14px;
+  gap: 4px;
+}
+
+.media-fav-btn {
+  font-size: 16px;
+  color: rgba(77, 151, 255, 0.7);
+  line-height: 1;
+}
+
+.media-fav-pos {
+  font-family: 'Khand', sans-serif;
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 1px;
+}
+
+
+/* ── Dashboard Media Bar (fixed widget bottom-left) ── */
+.dashboard-media-bar {
+  position: absolute;
+  bottom: 65px;
+  right: 460px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 300px;
+  z-index: 0;
+  padding: 4px 10px;
+}
+.dashboard-media-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.88);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 18%, black 82%, transparent),
+                      linear-gradient(to bottom, transparent, black 25%, black 75%, transparent);
+  mask-image: linear-gradient(to right, transparent, black 18%, black 82%, transparent),
+              linear-gradient(to bottom, transparent, black 25%, black 75%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+  border-radius: 8px;
+  z-index: -1;
+}
+.dashboard-media-icon {
+  font-size: 55px;
+  color: rgba(100, 180, 255, 0.85);
+  flex-shrink: 0;
+  line-height: 1;
+  margin-right: 8px;
+}
+.dashboard-media-text-wrap {
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+}
+.dashboard-media-text {
+  font-size: 30px;
+  font-weight: 300;
+  color: #ffffff;
+  white-space: nowrap;
+  display: inline-block;
+}
+.dashboard-media-text.marquee {
+  animation: media-bar-marquee 12s linear infinite;
+}
+@keyframes media-bar-marquee {
+  0%     { transform: translateX(0); }
+  15%    { transform: translateX(0); }
+  65%    { transform: translateX(calc(-100% + 224px)); }
+  85%    { transform: translateX(calc(-100% + 224px)); }
+  85.01% { transform: translateX(0); }
+  100%   { transform: translateX(0); }
+}
 
 /**************************************
  *       Dashboard Modes Styles

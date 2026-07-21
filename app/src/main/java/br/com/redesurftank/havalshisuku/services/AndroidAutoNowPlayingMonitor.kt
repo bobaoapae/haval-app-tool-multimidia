@@ -69,11 +69,12 @@ class AndroidAutoNowPlayingMonitor(
                     synchronized(stateLock) {
                         lastServiceConnectedAtMs = SystemClock.elapsedRealtime()
                     }
+                    // Event-only: register the callback and let AA push status/metadata/progress
+                    // changes. Do NOT call refreshStatusAndProgress()/startPolling()/the resync
+                    // watchdogs here — those actively transact GET_MUSIC_STATUS on a timer, which
+                    // makes the HU mediacenter re-assert AA's "playing" state and steal audio
+                    // focus from the radio every ~2s.
                     registerCallback(service)
-                    refreshStatusAndProgress()
-                    startPolling()
-                    startMetadataResyncWatchdog()
-                    startInitialMetadataResyncBurst()
                 }
 
                 override fun onServiceDisconnected(name: ComponentName?) {
@@ -98,8 +99,10 @@ class AndroidAutoNowPlayingMonitor(
                 Intent(ANDROID_AUTO_SERVICE_ACTION).apply {
                     setPackage(ANDROID_AUTO_SERVICE_PACKAGE)
                 }
+        // Use 0 instead of BIND_AUTO_CREATE: we must not wake AA service on app startup.
+        // The retry loop will connect once AA is legitimately active.
         val requested =
-                runCatching { appContext.bindService(intent, connection, Context.BIND_AUTO_CREATE) }
+                runCatching { appContext.bindService(intent, connection, 0) }
                         .getOrDefault(false)
         bound = requested
         if (!requested) {

@@ -1,5 +1,6 @@
 package br.com.redesurftank.havalshisuku.services
 
+import android.app.ActivityManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -56,7 +57,6 @@ import com.beantechs.mediacenter.core_common.data.MediaInfo
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.io.File
-import java.lang.reflect.Proxy
 import kotlin.math.roundToInt
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
@@ -74,6 +74,7 @@ class BottomBarService : LifecycleService() {
 
     private var monitoringJob: Job? = null
     private var autoHideJob: Job? = null
+    private var menuForegroundWatchdogJob: Job? = null
     private var lastPackage: String? = null
     private var mediaSessionManager: MediaSessionManager? = null
     private var mediaSessionsListener: MediaSessionManager.OnActiveSessionsChangedListener? = null
@@ -467,6 +468,13 @@ class BottomBarService : LifecycleService() {
         } else {
             registerReceiver(updateReceiver, filter)
         }
+        // Dismiss menus when the user presses HOME (system sends ACTION_CLOSE_SYSTEM_DIALOGS).
+        // Without this, the full-screen menu overlay stays on top of the car's native home
+        // screen, making it appear completely dark.
+        registerReceiver(
+            homeKeyReceiver,
+            android.content.IntentFilter(android.content.Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
+        )
     }
 
     private val updateReceiver =
@@ -495,6 +503,17 @@ class BottomBarService : LifecycleService() {
                         // Reload from SharedPreferences (Save button or generic refresh)
                         lastPackage = null // Force reload in monitoring loop
                     }
+                }
+            }
+
+    private val homeKeyReceiver =
+            object : android.content.BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: android.content.Intent?) {
+                    if (intent?.action != android.content.Intent.ACTION_CLOSE_SYSTEM_DIALOGS) return
+                    BottomBarState.isMenuExpanded = false
+                    BottomBarState.isSettingsMenuExpanded = false
+                    BottomBarState.isOverrideMenuExpanded = false
+                    BottomBarState.activeSliderType = null
                 }
             }
 
@@ -590,104 +609,39 @@ class BottomBarService : LifecycleService() {
     private fun startDynamicOverscanMonitoring() {
         monitoringJob =
                 lifecycleScope.launch(Dispatchers.IO) {
-                    while (isActive) {
-                        try {
-                            val currentPackage = getTopPackageOnDisplay(0)
-                            val activeClusterProjectionPackage =
-                                    DisplayAppLauncher.resolveActiveProjectionPackageForDisplay(3)
-                            if (currentPackage != null) {
-                                withContext(Dispatchers.Main) {
-                                    BottomBarState.activeClusterProjectionPackage =
-                                            activeClusterProjectionPackage ?: ""
-                                    if (activeClusterProjectionPackage != null &&
-                                                    BottomBarState.selectedPackage !=
-                                                            activeClusterProjectionPackage
-                                    ) {
-                                        BottomBarState.selectedPackage =
-                                                activeClusterProjectionPackage
-                                    }
-                                    if (BottomBarState.currentPackage != currentPackage) {
-                                        BottomBarState.currentPackage = currentPackage
-                                        // Auto-select the current app if it's not a launcher or in the ignore list
-                                        if (activeClusterProjectionPackage == null &&
-                                                        !IGNORE_PACKAGES.contains(currentPackage) &&
-                                                        !isLauncher(currentPackage)
-                                        ) {
-                                            BottomBarState.selectedPackage = currentPackage
-                                        }
-                                    }
-                                }
-                            } else {
-                                // If we can't find Display 0 package, use tool package as fallback
-                                // to apply default overscan
-                                withContext(Dispatchers.Main) {
-                                    BottomBarState.activeClusterProjectionPackage =
-                                            activeClusterProjectionPackage ?: ""
-                                    if (activeClusterProjectionPackage != null) {
-                                        BottomBarState.selectedPackage =
-                                                activeClusterProjectionPackage
-                                    }
-                                    BottomBarState.currentPackage =
-                                            this@BottomBarService.packageName
-                                }
-                            }
-
-                            // Background Cleanup: Remove apps that are no longer running from the
-                            // restored set
-                            if (BottomBarState.restoredApps.isNotEmpty()) {
-                                val stackList =
-                                        ShizukuUtils.runCommandAndGetOutput(
-                                                arrayOf("am", "stack", "list")
-                                        )
-                                val missingApps =
-                                        BottomBarState.restoredApps.filter { pkg ->
-                                            !stackList.contains(pkg)
-                                        }
-                                if (missingApps.isNotEmpty()) {
-                                    withContext(Dispatchers.Main) {
-                                        BottomBarState.restoredApps.removeAll(missingApps)
-                                    }
-                                }
-                            }
-
-                            val prefs =
-                                    br.com.redesurftank.App.getDeviceProtectedContext()
-                                            .getSharedPreferences(
-                                                    "haval_prefs",
-                                                    Context.MODE_PRIVATE
-                                            )
-
-                            if (currentPackage != null && currentPackage != lastPackage) {
-                                lastPackage = currentPackage
-
-                                // Default overscan is back to REFERENCE_OVERSCAN (60)
-                                val storedDefault =
-                                        prefs.getInt(
-                                                SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR_OVERSCAN
-                                                        .key,
-                                                REFERENCE_OVERSCAN
-                                        )
-
-                                // Also update autoHideEnabled from prefs
-                                withContext(Dispatchers.Main) {
-                                    BottomBarState.autoHideEnabled =
-                                            prefs.getBoolean(
-                                                    SharedPreferencesKeys.BOTTOM_BAR_AUTO_HIDE.key,
-                                                    false
-                                            )
-                                }
-
-                                val settings = getSettingsForPackage(currentPackage, storedDefault)
-                                currentAppSettings = settings
-                                applyAppSettings(settings)
-                            }
-
-                            // Update Frida status reactive to switches
-                            updateFridaStatus(prefs)
-                        } catch (e: Exception) {
-                            Log.e("BottomBarService", "Error in monitoring loop", e)
+                    try {
+                        // Initialize state once — packageName never changes on this headunit
+                        val prefs =
+                                br.com.redesurftank.App.getDeviceProtectedContext()
+                                        .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+                        val storedDefault =
+                                prefs.getInt(
+                                        SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR_OVERSCAN.key,
+                                        REFERENCE_OVERSCAN
+                                )
+                        val settings = getSettingsForPackage(packageName, storedDefault)
+                        currentAppSettings = settings
+                        lastPackage = packageName
+                        withContext(Dispatchers.Main) {
+                            BottomBarState.activeClusterProjectionPackage = ""
+                            BottomBarState.currentPackage = packageName
+                            BottomBarState.autoHideEnabled =
+                                    prefs.getBoolean(
+                                            SharedPreferencesKeys.BOTTOM_BAR_AUTO_HIDE.key,
+                                            false
+                                    )
                         }
-                        delay(1000)
+                        applyAppSettings(settings)
+                        updateFridaStatus(prefs)
+
+                        // Only update Frida status periodically — no Main-thread dispatch
+                        // needed for package detection (it never changes on this headunit)
+                        while (isActive) {
+                            delay(30_000)
+                            updateFridaStatus(prefs)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("BottomBarService", "Error in monitoring loop", e)
                     }
                 }
     }
@@ -3055,42 +3009,17 @@ class BottomBarService : LifecycleService() {
         val density = this.resources.displayMetrics.density
 
         if (!BottomBarState.isVisible) {
-            Log.d(
-                    "BottomBarService",
-                    "Bottom bar hidden, ignoring dynamic overscan request: ${settings.overscan}"
-            )
-            lifecycleScope.launch(Dispatchers.IO) {
-                ShizukuUtils.runCommandAndGetOutput(arrayOf("wm", "overscan", "0,0,0,0"))
-            }
             return
         }
 
-        val isRestored = lastPackage != null && BottomBarState.restoredApps.contains(lastPackage)
-        val multiplier = if (isRestored) 3.0f else 1.0f
-
-        val overscanValueRaw = settings.overscan
-        val overscanValuePx = (overscanValueRaw.toFloat() * density * multiplier).toInt()
         val yOffsetPx = (settings.yOffset * density).toInt()
 
-        Log.w(
-                "BottomBarService",
-                "[OVERSCAN_SYNC] App: $lastPackage | Overscan: ${overscanValueRaw}dp(${overscanValuePx}px) | Offset: ${settings.yOffset}dp(${yOffsetPx}px) | Visible: ${BottomBarState.isVisible}"
-        )
-
-        lifecycleScope.launch(Dispatchers.IO) {
-            ShizukuUtils.runCommandAndGetOutput(arrayOf("wm", "overscan", "0,0,0,$overscanValuePx"))
-            withContext(Dispatchers.Main) {
-                // Apply custom yOffset relative to the logical bottom (where y=0 is the edge)
-                lp.y = yOffsetPx
-                try {
-                    wm.updateViewLayout(cv, lp)
-                } catch (e: Exception) {
-                    Log.e(
-                            "BottomBarService",
-                            "Error updating window layout during app settings change",
-                            e
-                    )
-                }
+        lifecycleScope.launch(Dispatchers.Main) {
+            lp.y = yOffsetPx
+            try {
+                wm.updateViewLayout(cv, lp)
+            } catch (e: Exception) {
+                Log.e("BottomBarService", "Error updating window layout", e)
             }
         }
     }
@@ -3099,17 +3028,6 @@ class BottomBarService : LifecycleService() {
         lifecycleScope.launch {
             snapshotFlow { BottomBarState.isVisible }.collectLatest { visible ->
                 updateBarVisibility(visible)
-                // Force recompute touchable regions
-                composeView?.requestLayout()
-                menuComposeView?.requestLayout()
-            }
-        }
-        // Periodic invalidation to keep touchable regions in sync
-        lifecycleScope.launch {
-            while (true) {
-                kotlinx.coroutines.delay(1000)
-                composeView?.requestLayout()
-                menuComposeView?.requestLayout()
             }
         }
     }
@@ -3124,10 +3042,41 @@ class BottomBarService : LifecycleService() {
             }
                     .collectLatest { expanded ->
                         updateMenuWindow(expanded)
-                        // Force recompute touchable regions when menu state changes
-                        composeView?.requestLayout()
-                        menuComposeView?.requestLayout()
+                        if (expanded) {
+                            startMenuForegroundWatchdog()
+                        } else {
+                            menuForegroundWatchdogJob?.cancel()
+                            menuForegroundWatchdogJob = null
+                        }
                     }
+        }
+    }
+
+    private fun startMenuForegroundWatchdog() {
+        menuForegroundWatchdogJob?.cancel()
+        menuForegroundWatchdogJob = lifecycleScope.launch(Dispatchers.IO) {
+            while (true) {
+                delay(500)
+                val anyMenuOpen =
+                    BottomBarState.isMenuExpanded ||
+                        BottomBarState.isSettingsMenuExpanded ||
+                        BottomBarState.isOverrideMenuExpanded ||
+                        BottomBarState.activeSliderType != null
+                if (!anyMenuOpen) break
+                // Use MainActivity.isResumed instead of am stack list (which always
+                // returns Impulse on this headunit and caused constant Shizuku calls).
+                if (!br.com.redesurftank.havalshisuku.MainActivity.isResumed) {
+                    Log.e("MenuDebug", "[WATCHDOG] MainActivity paused — closing menus")
+                    withContext(Dispatchers.Main) {
+                        BottomBarState.isMenuExpanded = false
+                        BottomBarState.isSettingsMenuExpanded = false
+                        BottomBarState.isOverrideMenuExpanded = false
+                        BottomBarState.activeSliderType = null
+                    }
+                    break
+                }
+            }
+            menuForegroundWatchdogJob = null
         }
     }
 
@@ -3139,8 +3088,6 @@ class BottomBarService : LifecycleService() {
                         if (expanded) {
                             launchDashboardActivity()
                         }
-                        composeView?.requestLayout()
-                        menuComposeView?.requestLayout()
                     }
         }
     }
@@ -3265,72 +3212,31 @@ class BottomBarService : LifecycleService() {
         val wm = mWindowManager ?: return
         val cv = composeView ?: return
         val lp = params ?: return
-
         val density = resources.displayMetrics.density
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            val overscanCmd: Array<String>
+        lifecycleScope.launch(Dispatchers.Main) {
             if (visible) {
-                val settings =
-                        currentAppSettings
-                                ?: run {
-                                    val prefs =
-                                            br.com.redesurftank.App.getDeviceProtectedContext()
-                                                    .getSharedPreferences(
-                                                            "haval_prefs",
-                                                            Context.MODE_PRIVATE
-                                                    )
-                                    val storedDefault =
-                                            prefs.getInt(
-                                                    SharedPreferencesKeys
-                                                            .PERSISTENT_BOTTOM_BAR_OVERSCAN
-                                                            .key,
-                                                    REFERENCE_OVERSCAN
-                                            )
-                                    BarSettings(overscan = storedDefault, yOffset = 0)
-                                }
-
-                val isRestored =
-                        lastPackage != null && BottomBarState.restoredApps.contains(lastPackage)
-                val multiplier = if (isRestored) 3.0f else 1.0f
-
-                val overscanValuePx = (settings.overscan.toFloat() * density * multiplier).toInt()
-                val yOffsetPx = (settings.yOffset * density).toInt()
-
-                withContext(Dispatchers.Main) {
-                    lp.height = (60 * density).toInt()
-                    lp.y = 0
-                }
-                overscanCmd = arrayOf("wm", "overscan", "0,0,0,$overscanValuePx")
+                lp.height = (60 * density).toInt()
+                lp.y = 0
             } else {
-                withContext(Dispatchers.Main) {
-                    BottomBarState.isDashboardExpanded = false
-                    BottomBarState.isMenuExpanded = false
-                    BottomBarState.isSettingsMenuExpanded = false
-                    BottomBarState.isOverrideMenuExpanded = false
-                    BottomBarState.activeSliderType = null
-                }
-                // Trigger zone - keep 40dp (20dp on screen) area touchable
-                withContext(Dispatchers.Main) {
-                    lp.height = (60 * density).toInt()
-                    lp.y = -(20 * density).toInt()
-                }
-                overscanCmd = arrayOf("wm", "overscan", "0,0,0,0")
+                BottomBarState.isDashboardExpanded = false
+                BottomBarState.isMenuExpanded = false
+                BottomBarState.isSettingsMenuExpanded = false
+                BottomBarState.isOverrideMenuExpanded = false
+                BottomBarState.activeSliderType = null
+                lp.height = (60 * density).toInt()
+                lp.y = -(20 * density).toInt()
             }
-
-            ShizukuUtils.runCommandAndGetOutput(overscanCmd)
-
-            withContext(Dispatchers.Main) {
-                try {
-                    wm.updateViewLayout(cv, lp)
-                } catch (e: Exception) {
-                    Log.e("BottomBarService", "Error updating window layout", e)
-                }
+            try {
+                wm.updateViewLayout(cv, lp)
+            } catch (e: Exception) {
+                Log.e("BottomBarService", "Error updating window layout", e)
             }
         }
     }
 
     private fun updateMenuWindow(show: Boolean) {
+        Log.e("MenuDebug", "[WINDOW] updateMenuWindow show=$show isMenuExpanded=${BottomBarState.isMenuExpanded}")
         val wm = mWindowManager ?: return
         val mv = menuComposeView ?: return
         val mp = menuParams ?: return
@@ -3360,9 +3266,16 @@ class BottomBarService : LifecycleService() {
                 val appWidth = resources.displayMetrics.widthPixels.takeIf { it > 0 }
                 val leftInset = ((realWidth ?: 0) - (appWidth ?: 0)).coerceAtLeast(0)
 
-                mp.width = realWidth ?: WindowManager.LayoutParams.MATCH_PARENT
+                // Confina o overlay à área ÚTIL (appWidth), não à largura física total.
+                // Os primeiros ~128px físicos são a borda curva/zona reservada do
+                // círculo/cluster; esticar o overlay opaco até a largura física e
+                // deslocá-lo com x negativo fazia ele pintar por cima dessa zona
+                // durante as transições de menu. Com x=0 e width=appWidth (gravity
+                // TOP|START), a janela fica alinhada ao início da área útil
+                // (x=128 físico) e nunca invade a borda esquerda.
+                mp.width = appWidth ?: WindowManager.LayoutParams.MATCH_PARENT
                 mp.height = realHeight ?: WindowManager.LayoutParams.MATCH_PARENT
-                mp.x = -leftInset
+                mp.x = 0
                 mp.y = 0
                 mp.gravity = Gravity.TOP or Gravity.START
                 mp.flags = mp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
@@ -3385,7 +3298,6 @@ class BottomBarService : LifecycleService() {
                 ComposeView(themedContext)
                         .apply {
                             setContent { HavalShisukuTheme { BottomBarContent() } }
-                            setupTouchableRegions(this, isMenuWindow = false)
                         }
                         .also { it.setupForService() }
 
@@ -3393,7 +3305,6 @@ class BottomBarService : LifecycleService() {
                 ComposeView(themedContext)
                         .apply {
                             setContent { HavalShisukuTheme { BottomBarMenus() } }
-                            setupTouchableRegions(this, isMenuWindow = true)
                         }
                         .also { it.setupForService() }
 
@@ -3415,7 +3326,6 @@ class BottomBarService : LifecycleService() {
                                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                                        WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
                                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                                         WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                                 PixelFormat.TRANSLUCENT
@@ -3453,7 +3363,6 @@ class BottomBarService : LifecycleService() {
                                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                                         WindowManager.LayoutParams.FLAG_FULLSCREEN or
                                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                                        WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
                                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                                         WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                                 PixelFormat.TRANSLUCENT
@@ -3500,18 +3409,11 @@ class BottomBarService : LifecycleService() {
                                     BarSettings(overscan = storedDefault, yOffset = 0)
                                 }
 
-                val overscanValuePx = (settings.overscan * density).toInt()
                 val yOffsetPx = (settings.yOffset * density).toInt()
 
                 val lp = params
                 if (lp != null) {
                     lp.y = yOffsetPx
-                }
-
-                lifecycleScope.launch(Dispatchers.IO) {
-                    ShizukuUtils.runCommandAndGetOutput(
-                            arrayOf("wm", "overscan", "0,0,0,$overscanValuePx")
-                    )
                 }
             } catch (e: Exception) {
                 Log.e("BottomBarService", "Error adding views", e)
@@ -3678,6 +3580,7 @@ class BottomBarService : LifecycleService() {
             instance = null
         }
         unregisterReceiver(updateReceiver)
+        try { unregisterReceiver(homeKeyReceiver) } catch (_: Exception) {}
         super.onDestroy()
         ShizukuUtils.runCommandAndGetOutput(arrayOf("wm", "size", "reset"))
         ShizukuUtils.runCommandAndGetOutput(arrayOf("wm", "overscan", "0,0,0,0"))
@@ -4383,6 +4286,10 @@ class BottomBarService : LifecycleService() {
 
         fun toggleAndroidAutoMuteFromIntercept(): Boolean {
             return instance?.toggleAndroidAutoMuteFromIntercept() == true
+        }
+
+        fun sendAndroidAutoProjectionPlayPause(isCurrentlyPlaying: Boolean): Boolean {
+            return instance?.androidAutoNowPlayingMonitor?.playPause(isCurrentlyPlaying) == true
         }
     }
 

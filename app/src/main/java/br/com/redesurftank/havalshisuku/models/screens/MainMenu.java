@@ -109,6 +109,9 @@ public class MainMenu implements Screen {
             Screen displaySelectionScreen = new DisplaySelectionScreen();
             displaySelectionScreen.setReturnScreen(this);
             displaySelectionScreen.initialize();
+            Screen mediaScreen = new MediaScreen();
+            mediaScreen.setReturnScreen(this);
+            mediaScreen.initialize();
 
             // Define menu structure and options available
             menuItems = Arrays.asList(
@@ -143,6 +146,10 @@ public class MainMenu implements Screen {
                     new MenuItem(
                             MenuItem.MENU_ID_AC_CONTROL,
                             new MenuAction.NavigateTo(displaySelectionScreen)
+                    ),
+                    new MenuItem(
+                            MenuItem.MENU_ID_MEDIA,
+                            new MenuAction.NavigateTo(mediaScreen)
                     )
             );
         }
@@ -262,6 +269,7 @@ public class MainMenu implements Screen {
         public static final String MENU_ID_STEER_MODE = "option_5";
         public static final String MENU_ID_REGENERATION_MODE = "option_6";
         public static final String MENU_ID_STATS = "option_7";
+        public static final String MENU_ID_MEDIA = "option_8";
         private final String id;
         private final MenuAction action;
 

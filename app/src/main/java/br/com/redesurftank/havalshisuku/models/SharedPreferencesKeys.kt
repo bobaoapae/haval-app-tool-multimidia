@@ -266,6 +266,11 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     SPEED_ADJUSTMENT_OFFSET("speedAdjustmentOffset", "Fator de ajuste de velocidade (%)"),
     TRIP_CONSISTENCY_CLUSTER_ACTIVE("tripConsistencyClusterActive", "Indicador discreto de análise de viagem ativa no cluster"),
     TRIP_CONSISTENCY_CLUSTER_SCORE("tripConsistencyClusterScore", "Score de consistência em tempo real no cluster"),
+    CLUSTER_MEDIA_BAR_ENABLED("mediaBarEnabled", "Exibir mini bar de mídia no cluster"),
+    STEERING_WHEEL_MEDIA_ARROWS_NAVIGATE_FAVORITES(
+            "steeringWheelMediaArrowsNavigateFavorites",
+            "Botões |◄ ►| do volante navegam entre rádios favoritas"
+    ),
     AA_PATCH_AUTO_MOUNT("aaPatchAutoMount", "Habilitar montagem automática dos patches do Android Auto ao iniciar"),
     CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),
     AMBIENT_LIGHT_BLE_ENABLED("ambientLightBleEnabled", "Ativar Ambient Light BLE"),
