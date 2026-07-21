@@ -14,6 +14,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -2205,7 +2208,18 @@ fun BasicSettingsTab() {
                                                                                 initialValue = null,
                                                                                 autoBrightnessUseSun
                                                                         ) {
-                                                                                value = AutoBrightnessManager.getInstance().getSunInfoForDisplay()
+                                                                                // Fora da main; tenta de novo enquanto o GPS não tem fix
+                                                                                // ou a cidade ainda é coordenada (geocode em background).
+                                                                                var tries = 0
+                                                                                while (tries < 15) {
+                                                                                        val info = withContext(Dispatchers.IO) {
+                                                                                                AutoBrightnessManager.getInstance().getSunInfoForDisplay()
+                                                                                        }
+                                                                                        value = info
+                                                                                        if (info != null && info.cityResolved) break
+                                                                                        tries++
+                                                                                        delay(2000)
+                                                                                }
                                                                         }
                                                                         Column {
                                                                                 Text(

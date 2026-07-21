@@ -158,16 +158,28 @@ class AutoBrightnessManager private constructor() {
 
     /** Info pra UI: cidade de referência + nascer/pôr do sol de hoje (horário local). Null se nunca
      *  houve localização. Usa o último lat/lon salvo -> funciona mesmo sem GPS no momento. */
-    data class SunDisplayInfo(val city: String, val sunrise: String, val sunset: String)
+    // cityResolved=false quando ainda é o fallback de coordenadas (geocode não resolveu) — a UI
+    // usa isso pra continuar tentando até virar o nome amigável da cidade.
+    data class SunDisplayInfo(
+        val city: String,
+        val sunrise: String,
+        val sunset: String,
+        val cityResolved: Boolean
+    )
 
     fun getSunInfoForDisplay(): SunDisplayInfo? {
         val loc = resolveLatLon() ?: return null
         val (lat, lon) = loc
         val sun = SolarCalculator.calculate(lat, lon, System.currentTimeMillis()) ?: return null
         val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
-        val city = prefs.getString(SharedPreferencesKeys.AUTO_BRIGHTNESS_CITY.key, null)
-            ?: String.format(Locale.US, "%.3f, %.3f", lat, lon)
-        return SunDisplayInfo(city, fmt.format(Date(sun.sunriseUtcMs)), fmt.format(Date(sun.sunsetUtcMs)))
+        val cached = prefs.getString(SharedPreferencesKeys.AUTO_BRIGHTNESS_CITY.key, null)
+        val city = cached ?: String.format(Locale.US, "%.3f, %.3f", lat, lon)
+        return SunDisplayInfo(
+            city,
+            fmt.format(Date(sun.sunriseUtcMs)),
+            fmt.format(Date(sun.sunsetUtcMs)),
+            cityResolved = !cached.isNullOrBlank()
+        )
     }
 
     private fun setBrightness(level: Int) {

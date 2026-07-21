@@ -167,7 +167,12 @@
         <receiver
             android:name=".broadcastReceivers.AutoBrightnessReceiver"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
         <receiver
             android:name=".broadcastReceivers.OverscanReceiver"
             android:enabled="true"
