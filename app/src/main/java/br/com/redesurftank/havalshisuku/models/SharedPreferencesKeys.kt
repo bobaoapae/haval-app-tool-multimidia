@@ -29,6 +29,11 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ENABLE_AUTO_BRIGHTNESS("enableAutoBrightness", "Habilitar ajuste automático de brilho"),
     AUTO_BRIGHTNESS_LEVEL_NIGHT("autoBrightnessLevelNight", "Nível de brilho automático à noite"),
     AUTO_BRIGHTNESS_LEVEL_DAY("autoBrightnessLevelDay", "Nível de brilho automático durante o dia"),
+    AUTO_BRIGHTNESS_USE_SUN("autoBrightnessUseSun", "Usar nascer/pôr do sol (transição suave) no brilho automático"),
+    AUTO_BRIGHTNESS_STEP_MIN("autoBrightnessStepMin", "Minutos por degrau de 1 nível na transição de brilho (nascer/pôr do sol)"),
+    AUTO_BRIGHTNESS_LAST_LAT("autoBrightnessLastLat", "Última latitude conhecida (cache p/ nascer/pôr do sol)"),
+    AUTO_BRIGHTNESS_LAST_LON("autoBrightnessLastLon", "Última longitude conhecida (cache p/ nascer/pôr do sol)"),
+    AUTO_BRIGHTNESS_CITY("autoBrightnessCity", "Cidade de referência (cache do GPS, p/ exibição)"),
     ENABLE_FRIDA_HOOKS("enableFridaHooks", "Habilitar hooks do Frida"),
     ENABLE_FRIDA_HOOK_SYSTEM_SERVER(
             "enableFridaHookSystemServer",

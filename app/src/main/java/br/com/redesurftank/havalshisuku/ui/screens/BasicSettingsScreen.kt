@@ -248,6 +248,11 @@ fun BasicSettingsTab() {
                         prefs.getBoolean(SharedPreferencesKeys.ENABLE_AUTO_BRIGHTNESS.key, false)
                 )
         }
+        var autoBrightnessUseSun by remember {
+                mutableStateOf(
+                        prefs.getBoolean(SharedPreferencesKeys.AUTO_BRIGHTNESS_USE_SUN.key, false)
+                )
+        }
         var nightStartHour by remember {
                 mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.NIGHT_START_HOUR.key, 20))
         }
@@ -2162,6 +2167,63 @@ fun BasicSettingsTab() {
                                                                         thickness = 1.dp
                                                                 )
 
+                                                                // Toggle: transição por nascer/pôr do sol
+                                                                Row(
+                                                                        modifier = Modifier.fillMaxWidth(),
+                                                                        verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                        Column(modifier = Modifier.weight(1f)) {
+                                                                                Text(
+                                                                                        "Transição por nascer/pôr do sol",
+                                                                                        color = Color.White,
+                                                                                        fontSize = 15.sp,
+                                                                                        fontWeight = FontWeight.Medium
+                                                                                )
+                                                                                Text(
+                                                                                        "Usa o GPS pra escurecer/clarear suave (1 nível a cada 5 min) no pôr/nascer do sol. Substitui os horários fixos.",
+                                                                                        color = Color(0xFFB0B8C4),
+                                                                                        fontSize = 12.sp
+                                                                                )
+                                                                        }
+                                                                        Switch(
+                                                                                checked = autoBrightnessUseSun,
+                                                                                onCheckedChange = { on ->
+                                                                                        autoBrightnessUseSun = on
+                                                                                        prefs.edit {
+                                                                                                putBoolean(
+                                                                                                        SharedPreferencesKeys.AUTO_BRIGHTNESS_USE_SUN.key,
+                                                                                                        on
+                                                                                                )
+                                                                                        }
+                                                                                        AutoBrightnessManager.getInstance().updateSchedule()
+                                                                                }
+                                                                        )
+                                                                }
+
+                                                                if (autoBrightnessUseSun) {
+                                                                        val sunInfo by produceState<AutoBrightnessManager.SunDisplayInfo?>(
+                                                                                initialValue = null,
+                                                                                autoBrightnessUseSun
+                                                                        ) {
+                                                                                value = AutoBrightnessManager.getInstance().getSunInfoForDisplay()
+                                                                        }
+                                                                        Column {
+                                                                                Text(
+                                                                                        "Referência (GPS): ${sunInfo?.city ?: "obtendo localização..."}",
+                                                                                        color = Color.White,
+                                                                                        fontSize = 14.sp
+                                                                                )
+                                                                                sunInfo?.let {
+                                                                                        Text(
+                                                                                                "Nascer ${it.sunrise}  ·  Pôr ${it.sunset}",
+                                                                                                color = Color(0xFFB0B8C4),
+                                                                                                fontSize = 13.sp
+                                                                                        )
+                                                                                }
+                                                                        }
+                                                                }
+
+                                                                if (!autoBrightnessUseSun)
                                                                 Row(
                                                                         modifier =
                                                                                 Modifier.fillMaxWidth(),
