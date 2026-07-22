@@ -25,20 +25,34 @@ public class AccessibilityService extends android.accessibilityservice.Accessibi
 
     }
 
+    // Key codes that may be consumed for Android Auto media control.
+    // All other keys pass through immediately without any processing.
+    private static final int[] AA_MEDIA_KEY_CODES = {
+        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,  // 85
+        KeyEvent.KEYCODE_MEDIA_PLAY,        // 126
+        KeyEvent.KEYCODE_MEDIA_PAUSE,       // 127
+        KeyEvent.KEYCODE_MUTE,              // 91
+        KeyEvent.KEYCODE_VOLUME_MUTE,       // 164
+        0x3ec                               // OEM play/pause
+    };
+
     @Override
     protected boolean onKeyEvent(KeyEvent event) {
-        Log.w(TAG, "onKeyEvent: " + event.getKeyCode());
+        int keyCode = event.getKeyCode();
+
+        // Fast-path: return immediately for keys that can never be AA media keys.
+        // This avoids blocking the main thread on carousel/steering navigation keys.
+        boolean isCandidateKey = false;
+        for (int code : AA_MEDIA_KEY_CODES) {
+            if (keyCode == code) { isCandidateKey = true; break; }
+        }
+        if (!isCandidateKey) return false;
+
         if (DisplayAppLauncher.INSTANCE.shouldConsumeAndroidAutoAccessibilityMediaKey(
-                event.getKeyCode(),
+                keyCode,
                 event.getAction()
         )) {
-            Log.w(
-                    TAG,
-                    "Consumed Android Auto toggle media key: "
-                            + event.getKeyCode()
-                            + " action="
-                            + event.getAction()
-            );
+            Log.w(TAG, "Consumed AA media key: keyCode=" + keyCode + " action=" + event.getAction());
             return true;
         }
         return false;

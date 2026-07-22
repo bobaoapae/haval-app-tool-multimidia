@@ -200,7 +200,6 @@ function render() {
 }
 
 subscribe('warningActive', () => render());
-subscribe('cardId', () => render());
 initializeLayout();
 
 // Start rendering and subscribe to listen for screen changes thus triggering new render
@@ -234,6 +233,15 @@ subscribe('cardId', (cardId) => {
         // 3 = set to AC menu
         setState('screen', 'aircon');
     }
+
+    // Single consistent render after cardId, menuWrapper visibility, and any
+    // screen change above are all settled. Previously a separate
+    // `subscribe('cardId', () => render())` fired render() with the NEW
+    // cardId but the OLD (stale) screen before this handler updated screen,
+    // painting a one-frame mismatched flash (e.g. AC card classes applied
+    // while still showing the previous screen's content) during transitions
+    // to/from the native card and the AC card.
+    render();
 });
 
 // Functions used by Kotlin to trigger interactions

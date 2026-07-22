@@ -20,6 +20,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.Parcel
+import android.os.SystemClock
 import android.view.KeyEvent
 import br.com.redesurftank.havalshisuku.BuildConfig
 import br.com.redesurftank.havalshisuku.managers.ThemeManager
@@ -143,7 +144,7 @@ object DisplayAppLauncher {
     private const val ANDROID_AUTO_NATIVE_MEDIA_KEY_BIND_WAIT_MS = 180L
     private const val ANDROID_AUTO_NATIVE_PLAYBACK_SETTLE_MS = 520L
     private const val ANDROID_AUTO_STEERING_MEDIA_FOCUS_KEEPALIVE_START_DELAY_MS = 3_000L
-    private const val ANDROID_AUTO_STEERING_MEDIA_FOCUS_KEEPALIVE_INTERVAL_MS = 3_000L
+    private const val ANDROID_AUTO_STEERING_MEDIA_FOCUS_KEEPALIVE_INTERVAL_MS = 9_000L
     private const val ANDROID_AUTO_USB_DISCONNECT_CLEANUP_COOLDOWN_MS = 10_000L
     private const val ANDROID_AUTO_OEM_INPUT_ECHO_BLOCK_MS = 2_500L
     private const val ANDROID_AUTO_CLUSTER_MEDIA_COMMAND_PREVIOUS = 1
@@ -190,7 +191,7 @@ object DisplayAppLauncher {
     private const val CARPLAY_RESTORE_REQUIRED_DISPLAY0_MS = 800L
     private const val CARPLAY_RESTORE_MAX_WAIT_MS = 3_000L
     private const val CARPLAY_CLUSTER_WATCHDOG_START_DELAY_MS = 4_000L
-    private const val CARPLAY_CLUSTER_WATCHDOG_INTERVAL_MS = 1_000L
+    private const val CARPLAY_CLUSTER_WATCHDOG_INTERVAL_MS = 2_500L
     private const val CARPLAY_BOOT_AUTOSTART_ATTEMPTS = 30
     private const val CARPLAY_BOOT_AUTOSTART_INTERVAL_MS = 2_000L
     private const val CARPLAY_CLUSTER_TARGET_BOOT_GRACE_MS = 65_000L
@@ -3145,6 +3146,11 @@ object DisplayAppLauncher {
     }
 
     private suspend fun pulseAndroidAutoFocusIfLiveOnCluster(reason: String): Boolean {
+        if (isCurrentAudioSourceRadio()) {
+            Log.w(TAG, "[$reason] Skipping Android Auto focus pulse because radio is the active audio source")
+            return false
+        }
+
         val activeProjection = resolveActiveProjectionPackageForDisplay(3)
         if (activeProjection == CARPLAY_PACKAGE) {
             Log.w(TAG, "[$reason] Skipping Android Auto focus pulse because CarPlay is active on cluster 3")
@@ -3480,6 +3486,24 @@ object DisplayAppLauncher {
         return (progressBefore ?: 0) > 0 || (progressAfter ?: 0) > 0
     }
 
+    private fun isCurrentAudioSourceRadio(): Boolean {
+        val raw = ServiceManager.getInstance().getData(CarConstants.SYS_BASIC_AUDIO_SOURCE_APP.value) ?: ""
+        val sourceAppIsRadio = raw.contains("fm", ignoreCase = true) || raw.contains("am", ignoreCase = true) ||
+            raw == "1" || raw == "10" || raw == "2" || raw == "11"
+
+        // sys.basic.audio.source_app is frequently stale/empty, so double-confirm with the
+        // radio's own play/search state — both are in DEFAULT_KEYS and stay reliably cached.
+        val playState = ServiceManager.getInstance().getData(CarConstants.SYS_RADIO_PLAY_STATE.value) ?: ""
+        val radioPlaying = playState == "1" || playState.equals("playing", ignoreCase = true)
+
+        val searchState = ServiceManager.getInstance().getData(CarConstants.SYS_RADIO_SEARCH_STATE.value) ?: ""
+        val radioSeeking = searchState.isNotEmpty() && searchState != "0"
+
+        val result = sourceAppIsRadio || radioPlaying || radioSeeking
+        Log.d(TAG, "[AA_RADIO_CHECK] sourceAppRaw='$raw' playState='$playState' searchState='$searchState' isRadio=$result")
+        return result
+    }
+
     private fun isAndroidAutoActiveForMediaControl(): Boolean {
         val activeProjection = resolveActiveProjectionPackageForDisplay(3)
         if (isAndroidAutoActiveForMediaControlForState(
@@ -3608,6 +3632,11 @@ object DisplayAppLauncher {
             return false
         }
 
+        if (source == AndroidAutoMediaKeySource.STEERING_INPUT && isCurrentAudioSourceRadio()) {
+            Log.w(TAG, "[AA_STEERING_MEDIA_$keyCode] Radio is the active audio source; not routing to Android Auto")
+            return false
+        }
+
         val now = System.currentTimeMillis()
         val active = isAndroidAutoActiveForMediaControl()
         if (active && shouldSkipAndroidAutoOemInputFallbackEcho(
@@ -3727,7 +3756,16 @@ object DisplayAppLauncher {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                sendAndroidAutoNativePlaybackDirectCommand(keyCode, "${reason}_DIRECT_PLAYBACK")
+                // Mirror the Dashboard fix: use the AndroidAutoNowPlayingMonitor binder
+                // (same path as next/prev, confirmed working) instead of the native
+                // playback binder whose GET_MUSIC_STATUS query always returns NOT_START.
+                val isCurrentlyPlaying = when (keyCode) {
+                    KeyEvent.KEYCODE_MEDIA_PLAY -> false
+                    KeyEvent.KEYCODE_MEDIA_PAUSE -> true
+                    else -> BottomBarState.mediaIsPlaying
+                }
+                BottomBarService.sendAndroidAutoProjectionPlayPause(isCurrentlyPlaying) ||
+                    sendAndroidAutoNativePlaybackDirectCommand(keyCode, "${reason}_DIRECT_FALLBACK")
             }
             else -> false
         }
@@ -5380,8 +5418,27 @@ object DisplayAppLauncher {
         }
     }
 
+    private const val STACK_LIST_CACHE_TTL_MS = 300L
+    @Volatile private var cachedStackList: String? = null
+    @Volatile private var cachedStackListAtMs: Long = 0L
+
+    // `am stack list` spawns a fresh `cmd` subprocess via Shizuku on every call. This used to be
+    // invoked many times per second across overlapping watchdogs/pulses, which overwhelmed the
+    // Shizuku server (OOM creating ParcelFileDescriptor pipes) and made unrelated `cmd` processes
+    // crash with SIGSEGV — collateral damage included the native launcher (com.beantechs.applist)
+    // failing to render. A short TTL cache collapses bursts of calls within the same tick into one
+    // subprocess without affecting freshness for callers (which already wait much longer than the
+    // TTL after issuing an action before checking results).
     private fun getStackList(): String {
-        return ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "am stack list 2>&1"))
+        val now = SystemClock.uptimeMillis()
+        val cached = cachedStackList
+        if (cached != null && now - cachedStackListAtMs < STACK_LIST_CACHE_TTL_MS) {
+            return cached
+        }
+        val fresh = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "am stack list 2>&1"))
+        cachedStackList = fresh
+        cachedStackListAtMs = now
+        return fresh
     }
 
     private data class StackInfo(val stackId: Int, val windowingMode: String, val isFreeform: Boolean)
@@ -5693,6 +5750,23 @@ object DisplayAppLauncher {
      * fullscreen mode works fine after move-stack.
      */
     fun onAppWindowChanged(packageName: String) {
+        // Close Impulse's fullscreen menu overlay the instant the foreground window changes to
+        // anything else (e.g. user presses a hardware AC/native-panel button while our menu is
+        // open). Previously this only got cleared by a 500ms watchdog poll in BottomBarService,
+        // which left the transparent menu overlay up long enough to visibly show the native
+        // carousel transitioning underneath it.
+        if (packageName != App.getContext().packageName &&
+            (BottomBarState.isMenuExpanded ||
+                BottomBarState.isSettingsMenuExpanded ||
+                BottomBarState.isOverrideMenuExpanded ||
+                BottomBarState.activeSliderType != null)
+        ) {
+            BottomBarState.isMenuExpanded = false
+            BottomBarState.isSettingsMenuExpanded = false
+            BottomBarState.isOverrideMenuExpanded = false
+            BottomBarState.activeSliderType = null
+        }
+
         preserveCarPlayClusterContractAfterWindowChange(packageName)
         preserveAndroidAutoClusterContractAfterWindowChange(packageName)
 

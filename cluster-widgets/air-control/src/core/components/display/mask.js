@@ -65,7 +65,9 @@ export function createMask() {
         noAppMaskL.style.visibility = showL ? 'visible' : 'hidden';
         noAppMaskR.style.visibility = showR ? 'visible' : 'hidden';
 
-        partialAppMask.style.opacity = (cardId == 0 && !warningActive) ? '1' : '0';
+        // cardId == 0 is NATIVE_CARD (the car's own native menu) — it must stay visible
+        // under the WebView, so this mask is never enabled.
+        partialAppMask.style.opacity = '0';
         //warnMask.style.opacity = warningActive ? '1' : '0'; //TODO: enhance this mask in future
     };
 

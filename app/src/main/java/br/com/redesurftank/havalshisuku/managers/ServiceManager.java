@@ -428,7 +428,16 @@ public class ServiceManager {
                         int whichCard = data.getIntValue();
                         int previousCard = clusterCardView;
                         clusterCardView = whichCard;
-                        dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, clusterCardView);
+                        // Only dispatch when the card actually changes. The hardware confirms
+                        // (msgId 133) ~200-300ms after our own synthetic key-driven navigation
+                        // already set clusterCardView optimistically, and sometimes re-confirms
+                        // again with no new input at all. Re-dispatching for a no-op re-runs the
+                        // full InstrumentProjector2 visibility/WebView pipeline for nothing,
+                        // which is what caused the one-frame opaque AC/cluster repaint (boomerang
+                        // between the AC card and the default cluster screen).
+                        if (whichCard != previousCard) {
+                            dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, clusterCardView);
+                        }
                         long sinceInputMs =
                                 lastClusterInputAtMs == 0L
                                         ? -1L
@@ -2128,11 +2137,13 @@ public class ServiceManager {
     }
 
     public void ensureSystemApps() {
-        if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_PROJECTOR.getKey(), false) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
-            disableSystemApp("com.beantechs.multidisplay");
-        } else {
-            enableSystemApp("com.beantechs.multidisplay");
-        }
+        // Used to uninstall com.beantechs.multidisplay here when the cluster projector +
+        // custom media integration were both on, presumably to stop it competing with our
+        // virtual cluster on display 3. Confirmed via live device debugging that multidisplay
+        // also drives the native home/menu wallpaper on display 0 — uninstalling it left that
+        // menu rendering solid black for as long as the cluster toggle stayed on. Always keep
+        // it enabled instead.
+        enableSystemApp("com.beantechs.multidisplay");
     }
 
     public void disableSystemApp(String packageName) {

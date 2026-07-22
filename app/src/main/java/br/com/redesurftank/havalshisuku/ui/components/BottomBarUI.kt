@@ -1753,13 +1753,24 @@ fun BottomBarMenus() {
         }
 
         val dashboardExpanded = BottomBarState.isDashboardExpanded
+        val anyMenuActive =
+                BottomBarState.isMenuExpanded ||
+                        BottomBarState.isSettingsMenuExpanded ||
+                        BottomBarState.isOverrideMenuExpanded ||
+                        BottomBarState.activeSliderType != null
 
         Box(
                 modifier =
                         Modifier.fillMaxSize()
                                 .background(
-                                        if (dashboardExpanded) Color(0xFF05070A)
-                                        else Color.Black.copy(alpha = 0.4f)
+                                        when {
+                                            dashboardExpanded -> Color(0xFF05070A)
+                                            // Opaque (not a translucent scrim): a partial-alpha
+                                            // background let the native carousel's mid-transition
+                                            // slide show through behind the menu on this headunit.
+                                            anyMenuActive -> Color.Black
+                                            else -> Color.Transparent
+                                        }
                                 )
                                 .pointerInput(appMenuBounds, secondaryMenuBounds, dashboardExpanded) {
                                         if (!dashboardExpanded) {
@@ -2937,24 +2948,36 @@ private fun DashboardMediaPanel(
         var rawChannelInfo by remember {
                 mutableStateOf(serviceManager.getData(CarConstants.SYS_RADIO_CUR_CHANNEL_INFO.getValue()) ?: "")
         }
+        var rawRadioPlayState by remember {
+                mutableStateOf(serviceManager.getData(CarConstants.SYS_RADIO_PLAY_STATE.getValue()) ?: "")
+        }
+        var rawRadioSearchState by remember {
+                mutableStateOf(serviceManager.getData(CarConstants.SYS_RADIO_SEARCH_STATE.getValue()) ?: "")
+        }
         DisposableEffect(Unit) {
                 val listener = object : br.com.redesurftank.havalshisuku.listeners.IDataChanged {
                         override fun onDataChanged(key: String, value: String?) {
                                 when (key) {
                                         CarConstants.SYS_BASIC_AUDIO_SOURCE_APP.getValue() -> rawAudioSource = value ?: ""
                                         CarConstants.SYS_RADIO_CUR_CHANNEL_INFO.getValue() -> rawChannelInfo = value ?: ""
+                                        CarConstants.SYS_RADIO_PLAY_STATE.getValue() -> rawRadioPlayState = value ?: ""
+                                        CarConstants.SYS_RADIO_SEARCH_STATE.getValue() -> rawRadioSearchState = value ?: ""
                                 }
                         }
                 }
                 serviceManager.addDataChangedListener(listener)
                 onDispose { serviceManager.removeDataChangedListener(listener) }
         }
+        // Replica a mesma lógica de isCurrentAudioSourceRadio() do DisplayAppLauncher
+        val radioPlayStateActive = rawRadioPlayState == "1" || rawRadioPlayState.equals("playing", ignoreCase = true)
+        val radioSeekingActive = rawRadioSearchState.isNotEmpty() && rawRadioSearchState != "0"
         val radioSourceName = when {
                 rawAudioSource.contains("fm", ignoreCase = true) || rawAudioSource == "1" || rawAudioSource == "10" -> "FM"
                 rawAudioSource.contains("am", ignoreCase = true) || rawAudioSource == "2" || rawAudioSource == "11" -> "AM"
+                radioPlayStateActive || radioSeekingActive -> "FM"
                 else -> null
         }
-        val isRadioSource = radioSourceName != null && mediaTitle == null
+        val isRadioSource = radioSourceName != null
         val radioFreqKhz: Long? = if (isRadioSource) {
                 rawChannelInfo.trim('{', '}').split(",").getOrNull(0)?.trim()?.toLongOrNull()?.takeIf { it > 0 }
         } else null
@@ -3010,6 +3033,7 @@ private fun DashboardMediaPanel(
                 )
         val title =
                 radioTitle
+                        ?: (if (isRadioSource) "Rádio ${radioSourceName ?: ""}" else null)
                         ?: mediaTitle
                         ?: appLabel
                         ?: shortProjectionLabel(activeProjectionPackage)
@@ -3065,7 +3089,7 @@ private fun DashboardMediaPanel(
                                 verticalAlignment = Alignment.CenterVertically
                         ) {
                                 DashboardPanelTitle(Icons.Default.Album, "Midia")
-                                DashboardMediaBadge(isPlaying = isPlaying, hasMetadata = mediaTitle != null)
+                                DashboardMediaBadge(isPlaying = if (isRadioSource) false else isPlaying, hasMetadata = if (isRadioSource) false else mediaTitle != null)
                         }
                         Box(
                                 modifier =
@@ -3079,7 +3103,7 @@ private fun DashboardMediaPanel(
                                                         RoundedCornerShape(8.dp)
                                                 )
                         ) {
-                                if (mediaArtwork != null) {
+                                if (mediaArtwork != null && !isRadioSource) {
                                         Box(
                                                 modifier =
                                                         Modifier.fillMaxSize()
@@ -3159,7 +3183,11 @@ private fun DashboardMediaPanel(
                                         size = 66.dp,
                                         contentDescription = if (isRadioSource) "Favorito anterior" else "Musica anterior"
                                 ) {
-                                        if (isRadioSource) {
+                                        // Route by the car's actual audio source (radioSourceName), not
+                                        // isRadioSource: a stale Android Auto media session can leave
+                                        // mediaTitle non-null while radio is the active source, which
+                                        // would otherwise send skipToPrevious() to AA and wake it up.
+                                        if (radioSourceName != null) {
                                                 serviceManager.dispatchServiceManagerEvent(
                                                         ServiceManagerEventType.RADIO_NAVIGATE, "prev"
                                                 )
@@ -3167,18 +3195,20 @@ private fun DashboardMediaPanel(
                                                 BottomBarService.skipCurrentMediaPrevious()
                                         }
                                 }
-                                DashboardIconButton(
-                                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        size = 66.dp,
-                                        contentDescription =
-                                                if (isPlaying) "Pausar musica" else "Reproduzir musica"
-                                ) {
-                                        BottomBarService.toggleCurrentMediaPlayback()
+                                if (!isRadioSource) {
+                                        DashboardIconButton(
+                                                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                size = 66.dp,
+                                                contentDescription =
+                                                        if (isPlaying) "Pausar musica" else "Reproduzir musica"
+                                        ) {
+                                                BottomBarService.toggleCurrentMediaPlayback()
+                                        }
                                 }
                                 DashboardMediaProgressMeter(
                                         elapsedMs = displayedElapsedMs,
-                                        durationMs = durationMs,
-                                        canSeek = canSeek,
+                                        durationMs = if (isRadioSource) 0L else durationMs,
+                                        canSeek = if (isRadioSource) false else canSeek,
                                         accent = dynamicAccent,
                                         modifier = Modifier.weight(1f),
                                         onSeek = { BottomBarService.seekCurrentMediaTo(it) }
@@ -3188,7 +3218,9 @@ private fun DashboardMediaPanel(
                                         size = 66.dp,
                                         contentDescription = if (isRadioSource) "Proximo favorito" else "Proxima musica"
                                 ) {
-                                        if (isRadioSource) {
+                                        // See comment on the "previous" button: route by radioSourceName
+                                        // so a stale AA media session can't hijack playback via skipToNext().
+                                        if (radioSourceName != null) {
                                                 serviceManager.dispatchServiceManagerEvent(
                                                         ServiceManagerEventType.RADIO_NAVIGATE, "next"
                                                 )
