@@ -55,16 +55,18 @@ function isMainMenuSessionVisible(cardId, screen) {
     }
     return get('mainMenuSessionActive') === true &&
         isMainMenuSessionScreen(screen) &&
-        get('warningActive') !== true &&
         cardId == 1;
 }
 
 function isWarningUiActive(cardId, screen) {
-    if (get('warningActive') === true) {
-        return true;
-    }
     if (isMainMenuSessionVisible(cardId, screen)) {
         return false;
+    }
+    if (cardId == 3 && screen === 'aircon') {
+        return false;
+    }
+    if (get('warningActive') === true) {
+        return true;
     }
     return get('warningDismissed') !== true && cardId == 0;
 }

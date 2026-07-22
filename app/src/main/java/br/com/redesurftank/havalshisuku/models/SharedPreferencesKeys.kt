@@ -102,6 +102,18 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "bluetoothStateOnPowerOff",
             "Estado do Bluetooth ao desligar o veículo"
     ),
+    HOTSPOT_STATE_ON_POWER_OFF(
+            "hotspotStateOnPowerOff",
+            "Estado do ponto de acesso ao desligar o veículo"
+    ),
+    DISABLE_BLUETOOTH_ON_FOLD_MIRROR(
+            "disableBluetoothOnFoldMirror",
+            "Desativar Bluetooth ao recolher retrovisores"
+    ),
+    DISABLE_HOTSPOT_ON_FOLD_MIRROR(
+            "disableHotspotOnFoldMirror",
+            "Desativar ponto de acesso ao recolher retrovisores"
+    ),
     ENABLE_SEAT_VENTILATION_ON_AC_ON(
             "enableSeatVentilationOnAcOn",
             "Habilitar ventilação do banco do motorista ao ligar o ar-condicionado"
@@ -137,6 +149,46 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2(
             "steeringWheelOpenAppPackageButton2",
             "Pacote do aplicativo para o botão personalizado 2 do volante"
+    ),
+    STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_1(
+            "steeringWheelClimateCommandButton1",
+            "Comando do ar-condicionado para o botão personalizado 1 do volante"
+    ),
+    STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_2(
+            "steeringWheelClimateCommandButton2",
+            "Comando do ar-condicionado para o botão personalizado 2 do volante"
+    ),
+    STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_DOUBLE(
+            "steeringWheelCustomButon1ActionDouble",
+            "Ação do botão personalizado 1 do volante (toque duplo)"
+    ),
+    STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_DOUBLE(
+            "steeringWheelCustomButon2ActionDouble",
+            "Ação do botão personalizado 2 do volante (toque duplo)"
+    ),
+    STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_LONG(
+            "steeringWheelCustomButon1ActionLong",
+            "Ação do botão personalizado 1 do volante (toque longo)"
+    ),
+    STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_LONG(
+            "steeringWheelCustomButon2ActionLong",
+            "Ação do botão personalizado 2 do volante (toque longo)"
+    ),
+    STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_DOUBLE(
+            "steeringWheelOpenAppPackageButton1Double",
+            "Pacote do app para o botão 1 do volante (toque duplo)"
+    ),
+    STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_DOUBLE(
+            "steeringWheelOpenAppPackageButton2Double",
+            "Pacote do app para o botão 2 do volante (toque duplo)"
+    ),
+    STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_LONG(
+            "steeringWheelOpenAppPackageButton1Long",
+            "Pacote do app para o botão 1 do volante (toque longo)"
+    ),
+    STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_LONG(
+            "steeringWheelOpenAppPackageButton2Long",
+            "Pacote do app para o botão 2 do volante (toque longo)"
     ),
     LAST_CLUSTER_SCREEN("lastClusterScreen", "Última tela exibida no cluster"),
     LAST_CLUSTER_MENU_ITEM(
@@ -209,6 +261,7 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ACTIVE_CUSTOM_THEME("activeCustomTheme", "Tema Dinâmico Ativo"),
     BOTTOM_BAR_AUTO_HIDE("bottomBarAutoHide", "Esconder barra automaticamente após 30s"),
     BOTTOM_BAR_OVERRIDES("bottomBarOverrides", "Overrides de aplicativos salvos (JSON)"),
+    DASHBOARD_CARD_ORDER("dashboardCardOrder", "Ordem dos cards do dashboard"),
     ENABLE_SPEED_ADJUSTMENT("enableSpeedAdjustment", "Habilitar ajuste de velocidade no painel"),
     SPEED_ADJUSTMENT_OFFSET("speedAdjustmentOffset", "Fator de ajuste de velocidade (%)"),
     TRIP_CONSISTENCY_CLUSTER_ACTIVE("tripConsistencyClusterActive", "Indicador discreto de análise de viagem ativa no cluster"),
@@ -219,5 +272,66 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "Botões |◄ ►| do volante navegam entre rádios favoritas"
     ),
     AA_PATCH_AUTO_MOUNT("aaPatchAutoMount", "Habilitar montagem automática dos patches do Android Auto ao iniciar"),
-    CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar")
+    CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),
+    AMBIENT_LIGHT_BLE_ENABLED("ambientLightBleEnabled", "Ativar Ambient Light BLE"),
+    AMBIENT_LIGHT_BLE_DEVICE_MAC("ambientLightBleDeviceMac", "MAC do dispositivo Ambient Light BLE"),
+    AMBIENT_LIGHT_BLE_DEVICE_NAME("ambientLightBleDeviceName", "Nome do dispositivo Ambient Light BLE"),
+    AMBIENT_LIGHT_SYNC_DRIVE_MODE(
+            "ambientLightSyncDriveMode",
+            "Sincronizar Ambient Light com modo de condução"
+    ),
+    AMBIENT_LIGHT_ANIMATIONS_ENABLED(
+            "ambientLightAnimationsEnabled",
+            "Ativar animações do Ambient Light"
+    ),
+    AMBIENT_LIGHT_MUSIC_ANIMATION_ENABLED(
+            "ambientLightMusicAnimationEnabled",
+            "Ativar animação do Ambient Light com música"
+    ),
+    AMBIENT_LIGHT_MUSIC_MODE(
+            "ambientLightMusicMode",
+            "Modo da animação do Ambient Light com música"
+    ),
+    AMBIENT_LIGHT_ALBUM_EFFECT(
+            "ambientLightAlbumEffect",
+            "Efeito da animação do Ambient Light com tons do álbum"
+    ),
+    AMBIENT_LIGHT_ALBUM_EFFECT_SPEED(
+            "ambientLightAlbumEffectSpeed",
+            "Velocidade do efeito do Ambient Light com tons do álbum"
+    ),
+    AMBIENT_LIGHT_ALBUM_EFFECT_OUTPUT(
+            "ambientLightAlbumEffectOutput",
+            "Saída do efeito do Ambient Light com tons do álbum"
+    ),
+    AMBIENT_LIGHT_ALBUM_BLE_MODE(
+            "ambientLightAlbumBleMode",
+            "Comportamento BLE do efeito do Ambient Light com tons do álbum"
+    ),
+    AMBIENT_LIGHT_ALBUM_DMX_MODE(
+            "ambientLightAlbumDmxMode",
+            "Comportamento DMX do efeito do Ambient Light com tons do álbum"
+    ),
+    AMBIENT_LIGHT_COLOR_ORDER(
+            "ambientLightColorOrder",
+            "Ordem dos canais de cor DMX do Ambient Light"
+    ),
+    AMBIENT_LIGHT_BLE_COLOR_ORDER(
+            "ambientLightBleColorOrder",
+            "Ordem dos canais de cor BLE do Ambient Light"
+    ),
+    AMBIENT_LIGHT_BRIGHTNESS_PERCENT(
+            "ambientLightBrightnessPercent",
+            "Brilho do Ambient Light"
+    ),
+    AMBIENT_LIGHT_OUTPUT(
+            "ambientLightOutput",
+            "Saída do Ambient Light"
+    ),
+    AMBIENT_LIGHT_AUTO_RECONNECT(
+            "ambientLightAutoReconnect",
+            "Reconectar automaticamente o Ambient Light"
+    ),
+    ENABLE_PERSIST_HEV_SOC_TARGET("enablePersistHevSocTarget", "Manter o % de bateria escolhido no HEV Prioritário"),
+    HEV_SOC_TARGET_VALUE("hevSocTargetValue", "% de bateria a manter no HEV Prioritário (20-80)")
 }

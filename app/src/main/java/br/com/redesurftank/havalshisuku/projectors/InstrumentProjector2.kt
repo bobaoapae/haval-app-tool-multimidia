@@ -15,7 +15,9 @@ import android.util.Log
 import android.view.Display
 import android.view.View
 import android.view.WindowManager
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -23,6 +25,7 @@ import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.isVisible
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.R
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.models.MainUiManager
@@ -96,9 +99,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var nativeCardPassThroughActive: Boolean? = null
 
     private fun isWarningValueActive(value: String?): Boolean {
-        if (value == null) return false
-        val v = value.trim()
-        return v != "0" && v != "{0,0,0,0}" && v != "{0,0,0,0,0}" && v != "" && v != "false"
+        return ClusterWarningPolicy.isWarningValueActive(value)
     }
 
     private var hasAutoLaunched = false
@@ -162,7 +163,21 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                 TAG,
                                 "WebView watchdog triggered: No heartbeat for ${now - lastHeartbeatTime}ms. Reloading..."
                         )
-                        ensureUi { webView?.reload() }
+                        ClusterPersistentEventLogger.log(
+                                "webview_watchdog_reload",
+                                mapOf(
+                                        "missedHeartbeatMs" to (now - lastHeartbeatTime),
+                                        "card" to currentCard,
+                                        "screen" to currentClusterScreenName,
+                                        "rootVisible" to (::root.isInitialized && root.isVisible)
+                                )
+                        )
+                        ensureUi {
+                            webView?.let { wv ->
+                                markWebViewLoading(wv, "WATCHDOG_RELOAD")
+                                wv.reload()
+                            }
+                        }
                         lastHeartbeatTime =
                                 System.currentTimeMillis() // Reset to avoid immediate re-trigger
                     }
@@ -237,13 +252,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                         key == SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key
                         ) {
                             Log.d(TAG, "Theme changed, reloading WebView")
-                            webView?.loadDataWithBaseURL(
-                                    getThemeBaseUrl(),
-                                    readAppContent(outerContext),
-                                    "text/html",
-                                    "UTF-8",
-                                    null
-                            )
+                            webView?.let { wv ->
+                                markWebViewLoading(wv, "THEME_CHANGED")
+                                wv.loadDataWithBaseURL(
+                                        getThemeBaseUrl(),
+                                        readAppContent(outerContext),
+                                        "text/html",
+                                        "UTF-8",
+                                        null
+                                )
+                            }
                         }
                         if (key == SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key) {
                             val unit = getClusterFuelDisplayUnit()
@@ -459,7 +477,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         )
     }
 
-    private fun isProjectionOverlayBypassActive(carPlayInDash: Boolean): Boolean {
+    private fun isProjectionOverlayBypassActive(
+            carPlayInDash: Boolean,
+            androidAutoInDash: Boolean
+    ): Boolean {
+        if (androidAutoInDash) return false
         if (!carPlayInDash) return false
 
         // Camera/AVM/HVAC no longer hide the cluster Presentation. The native
@@ -545,8 +567,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun logClusterPerfEvent(event: String, details: Map<String, Any?> = emptyMap()) {
-        ClusterPerfEventLogger.log(
-                event,
+        val commonDetails =
                 mapOf(
                         "card" to currentCard,
                         "screen" to currentClusterScreenName,
@@ -555,6 +576,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         "display1Active" to isAnyAppOnDisplay1,
                         "display3Active" to isAnyAppOnDisplay3
                 ) + details
+        ClusterPersistentEventLogger.log("cluster_$event", commonDetails)
+        ClusterPerfEventLogger.log(
+                event,
+                commonDetails
         )
     }
 
@@ -663,6 +688,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 TAG,
                 "[CLUSTER_INPUT_KEY] key=$keyName($keyCode) action=$action"
         )
+        ClusterPersistentEventLogger.log(
+                "cluster_input_key_projector",
+                mapOf(
+                        "key" to keyName,
+                        "keyCode" to keyCode,
+                        "action" to action,
+                        "card" to currentCard,
+                        "screen" to currentClusterScreenName
+                )
+        )
     }
 
     private fun pushProjectionStateToWebView(
@@ -680,6 +715,25 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     "[PROJECTION_STATE_PUSH] force=$force carPlayInDash=$carPlayInDash projectionMirrorInDash=$projectionMirrorInDash projectionPreparingD3=$projectionPreparingD3 loaded=${
                         webView?.let { webViewsLoaded.getOrDefault(it, false) } ?: false
                     } lastCarPlayInDash=$lastCarPlayInDash lastProjectionMirrorInDash=$lastProjectionMirrorInDash lastProjectionPreparingD3=$lastProjectionPreparingD3"
+            )
+            ClusterPersistentEventLogger.log(
+                    "projection_state_push",
+                    mapOf(
+                            "force" to force,
+                            "carPlayInDash" to carPlayInDash,
+                            "projectionMirrorInDash" to projectionMirrorInDash,
+                            "projectionPreparingD3" to projectionPreparingD3,
+                            "loaded" to
+                                    (webView?.let {
+                                        webViewsLoaded.getOrDefault(it, false)
+                                    }
+                                            ?: false),
+                            "lastCarPlayInDash" to lastCarPlayInDash,
+                            "lastProjectionMirrorInDash" to lastProjectionMirrorInDash,
+                            "lastProjectionPreparingD3" to lastProjectionPreparingD3,
+                            "card" to currentCard,
+                            "screen" to currentClusterScreenName
+                    )
             )
         }
         if (sendCarPlay) {
@@ -711,6 +765,20 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             Log.w(
                     TAG,
                     "[$reason] Projection state changed: carPlayInDash=$carPlayInDash projectionMirrorInDash=$projectionMirrorInDash projectionPreparingD3=$projectionPreparingD3"
+            )
+            ClusterPersistentEventLogger.log(
+                    "projection_state_changed",
+                    mapOf(
+                            "reason" to reason,
+                            "carPlayInDash" to carPlayInDash,
+                            "projectionMirrorInDash" to projectionMirrorInDash,
+                            "projectionPreparingD3" to projectionPreparingD3,
+                            "lastCarPlayInDash" to lastCarPlayInDash,
+                            "lastProjectionMirrorInDash" to lastProjectionMirrorInDash,
+                            "lastProjectionPreparingD3" to lastProjectionPreparingD3,
+                            "card" to currentCard,
+                            "screen" to currentClusterScreenName
+                    )
             )
             updateVirtualClusterVisibility(
                     carPlayInDash,
@@ -826,6 +894,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         }
                         ServiceManagerEventType.STEERING_WHEEL_AC_CONTROL -> {
                             val action = args[0]
+                            ClusterPersistentEventLogger.log(
+                                    "steering_wheel_ac_control",
+                                    mapOf(
+                                            "action" to action,
+                                            "card" to currentCard,
+                                            "screen" to currentClusterScreenName
+                                    )
+                            )
                             if (action is SteeringWheelAcControlType) {
                                 when (action) {
                                     SteeringWheelAcControlType.FAN_SPEED ->
@@ -1020,7 +1096,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                 val sm = ServiceManager.getInstance()
                                 for (key in monitoredWarningKeys) {
                                     val value = sm.getData(key)
-                                    if (isWarningValueActive(value)) {
+                                    if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, value)) {
                                         dismissedWarnings[key] = value!!
                                     }
                                 }
@@ -1045,7 +1121,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         preferences.registerOnSharedPreferenceChangeListener(prefsListener)
         ServiceManager.getInstance().addServiceManagerEventListener(eventListener)
         window?.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
-        window?.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
+        window?.addFlags(
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        )
         window?.setLayout(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT
@@ -1471,10 +1552,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
                 // --- Warning Management Logic ---
                 if (key in monitoredWarningKeys) {
-                    val currentValue = value.toString()
+                    val currentValue = value?.toString() ?: "0"
                     if (dismissedWarnings[key] != currentValue) {
                         dismissedWarnings.remove(key)
-                        if (isWarningValueActive(currentValue)) {
+                        if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, currentValue)) {
                             isWarningDismissed = false
                             if (!isWarningActive) {
                                 lastWarningActiveTime = System.currentTimeMillis()
@@ -1485,7 +1566,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             dismissedWarnings.clear()
                             syncInitialWarnings()
                         }
-                        evaluateJsIfReady(webView, "updateWarning('$key', '$value')")
+                        evaluateJsIfReady(webView, "updateWarning('$key', '$currentValue')")
                     }
                 }
             }
@@ -1527,6 +1608,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         settings.allowContentAccess = true
                         webViewClient =
                                 object : WebViewClient() {
+                                    override fun onPageStarted(
+                                            view: WebView?,
+                                            url: String?,
+                                            favicon: android.graphics.Bitmap?
+                                    ) {
+                                        super.onPageStarted(view, url, favicon)
+                                        view?.let { markWebViewLoading(it, "PAGE_STARTED", url) }
+                                    }
+
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         super.onPageFinished(view, url)
                                         view?.let { wv: android.webkit.WebView ->
@@ -1541,6 +1631,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
                                             // Mark the WebView as fully loaded first so that any new incoming
                                             // telemetry events are processed instantly instead of being queued.
+                                            lastHeartbeatTime = System.currentTimeMillis()
                                             webViewsLoaded[wv] = true
 
                                             // Discard all stale, redundant telemetry updates queued during page load
@@ -1564,6 +1655,35 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                                     null
                                             )
                                         }
+                                    }
+                                }
+                        webChromeClient =
+                                object : WebChromeClient() {
+                                    override fun onConsoleMessage(
+                                            consoleMessage: ConsoleMessage?
+                                    ): Boolean {
+                                        if (consoleMessage != null) {
+                                            ClusterPersistentEventLogger.log(
+                                                    "webview_console",
+                                                    mapOf(
+                                                            "level" to
+                                                                    consoleMessage.messageLevel()
+                                                                            ?.name,
+                                                            "line" to
+                                                                    consoleMessage.lineNumber(),
+                                                            "source" to
+                                                                    consoleMessage
+                                                                            .sourceId()
+                                                                            .orEmpty()
+                                                                            .takeLast(120),
+                                                            "message" to
+                                                                    consoleMessage
+                                                                            .message()
+                                                                            .orEmpty()
+                                                    )
+                                            )
+                                        }
+                                        return super.onConsoleMessage(consoleMessage)
                                     }
                                 }
                         loadDataWithBaseURL(
@@ -1605,6 +1725,18 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 "[WEBVIEW_STATE_SYNC] carPlayInDash=$carPlayInDash projectionMirrorInDash=$projectionMirrorInDash projectionPreparingD3=$projectionPreparingD3 cardId=$currentCard display=${updates["display"]} loaded=${
                     webViewsLoaded.getOrDefault(webView, false)
                 }"
+        )
+        ClusterPersistentEventLogger.log(
+                "webview_state_sync",
+                mapOf(
+                        "carPlayInDash" to carPlayInDash,
+                        "projectionMirrorInDash" to projectionMirrorInDash,
+                        "projectionPreparingD3" to projectionPreparingD3,
+                        "cardId" to currentCard,
+                        "display" to updates["display"],
+                        "loaded" to webViewsLoaded.getOrDefault(webView, false),
+                        "screen" to currentClusterScreenName
+                )
         )
 
         // Gears
@@ -1868,6 +2000,18 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         }
     }
 
+    private fun hasCriticalTelemetryWarning(): Boolean {
+        val sm = ServiceManager.getInstance()
+        for (key in monitoredWarningKeys) {
+            val value = sm.getData(key)
+            if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, value)) {
+                Log.w(TAG, "Critical telemetry warning active: key=$key value=$value")
+                return true
+            }
+        }
+        return false
+    }
+
     private fun getClusterFuelDisplayUnit(): String {
         val unit =
                 preferences.getString(
@@ -1905,7 +2049,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 preferences.getBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key, true)
         val projectorVisible =
                 shouldShowProjector() && ServiceManager.getInstance().isMainScreenOn
-        val overlayBypassActive = isProjectionOverlayBypassActive(carPlayInDash)
+        val androidAutoInDash =
+                br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                        .isAndroidAutoOnDisplay(3)
+        val overlayBypassActive =
+                isProjectionOverlayBypassActive(carPlayInDash, androidAutoInDash)
         var isLeftCovered = false
         var isRightCovered = false
 
@@ -2351,6 +2499,19 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         }
     }
 
+    private fun markWebViewLoading(webView: WebView, reason: String, url: String? = null) {
+        webViewsLoaded[webView] = false
+        pendingJsQueues.remove(webView)
+        lastHeartbeatTime = System.currentTimeMillis()
+        logClusterPerfEvent(
+                "webview_loading",
+                mapOf(
+                        "reason" to reason,
+                        "url" to (url ?: "")
+                )
+        )
+    }
+
     private fun getThemeBaseUrl(): String {
         val customThemeName = getActiveCustomThemeName()
         if (customThemeName.isNotEmpty()) {
@@ -2625,7 +2786,13 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         @JavascriptInterface
         fun setWarningActive(isActive: Boolean) {
-            ensureUi { updateWarningUI(isActive) }
+            ensureUi {
+                val effectiveActive = isActive && hasCriticalTelemetryWarning()
+                if (isActive && !effectiveActive) {
+                    Log.d(TAG, "Ignoring JS warningActive=true without critical telemetry")
+                }
+                updateWarningUI(effectiveActive)
+            }
         }
 
         @JavascriptInterface

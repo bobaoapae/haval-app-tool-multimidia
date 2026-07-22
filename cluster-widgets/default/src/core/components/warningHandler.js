@@ -2,10 +2,29 @@ import { stateManager } from './../state.js';
 import { logger } from './../../utils/logger.js';
 
 const VISUAL_ONLY_KEYS = [
+    "car.basic.seat_belt_warning",
     "car.ipk_info.bsd_lca_warning_reqleft",
     "car.ipk_info.bsd_lca_warning_reqright",
-    "car.ipk_info.warning_tts_notify"
+    "car.ipk_info.warning_tts_notify",
+    "car.ipk_light.door_warning",
+    "car.ipk_light.engine_oil_low_pressure_warning",
+    "car.ipk_light.fuel_low",
+    "car.ipk_light.tpms_warning"
 ];
+
+function isWarningValueActive(value) {
+    const normalized = value == null ? "" : String(value).trim().toLowerCase();
+    return normalized !== "0" &&
+        normalized !== "{0,0,0,0}" &&
+        normalized !== "{0,0,0,0,0}" &&
+        normalized !== "" &&
+        normalized !== "false" &&
+        normalized !== "null" &&
+        normalized !== "undefined" &&
+        normalized !== "unknown" &&
+        normalized !== "--" &&
+        normalized !== "nan";
+}
 
 export function initWarningHandler() {
     window.updateWarning = function(key, value) {
@@ -17,7 +36,7 @@ export function initWarningHandler() {
         let hasCriticalWarning = false;
         
         for (const [k, v] of Object.entries(newWarnings)) {
-            const isThisActive = v !== "0" && v !== "{0,0,0,0}" && v !== "{0,0,0,0,0}" && v !== "" && v !== "false";
+            const isThisActive = isWarningValueActive(v);
             
             if (isThisActive && !VISUAL_ONLY_KEYS.includes(k)) {
                 hasCriticalWarning = true;

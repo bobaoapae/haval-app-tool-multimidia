@@ -1,6 +1,6 @@
 # Kotlin JS Bridge
 
-Atualizado em: 2026-05-24
+Atualizado em: 2026-06-12
 
 ## Android Para JavaScript
 
@@ -24,6 +24,21 @@ Também existem chamadas para:
 - `updateWarning(...)`
 - `clearWarnings()`
 
+## Politica de Warnings
+
+`InstrumentProjector2` mantém uma separação entre warning visual e warning crítico:
+
+- chaves visuais (`car.ipk_info.warning_tts_notify`,
+  `car.ipk_info.bsd_lca_warning_reqleft`, `car.ipk_info.bsd_lca_warning_reqright`) continuam sendo
+  enviadas ao frontend por `updateWarning(...)`;
+- essas chaves não disparam `syncInitialWarnings()`, `isWarningActive`, dismiss crítico nem
+  recomputação de visibilidade do cluster;
+- warnings críticos continuam podendo acionar `updateWarningUI(...)` via bridge
+  `window.Android.setWarningActive(...)`.
+
+O objetivo é preservar o contrato do frontend, que já tratava essas chaves como visual-only, sem
+deixar pulsos nativos de TTS/LCA entrarem no caminho pesado de warning e card flow.
+
 ## JavaScript Para Android
 
 `addJavascriptInterface(WebAppInterface(), "Android")` expõe:
@@ -32,6 +47,17 @@ Também existem chamadas para:
 - `setWarningActive(Boolean)`
 - `setCardId(Int)`
 - `saveSetting(String, String)`
+
+## Readiness e Reload do WebView
+
+`InstrumentProjector2` trata `onPageStarted`, reload por watchdog e troca de tema como estado
+`loading`: `webViewsLoaded=false`, fila pendente antiga descartada e heartbeat renovado. Isso
+evita que chamadas como `control(...)`, `updateWarning(...)`, `focus(...)` e `showScreen(...)`
+sejam executadas contra uma pagina em reload antes de o modulo JS reinstalar `window.control` e
+demais funcoes globais.
+
+Em `onPageFinished`, o heartbeat e renovado antes do sync completo para impedir reload prematuro
+do watchdog enquanto o primeiro `window.Android.heartbeat()` ainda nao disparou.
 
 ## Arquivos Relacionados
 

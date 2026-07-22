@@ -22,6 +22,46 @@
 - CarPlay cluster 3 -> display 0.
 - Android Auto display 0 -> cluster 3.
 - CarPlay e Android Auto não usam recuperação cruzada.
+- Android Auto v250: play/pause pelo Spotify no celular continua sustentando pause.
+- Android Auto v250: Media Center nativo da central/player dentro do mapa nativo continua pausando.
+- Android Auto v250: card de midia do dashboard Impulse e botao do volante sao superficies
+  separadas; nao declarar corrigido por sucesso no player nativo do mapa.
+- Android Auto v250: sucesso de pause exige Spotify/telefone pausado de forma sustentada; ACK,
+  `sent=true`, resposta Binder ou icone do card nao bastam.
+- Android Auto v250: nao reativar `AndroidAutoNowPlayingMonitor` nem `SEND_VEHICLE_INFO`/
+  `IfVehicleInfo` como atalho para card/volante sem nova evidencia.
+- Android Auto v251 instalada:
+  - antes de testar card/volante, confirmar que Spotify/celular ainda sustenta pause;
+  - confirmar que Media Center nativo/player dentro do mapa nativo ainda pausa;
+  - card do dashboard deve pausar via MediaCenter `402` sem fallback ativo LinkCommand/AAP na mesma
+    tentativa;
+  - botao do volante deve manter comando imediato app-side bloqueado e usar apenas reconciliacao
+    atrasada de play/pause via MediaCenter `402`;
+  - next/previous/mute devem manter comportamento anterior.
+  - log `transaction=27/28 sent=true` confirma somente rota mecanica; para aprovar regressao,
+    Spotify/telefone precisa sair de tocando para pausado e permanecer pausado.
+- Android Auto v252:
+  - `previous` no card deve trocar a faixa e zerar a timeline;
+  - `previous` pelo volante deve trocar a faixa e zerar a timeline no card;
+  - `next` tambem deve iniciar progresso visual em `0` na nova faixa;
+  - play/pause card/volante nao deve regredir.
+- Android Auto v253:
+  - confirmar build instalada `versionCode=253`,
+    `versionName=1.0.0.253-aa-progress-debug-telemetry`;
+  - antes do teste, debug state deve expor `durationMs`, `elapsedMs`, `progressUpdatedAtMs` e
+    `canSeek`;
+  - apos `previous`/`next` no card, procurar log `Reset Android Auto media progress after dashboard
+    Android Auto ...`;
+  - apos `previous`/`next` no volante, procurar log `Reset Android Auto media progress after Android
+    Auto steering ...` ou fallback equivalente;
+  - nao aprovar por ACK, `sent=true` ou troca de faixa isolada: a timeline do card precisa voltar
+    para `0`;
+  - retestar os quatro fluxos de `play/pause` ja corrigidos: Spotify/celular, Media Center nativo,
+    card do dashboard e botao do volante.
+  - validacao 2026-06-24 17:59: usuario confirmou bugs sanados; `card_prev` debug resetou
+    progresso de `103000ms` para `1000ms`; `card_toggle` debug pausou com
+    `USAGE_AAUTO_MEDIA state:stopped` aos 6s; evento manual posterior de `KEYCODE_MEDIA_PLAY_PAUSE`
+    nao conta como auto-retomada.
 - Antes de alterar CarPlay, capturar baseline e candidato com `headunit.sh carplay-baseline` e
   comparar com `headunit.sh carplay-compare`.
 - Para validar uma mudanca CarPlay, preferir `headunit.sh carplay-proof <label>` apos cada etapa,

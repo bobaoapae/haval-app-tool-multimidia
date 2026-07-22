@@ -2,7 +2,9 @@ package br.com.redesurftank.havalshisuku.managers
 
 import android.content.ComponentName
 import android.content.Context
+import android.bluetooth.BluetoothDevice
 import android.hardware.display.DisplayManager
+import android.hardware.usb.UsbDevice
 import android.util.Log
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.models.DisplayAppConfig
@@ -23,12 +25,17 @@ import android.os.Parcel
 import android.os.SystemClock
 import android.view.KeyEvent
 import br.com.redesurftank.havalshisuku.BuildConfig
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.managers.ThemeManager
 import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.havalshisuku.services.BottomBarService
+import br.com.redesurftank.havalshisuku.services.AndroidAutoDcmRecovery
+import com.ts.androidauto.sdk.aidl.data.IfVehicleInfo
+import com.ts.androidauto.sdk.common.VehicleConst
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
 
 data class ResolvedAppInfo(
@@ -116,14 +123,21 @@ object DisplayAppLauncher {
 
     private const val TAG = "DisplayAppLauncher"
     private const val ANDROID_AUTO_PACKAGE = "com.ts.androidauto.app"
+    private const val ANDROID_AUTO_MEDIA_PACKAGE = "com.ts.androidauto"
     private const val ANDROID_AUTO_SERVICE_PACKAGE = "com.ts.androidauto.projectionservice"
     private const val ANDROID_AUTO_ACTIVITY = "com.ts.androidauto.app.display.AapActivity"
     private const val ANDROID_AUTO_SERVICE = "com.ts.androidauto.projectionservice/.AndroidAutoService"
     private const val ANDROID_AUTO_REMOTE_SERVICE = "com.ts.androidauto.app/.AndroidAutoRemoteUiService"
     private const val ANDROID_AUTO_LINK_SERVICE_ACTION = "com.ts.androidauto.action.AndroidAutoService"
     private const val ANDROID_AUTO_LINK_SERVICE_CLASS = "com.ts.androidauto.projectionservice.AndroidAutoService"
+    private val ANDROID_AUTO_AUDIO_STARTED_STATE_PATTERN =
+        Pattern.compile("\\bstate\\s*[:=]\\s*started\\b", Pattern.CASE_INSENSITIVE)
     private const val ANDROID_AUTO_LINK_COMMAND_INTERFACE = "com.ts.androidauto.sdk.aidl.LinkCommand"
+    private const val ANDROID_AUTO_LINK_COMMAND_CONNECT_TRANSACTION = 0x07
     private const val ANDROID_AUTO_LINK_COMMAND_SEND_KEY_EVENT_TRANSACTION = 0x0a
+    private const val ANDROID_AUTO_LINK_COMMAND_SEND_VEHICLE_INFO_TRANSACTION = 0x0c
+    private const val ANDROID_AUTO_LINK_COMMAND_GET_DEVICE_LIST_TRANSACTION = 0x0d
+    private const val ANDROID_AUTO_LINK_COMMAND_LISTEN_FOR_WIRELESS_DEVICE_TRANSACTION = 0x0f
     private const val ANDROID_AUTO_LINK_COMMAND_GET_LINK_STATUS_TRANSACTION = 0x15
     private const val ANDROID_AUTO_LINK_COMMAND_NEXT_TRANSACTION = 0x18
     private const val ANDROID_AUTO_LINK_COMMAND_PREVIOUS_TRANSACTION = 0x19
@@ -136,17 +150,39 @@ object DisplayAppLauncher {
     private const val PREF_DESIRED_ANDROID_AUTO_DISPLAY_ID = "desiredAndroidAutoDisplayId"
     private const val ANDROID_AUTO_CLUSTER_GUARD_COOLDOWN_MS = 2_500L
     private const val ANDROID_AUTO_WINDOW_FOCUS_GUARD_COOLDOWN_MS = 4_000L
+    private const val ANDROID_AUTO_WINDOW_FOCUS_LATE_VERIFY_DELAY_MS = 3_500L
+    private const val ANDROID_AUTO_WINDOW_FOCUS_FINAL_VERIFY_DELAY_MS = 4_000L
     private const val ANDROID_AUTO_MEDIA_KEY_COOLDOWN_MS = 650L
     private const val ANDROID_AUTO_TOGGLE_MEDIA_KEY_COOLDOWN_MS = 2_000L
     private const val ANDROID_AUTO_POST_NATIVE_PANEL_FOCUS_COOLDOWN_MS = 1_500L
     private const val ANDROID_AUTO_NATIVE_PANEL_ACTIVE_FOCUS_COOLDOWN_MS = 1_500L
     private const val ANDROID_AUTO_NATIVE_MEDIA_KEY_UP_DELAY_MS = 70L
     private const val ANDROID_AUTO_NATIVE_MEDIA_KEY_BIND_WAIT_MS = 180L
+    private const val ANDROID_AUTO_LINK_COMMAND_BIND_STALE_MS = 2_500L
+    private const val ANDROID_AUTO_LINK_COMMAND_RECONNECT_COOLDOWN_MS = 4_000L
     private const val ANDROID_AUTO_NATIVE_PLAYBACK_SETTLE_MS = 520L
+    private const val ANDROID_AUTO_MEDIA_COMMAND_FOCUS_SETTLE_MS = 90L
+    private const val ANDROID_AUTO_AUDIO_PLAYBACK_EVIDENCE_CACHE_MS = 3_000L
+    private const val ANDROID_AUTO_MEDIA_CONTROL_ACTIVE_CACHE_MS = 1_500L
+    private const val ANDROID_AUTO_STEERING_INPUT_DEDUP_WINDOW_MS = 280L
+    private const val ANDROID_AUTO_STEERING_MEDIA_FOCUS_KEEPALIVE_ENABLED = false
+    private const val ANDROID_AUTO_NATIVE_PANEL_FOCUS_PULSE_ENABLED = false
     private const val ANDROID_AUTO_STEERING_MEDIA_FOCUS_KEEPALIVE_START_DELAY_MS = 3_000L
-    private const val ANDROID_AUTO_STEERING_MEDIA_FOCUS_KEEPALIVE_INTERVAL_MS = 9_000L
+    private const val ANDROID_AUTO_STEERING_MEDIA_FOCUS_KEEPALIVE_INTERVAL_MS = 3_000L
+    private const val ANDROID_AUTO_STEERING_PLAYBACK_RECONCILE_FIRST_DELAY_MS = 900L
+    private const val ANDROID_AUTO_STEERING_PLAYBACK_RECONCILE_SECOND_DELAY_MS = 2_400L
+    private const val ANDROID_AUTO_STEERING_SKIP_FALLBACK_DELAY_MS = 900L
+    private const val ANDROID_AUTO_TOGGLE_FOCUS_HOLD_MS = 4_000L
+    private const val ANDROID_AUTO_DCM_ACTIVE_EVIDENCE_CACHE_MS = 180_000L
+    private const val ANDROID_AUTO_WIRELESS_CLUSTER_RESTORE_ATTEMPTS = 4
+    private const val ANDROID_AUTO_WIRELESS_CLUSTER_RESTORE_INTERVAL_MS = 2_500L
+    private const val ANDROID_AUTO_SURFACE_PROBE_COOLDOWN_MS = 1_200L
+    private const val ANDROID_AUTO_SURFACE_VISUAL_RESTART_COOLDOWN_MS = 5_000L
     private const val ANDROID_AUTO_USB_DISCONNECT_CLEANUP_COOLDOWN_MS = 10_000L
+    private const val ANDROID_AUTO_STALE_VISUAL_STACK_CLEANUP_GRACE_MS = 30_000L
     private const val ANDROID_AUTO_OEM_INPUT_ECHO_BLOCK_MS = 2_500L
+    private const val ANDROID_AUTO_NATIVE_RADIO_FOCUS_BLOCK_LOG_INTERVAL_MS = 3_000L
+    private const val ANDROID_AUTO_VISUAL_PROJECTION_EVIDENCE_LOG_INTERVAL_MS = 3_000L
     private const val ANDROID_AUTO_CLUSTER_MEDIA_COMMAND_PREVIOUS = 1
     private const val ANDROID_AUTO_CLUSTER_MEDIA_COMMAND_NEXT = 2
     private const val ANDROID_AUTO_AAP_HARDKEY_MEDIA_PLAY_PAUSE = 6
@@ -162,10 +198,114 @@ object DisplayAppLauncher {
     private const val ANDROID_AUTO_MUSIC_STATUS_NOT_START = 0
     private const val ANDROID_AUTO_MUSIC_STATUS_PLAYING = 1
     private const val ANDROID_AUTO_MUSIC_STATUS_PAUSED = 2
+    private const val NATIVE_RADIO_PLAY_STATE_PLAYING = "1"
     private enum class AndroidAutoMediaKeySource {
         STEERING_INPUT,
         CLUSTER_CALLBACK
     }
+
+    internal data class AndroidAutoHardKeyPolicyMediaRequest(
+        val keyCode: Int,
+        val targetDisplayId: Int?
+    )
+
+    private data class AndroidAutoDeviceMirrorDeviceParcel(
+        val currentMode: Int,
+        val status: Int,
+        val usbDevice: UsbDevice?,
+        val linkType: Int,
+        val bluetoothDevice: BluetoothDevice?,
+        val deviceId: String?,
+        val supportMode: Int,
+        val connMode: Int,
+        val errorCode: Int,
+        val batteryVol: Int,
+        val portNo: Int,
+        val availableCapability: Int,
+        val usbSerialNumber: String?,
+        val usbMode: Int,
+        val btAddr: String?,
+        val wifiAddr: String?,
+        val usbHidNode: String?,
+        val usbNcmNode: String?,
+        val deviceType: Int
+    ) {
+        fun writeToParcel(dest: Parcel) {
+            dest.writeInt(currentMode)
+            dest.writeInt(status)
+            dest.writeParcelable(usbDevice, 0)
+            dest.writeInt(linkType)
+            dest.writeParcelable(bluetoothDevice, 0)
+            dest.writeString(deviceId)
+            dest.writeInt(supportMode)
+            dest.writeInt(connMode)
+            dest.writeInt(errorCode)
+            dest.writeInt(batteryVol)
+            dest.writeInt(portNo)
+            dest.writeInt(availableCapability)
+            dest.writeString(usbSerialNumber)
+            dest.writeInt(usbMode)
+            dest.writeString(btAddr)
+            dest.writeString(wifiAddr)
+            dest.writeString(usbHidNode)
+            dest.writeString(usbNcmNode)
+            dest.writeInt(deviceType)
+        }
+
+        fun summary(): String {
+            val btAddress = bluetoothDevice?.address ?: btAddr
+            val usbName = usbDevice?.deviceName ?: usbSerialNumber
+            return "Device(mode=$currentMode status=${describeStatus(status)} " +
+                "linkType=$linkType connMode=$connMode id=$deviceId bt=$btAddress usb=$usbName " +
+                "wifi=$wifiAddr port=$portNo capability=$availableCapability error=$errorCode)"
+        }
+
+        companion object {
+            private fun describeStatus(status: Int): String {
+                return when (status) {
+                    -1 -> "NO_DEVICE_OR_POWER(-1)"
+                    0 -> "INIT(0)"
+                    1 -> "AVAILABLE(1)"
+                    2 -> "ACTIVATING(2)"
+                    3 -> "ACTIVATED(3)"
+                    4 -> "DEACTIVATING(4)"
+                    5 -> "DEACTIVATED(5)"
+                    6 -> "CONNECT_FAILED(6)"
+                    7 -> "SHOW_VIDEO(7)"
+                    8 -> "AAP_FRX(8)"
+                    9 -> "AAP_USERSWITCH(9)"
+                    10 -> "CONNECT_ERROR(10)"
+                    else -> "UNKNOWN($status)"
+                }
+            }
+
+            @Suppress("DEPRECATION")
+            fun readFromParcel(source: Parcel): AndroidAutoDeviceMirrorDeviceParcel {
+                return AndroidAutoDeviceMirrorDeviceParcel(
+                    currentMode = source.readInt(),
+                    status = source.readInt(),
+                    usbDevice = source.readParcelable(UsbDevice::class.java.classLoader) as? UsbDevice,
+                    linkType = source.readInt(),
+                    bluetoothDevice = source.readParcelable(BluetoothDevice::class.java.classLoader) as? BluetoothDevice,
+                    deviceId = source.readString(),
+                    supportMode = source.readInt(),
+                    connMode = source.readInt(),
+                    errorCode = source.readInt(),
+                    batteryVol = source.readInt(),
+                    portNo = source.readInt(),
+                    availableCapability = source.readInt(),
+                    usbSerialNumber = source.readString(),
+                    usbMode = source.readInt(),
+                    btAddr = source.readString(),
+                    wifiAddr = source.readString(),
+                    usbHidNode = source.readString(),
+                    usbNcmNode = source.readString(),
+                    deviceType = source.readInt()
+                )
+            }
+        }
+    }
+
     private const val CARPLAY_PACKAGE = "com.ts.carplay.app"
     private const val CARPLAY_ACTIVITY = "com.ts.carplay.app.ui.display.view.CarPlayDisplayActivity"
     private const val CARPLAY_HOST_PROCESS = "com.ts.carplay"
@@ -214,6 +354,11 @@ object DisplayAppLauncher {
 
     private val gson = Gson()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private fun logPersistentEvent(event: String, details: Map<String, Any?> = emptyMap()) {
+        ClusterPersistentEventLogger.log(event, details)
+    }
+
     @Volatile private var lastCarPlayClusterGuardAt = 0L
     @Volatile private var lastCarPlayWindowFocusGuardAt = 0L
     @Volatile private var carPlayClusterWatchdogStarted = false
@@ -237,20 +382,40 @@ object DisplayAppLauncher {
     @Volatile private var lastCarPlayClusterHandoffAt = 0L
     @Volatile private var lastAndroidAutoClusterGuardAt = 0L
     @Volatile private var lastAndroidAutoWindowFocusGuardAt = 0L
+    @Volatile private var lastAndroidAutoWindowFocusGuardPackage = ""
+    @Volatile private var lastAndroidAutoWindowFocusGuardAction: ExistingClusterAndroidAutoAction? = null
     @Volatile private var lastAndroidAutoMediaKeyAt = 0L
     @Volatile private var lastAndroidAutoMediaKeyCode = 0
+    @Volatile private var lastAndroidAutoSteeringInputKeyAt = 0L
+    @Volatile private var lastAndroidAutoSteeringInputKeyCode = 0
+    @Volatile private var lastAndroidAutoSteeringInputAction = -1
     @Volatile private var lastAndroidAutoPostNativePanelFocusAt = 0L
     @Volatile private var lastAndroidAutoNativePanelActiveFocusAt = 0L
     @Volatile private var lastAndroidAutoUsbDisconnectCleanupAt = 0L
+    @Volatile private var lastAndroidAutoSurfaceProbeAt = 0L
+    @Volatile private var lastAndroidAutoSurfaceVisualRestartAt = 0L
+    @Volatile private var androidAutoStaleVisualStackFirstSeenAt = 0L
+    @Volatile private var lastAndroidAutoNativeRadioFocusBlockLogAt = 0L
+    @Volatile private var lastAndroidAutoVisualProjectionEvidenceLogAt = 0L
     @Volatile private var androidAutoSteeringMediaFocusKeepAliveStarted = false
     @Volatile private var androidAutoOemInputEchoKeyCode = 0
     @Volatile private var androidAutoOemInputEchoBlockUntil = 0L
     @Volatile private var lastAndroidAutoAccessibilityToggleKeyCode = 0
     @Volatile private var lastAndroidAutoAccessibilityToggleKeyAt = 0L
     @Volatile private var blockedAndroidAutoAccessibilityToggleKeyCode = 0
+    @Volatile private var cachedAndroidAutoAudioPlaybackEvidence = false
+    @Volatile private var cachedAndroidAutoAudioPlaybackEvidenceAtMs = 0L
+    @Volatile private var cachedAndroidAutoMediaControlActive = false
+    @Volatile private var cachedAndroidAutoMediaControlActiveAtMs = 0L
+    @Volatile private var lastAndroidAutoDcmProjectionActiveAtMs = 0L
+    private val androidAutoSteeringPlaybackReconcileGeneration = AtomicInteger(0)
+    private val androidAutoSteeringSkipFallbackGeneration = AtomicInteger(0)
+    private val androidAutoSteeringInputDedupLock = Any()
     private val androidAutoLinkCommandLock = Any()
     @Volatile private var androidAutoLinkCommandBinder: IBinder? = null
     @Volatile private var androidAutoLinkCommandBindingStarted = false
+    @Volatile private var androidAutoLinkCommandBindRequestedAtMs = 0L
+    @Volatile private var lastAndroidAutoLinkCommandReconnectAtMs = 0L
     private val carPlayServiceLock = Any()
     @Volatile private var carPlayServiceBinder: IBinder? = null
     @Volatile private var carPlayServiceBindingStarted = false
@@ -260,6 +425,7 @@ object DisplayAppLauncher {
             synchronized(androidAutoLinkCommandLock) {
                 androidAutoLinkCommandBinder = service
                 androidAutoLinkCommandBindingStarted = true
+                androidAutoLinkCommandBindRequestedAtMs = 0L
             }
             Log.w(TAG, "[ANDROID_AUTO_LINK_COMMAND_BIND] Connected to $name")
             scope.launch {
@@ -271,6 +437,7 @@ object DisplayAppLauncher {
             synchronized(androidAutoLinkCommandLock) {
                 androidAutoLinkCommandBinder = null
                 androidAutoLinkCommandBindingStarted = false
+                androidAutoLinkCommandBindRequestedAtMs = 0L
             }
             Log.w(TAG, "[ANDROID_AUTO_LINK_COMMAND_BIND] Disconnected from $name")
         }
@@ -315,6 +482,7 @@ object DisplayAppLauncher {
 
     private enum class ExistingClusterAndroidAutoAction {
         FULLSCREEN_AND_FOCUS,
+        VIDEO_FOCUS_ONLY,
         VERIFY_ONLY
     }
 
@@ -389,8 +557,206 @@ object DisplayAppLauncher {
                 normalized.contains("gearhead")
     }
 
+    private fun readNativeRadioPlayState(reason: String): String? {
+        return try {
+            ServiceManager.getInstance().getUpdatedData(CarConstants.SYS_RADIO_PLAY_STATE.value)
+        } catch (e: Exception) {
+            Log.w(TAG, "[$reason] Unable to read native radio play state", e)
+            null
+        }
+    }
+
+    private fun readNativeAudioSourceApp(reason: String): String? {
+        return try {
+            ServiceManager.getInstance().getUpdatedData(CarConstants.SYS_BASIC_AUDIO_SOURCE_APP.value)
+        } catch (e: Exception) {
+            Log.w(TAG, "[$reason] Unable to read native audio source app", e)
+            null
+        }
+    }
+
+    fun shouldDeferAndroidAutoMediaControlToNativeMedia(reason: String): Boolean {
+        if (BottomBarService.isNativeAndroidAutoMediaCenterRouteActive()) {
+            return false
+        }
+
+        val radioPlayState = readNativeRadioPlayState(reason)
+        val audioSourceApp = readNativeAudioSourceApp(reason)
+        if (!shouldDeferAndroidAutoMediaControlToNativeMediaForTest(
+                radioPlayState = radioPlayState,
+                audioSourceApp = audioSourceApp
+            )
+        ) {
+            return false
+        }
+        Log.w(
+            TAG,
+            "[$reason] Deferring Android Auto media control because native radio is playing " +
+                    "radioPlayState=$radioPlayState audioSourceApp=$audioSourceApp"
+        )
+        return true
+    }
+
+    fun hasActiveAndroidAutoAudioPlaybackForMedia(
+        reason: String,
+        forceRefresh: Boolean = false
+    ): Boolean {
+        if (shouldBlockAndroidAutoProjectionActivationForNativeRadio("${reason}_NATIVE_RADIO_GUARD")) {
+            return false
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        val cachedAt = cachedAndroidAutoAudioPlaybackEvidenceAtMs
+        if (
+            !forceRefresh &&
+            cachedAt > 0L &&
+                now - cachedAt in 0..ANDROID_AUTO_AUDIO_PLAYBACK_EVIDENCE_CACHE_MS
+        ) {
+            return cachedAndroidAutoAudioPlaybackEvidence
+        }
+
+        val dump =
+            if (ShizukuUtils.isShizukuAvailable()) {
+                ShizukuUtils.runCommandAndGetOutput(
+                    arrayOf(
+                        "sh",
+                        "-c",
+                        "dumpsys audio 2>/dev/null | grep -i 'USAGE_AAUTO_MEDIA' || true"
+                    )
+                )
+            } else {
+                ""
+            }
+        val active = hasActiveAndroidAutoAudioPlaybackInDump(dump)
+        cachedAndroidAutoAudioPlaybackEvidence = active
+        cachedAndroidAutoAudioPlaybackEvidenceAtMs = now
+        if (active) {
+            Log.w(
+                TAG,
+                "[$reason] Treating Android Auto audio playback as active media-session evidence"
+            )
+        }
+        return active
+    }
+
+    private fun hasActiveAndroidAutoAudioPlaybackInDump(audioDump: String): Boolean {
+        return audioDump
+            .lineSequence()
+            .any { line ->
+                line.contains("USAGE_AAUTO_MEDIA", ignoreCase = true) &&
+                    ANDROID_AUTO_AUDIO_STARTED_STATE_PATTERN.matcher(line).find()
+            }
+    }
+
+    private fun shouldBlockAndroidAutoProjectionActivationForNativeRadio(reason: String): Boolean {
+        if (BottomBarService.isNativeAndroidAutoMediaCenterRouteActive()) {
+            return false
+        }
+
+        val radioPlayState = readNativeRadioPlayState(reason)
+        val audioSourceApp = readNativeAudioSourceApp(reason)
+        val shouldBlock =
+            shouldDeferAndroidAutoMediaControlToNativeMediaForTest(
+                radioPlayState = radioPlayState,
+                audioSourceApp = audioSourceApp
+            )
+        if (!shouldBlock) return false
+
+        val now = System.currentTimeMillis()
+        if (now - lastAndroidAutoNativeRadioFocusBlockLogAt > ANDROID_AUTO_NATIVE_RADIO_FOCUS_BLOCK_LOG_INTERVAL_MS) {
+            lastAndroidAutoNativeRadioFocusBlockLogAt = now
+            Log.w(
+                TAG,
+                "[$reason] Skipping Android Auto projection/media activation because native radio is active " +
+                    "radioPlayState=$radioPlayState audioSourceApp=$audioSourceApp"
+            )
+        }
+        return true
+    }
+
+    internal fun shouldDeferAndroidAutoMediaControlToNativeMediaForTest(
+        radioPlayState: String?
+    ): Boolean {
+        return shouldDeferAndroidAutoMediaControlToNativeMediaForTest(
+            radioPlayState = radioPlayState,
+            audioSourceApp = null
+        )
+    }
+
+    internal fun shouldDeferAndroidAutoMediaControlToNativeMediaForTest(
+        radioPlayState: String?,
+        audioSourceApp: String?
+    ): Boolean {
+        if (radioPlayState?.trim() == NATIVE_RADIO_PLAY_STATE_PLAYING) return true
+
+        val normalizedSource = audioSourceApp?.trim()?.lowercase().orEmpty()
+        if (normalizedSource.isEmpty()) return false
+        if (isAndroidAutoLikePackage(normalizedSource) || isCarPlayLikePackage(normalizedSource)) return false
+
+        return normalizedSource.contains("radio")
+    }
+
     fun isProjectionMirrorPackage(packageName: String): Boolean {
         return isCarPlayLikePackage(packageName) || isAndroidAutoLikePackage(packageName)
+    }
+
+    internal fun shouldRestoreAndroidAutoClusterAfterProjectionWindowChangeForTest(
+        packageName: String,
+        desiredOnCluster: Boolean,
+        androidAutoOnCluster: Boolean,
+        androidAutoCurrentDisplayId: Int?
+    ): Boolean {
+        if (!isAndroidAutoLikePackage(packageName)) return false
+        if (!desiredOnCluster) return false
+        if (androidAutoOnCluster) return false
+        return androidAutoCurrentDisplayId != null && androidAutoCurrentDisplayId != 3
+    }
+
+    internal fun shouldRemoveStaleAndroidAutoVisualStacksForTest(
+        usbConfigured: Boolean,
+        androidAutoLinkActive: Boolean,
+        hasAndroidAutoTasks: Boolean,
+        desiredOnCluster: Boolean,
+        nativeMediaCenterActive: Boolean,
+        firstSeenAtMs: Long,
+        nowMs: Long,
+        graceMs: Long = ANDROID_AUTO_STALE_VISUAL_STACK_CLEANUP_GRACE_MS
+    ): Boolean {
+        if (usbConfigured) return false
+        if (androidAutoLinkActive) return false
+        if (!hasAndroidAutoTasks) return false
+        if (desiredOnCluster) return false
+        if (nativeMediaCenterActive) return false
+        if (firstSeenAtMs <= 0L) return false
+        return nowMs - firstSeenAtMs >= graceMs
+    }
+
+    internal fun shouldTreatAndroidAutoVisualTaskAsActiveProjectionForTest(
+        visualOnDisplay: Boolean,
+        topPackageOnDisplay: Boolean,
+        nativeMediaCenterActive: Boolean,
+        audioPlaybackActive: Boolean
+    ): Boolean {
+        if (!visualOnDisplay) return false
+        return topPackageOnDisplay || nativeMediaCenterActive || audioPlaybackActive
+    }
+
+    internal fun isAndroidAutoClusterPreservationEligibleForState(
+        activeProjectionPackage: String?,
+        desiredOnCluster: Boolean
+    ): Boolean {
+        if (activeProjectionPackage == CARPLAY_PACKAGE) return false
+        return activeProjectionPackage == ANDROID_AUTO_PACKAGE && desiredOnCluster
+    }
+
+    internal fun resolveAndroidAutoMediaCommandDisplayIdForState(
+        androidAutoOnCluster: Boolean,
+        androidAutoOnMain: Boolean,
+        desiredDisplayId: Int
+    ): Int {
+        if (androidAutoOnCluster) return 3
+        if (androidAutoOnMain) return 0
+        return if (desiredDisplayId == 0 || desiredDisplayId == 3) desiredDisplayId else 0
     }
 
     private fun rememberCarPlayDisplayTarget(displayId: Int, reason: String) {
@@ -399,6 +765,10 @@ object DisplayAppLauncher {
             .apply()
         syncCarPlayDesiredDisplayProperty(displayId, reason)
         Log.w(TAG, "[$reason] Desired CarPlay display set to $displayId")
+        logPersistentEvent(
+            "carplay_desired_display",
+            mapOf("displayId" to displayId, "reason" to reason)
+        )
     }
 
     internal fun rememberCarPlayDisplayTargetForOrchestrator(displayId: Int, reason: String) {
@@ -409,6 +779,10 @@ object DisplayAppLauncher {
         if (displayId != 0 && displayId != 3) return
         sh("setprop persist.haval.carplay.desired_display $displayId")
         Log.w(TAG, "[$reason] Desired CarPlay display property set to $displayId")
+        logPersistentEvent(
+            "carplay_desired_display_property",
+            mapOf("displayId" to displayId, "reason" to reason)
+        )
     }
 
     private fun currentBootToken(): String {
@@ -444,7 +818,19 @@ object DisplayAppLauncher {
 
     fun isAndroidAutoOnDisplay(displayId: Int): Boolean {
         if (!hasAndroidAutoVisualOnDisplay(displayId)) return false
-        return isAndroidAutoProjectionSessionReady("IS_ANDROID_AUTO_ON_DISPLAY_$displayId")
+        return isAndroidAutoProjectionSessionReadyForDisplay(
+            displayId = displayId,
+            reason = "IS_ANDROID_AUTO_ON_DISPLAY_$displayId"
+        )
+    }
+
+    fun hasAndroidAutoVisualTaskForMedia(): Boolean {
+        if (shouldBlockAndroidAutoProjectionActivationForNativeRadio("AA_MEDIA_VISUAL_TASK_NATIVE_RADIO_GUARD")) {
+            return false
+        }
+        return findTaskMatching { packageName, _ ->
+            isAndroidAutoLikePackage(packageName)
+        } != null
     }
 
     fun isProjectionMirrorOnDisplay(displayId: Int): Boolean {
@@ -460,12 +846,18 @@ object DisplayAppLauncher {
         if (findTaskMatchingOnDisplay(displayId, ::isCarPlayLikePackage) != null) return CARPLAY_PACKAGE
 
         if (hasAndroidAutoVisualOnDisplay(displayId)) {
-            if (isAndroidAutoProjectionSessionReady("RESOLVE_ACTIVE_AA_DISPLAY_$displayId")) {
+            if (
+                isAndroidAutoProjectionSessionReadyForDisplay(
+                    displayId = displayId,
+                    reason = "RESOLVE_ACTIVE_AA_DISPLAY_$displayId"
+                )
+            ) {
                 return ANDROID_AUTO_PACKAGE
             }
             Log.w(
                 TAG,
-                "[RESOLVE_ACTIVE_AA_DISPLAY_$displayId] Ignoring stale Android Auto visual task; USB/link is not active"
+                "[RESOLVE_ACTIVE_AA_DISPLAY_$displayId] Ignoring stale Android Auto visual task; " +
+                        "USB/link is not active and no active visual/audio evidence was found"
             )
             return null
         }
@@ -474,12 +866,18 @@ object DisplayAppLauncher {
         return when {
             isCarPlayLikePackage(topPackage) -> CARPLAY_PACKAGE
             isAndroidAutoLikePackage(topPackage) -> {
-                if (isAndroidAutoProjectionSessionReady("RESOLVE_ACTIVE_AA_TOP_DISPLAY_$displayId")) {
+                if (
+                    isAndroidAutoProjectionSessionReadyForDisplay(
+                        displayId = displayId,
+                        reason = "RESOLVE_ACTIVE_AA_TOP_DISPLAY_$displayId"
+                    )
+                ) {
                     ANDROID_AUTO_PACKAGE
                 } else {
                     Log.w(
                         TAG,
-                        "[RESOLVE_ACTIVE_AA_TOP_DISPLAY_$displayId] Ignoring stale Android Auto top package; USB/link is not active"
+                        "[RESOLVE_ACTIVE_AA_TOP_DISPLAY_$displayId] Ignoring stale Android Auto top package; " +
+                                "USB/link is not active and no active visual/audio evidence was found"
                     )
                     null
                 }
@@ -496,9 +894,70 @@ object DisplayAppLauncher {
         return topPackage != null && isAndroidAutoLikePackage(topPackage)
     }
 
+    private fun hasAndroidAutoTopPackageOnDisplay(displayId: Int): Boolean {
+        val topPackage = getTopPackageOnDisplay(displayId) ?: return false
+        return isAndroidAutoLikePackage(topPackage)
+    }
+
+    private fun isAndroidAutoProjectionSessionReadyForDisplay(
+        displayId: Int,
+        reason: String
+    ): Boolean {
+        if (isAndroidAutoProjectionSessionReady(reason, logNotReady = false)) return true
+
+        val visualOnDisplay = hasAndroidAutoVisualOnDisplay(displayId)
+        if (!visualOnDisplay) return false
+
+        val topPackageOnDisplay = hasAndroidAutoTopPackageOnDisplay(displayId)
+        val nativeMediaCenterActive = BottomBarService.isNativeAndroidAutoMediaCenterRouteActive()
+        val audioPlaybackActive =
+            if (topPackageOnDisplay || nativeMediaCenterActive) {
+                false
+            } else {
+                hasActiveAndroidAutoAudioPlaybackForMedia("${reason}_AA_AUDIO")
+            }
+        val shouldTreatAsActive =
+            shouldTreatAndroidAutoVisualTaskAsActiveProjectionForTest(
+                visualOnDisplay = true,
+                topPackageOnDisplay = topPackageOnDisplay,
+                nativeMediaCenterActive = nativeMediaCenterActive,
+                audioPlaybackActive = audioPlaybackActive
+            )
+        if (!shouldTreatAsActive) return false
+
+        val now = System.currentTimeMillis()
+        if (now - lastAndroidAutoVisualProjectionEvidenceLogAt >
+                ANDROID_AUTO_VISUAL_PROJECTION_EVIDENCE_LOG_INTERVAL_MS
+        ) {
+            lastAndroidAutoVisualProjectionEvidenceLogAt = now
+            Log.w(
+                TAG,
+                "[$reason] Treating Android Auto visual task on display $displayId as active " +
+                        "projection evidence while USB/link status is unavailable " +
+                        "topPackage=$topPackageOnDisplay nativeMediaCenter=$nativeMediaCenterActive " +
+                        "audio=$audioPlaybackActive"
+            )
+        }
+        return true
+    }
+
     fun toggleActiveProjectionDisplayFromSteeringWheel(reason: String) {
         scope.launch {
             toggleActiveProjectionDisplay(reason)
+        }
+    }
+
+    fun requestAndroidAutoDisplayForDebug(displayId: Int, reason: String) {
+        if (!BuildConfig.DEBUG) return
+        if (displayId != 0 && displayId != 3) {
+            Log.w(TAG, "[$reason] Ignoring debug Android Auto display request: $displayId")
+            return
+        }
+        scope.launch {
+            startAndroidAutoOnDisplay(
+                getAndroidAutoConfigForDisplay(displayId),
+                reason
+            )
         }
     }
 
@@ -516,6 +975,17 @@ object DisplayAppLauncher {
             Log.w(
                 TAG,
                 "[$reason] No active/background/connected CarPlay or Android Auto found; skipping toggle"
+            )
+            return
+        }
+
+        if (
+            decision.packageName == ANDROID_AUTO_PACKAGE &&
+                !isAndroidAutoVisualProjectionReadyForToggle("${reason}_ANDROID_AUTO_TOGGLE_READY")
+        ) {
+            Log.w(
+                TAG,
+                "[$reason] Deferring Android Auto projection display toggle until projection is ready"
             )
             return
         }
@@ -654,6 +1124,69 @@ object DisplayAppLauncher {
         return status == 3 || status == 7 || status == 8
     }
 
+    private fun rememberAndroidAutoDcmProjectionActive() {
+        lastAndroidAutoDcmProjectionActiveAtMs = SystemClock.elapsedRealtime()
+    }
+
+    private fun hasRecentAndroidAutoDcmProjectionActiveEvidence(
+        nowMs: Long = SystemClock.elapsedRealtime()
+    ): Boolean {
+        return hasRecentAndroidAutoDcmProjectionActiveEvidenceForState(
+            lastActiveAtMs = lastAndroidAutoDcmProjectionActiveAtMs,
+            nowMs = nowMs,
+            cacheMs = ANDROID_AUTO_DCM_ACTIVE_EVIDENCE_CACHE_MS
+        )
+    }
+
+    private fun hasRecentAndroidAutoDcmProjectionActiveEvidenceForState(
+        lastActiveAtMs: Long,
+        nowMs: Long,
+        cacheMs: Long
+    ): Boolean {
+        val ageMs = nowMs - lastActiveAtMs
+        return lastActiveAtMs > 0L && ageMs >= 0L && ageMs <= cacheMs
+    }
+
+    private suspend fun isAndroidAutoVisualProjectionReadyForToggle(reason: String): Boolean {
+        if (androidAutoLinkCommandBinder?.isBinderAlive != true) {
+            ensureAndroidAutoLinkCommandBound("${reason}_BIND")
+            delay(ANDROID_AUTO_NATIVE_MEDIA_KEY_BIND_WAIT_MS)
+        }
+
+        val linkStatus = readAndroidAutoLinkStatusIfAlreadyBound("${reason}_LINK")
+        if (shouldAllowAndroidAutoVisualProjectionToggleForState(
+                linkStatus = linkStatus,
+                dcmProjectionActive = false
+            )
+        ) {
+            return true
+        }
+
+        val dcmDevices = AndroidAutoDcmRecovery.readDeviceSnapshots(App.getContext())
+        val dcmProjectionActive = dcmDevices.any { it.hasActiveAndroidAutoProjection() }
+        if (dcmProjectionActive) rememberAndroidAutoDcmProjectionActive()
+        val allowed = shouldAllowAndroidAutoVisualProjectionToggleForState(
+            linkStatus = linkStatus,
+            dcmProjectionActive = dcmProjectionActive
+        )
+        if (!allowed) {
+            Log.w(
+                TAG,
+                "[$reason] Android Auto projection is not ready for visual toggle " +
+                        "linkStatus=${describeAndroidAutoLinkStatus(linkStatus)} " +
+                        "dcmDevices=${dcmDevices.joinToString(prefix = "[", postfix = "]")}"
+            )
+        }
+        return allowed
+    }
+
+    private fun shouldAllowAndroidAutoVisualProjectionToggleForState(
+        linkStatus: Int?,
+        dcmProjectionActive: Boolean
+    ): Boolean {
+        return isAndroidAutoLinkActiveForToggle(linkStatus) || dcmProjectionActive
+    }
+
     private fun isCarPlayProjectionProcessAlive(): Boolean {
         val hostPid = sh("pidof $CARPLAY_HOST_PROCESS 2>/dev/null || true").trim()
         val appPid = sh("pidof $CARPLAY_PACKAGE 2>/dev/null || true").trim()
@@ -694,6 +1227,28 @@ object DisplayAppLauncher {
         return isAndroidAutoLinkActiveForToggle(status)
     }
 
+    internal fun shouldAllowAndroidAutoVisualProjectionToggleForTest(
+        linkStatus: Int?,
+        dcmProjectionActive: Boolean
+    ): Boolean {
+        return shouldAllowAndroidAutoVisualProjectionToggleForState(
+            linkStatus = linkStatus,
+            dcmProjectionActive = dcmProjectionActive
+        )
+    }
+
+    internal fun hasRecentAndroidAutoDcmProjectionActiveEvidenceForTest(
+        lastActiveAtMs: Long,
+        nowMs: Long,
+        cacheMs: Long = ANDROID_AUTO_DCM_ACTIVE_EVIDENCE_CACHE_MS
+    ): Boolean {
+        return hasRecentAndroidAutoDcmProjectionActiveEvidenceForState(
+            lastActiveAtMs = lastActiveAtMs,
+            nowMs = nowMs,
+            cacheMs = cacheMs
+        )
+    }
+
     private fun getAndroidAutoConfigForDisplay(
         displayId: Int,
         source: DisplayAppConfig? = null
@@ -715,15 +1270,248 @@ object DisplayAppLauncher {
 
     private fun configureAndroidAutoProjection(reason: String) {
         Log.w(TAG, "[$reason] Preparing Android Auto projection services")
-        sh("am startservice -n $ANDROID_AUTO_SERVICE")
-        sh("am startservice -n $ANDROID_AUTO_REMOTE_SERVICE")
+        sh("am startservice --user 0 -a $ANDROID_AUTO_LINK_SERVICE_ACTION -n $ANDROID_AUTO_SERVICE")
+        sh("am startservice --user 0 -a com.ts.androidauto.action.AndroidAutoRemoteUiService -n $ANDROID_AUTO_REMOTE_SERVICE")
         ensureAndroidAutoLinkCommandBound("${reason}_LINK_COMMAND")
     }
 
     private fun sendAndroidAutoFocus(displayId: Int, reason: String) {
+        if (shouldBlockAndroidAutoProjectionActivationForNativeRadio("${reason}_NATIVE_RADIO_GUARD")) {
+            sh("am broadcast -a ts.car.androidauto.view_state --es state foreground --ei displayId $displayId")
+            return
+        }
         Log.w(TAG, "[$reason] Sending Android Auto video focus for display $displayId")
         sh("am broadcast -a ts.car.androidauto.view_state --es state foreground --ei displayId $displayId")
         sh("am broadcast -a com.ts.androidauto.action.AndroidAutoService --es \"command\" \"requestVideoFocus\" --ei \"displayId\" $displayId")
+    }
+
+    internal fun shouldRequestAndroidAutoMediaCommandVideoFocusForPlaybackTarget(
+        targetPlaying: Boolean
+    ): Boolean {
+        return true
+    }
+
+    internal fun shouldRequestAndroidAutoMediaCommandVideoFocusForPlaybackTargetForTest(
+        targetPlaying: Boolean
+    ): Boolean {
+        return shouldRequestAndroidAutoMediaCommandVideoFocusForPlaybackTarget(targetPlaying)
+    }
+
+    private fun sendAndroidAutoMediaCommandFocus(
+        displayId: Int,
+        reason: String,
+        requestVideoFocus: Boolean = true
+    ) {
+        Log.w(
+            TAG,
+            "[$reason] Sending Android Auto media command focus for display $displayId " +
+                    "requestVideoFocus=$requestVideoFocus"
+        )
+        sh("am broadcast -a ts.car.androidauto.view_state --es state foreground --ei displayId $displayId")
+        if (!requestVideoFocus) {
+            Log.w(
+                TAG,
+                "[$reason] Android Auto requestVideoFocus suppressed for pause-target media command"
+            )
+            return
+        }
+        sh("am broadcast -a com.ts.androidauto.action.AndroidAutoService --es \"command\" \"requestVideoFocus\" --ei \"displayId\" $displayId")
+    }
+
+    private fun sendAndroidAutoVehicleInfoForMediaCommand(reason: String): Boolean {
+        val vehicleInfo = createAndroidAutoMediaCommandVehicleInfo()
+        val sent =
+            transactAndroidAutoLinkCommand(
+                ANDROID_AUTO_LINK_COMMAND_SEND_VEHICLE_INFO_TRANSACTION,
+                "${reason}_VEHICLE_INFO"
+            ) { data ->
+                data.writeInt(1)
+                vehicleInfo.writeToParcel(data, 0)
+            }
+        Log.w(
+            TAG,
+            "[$reason] Android Auto vehicle info refresh requested for media keys sent=$sent"
+        )
+        return sent
+    }
+
+    private fun createAndroidAutoMediaCommandVehicleInfo(): IfVehicleInfo {
+        return IfVehicleInfo().apply {
+            mTouchScreenWidth = 1920
+            mTouchScreenHeight = 720
+            mAapTouchPointOffsetX = 0
+            mAapTouchPointOffsetY = 0
+            mViewingDistance = 800
+            mVehicleMaker = "HAVAL"
+            mVehicleModel = "HAVAL"
+            mVehicleYear = "2024"
+            mVehicleId = "HAVAL"
+            mVehicleDriverPosition = VehicleConst.AapVehicleDrivePosition.AAP_DRIVE_LEFT
+            mHeadUnitMaker = "HAVAL"
+            mHeadUnitModel = "HAVAL"
+            mHeadUnitSwBuild = BuildConfig.VERSION_NAME
+            mHeadUnitSwVer = BuildConfig.VERSION_NAME
+            mDisplayName = "HAVAL"
+            mAoaSerialNumber = "HAVAL"
+            mVehicleFuelTypeList = emptyArray()
+            mVehicleEvConnectorTypeList = emptyArray()
+            mSupportHardKeyList =
+                arrayOf(
+                    VehicleConst.AapHardkeyEvent.AAP_KEYCODE_SEARCH,
+                    VehicleConst.AapHardkeyEvent.AAP_KEYCODE_MEDIA_PREVIOUS,
+                    VehicleConst.AapHardkeyEvent.AAP_KEYCODE_MEDIA_NEXT,
+                    VehicleConst.AapHardkeyEvent.AAP_KEYCODE_MEDIA_PLAY_PAUSE,
+                    VehicleConst.AapHardkeyEvent.AAP_KEYCODE_MEDIA_PLAY,
+                    VehicleConst.AapHardkeyEvent.AAP_KEYCODE_MEDIA_PAUSE,
+                    VehicleConst.AapHardkeyEvent.AAP_KEYCODE_TEL
+                )
+            mIsTruck = false
+            mIsSupportWireless = true
+            mIsSupportDisplayNaviDataUpdate = true
+            mIsNeedShowProjectionOnPhoneCall = true
+            initAndroidAutoVideoConfig(
+                config = mAapVideoConfig480p,
+                displayWidth = 1200,
+                displayHeight = 720,
+                resolutionWidth = 800,
+                resolutionHeight = 480,
+                reportDpi = 142,
+                realDpi = 132,
+                surfaceWidth = 1200,
+                surfaceHeight = 720,
+                surfaceScrollX = 0,
+                surfaceScrollY = 0
+            )
+            initAndroidAutoVideoConfig(
+                config = mAapVideoConfig720p,
+                displayWidth = 1920,
+                displayHeight = 720,
+                resolutionWidth = 1280,
+                resolutionHeight = 480,
+                reportDpi = 142,
+                realDpi = 132,
+                surfaceWidth = 1920,
+                surfaceHeight = 1080,
+                surfaceScrollX = 0,
+                surfaceScrollY = 180
+            )
+            initAndroidAutoVideoConfig(
+                config = mAapVideoConfig1080p,
+                displayWidth = 1920,
+                displayHeight = 720,
+                resolutionWidth = 1920,
+                resolutionHeight = 720,
+                reportDpi = 160,
+                realDpi = 160,
+                surfaceWidth = 1920,
+                surfaceHeight = 1080,
+                surfaceScrollX = 0,
+                surfaceScrollY = 180
+            )
+        }
+    }
+
+    private fun initAndroidAutoVideoConfig(
+        config: IfVehicleInfo.AapVideoConfig,
+        displayWidth: Int,
+        displayHeight: Int,
+        resolutionWidth: Int,
+        resolutionHeight: Int,
+        reportDpi: Int,
+        realDpi: Int,
+        surfaceWidth: Int,
+        surfaceHeight: Int,
+        surfaceScrollX: Int,
+        surfaceScrollY: Int
+    ) {
+        config.mAapDisplayAreaWidth = displayWidth
+        config.mAapDisplayAreaHeight = displayHeight
+        config.mAapDisplayAreaMarginLeft = 0
+        config.mAapDisplayAreaMarginTop = 0
+        config.mAapResolutionWidth = resolutionWidth
+        config.mAapResolutionHeight = resolutionHeight
+        config.mAapResolutionReportDpi = reportDpi
+        config.mAapResolutionRealDpi = realDpi
+        config.mAapResolutionPixelAspect = 1.0f
+        config.mAapSurfaceViewWidth = surfaceWidth
+        config.mAapSurfaceViewHeight = surfaceHeight
+        config.mAapSurfaceViewScrollX = surfaceScrollX
+        config.mAapSurfaceViewScrollY = surfaceScrollY
+    }
+
+    private fun resolveAndroidAutoMediaCommandDisplayId(): Int {
+        return resolveAndroidAutoMediaCommandDisplayIdForState(
+            androidAutoOnCluster = hasAndroidAutoVisualOnDisplay(3),
+            androidAutoOnMain = hasAndroidAutoVisualOnDisplay(0),
+            desiredDisplayId = getPrefs().getInt(PREF_DESIRED_ANDROID_AUTO_DISPLAY_ID, -1)
+        )
+    }
+
+    suspend fun prepareAndroidAutoMediaCommandTarget(
+        reason: String,
+        displayId: Int? = null,
+        requestVideoFocus: Boolean = true
+    ): Boolean {
+        if (shouldDeferAndroidAutoMediaControlToNativeMedia("${reason}_NATIVE_GUARD")) {
+            return false
+        }
+
+        val targetDisplayId = displayId ?: resolveAndroidAutoMediaCommandDisplayId()
+        val activeProjection = resolveActiveProjectionPackageForDisplay(targetDisplayId)
+        if (activeProjection == CARPLAY_PACKAGE) {
+            Log.w(
+                TAG,
+                "[$reason] Skipping Android Auto media command focus because CarPlay is active " +
+                        "on display $targetDisplayId"
+            )
+            return false
+        }
+
+        val visualOnTarget = hasAndroidAutoVisualOnDisplay(targetDisplayId)
+        val mediaSessionReady = isAndroidAutoProjectionSessionReadyForMedia("${reason}_READY")
+        val nativeMediaCenterActive = BottomBarService.isNativeAndroidAutoMediaCenterRouteActive()
+        if (!visualOnTarget && !mediaSessionReady && !nativeMediaCenterActive) {
+            Log.w(
+                TAG,
+                "[$reason] Skipping Android Auto media command preparation; no visual task " +
+                        "or media-session evidence targetDisplay=$targetDisplayId"
+            )
+            return false
+        }
+
+        if (androidAutoLinkCommandBinder?.isBinderAlive != true) {
+            ensureAndroidAutoLinkCommandBound("${reason}_BIND")
+            delay(ANDROID_AUTO_NATIVE_MEDIA_KEY_BIND_WAIT_MS)
+        }
+        if (androidAutoLinkCommandBinder?.isBinderAlive != true) {
+            configureAndroidAutoProjection("${reason}_SERVICES")
+            delay(ANDROID_AUTO_NATIVE_MEDIA_KEY_BIND_WAIT_MS)
+        } else {
+            Log.w(TAG, "[$reason] Android Auto LinkCommand already bound; skipping service start")
+        }
+
+        if (androidAutoLinkCommandBinder?.isBinderAlive == true) {
+            recoverAndroidAutoLinkDeviceForMediaCommand(reason)
+        }
+
+        Log.w(
+            TAG,
+            "[$reason] Skipping Android Auto vehicle info refresh before media command"
+        )
+        sendAndroidAutoMediaCommandFocus(
+            displayId = targetDisplayId,
+            reason = reason,
+            requestVideoFocus = requestVideoFocus
+        )
+        delay(ANDROID_AUTO_MEDIA_COMMAND_FOCUS_SETTLE_MS)
+        return true
+    }
+
+    fun shouldPreferAndroidAutoAapMediaKeyRouteForCommand(reason: String): Boolean {
+        return shouldPreferAndroidAutoAapMediaKeyRouteForCommandForTest(
+            linkActive = isAndroidAutoProjectionLinkActiveIfAlreadyBoundForMedia("${reason}_LINK"),
+            mediaSessionReady = isAndroidAutoProjectionSessionReadyForMedia("${reason}_READY")
+        )
     }
 
     private fun ensureAndroidAutoLinkCommandBound(reason: String): Boolean {
@@ -736,8 +1524,20 @@ object DisplayAppLauncher {
             if (lockedBinder != null && !lockedBinder.isBinderAlive) {
                 androidAutoLinkCommandBinder = null
                 androidAutoLinkCommandBindingStarted = false
+                androidAutoLinkCommandBindRequestedAtMs = 0L
             }
-            if (androidAutoLinkCommandBindingStarted) return false
+            if (androidAutoLinkCommandBindingStarted) {
+                val now = SystemClock.elapsedRealtime()
+                val requestedAt = androidAutoLinkCommandBindRequestedAtMs
+                if (requestedAt <= 0L || now - requestedAt < ANDROID_AUTO_LINK_COMMAND_BIND_STALE_MS) {
+                    return false
+                }
+                Log.w(
+                    TAG,
+                    "[$reason] Android Auto LinkCommand bind stale without live binder; rebinding"
+                )
+                resetAndroidAutoLinkCommandBindingLocked()
+            }
 
             val intent = Intent(ANDROID_AUTO_LINK_SERVICE_ACTION).apply {
                 component = ComponentName(
@@ -753,6 +1553,12 @@ object DisplayAppLauncher {
                         androidAutoLinkCommandConnection,
                         Context.BIND_AUTO_CREATE
                     )
+                androidAutoLinkCommandBindRequestedAtMs =
+                    if (androidAutoLinkCommandBindingStarted) {
+                        SystemClock.elapsedRealtime()
+                    } else {
+                        0L
+                    }
                 Log.w(
                     TAG,
                     "[$reason] Android Auto LinkCommand bind requested: $androidAutoLinkCommandBindingStarted"
@@ -760,9 +1566,23 @@ object DisplayAppLauncher {
                 androidAutoLinkCommandBinder?.isBinderAlive == true
             } catch (e: Exception) {
                 androidAutoLinkCommandBindingStarted = false
+                androidAutoLinkCommandBindRequestedAtMs = 0L
                 Log.e(TAG, "[$reason] Failed to bind Android Auto LinkCommand service", e)
                 false
             }
+        }
+    }
+
+    private fun resetAndroidAutoLinkCommandBindingLocked() {
+        androidAutoLinkCommandBinder = null
+        androidAutoLinkCommandBindingStarted = false
+        androidAutoLinkCommandBindRequestedAtMs = 0L
+        try {
+            App.getContext().unbindService(androidAutoLinkCommandConnection)
+        } catch (_: IllegalArgumentException) {
+            // Binding may have failed before a connection was registered.
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to unbind stale Android Auto LinkCommand service", e)
         }
     }
 
@@ -918,6 +1738,7 @@ object DisplayAppLauncher {
             synchronized(androidAutoLinkCommandLock) {
                 androidAutoLinkCommandBinder = null
                 androidAutoLinkCommandBindingStarted = false
+                androidAutoLinkCommandBindRequestedAtMs = 0L
             }
             Log.e(TAG, "[$reason] Android Auto LinkCommand transact failed", e)
             false
@@ -953,6 +1774,7 @@ object DisplayAppLauncher {
             synchronized(androidAutoLinkCommandLock) {
                 androidAutoLinkCommandBinder = null
                 androidAutoLinkCommandBindingStarted = false
+                androidAutoLinkCommandBindRequestedAtMs = 0L
             }
             Log.e(TAG, "[$reason] Android Auto LinkCommand sync transact failed", e)
             false
@@ -990,6 +1812,7 @@ object DisplayAppLauncher {
             synchronized(androidAutoLinkCommandLock) {
                 androidAutoLinkCommandBinder = null
                 androidAutoLinkCommandBindingStarted = false
+                androidAutoLinkCommandBindRequestedAtMs = 0L
             }
             Log.e(TAG, "[$reason] Android Auto LinkCommand int transact failed", e)
             null
@@ -997,6 +1820,168 @@ object DisplayAppLauncher {
             reply.recycle()
             data.recycle()
         }
+    }
+
+    private fun readAndroidAutoDeviceList(
+        reason: String
+    ): List<AndroidAutoDeviceMirrorDeviceParcel>? {
+        val binder = androidAutoLinkCommandBinder
+        if (binder == null || !binder.isBinderAlive) {
+            ensureAndroidAutoLinkCommandBound(reason)
+            return null
+        }
+
+        val data = Parcel.obtain()
+        val reply = Parcel.obtain()
+        return try {
+            data.writeInterfaceToken(ANDROID_AUTO_LINK_COMMAND_INTERFACE)
+            val sent =
+                binder.transact(
+                    ANDROID_AUTO_LINK_COMMAND_GET_DEVICE_LIST_TRANSACTION,
+                    data,
+                    reply,
+                    0
+                )
+            if (!sent) {
+                Log.w(TAG, "[$reason] Android Auto getDeviceList transact returned false")
+                null
+            } else {
+                reply.readException()
+                val size = reply.readInt()
+                if (size < 0) {
+                    emptyList()
+                } else {
+                    buildList {
+                        repeat(size) {
+                            val present = reply.readInt()
+                            if (present != 0) {
+                                add(AndroidAutoDeviceMirrorDeviceParcel.readFromParcel(reply))
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            synchronized(androidAutoLinkCommandLock) {
+                androidAutoLinkCommandBinder = null
+                androidAutoLinkCommandBindingStarted = false
+                androidAutoLinkCommandBindRequestedAtMs = 0L
+            }
+            Log.e(TAG, "[$reason] Android Auto getDeviceList failed", e)
+            null
+        } finally {
+            reply.recycle()
+            data.recycle()
+        }
+    }
+
+    private fun writeAndroidAutoDevicePayload(
+        data: Parcel,
+        device: AndroidAutoDeviceMirrorDeviceParcel,
+        userRequested: Boolean
+    ) {
+        data.writeInt(1)
+        device.writeToParcel(data)
+        data.writeInt(if (userRequested) 1 else 0)
+    }
+
+    private fun connectAndroidAutoDeviceForMedia(
+        device: AndroidAutoDeviceMirrorDeviceParcel,
+        reason: String
+    ): Int? {
+        return transactAndroidAutoLinkCommandInt(
+            ANDROID_AUTO_LINK_COMMAND_CONNECT_TRANSACTION,
+            "${reason}_CONNECT_DEVICE"
+        ) { data ->
+            writeAndroidAutoDevicePayload(
+                data = data,
+                device = device,
+                userRequested = false
+            )
+        }
+    }
+
+    private fun listenForAndroidAutoWirelessDeviceForMedia(
+        device: AndroidAutoDeviceMirrorDeviceParcel,
+        reason: String
+    ): Boolean {
+        return transactAndroidAutoLinkCommandSync(
+            ANDROID_AUTO_LINK_COMMAND_LISTEN_FOR_WIRELESS_DEVICE_TRANSACTION,
+            "${reason}_LISTEN_WIRELESS_DEVICE"
+        ) { data ->
+            writeAndroidAutoDevicePayload(
+                data = data,
+                device = device,
+                userRequested = false
+            )
+        }
+    }
+
+    private fun selectAndroidAutoReconnectCandidate(
+        devices: List<AndroidAutoDeviceMirrorDeviceParcel>
+    ): AndroidAutoDeviceMirrorDeviceParcel? {
+        return devices
+            .filter { it.currentMode == 4 }
+            .sortedWith(
+                compareByDescending<AndroidAutoDeviceMirrorDeviceParcel> { it.status == 1 }
+                    .thenByDescending { it.linkType == 2 }
+                    .thenByDescending { it.bluetoothDevice != null || !it.btAddr.isNullOrBlank() }
+                    .thenByDescending { it.usbDevice != null }
+            )
+            .firstOrNull()
+    }
+
+    private suspend fun recoverAndroidAutoLinkDeviceForMediaCommand(reason: String) {
+        val linkStatus = readAndroidAutoLinkStatus("${reason}_RECOVER_BEFORE")
+        if (
+            linkStatus != null &&
+                linkStatus != -1 &&
+                linkStatus != 5 &&
+                linkStatus != 6 &&
+                linkStatus != 10
+        ) {
+            return
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        if (
+            lastAndroidAutoLinkCommandReconnectAtMs > 0L &&
+                now - lastAndroidAutoLinkCommandReconnectAtMs < ANDROID_AUTO_LINK_COMMAND_RECONNECT_COOLDOWN_MS
+        ) {
+            Log.w(
+                TAG,
+                "[$reason] Android Auto reconnect skipped by cooldown " +
+                    "link=${describeAndroidAutoLinkStatus(linkStatus)}"
+            )
+            return
+        }
+
+        val devices = readAndroidAutoDeviceList("${reason}_RECOVER_DEVICES").orEmpty()
+        Log.w(
+            TAG,
+            "[$reason] Android Auto reconnect candidates link=${describeAndroidAutoLinkStatus(linkStatus)} " +
+                "devices=${devices.joinToString(prefix = "[", postfix = "]") { it.summary() }}"
+        )
+        val candidate = selectAndroidAutoReconnectCandidate(devices)
+        if (candidate == null) {
+            Log.w(TAG, "[$reason] Android Auto reconnect skipped: no Android Auto device candidate")
+            return
+        }
+
+        lastAndroidAutoLinkCommandReconnectAtMs = now
+        val sentDescription =
+            if (candidate.linkType == 2) {
+                "listenWireless=${listenForAndroidAutoWirelessDeviceForMedia(candidate, reason)}"
+            } else {
+                "connectResult=${connectAndroidAutoDeviceForMedia(candidate, reason)}"
+            }
+        delay(650L)
+        val after = readAndroidAutoLinkStatus("${reason}_RECOVER_AFTER")
+        Log.w(
+            TAG,
+            "[$reason] Android Auto reconnect attempted $sentDescription " +
+                "candidate=${candidate.summary()} after=${describeAndroidAutoLinkStatus(after)}"
+        )
     }
 
     private fun subscribeAndroidAutoHmiKeys(reason: String): Boolean {
@@ -1024,21 +2009,31 @@ object DisplayAppLauncher {
         )
     }
 
-    private fun isAndroidAutoProjectionSessionReady(reason: String): Boolean {
+    private fun isAndroidAutoProjectionSessionReady(
+        reason: String,
+        logNotReady: Boolean = true
+    ): Boolean {
+        if (hasRecentAndroidAutoDcmProjectionActiveEvidence()) return true
+
         if (isProjectionUsbConfigured()) return true
 
         val linkStatus = readAndroidAutoLinkStatusIfAlreadyBound(reason)
         if (isAndroidAutoLinkActiveForToggle(linkStatus)) return true
 
-        Log.w(
-            TAG,
-            "[$reason] Android Auto projection session is not ready; " +
-                    "usbConfigured=false linkStatus=${describeAndroidAutoLinkStatus(linkStatus)}"
-        )
+        if (logNotReady) {
+            Log.w(
+                TAG,
+                "[$reason] Android Auto projection session is not ready; " +
+                        "usbConfigured=false linkStatus=${describeAndroidAutoLinkStatus(linkStatus)}"
+            )
+        }
         return false
     }
 
     fun isAndroidAutoProjectionSessionReadyForMedia(reason: String): Boolean {
+        if (shouldBlockAndroidAutoProjectionActivationForNativeRadio("${reason}_NATIVE_RADIO_GUARD")) {
+            return false
+        }
         if (isAndroidAutoProjectionSessionReady(reason)) return true
         val visualTask =
             findTaskMatching { packageName, _ ->
@@ -1052,7 +2047,16 @@ object DisplayAppLauncher {
             )
             return true
         }
+        if (hasActiveAndroidAutoAudioPlaybackForMedia("${reason}_AA_AUDIO")) return true
         return false
+    }
+
+    fun isAndroidAutoProjectionMediaTransportReady(reason: String): Boolean {
+        if (shouldBlockAndroidAutoProjectionActivationForNativeRadio("${reason}_NATIVE_RADIO_GUARD")) {
+            return false
+        }
+        if (isAndroidAutoProjectionSessionReady(reason)) return true
+        return hasActiveAndroidAutoAudioPlaybackForMedia("${reason}_AA_AUDIO")
     }
 
     fun isAndroidAutoProjectionLinkActiveIfAlreadyBoundForMedia(reason: String): Boolean {
@@ -1071,6 +2075,41 @@ object DisplayAppLauncher {
             ANDROID_AUTO_LINK_COMMAND_GET_MEDIA_PROGRESS_TRANSACTION,
             "${reason}_GET_MEDIA_PROGRESS"
         )
+    }
+
+    fun describeAndroidAutoLinkCommandStateForDebug(reason: String): String {
+        if (androidAutoLinkCommandBinder?.isBinderAlive != true) {
+            ensureAndroidAutoLinkCommandBound("${reason}_DEBUG_BIND")
+        }
+        val binderAlive = androidAutoLinkCommandBinder?.isBinderAlive == true
+        val bindingStarted = androidAutoLinkCommandBindingStarted
+        val linkStatus = readAndroidAutoLinkStatusIfAlreadyBound("${reason}_DEBUG")
+        val musicStatus =
+            if (binderAlive) {
+                readAndroidAutoMusicStatus("${reason}_DEBUG")
+            } else {
+                null
+            }
+        val progressSeconds =
+            if (binderAlive) {
+                readAndroidAutoMediaProgress("${reason}_DEBUG")
+            } else {
+                null
+            }
+        val deviceSummary =
+            if (binderAlive) {
+                readAndroidAutoDeviceList("${reason}_DEBUG_DEVICES")
+                    ?.joinToString(prefix = "[", postfix = "]") { it.summary() }
+                    ?: "UNKNOWN"
+            } else {
+                "UNKNOWN"
+            }
+        return "aaBinderAlive=$binderAlive " +
+                "aaBindingStarted=$bindingStarted " +
+                "aaLink=${describeAndroidAutoLinkStatus(linkStatus)} " +
+                "aaMusic=${describeAndroidAutoMusicStatus(musicStatus)} " +
+                "aaProgress=${progressSeconds ?: -1} " +
+                "aaDevices=$deviceSummary"
     }
 
     private fun describeAndroidAutoLinkStatus(status: Int?): String {
@@ -1117,6 +2156,11 @@ object DisplayAppLauncher {
         notifyDisplayStateChanged(displayId)
         if (previousDisplay != null && previousDisplay != displayId) {
             notifyDisplayStateChanged(previousDisplay)
+        }
+        if (displayId == 3) {
+            BottomBarService.requestDashboardRestoreAfterProjectionHandoff(
+                "ANDROID_AUTO_DISPLAY_HANDOFF_D3"
+            )
         }
         if (displayId == 0) {
             notifyDisplayStateChanged(3)
@@ -1210,20 +2254,68 @@ object DisplayAppLauncher {
             }
     }
 
-    fun cleanupStaleAndroidAutoVisualStacksIfDisconnected(reason: String) {
+    suspend fun cleanupStaleAndroidAutoVisualStacksIfDisconnected(reason: String) {
         val now = System.currentTimeMillis()
         if (now - lastAndroidAutoUsbDisconnectCleanupAt < ANDROID_AUTO_USB_DISCONNECT_CLEANUP_COOLDOWN_MS) {
             return
         }
         lastAndroidAutoUsbDisconnectCleanupAt = now
 
-        if (isProjectionUsbConfigured()) return
+        if (isProjectionUsbConfigured()) {
+            androidAutoStaleVisualStackFirstSeenAt = 0L
+            return
+        }
 
         val linkStatus = readAndroidAutoLinkStatusIfAlreadyBound("${reason}_AA_STALE_CLEANUP")
-        if (isAndroidAutoLinkActiveForToggle(linkStatus)) return
+        if (isAndroidAutoLinkActiveForToggle(linkStatus)) {
+            androidAutoStaleVisualStackFirstSeenAt = 0L
+            return
+        }
+
+        val dcmDevices = AndroidAutoDcmRecovery.readDeviceSnapshots(App.getContext())
+        if (dcmDevices.any { it.hasActiveAndroidAutoProjection() }) {
+            rememberAndroidAutoDcmProjectionActive()
+            androidAutoStaleVisualStackFirstSeenAt = 0L
+            Log.w(
+                TAG,
+                "[$reason] Keeping Android Auto visual stack because DCM reports active projection " +
+                        "linkStatus=${describeAndroidAutoLinkStatus(linkStatus)} " +
+                        "dcmDevices=${dcmDevices.joinToString(prefix = "[", postfix = "]")}"
+            )
+            return
+        }
 
         val tasks = findAllTasksForPackage(ANDROID_AUTO_PACKAGE)
-        if (tasks.isEmpty()) return
+        if (tasks.isEmpty()) {
+            androidAutoStaleVisualStackFirstSeenAt = 0L
+            return
+        }
+
+        val nativeMediaCenterActive = BottomBarService.isNativeAndroidAutoMediaCenterRouteActive()
+        val desiredOnCluster = isAndroidAutoDesiredOnCluster()
+        if (
+            !shouldRemoveStaleAndroidAutoVisualStacksForTest(
+                usbConfigured = false,
+                androidAutoLinkActive = false,
+                hasAndroidAutoTasks = true,
+                desiredOnCluster = desiredOnCluster,
+                nativeMediaCenterActive = nativeMediaCenterActive,
+                firstSeenAtMs = androidAutoStaleVisualStackFirstSeenAt,
+                nowMs = now
+            )
+        ) {
+            if (androidAutoStaleVisualStackFirstSeenAt <= 0L) {
+                androidAutoStaleVisualStackFirstSeenAt = now
+            }
+            Log.w(
+                TAG,
+                "[$reason] Keeping Android Auto visual stack while stale cleanup waits " +
+                    "usbConfigured=false linkStatus=${describeAndroidAutoLinkStatus(linkStatus)} " +
+                    "desiredOnCluster=$desiredOnCluster nativeMediaCenterActive=$nativeMediaCenterActive " +
+                    "firstSeenAt=$androidAutoStaleVisualStackFirstSeenAt"
+            )
+            return
+        }
 
         Log.w(
             TAG,
@@ -1231,6 +2323,7 @@ object DisplayAppLauncher {
                     "and linkStatus=${describeAndroidAutoLinkStatus(linkStatus)}"
         )
         closeAndroidAutoVisualStacks("${reason}_STALE_AA_USB_DISCONNECTED")
+        androidAutoStaleVisualStackFirstSeenAt = 0L
         notifyDisplayStateChanged(3)
         notifyBottomBarUpdate()
     }
@@ -1259,6 +2352,12 @@ object DisplayAppLauncher {
         if (targetTask != null) {
             resizeAndFocusAndroidAuto(targetTask, displayId, bounds, "${reason}_ALREADY_ON_TARGET")
             closeAndroidAutoVisualStacks("${reason}_ALREADY_ON_TARGET_CLEAN_DUPLICATES", exceptStackId = targetTask.stackId)
+            if (displayId == 3) {
+                recoverAndroidAutoClusterSurfaceIfStale(
+                    targetTask,
+                    "${reason}_ALREADY_ON_TARGET_STALE_SURFACE_GUARD"
+                )
+            }
             notifyAndroidAutoDisplayHandoff(displayId, previousDisplay)
             return
         }
@@ -1321,12 +2420,126 @@ object DisplayAppLauncher {
                 sendAndroidAutoFocus(displayId, "${reason}_POST_START_P1")
                 delay(900)
                 sendAndroidAutoFocus(displayId, "${reason}_POST_START_P2")
+                if (displayId == 3) {
+                    delay(1_200)
+                    val refreshedTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 3)
+                    if (refreshedTask != null) {
+                        recoverAndroidAutoClusterSurfaceIfStale(
+                            refreshedTask,
+                            "${reason}_POST_START_STALE_SURFACE_GUARD"
+                        )
+                    }
+                }
             }
         } else {
             Log.e(TAG, "[$reason] Android Auto task was not found on display $displayId after recovery")
         }
 
         notifyAndroidAutoDisplayHandoff(displayId, previousDisplay)
+    }
+
+    internal fun parseAndroidAutoSurfaceViewActiveBufferForTest(
+        output: String,
+        surfaceLayerName: String = "SurfaceView - $ANDROID_AUTO_PACKAGE/$ANDROID_AUTO_ACTIVITY"
+    ): Pair<Int, Int>? {
+        return parseCarPlaySurfaceActiveBufferForTest(
+            extractAndroidAutoSurfaceLayerBlockForTest(output, surfaceLayerName) ?: return null
+        )
+    }
+
+    internal fun extractAndroidAutoSurfaceLayerBlockForTest(
+        output: String,
+        surfaceLayerName: String = "SurfaceView - $ANDROID_AUTO_PACKAGE/$ANDROID_AUTO_ACTIVITY"
+    ): String? {
+        val lines = output.lineSequence().toList()
+        val start = lines.indexOfFirst { it.contains("+ BufferLayer ($surfaceLayerName") }
+        if (start < 0) return null
+
+        val block = mutableListOf<String>()
+        for (i in start until lines.size) {
+            val line = lines[i]
+            if (i != start && line.startsWith("+ ")) break
+            block.add(line)
+        }
+        return block.joinToString("\n")
+    }
+
+    internal fun isAndroidAutoSurfaceBufferStaleForTest(buffer: Pair<Int, Int>?): Boolean {
+        if (buffer == null) return false
+        return buffer.first <= 1 || buffer.second <= 1
+    }
+
+    private fun inspectAndroidAutoClusterSurfaceBuffer(reason: String): Pair<Int, Int>? {
+        val surfacePrefix = "SurfaceView - $ANDROID_AUTO_PACKAGE/$ANDROID_AUTO_ACTIVITY"
+        val output = sh(
+            "dumpsys SurfaceFlinger | grep -A24 -F '$surfacePrefix' || true"
+        )
+        val surfaceBlock = extractAndroidAutoSurfaceLayerBlockForTest(output, surfacePrefix).orEmpty()
+        val activeBufferLine = surfaceBlock
+            .lineSequence()
+            .firstOrNull { it.contains("activeBuffer=") }
+            ?.trim()
+            ?: "none"
+        val buffer = parseAndroidAutoSurfaceViewActiveBufferForTest(output, surfacePrefix)
+        Log.w(
+            TAG,
+            "[$reason] Android Auto D3 Surface activeBuffer=${buffer?.first}x${buffer?.second}; evidence=[$activeBufferLine]"
+        )
+        return buffer
+    }
+
+    private suspend fun recoverAndroidAutoClusterSurfaceIfStale(
+        clusterTask: TaskInfo,
+        reason: String
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastAndroidAutoSurfaceProbeAt < ANDROID_AUTO_SURFACE_PROBE_COOLDOWN_MS) {
+            Log.w(TAG, "[$reason] Skipping Android Auto D3 Surface probe because cooldown is active")
+            return false
+        }
+        lastAndroidAutoSurfaceProbeAt = now
+
+        val before = inspectAndroidAutoClusterSurfaceBuffer("${reason}_SURFACE_CHECK")
+        if (!isAndroidAutoSurfaceBufferStaleForTest(before)) {
+            Log.w(
+                TAG,
+                "[$reason] Android Auto live on D3 stack ${clusterTask.stackId}; Surface buffer is not stale"
+            )
+            return false
+        }
+
+        if (now - lastAndroidAutoSurfaceVisualRestartAt < ANDROID_AUTO_SURFACE_VISUAL_RESTART_COOLDOWN_MS) {
+            Log.w(TAG, "[$reason] Skipping Android Auto visual restart because cooldown is active")
+            return false
+        }
+        lastAndroidAutoSurfaceVisualRestartAt = now
+
+        Log.w(
+            TAG,
+            "[$reason] Android Auto D3 Surface is stale (${before?.first}x${before?.second}); " +
+                    "recreating visual app while preserving projection service"
+        )
+        sh("am force-stop $ANDROID_AUTO_PACKAGE")
+        delay(650)
+        configureAndroidAutoProjection("${reason}_VISUAL_RESTART")
+        startAndroidAutoActivity(3, "${reason}_VISUAL_RESTART")
+        delay(1_100)
+
+        val recoveredTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 3)
+        if (recoveredTask == null) {
+            Log.e(TAG, "[$reason] Android Auto visual restart did not recreate a D3 task")
+            return true
+        }
+
+        resizeAndFocusAndroidAuto(
+            recoveredTask,
+            3,
+            getAndroidAutoDisplayBounds(3),
+            "${reason}_VISUAL_RESTART_POST"
+        )
+        delay(900)
+        inspectAndroidAutoClusterSurfaceBuffer("${reason}_SURFACE_AFTER_VISUAL_RESTART")
+        return true
     }
 
     private fun getCarPlayDisplayBounds(displayId: Int): IntArray {
@@ -1433,6 +2646,10 @@ object DisplayAppLauncher {
                     "[CARPLAY_CLUSTER_WATCHDOG_START_PENDING_CLUSTER_TARGET] Preserving desired D3 target " +
                             "during boot USB/autostart grace; D0 may be used only as a staging display"
                 )
+                logPersistentEvent(
+                    "carplay_watchdog_start_pending_cluster_target",
+                    mapOf("desiredDisplay" to desiredDisplay)
+                )
             } else {
                 syncCarPlayDesiredDisplayProperty(
                     desiredDisplay,
@@ -1445,11 +2662,16 @@ object DisplayAppLauncher {
                     enforceCarPlayClusterContractFromWatchdog()
                 } catch (e: Exception) {
                     Log.e(TAG, "[CARPLAY_CLUSTER_WATCHDOG] Failed to verify CarPlay task placement", e)
+                    logPersistentEvent(
+                        "carplay_watchdog_error",
+                        mapOf("error" to e.javaClass.simpleName, "message" to e.message)
+                    )
                 }
                 delay(CARPLAY_CLUSTER_WATCHDOG_INTERVAL_MS)
             }
         }
         Log.w(TAG, "[CARPLAY_CLUSTER_WATCHDOG] Started")
+        logPersistentEvent("carplay_watchdog_started")
     }
 
     @Synchronized
@@ -1477,6 +2699,10 @@ object DisplayAppLauncher {
 
     @Synchronized
     fun startAndroidAutoSteeringMediaFocusKeepAlive() {
+        if (!ANDROID_AUTO_STEERING_MEDIA_FOCUS_KEEPALIVE_ENABLED) {
+            Log.w(TAG, "[AA_STEERING_MEDIA_KEEPALIVE] Disabled to avoid stealing audio focus")
+            return
+        }
         if (androidAutoSteeringMediaFocusKeepAliveStarted) return
         androidAutoSteeringMediaFocusKeepAliveStarted = true
 
@@ -1484,7 +2710,9 @@ object DisplayAppLauncher {
             delay(ANDROID_AUTO_STEERING_MEDIA_FOCUS_KEEPALIVE_START_DELAY_MS)
             while (true) {
                 try {
-                    pulseAndroidAutoFocusIfLiveOnCluster("AA_STEERING_MEDIA_KEEPALIVE")
+                    if (shouldPulseAndroidAutoSteeringMediaFocusKeepAlive()) {
+                        pulseAndroidAutoFocusIfLiveOnCluster("AA_STEERING_MEDIA_KEEPALIVE")
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "[AA_STEERING_MEDIA_KEEPALIVE] Failed to pulse Android Auto focus", e)
                 }
@@ -1492,6 +2720,29 @@ object DisplayAppLauncher {
             }
         }
         Log.w(TAG, "[AA_STEERING_MEDIA_KEEPALIVE] Started")
+    }
+
+    private fun shouldPulseAndroidAutoSteeringMediaFocusKeepAlive(): Boolean {
+        return shouldPulseAndroidAutoSteeringMediaFocusKeepAliveForState(
+            mediaPackageName = BottomBarState.mediaPackageName,
+            mediaIsPlaying = BottomBarState.mediaIsPlaying,
+            mediaIsMuted = BottomBarState.mediaIsMuted,
+            lastToggleObservedAtMs = lastAndroidAutoAccessibilityToggleKeyAt,
+            nowMs = System.currentTimeMillis()
+        )
+    }
+
+    internal fun shouldPulseAndroidAutoSteeringMediaFocusKeepAliveForState(
+        mediaPackageName: String?,
+        mediaIsPlaying: Boolean,
+        mediaIsMuted: Boolean,
+        lastToggleObservedAtMs: Long = 0L,
+        nowMs: Long = Long.MAX_VALUE
+    ): Boolean {
+        if (mediaPackageName?.let { isAndroidAutoLikePackage(it) } != true) return false
+        if (!mediaIsPlaying || mediaIsMuted) return false
+        return lastToggleObservedAtMs <= 0L ||
+                nowMs - lastToggleObservedAtMs !in 0..ANDROID_AUTO_TOGGLE_FOCUS_HOLD_MS
     }
 
     private suspend fun recoverCarPlaySystemUiIconIfNeeded() {
@@ -1823,6 +3074,21 @@ object DisplayAppLauncher {
             }
 
             repeat(CARPLAY_BOOT_AUTOSTART_ATTEMPTS) { attempt ->
+                val dcmDevices = AndroidAutoDcmRecovery.readDeviceSnapshots(App.getContext())
+                if (dcmDevices.any { it.hasActiveAndroidAutoProjection() }) {
+                    rememberAndroidAutoDcmProjectionActive()
+                    prefs.edit()
+                        .putString(PREF_CARPLAY_BOOT_AUTOSTART_BOOT_TOKEN, bootToken)
+                        .apply()
+                    Log.w(
+                        TAG,
+                        "[BOOT_USB_CARPLAY_D0_AUTOSTART] Skipping CarPlay boot autostart " +
+                                "because Android Auto projection is active in DCM " +
+                                "devices=${dcmDevices.joinToString(prefix = "[", postfix = "]")}"
+                    )
+                    return@launch
+                }
+
                 val preserveClusterTarget =
                     prefs.getInt(PREF_DESIRED_CARPLAY_DISPLAY_ID, -1) == 3
                 val mainTask = findTaskForPackageOnDisplay(CARPLAY_PACKAGE, 0)
@@ -1918,6 +3184,10 @@ object DisplayAppLauncher {
                     "[CARPLAY_CLUSTER_WATCHDOG_NO_TASK_BOOT_GRACE] Desired D3 target is pending " +
                             "during boot, but USB is not configured yet; keeping target without recreating visual task"
                 )
+                logPersistentEvent(
+                    "carplay_watchdog_no_task_boot_grace",
+                    mapOf("usbConfigured" to usbConfigured)
+                )
                 return
             }
 
@@ -1933,12 +3203,17 @@ object DisplayAppLauncher {
                     TAG,
                     "[CARPLAY_CLUSTER_WATCHDOG] Skipping missing-task restore because cooldown is active"
                 )
+                logPersistentEvent("carplay_watchdog_no_task_restore_cooldown")
                 return
             }
             lastCarPlayWatchdogRestoreAt = now
             Log.w(
                 TAG,
                 "[CARPLAY_CLUSTER_WATCHDOG_NO_TASK] Desired CarPlay target is cluster 3 but no visual task is active; recreating cluster visual task"
+            )
+            logPersistentEvent(
+                "carplay_watchdog_no_task_restore",
+                mapOf("usbConfigured" to usbConfigured)
             )
             recreateMissingCarPlayVisualTaskOnCluster("CARPLAY_CLUSTER_WATCHDOG_NO_TASK")
             return
@@ -1973,6 +3248,10 @@ object DisplayAppLauncher {
                     "[CARPLAY_CLUSTER_WATCHDOG_DIRECT_D0_SEEN] CarPlay appeared on display 0 " +
                             "while desired target is cluster 3"
                 )
+                logPersistentEvent(
+                    "carplay_watchdog_direct_d0_seen",
+                    mapOf("mainStack" to mainTask.stackId)
+                )
             }
 
             val reconnectRestore =
@@ -1986,6 +3265,14 @@ object DisplayAppLauncher {
                             "after USB reconnect; deferring automatic D3 restore during reconnect grace " +
                             "(sinceConfigured=${sinceConfigured}ms, sinceMainSeen=${sinceMainSeen}ms)"
                 )
+                logPersistentEvent(
+                    "carplay_watchdog_direct_reconnect_staging",
+                    mapOf(
+                        "sinceConfiguredMs" to sinceConfigured,
+                        "sinceMainSeenMs" to sinceMainSeen,
+                        "mainStack" to mainTask.stackId
+                    )
+                )
                 return
             }
 
@@ -1994,6 +3281,10 @@ object DisplayAppLauncher {
                     TAG,
                     "[CARPLAY_CLUSTER_WATCHDOG] Skipping direct restore because cooldown is active"
                 )
+                logPersistentEvent(
+                    "carplay_watchdog_direct_restore_cooldown",
+                    mapOf("mainStack" to mainTask.stackId)
+                )
                 return
             }
             lastCarPlayWatchdogRestoreAt = now
@@ -2001,6 +3292,10 @@ object DisplayAppLauncher {
                 TAG,
                 "[CARPLAY_CLUSTER_WATCHDOG_DIRECT] CarPlay is on display 0 while desired target is cluster 3; " +
                         "restoring visual task to cluster without video broadcasts"
+            )
+            logPersistentEvent(
+                "carplay_watchdog_direct_restore",
+                mapOf("mainStack" to mainTask.stackId)
             )
             restoreCarPlayFromMainDisplayToCluster(
                 mainTask,
@@ -2019,6 +3314,10 @@ object DisplayAppLauncher {
             Log.w(
                 TAG,
                 "[$reason] Projection USB configured changed from ${previous ?: "UNKNOWN"} to $configured"
+            )
+            logPersistentEvent(
+                "projection_usb_configured_changed",
+                mapOf("reason" to reason, "from" to previous, "to" to configured)
             )
             if (configured) {
                 lastProjectionUsbConfiguredAt = now
@@ -2066,6 +3365,22 @@ object DisplayAppLauncher {
         )
     }
 
+    internal fun shouldDeferCarPlayClusterContractRestoreForTest(
+        now: Long,
+        lastDisconnectedAt: Long,
+        lastConfiguredAt: Long,
+        carPlayOnMainDisplay: Boolean,
+        graceMs: Long
+    ): Boolean {
+        return carPlayOnMainDisplay &&
+                shouldDeferCarPlayReconnectRestoreForTest(
+                    now = now,
+                    lastDisconnectedAt = lastDisconnectedAt,
+                    lastConfiguredAt = lastConfiguredAt,
+                    graceMs = graceMs
+                )
+    }
+
     internal fun shouldMoveMainCarPlayStackToClusterForTest(
         mainTaskDisplayId: Int,
         tasksInStack: Int,
@@ -2096,6 +3411,10 @@ object DisplayAppLauncher {
             TAG,
             "[CARPLAY_CLUSTER_WATCHDOG_RECONCILE_TARGET] CarPlay is only on D3 " +
                     "(stack ${clusterTask.stackId}) but desired target is $desiredDisplay; syncing target to D3"
+        )
+        logPersistentEvent(
+            "carplay_watchdog_reconcile_target",
+            mapOf("clusterStack" to clusterTask.stackId, "desiredDisplay" to desiredDisplay)
         )
         rememberCarPlayDisplayTarget(3, "CARPLAY_CLUSTER_WATCHDOG_RECONCILE_TARGET")
     }
@@ -2132,6 +3451,7 @@ object DisplayAppLauncher {
             TAG,
             "[$reason] Clearing stale desired CarPlay cluster target because no recent cluster visual/session was observed"
         )
+        logPersistentEvent("carplay_cluster_target_cleared", mapOf("reason" to reason))
     }
 
     private fun cleanupMainDisplayCarPlayDuplicate(
@@ -2605,6 +3925,11 @@ object DisplayAppLauncher {
         if (previousDisplay != null && previousDisplay != displayId) {
             notifyDisplayStateChanged(previousDisplay)
         }
+        if (displayId == 3) {
+            BottomBarService.requestDashboardRestoreAfterProjectionHandoff(
+                "CARPLAY_DISPLAY_HANDOFF_D3"
+            )
+        }
         if (displayId == 0) {
             notifyDisplayStateChanged(3)
             notifyBottomBarUpdate()
@@ -2917,6 +4242,17 @@ object DisplayAppLauncher {
             return
         }
 
+        val reconnectStagingMainTask = findTaskForPackageOnDisplay(CARPLAY_PACKAGE, 0)
+        if (
+            reconnectStagingMainTask != null &&
+                    deferCarPlayClusterContractRestoreDuringUsbReconnect(
+                        reason,
+                        reconnectStagingMainTask
+                    )
+        ) {
+            return
+        }
+
         val mainTask = waitForSustainedCarPlayOnMainDisplay(reason)
         if (mainTask == null) {
             if (findAllTasksForPackage(CARPLAY_PACKAGE).isEmpty()) {
@@ -2992,6 +4328,47 @@ object DisplayAppLauncher {
         return null
     }
 
+    private fun deferCarPlayClusterContractRestoreDuringUsbReconnect(
+        reason: String,
+        mainTask: TaskInfo,
+        now: Long = System.currentTimeMillis()
+    ): Boolean {
+        if (
+            !shouldDeferCarPlayClusterContractRestoreForTest(
+                now = now,
+                lastDisconnectedAt = lastProjectionUsbDisconnectedAt,
+                lastConfiguredAt = lastProjectionUsbConfiguredAt,
+                carPlayOnMainDisplay = true,
+                graceMs = CARPLAY_RECONNECT_D0_OBSERVATION_WINDOW_MS
+            )
+        ) {
+            return false
+        }
+
+        if (carPlayMainDisplayReconnectSeenAt == 0L) {
+            carPlayMainDisplayReconnectSeenAt = now
+        }
+
+        val sinceConfigured = now - lastProjectionUsbConfiguredAt
+        val sinceMainSeen = now - carPlayMainDisplayReconnectSeenAt
+        Log.w(
+            TAG,
+            "[$reason] CarPlay is on display 0 after USB reconnect; deferring automatic D3 " +
+                    "restore during reconnect grace (sinceConfigured=${sinceConfigured}ms, " +
+                    "sinceMainSeen=${sinceMainSeen}ms)"
+        )
+        logPersistentEvent(
+            "carplay_contract_reconnect_staging",
+            mapOf(
+                "reason" to reason,
+                "sinceConfiguredMs" to sinceConfigured,
+                "sinceMainSeenMs" to sinceMainSeen,
+                "mainStack" to mainTask.stackId
+            )
+        )
+        return true
+    }
+
     fun preserveCarPlayClusterContract(reason: String) {
         if (!isCarPlayDesiredOnCluster()) return
 
@@ -3054,9 +4431,10 @@ object DisplayAppLauncher {
 
     private fun isAndroidAutoClusterPreservationEligible(): Boolean {
         val activeProjection = resolveActiveProjectionPackageForDisplay(3)
-        if (activeProjection == CARPLAY_PACKAGE) return false
-        if (!isAndroidAutoProjectionSessionReady("AA_CLUSTER_PRESERVATION_ELIGIBLE")) return false
-        return isAndroidAutoDesiredOnCluster() || activeProjection == ANDROID_AUTO_PACKAGE
+        return isAndroidAutoClusterPreservationEligibleForState(
+            activeProjectionPackage = activeProjection,
+            desiredOnCluster = isAndroidAutoDesiredOnCluster()
+        )
     }
 
     private fun resolveAndroidAutoWindowFocusGuardAction(
@@ -3065,8 +4443,8 @@ object DisplayAppLauncher {
     ): ExistingClusterAndroidAutoAction? {
         if (isProjectionMirrorPackage(packageName)) return null
         if (packageName == selfPackageName) return ExistingClusterAndroidAutoAction.VERIFY_ONLY
-        if (isNativeDisplayZeroPanelPackage(packageName)) return ExistingClusterAndroidAutoAction.VERIFY_ONLY
-        return ExistingClusterAndroidAutoAction.FULLSCREEN_AND_FOCUS
+        if (isNativeCameraDisplayZeroPanelPackage(packageName)) return ExistingClusterAndroidAutoAction.VERIFY_ONLY
+        return ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY
     }
 
     private fun isNativeDisplayZeroPanelPackage(packageName: String): Boolean {
@@ -3076,6 +4454,13 @@ object DisplayAppLauncher {
                 normalized == "com.beantechs.applist" ||
                 normalized.contains("hvac") ||
                 normalized.contains("avm") ||
+                normalized.contains("camera") ||
+                normalized.contains("backcamera")
+    }
+
+    private fun isNativeCameraDisplayZeroPanelPackage(packageName: String): Boolean {
+        val normalized = packageName.lowercase(Locale.US)
+        return normalized.contains("avm") ||
                 normalized.contains("camera") ||
                 normalized.contains("backcamera")
     }
@@ -3090,7 +4475,7 @@ object DisplayAppLauncher {
     fun preserveAndroidAutoClusterContract(reason: String) {
         preserveAndroidAutoClusterContract(
             reason = reason,
-            action = ExistingClusterAndroidAutoAction.FULLSCREEN_AND_FOCUS,
+            action = ExistingClusterAndroidAutoAction.VERIFY_ONLY,
             primaryDelayMs = 450L,
             verifyDelayMs = 950L
         )
@@ -3105,7 +4490,66 @@ object DisplayAppLauncher {
         )
     }
 
+    fun startAndroidAutoWirelessClusterRestore(reason: String) {
+        scope.launch {
+            repeat(ANDROID_AUTO_WIRELESS_CLUSTER_RESTORE_ATTEMPTS) { attempt ->
+                val dcmDevices = AndroidAutoDcmRecovery.readDeviceSnapshots(App.getContext())
+                val dcmProjectionActive = dcmDevices.any { it.hasActiveAndroidAutoProjection() }
+                if (!dcmProjectionActive) {
+                    Log.w(
+                        TAG,
+                        "[$reason] Android Auto wireless D3 restore waiting for DCM active " +
+                                "attempt=${attempt + 1} devices=${dcmDevices.joinToString(prefix = "[", postfix = "]")}"
+                    )
+                    delay(ANDROID_AUTO_WIRELESS_CLUSTER_RESTORE_INTERVAL_MS)
+                    return@repeat
+                }
+
+                rememberAndroidAutoDcmProjectionActive()
+                if (!isAndroidAutoDesiredOnCluster()) {
+                    Log.w(TAG, "[$reason] DCM reports Android Auto active but D3 is not the desired target")
+                    return@launch
+                }
+                if (isCarPlayOnDisplay(3)) {
+                    Log.w(TAG, "[$reason] Skipping Android Auto wireless restore because CarPlay is on D3")
+                    return@launch
+                }
+
+                val clusterTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 3)
+                if (clusterTask != null) {
+                    Log.w(
+                        TAG,
+                        "[$reason] Android Auto wireless active on D3 stack ${clusterTask.stackId}; reasserting video focus"
+                    )
+                    recoverAndroidAutoClusterSurfaceIfStale(
+                        clusterTask,
+                        "${reason}_STALE_SURFACE_GUARD"
+                    )
+                    sendAndroidAutoFocus(3, "${reason}_FOCUS_PRIMARY")
+                    delay(1_200L)
+                    sendAndroidAutoFocus(3, "${reason}_FOCUS_VERIFY")
+                    return@launch
+                }
+
+                Log.w(
+                    TAG,
+                    "[$reason] Android Auto wireless is active in DCM; recreating visual task on D3 " +
+                            "devices=${dcmDevices.joinToString(prefix = "[", postfix = "]")}"
+                )
+                startAndroidAutoOnDisplay(
+                    getAndroidAutoConfigForDisplay(3),
+                    "${reason}_RESTORE_D3"
+                )
+                return@launch
+            }
+        }
+    }
+
     fun pulseAndroidAutoFocusAfterNativePanelExit(reason: String) {
+        if (!ANDROID_AUTO_NATIVE_PANEL_FOCUS_PULSE_ENABLED) {
+            Log.w(TAG, "[$reason] Skipping Android Auto post-native-panel focus pulse")
+            return
+        }
         if (!isAndroidAutoClusterPreservationEligible()) return
 
         val now = System.currentTimeMillis()
@@ -3127,6 +4571,10 @@ object DisplayAppLauncher {
     }
 
     fun pulseAndroidAutoFocusDuringNativePanel(reason: String) {
+        if (!ANDROID_AUTO_NATIVE_PANEL_FOCUS_PULSE_ENABLED) {
+            Log.w(TAG, "[$reason] Skipping Android Auto native-panel active focus pulse")
+            return
+        }
         if (!isAndroidAutoClusterPreservationEligible()) return
 
         val now = System.currentTimeMillis()
@@ -3157,19 +4605,12 @@ object DisplayAppLauncher {
             return false
         }
 
-        if (!isAndroidAutoProjectionSessionReady("${reason}_SESSION_READY")) {
-            Log.w(TAG, "[$reason] Skipping Android Auto focus pulse because USB/link is not active")
-            cleanupStaleAndroidAutoVisualStacksIfDisconnected("${reason}_SESSION_NOT_READY")
-            return false
-        }
-
         val clusterTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 3)
         if (clusterTask == null) {
             Log.w(TAG, "[$reason] Skipping Android Auto focus pulse because no live D3 task was found")
             return false
         }
 
-        rememberAndroidAutoDisplayTarget(3, reason)
         Log.w(TAG, "[$reason] Android Auto live on D3 stack ${clusterTask.stackId}; sending focus pulse only")
         sendAndroidAutoFocus(3, reason)
         return true
@@ -3202,15 +4643,34 @@ object DisplayAppLauncher {
     private fun preserveAndroidAutoClusterContractAfterWindowChange(packageName: String) {
         if (!isAndroidAutoClusterPreservationEligible()) return
 
+        if (shouldRestoreAndroidAutoClusterAfterProjectionWindowChange(packageName)) {
+            val safePackage = packageName.replace(Regex("[^A-Za-z0-9_.-]"), "_").take(80)
+            scope.launch {
+                delay(250L)
+                restoreOrRefreshAndroidAutoClusterContract(
+                    "WINDOW_CHANGE_${safePackage}_AA_RETURN_TO_DESIRED_CLUSTER",
+                    ExistingClusterAndroidAutoAction.VERIFY_ONLY
+                )
+            }
+            return
+        }
+
         val selfPackageName = App.getContext().packageName
         val action = resolveAndroidAutoWindowFocusGuardAction(packageName, selfPackageName) ?: return
 
         val now = System.currentTimeMillis()
-        if (now - lastAndroidAutoWindowFocusGuardAt < ANDROID_AUTO_WINDOW_FOCUS_GUARD_COOLDOWN_MS) {
+        if (shouldSkipAndroidAutoWindowFocusGuard(
+                now = now,
+                packageName = packageName,
+                action = action
+            )
+        ) {
             Log.w(TAG, "[WINDOW_CHANGE_$packageName] Skipping Android Auto window guard because cooldown is active")
             return
         }
         lastAndroidAutoWindowFocusGuardAt = now
+        lastAndroidAutoWindowFocusGuardPackage = packageName
+        lastAndroidAutoWindowFocusGuardAction = action
 
         val safePackage = packageName.replace(Regex("[^A-Za-z0-9_.-]"), "_").take(80)
         val primaryDelayMs = if (action == ExistingClusterAndroidAutoAction.VERIFY_ONLY) 1_600L else 500L
@@ -3227,7 +4687,80 @@ object DisplayAppLauncher {
                 "WINDOW_CHANGE_${safePackage}_AA_CONTRACT_VERIFY",
                 action
             )
+
+            if (action == ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY) {
+                delay(ANDROID_AUTO_WINDOW_FOCUS_LATE_VERIFY_DELAY_MS)
+                restoreOrRefreshAndroidAutoClusterContract(
+                    "WINDOW_CHANGE_${safePackage}_AA_CONTRACT_LATE_VERIFY",
+                    ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY
+                )
+
+                delay(ANDROID_AUTO_WINDOW_FOCUS_FINAL_VERIFY_DELAY_MS)
+                restoreOrRefreshAndroidAutoClusterContract(
+                    "WINDOW_CHANGE_${safePackage}_AA_CONTRACT_FINAL_VERIFY",
+                    ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY
+                )
+            }
         }
+    }
+
+    private fun shouldSkipAndroidAutoWindowFocusGuard(
+        now: Long,
+        packageName: String,
+        action: ExistingClusterAndroidAutoAction
+    ): Boolean {
+        return shouldSkipAndroidAutoWindowFocusGuardForState(
+            now = now,
+            lastGuardAt = lastAndroidAutoWindowFocusGuardAt,
+            packageName = packageName,
+            lastPackageName = lastAndroidAutoWindowFocusGuardPackage,
+            actionName = action.name,
+            lastActionName = lastAndroidAutoWindowFocusGuardAction?.name,
+            cooldownMs = ANDROID_AUTO_WINDOW_FOCUS_GUARD_COOLDOWN_MS
+        )
+    }
+
+    internal fun shouldSkipAndroidAutoWindowFocusGuardForTest(
+        now: Long,
+        lastGuardAt: Long,
+        packageName: String,
+        lastPackageName: String,
+        actionName: String,
+        lastActionName: String?,
+        cooldownMs: Long = ANDROID_AUTO_WINDOW_FOCUS_GUARD_COOLDOWN_MS
+    ): Boolean {
+        return shouldSkipAndroidAutoWindowFocusGuardForState(
+            now = now,
+            lastGuardAt = lastGuardAt,
+            packageName = packageName,
+            lastPackageName = lastPackageName,
+            actionName = actionName,
+            lastActionName = lastActionName,
+            cooldownMs = cooldownMs
+        )
+    }
+
+    private fun shouldSkipAndroidAutoWindowFocusGuardForState(
+        now: Long,
+        lastGuardAt: Long,
+        packageName: String,
+        lastPackageName: String,
+        actionName: String,
+        lastActionName: String?,
+        cooldownMs: Long
+    ): Boolean {
+        if (lastGuardAt <= 0L) return false
+        if (now - lastGuardAt !in 0..cooldownMs) return false
+        return packageName == lastPackageName && actionName == lastActionName
+    }
+
+    private fun shouldRestoreAndroidAutoClusterAfterProjectionWindowChange(packageName: String): Boolean {
+        return shouldRestoreAndroidAutoClusterAfterProjectionWindowChangeForTest(
+            packageName = packageName,
+            desiredOnCluster = isAndroidAutoDesiredOnCluster(),
+            androidAutoOnCluster = hasAndroidAutoVisualOnDisplay(3),
+            androidAutoCurrentDisplayId = findTaskForPackage(ANDROID_AUTO_PACKAGE)?.displayId
+        )
     }
 
     private suspend fun restoreOrRefreshAndroidAutoClusterContract(
@@ -3242,7 +4775,6 @@ object DisplayAppLauncher {
 
         val clusterTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 3)
         if (clusterTask != null) {
-            rememberAndroidAutoDisplayTarget(3, reason)
             Log.w(
                 TAG,
                 "[$reason] Android Auto live on D3 stack ${clusterTask.stackId}; action=$action"
@@ -3251,6 +4783,10 @@ object DisplayAppLauncher {
                 ensureAndroidAutoFullscreenAndFocus(clusterTask, 3, reason)
                 closeAndroidAutoVisualStacks("${reason}_CLEAN_DUPLICATES", exceptStackId = clusterTask.stackId)
                 notifyAndroidAutoDisplayHandoff(3, clusterTask.displayId)
+            } else if (action == ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY) {
+                if (!recoverAndroidAutoClusterSurfaceIfStale(clusterTask, "${reason}_STALE_SURFACE_GUARD")) {
+                    sendAndroidAutoFocus(3, reason)
+                }
             }
             return
         }
@@ -3379,6 +4915,46 @@ object DisplayAppLauncher {
         }
     }
 
+    private fun isAndroidAutoHardKeyPolicyMediaKey(keyCode: Int): Boolean {
+        return keyCode == ANDROID_AUTO_OEM_INPUT_MEDIA_PREVIOUS ||
+                keyCode == ANDROID_AUTO_OEM_INPUT_MEDIA_NEXT ||
+                keyCode == ANDROID_AUTO_OEM_INPUT_MEDIA_PLAY_PAUSE
+    }
+
+    internal fun mapAndroidAutoHardKeyPolicyDebugCommand(
+        command: String
+    ): AndroidAutoHardKeyPolicyMediaRequest? {
+        val normalized = command.trim().lowercase(Locale.US)
+        if (!normalized.startsWith("aa_hardkey_")) return null
+        val targetDisplayId =
+            when {
+                normalized.endsWith("_d0") -> 0
+                normalized.endsWith("_d3") -> 3
+                else -> null
+            }
+        val baseCommand =
+            when (targetDisplayId) {
+                0 -> normalized.removeSuffix("_d0")
+                3 -> normalized.removeSuffix("_d3")
+                else -> normalized
+            }
+        val keyCode =
+            when (baseCommand) {
+                "aa_hardkey_prev",
+                "aa_hardkey_previous" -> ANDROID_AUTO_OEM_INPUT_MEDIA_PREVIOUS
+                "aa_hardkey_next" -> ANDROID_AUTO_OEM_INPUT_MEDIA_NEXT
+                "aa_hardkey_toggle",
+                "aa_hardkey_play_pause",
+                "aa_hardkey_play",
+                "aa_hardkey_pause" -> ANDROID_AUTO_OEM_INPUT_MEDIA_PLAY_PAUSE
+                else -> return null
+            }
+        return AndroidAutoHardKeyPolicyMediaRequest(
+            keyCode = keyCode,
+            targetDisplayId = targetDisplayId
+        )
+    }
+
     private fun shouldUseAndroidAutoOemOnlyMediaRoute(keyCode: Int): Boolean {
         if (!ANDROID_AUTO_OEM_INPUT_MEDIA_FALLBACK_ENABLED) return false
         if (!ANDROID_AUTO_PREVIOUS_NEXT_OEM_ONLY_ROUTE_ENABLED) return false
@@ -3389,11 +4965,32 @@ object DisplayAppLauncher {
     private fun shouldUseAndroidAutoSteeringAppCommandRoute(
         keyCode: Int,
         action: Int,
-        source: AndroidAutoMediaKeySource
+        source: AndroidAutoMediaKeySource,
+        nativeMediaCenterActive: Boolean = BottomBarService.isNativeAndroidAutoMediaCenterRouteActive()
+    ): Boolean {
+        // The physical steering key is delivered to the native MediaCenter first.
+        // Keep immediate app-side commands disabled to avoid double-skip or toggle
+        // undo loops; play/pause can be reconciled later with an explicit target.
+        return false
+    }
+
+    private fun shouldScheduleAndroidAutoSteeringPlaybackTargetReconcile(
+        keyCode: Int,
+        action: Int,
+        source: AndroidAutoMediaKeySource,
+        useAppCommandRoute: Boolean,
+        nativeMediaCenterActive: Boolean,
+        androidAutoDesiredOnCluster: Boolean = isAndroidAutoDesiredOnCluster()
     ): Boolean {
         if (source != AndroidAutoMediaKeySource.STEERING_INPUT) return false
+        if (!isAndroidAutoSteeringPlaybackKey(keyCode)) return false
         if (action != KeyEvent.ACTION_UP) return false
-        return isAndroidAutoSteeringSkipKey(keyCode)
+        if (useAppCommandRoute) return false
+        if (!androidAutoDesiredOnCluster) return false
+
+        // Native MediaCenter source 402 is now the verified play/pause route.
+        // Reconcile only playback targets, after the physical key had the first chance.
+        return nativeMediaCenterActive
     }
 
     private fun shouldSuppressAndroidAutoSteeringMediaInjection(
@@ -3505,6 +5102,40 @@ object DisplayAppLauncher {
     }
 
     private fun isAndroidAutoActiveForMediaControl(): Boolean {
+        if (shouldDeferAndroidAutoMediaControlToNativeMedia("AA_MEDIA_NATIVE_GUARD")) {
+            cachedAndroidAutoMediaControlActive = false
+            cachedAndroidAutoMediaControlActiveAtMs = SystemClock.elapsedRealtime()
+            return false
+        }
+
+        if (BottomBarService.isNativeAndroidAutoMediaCenterRouteActive()) {
+            cachedAndroidAutoMediaControlActive = true
+            cachedAndroidAutoMediaControlActiveAtMs = SystemClock.elapsedRealtime()
+            return true
+        }
+
+        if (isAndroidAutoActiveForMediaControlForState(
+                activeProjectionPackage = null,
+                mediaPackageName = BottomBarState.mediaPackageName,
+                activeClusterProjectionPackage = BottomBarState.activeClusterProjectionPackage,
+                androidAutoLinkStatus = null,
+                androidAutoTaskPresent = false
+            )
+        ) {
+            cachedAndroidAutoMediaControlActive = true
+            cachedAndroidAutoMediaControlActiveAtMs = SystemClock.elapsedRealtime()
+            return true
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        if (
+            cachedAndroidAutoMediaControlActiveAtMs > 0L &&
+                    now - cachedAndroidAutoMediaControlActiveAtMs in
+                            0..ANDROID_AUTO_MEDIA_CONTROL_ACTIVE_CACHE_MS
+        ) {
+            return cachedAndroidAutoMediaControlActive
+        }
+
         val activeProjection = resolveActiveProjectionPackageForDisplay(3)
         if (isAndroidAutoActiveForMediaControlForState(
             activeProjectionPackage = activeProjection,
@@ -3514,10 +5145,12 @@ object DisplayAppLauncher {
             androidAutoTaskPresent = false,
             androidAutoSessionReady = isAndroidAutoProjectionSessionReady("AA_MEDIA_ACTIVE_STATE")
         )) {
+            cachedAndroidAutoMediaControlActive = true
+            cachedAndroidAutoMediaControlActiveAtMs = now
             return true
         }
 
-        val linkStatus = readAndroidAutoLinkStatus("AA_MEDIA_ACTIVE")
+        val linkStatus = readAndroidAutoLinkStatusIfAlreadyBound("AA_MEDIA_ACTIVE")
         if (isAndroidAutoActiveForMediaControlForState(
             activeProjectionPackage = null,
             mediaPackageName = null,
@@ -3525,10 +5158,18 @@ object DisplayAppLauncher {
             androidAutoLinkStatus = linkStatus,
             androidAutoTaskPresent = false
         )) {
+            cachedAndroidAutoMediaControlActive = true
+            cachedAndroidAutoMediaControlActiveAtMs = now
             return true
         }
 
-        return isAndroidAutoActiveForMediaControlForState(
+        if (hasActiveAndroidAutoAudioPlaybackForMedia("AA_MEDIA_ACTIVE_AUDIO")) {
+            cachedAndroidAutoMediaControlActive = true
+            cachedAndroidAutoMediaControlActiveAtMs = now
+            return true
+        }
+
+        val active = isAndroidAutoActiveForMediaControlForState(
             activeProjectionPackage = null,
             mediaPackageName = null,
             activeClusterProjectionPackage = null,
@@ -3538,6 +5179,9 @@ object DisplayAppLauncher {
             } != null,
             androidAutoSessionReady = isAndroidAutoProjectionSessionReady("AA_MEDIA_ACTIVE_TASK")
         )
+        cachedAndroidAutoMediaControlActive = active
+        cachedAndroidAutoMediaControlActiveAtMs = now
+        return active
     }
 
     fun shouldLogAndroidAutoMediaInputProbe(keyCode: Int): Boolean {
@@ -3581,46 +5225,16 @@ object DisplayAppLauncher {
     }
 
     fun shouldConsumeAndroidAutoAccessibilityMediaKey(keyCode: Int, action: Int): Boolean {
-        val now = System.currentTimeMillis()
-        val active = isAndroidAutoActiveForMediaControl()
-        val shouldConsume = shouldConsumeAndroidAutoAccessibilityToggleKeyForTest(
-            isAndroidAutoActive = active,
-            keyCode = keyCode,
-            action = action,
-            now = now,
-            lastKeyCode = lastAndroidAutoAccessibilityToggleKeyCode,
-            lastHandledAt = lastAndroidAutoAccessibilityToggleKeyAt,
-            blockedKeyCode = blockedAndroidAutoAccessibilityToggleKeyCode,
-            cooldownMs = ANDROID_AUTO_TOGGLE_MEDIA_KEY_COOLDOWN_MS
-        )
-
-        if (active && isAndroidAutoSteeringToggleKey(keyCode) && isAndroidAutoMediaControlAction(action)) {
-            if (shouldConsume) {
-                if (action == KeyEvent.ACTION_DOWN) {
-                    blockedAndroidAutoAccessibilityToggleKeyCode = keyCode
-                } else if (blockedAndroidAutoAccessibilityToggleKeyCode == keyCode) {
-                    blockedAndroidAutoAccessibilityToggleKeyCode = 0
-                }
-                Log.w(
-                    TAG,
-                    "[AA_ACCESSIBILITY_MEDIA_${keyCode}_ACTION_${action}] Consuming Android Auto toggle key"
-                )
-            } else {
-                if (action == KeyEvent.ACTION_UP) {
-                    lastAndroidAutoAccessibilityToggleKeyCode = keyCode
-                    lastAndroidAutoAccessibilityToggleKeyAt = now
-                    if (blockedAndroidAutoAccessibilityToggleKeyCode == keyCode) {
-                        blockedAndroidAutoAccessibilityToggleKeyCode = 0
-                    }
-                }
-                Log.w(
-                    TAG,
-                    "[AA_ACCESSIBILITY_MEDIA_${keyCode}_ACTION_${action}] Passing Android Auto toggle key"
-                )
-            }
-        }
-
-        return shouldConsume
+        return shouldConsumeAndroidAutoAccessibilityToggleKeyForTest(
+                isAndroidAutoActive = isAndroidAutoActiveForMediaControl(),
+                keyCode = keyCode,
+                action = action,
+                now = System.currentTimeMillis(),
+                lastKeyCode = lastAndroidAutoAccessibilityToggleKeyCode,
+                lastHandledAt = lastAndroidAutoAccessibilityToggleKeyAt,
+                blockedKeyCode = blockedAndroidAutoAccessibilityToggleKeyCode,
+                cooldownMs = ANDROID_AUTO_TOGGLE_MEDIA_KEY_COOLDOWN_MS
+            )
     }
 
     private fun handleAndroidAutoMediaControlKey(
@@ -3655,12 +5269,125 @@ object DisplayAppLauncher {
             return false
         }
 
-        val useAppCommandRoute = shouldUseAndroidAutoSteeringAppCommandRoute(keyCode, action, source)
+        if (
+            source == AndroidAutoMediaKeySource.STEERING_INPUT &&
+                shouldSkipDuplicateAndroidAutoSteeringInputKey(
+                    keyCode = keyCode,
+                    action = action,
+                    now = now
+                )
+        ) {
+            Log.w(
+                TAG,
+                "[AA_STEERING_MEDIA_${keyCode}_ACTION_${action}] " +
+                    "Skipping duplicate Android Auto steering media input"
+            )
+            return true
+        }
+
+        val nativeMediaCenterActive = BottomBarService.isNativeAndroidAutoMediaCenterRouteActive()
+        if (source == AndroidAutoMediaKeySource.STEERING_INPUT &&
+            isAndroidAutoSteeringMuteKey(keyCode)
+        ) {
+            markAndroidAutoAccessibilityToggleObserved(keyCode, now)
+            val reasonPrefix = "AA_STEERING_MEDIA_${keyCode}_ACTION_${action}"
+            if (action == KeyEvent.ACTION_UP && nativeMediaCenterActive) {
+                Log.w(
+                    TAG,
+                    "[$reasonPrefix] Android Auto steering mute observed; using native audio mute route"
+                )
+                scope.launch {
+                    val sent = BottomBarService.toggleAndroidAutoMuteFromIntercept()
+                    Log.w(TAG, "[$reasonPrefix] Android Auto steering mute command sent=$sent")
+                }
+                return true
+            }
+            Log.w(
+                TAG,
+                "[$reasonPrefix] Android Auto steering mute observed; no app-side command"
+            )
+            return true
+        }
+
+        val useAppCommandRoute = shouldUseAndroidAutoSteeringAppCommandRoute(
+            keyCode = keyCode,
+            action = action,
+            source = source,
+            nativeMediaCenterActive = nativeMediaCenterActive
+        )
+        var playbackTargetReconcileScheduled = false
+        var skipFallbackScheduled = false
+        if (
+            source == AndroidAutoMediaKeySource.STEERING_INPUT &&
+            isAndroidAutoSteeringPlaybackKey(keyCode) &&
+            action == KeyEvent.ACTION_UP &&
+            !useAppCommandRoute
+        ) {
+            val nativeMediaCenterIsPlaying =
+                if (nativeMediaCenterActive) {
+                    BottomBarService.getAndroidAutoNativeMediaCenterIsPlaying()
+                } else {
+                    null
+                }
+            val targetPlaying = resolveAndroidAutoSteeringPlaybackTarget(
+                keyCode = keyCode,
+                mediaIsPlaying = BottomBarState.mediaIsPlaying,
+                nativeMediaCenterIsPlaying = nativeMediaCenterIsPlaying
+            )
+            applyAndroidAutoSteeringPlaybackStateHint(
+                keyCode = keyCode,
+                targetPlaying = targetPlaying,
+                reason = "AA_STEERING_MEDIA_${keyCode}_ACTION_${action}"
+            )
+            if (
+                targetPlaying != null &&
+                shouldScheduleAndroidAutoSteeringPlaybackTargetReconcile(
+                    keyCode = keyCode,
+                    action = action,
+                    source = source,
+                    useAppCommandRoute = useAppCommandRoute,
+                    nativeMediaCenterActive = nativeMediaCenterActive,
+                    androidAutoDesiredOnCluster = isAndroidAutoDesiredOnCluster()
+                )
+            ) {
+                playbackTargetReconcileScheduled = true
+                scheduleAndroidAutoSteeringPlaybackTargetReconcile(
+                    targetPlaying = targetPlaying,
+                    reason = "AA_STEERING_MEDIA_${keyCode}_ACTION_${action}"
+                )
+            }
+        }
+        if (
+            source == AndroidAutoMediaKeySource.STEERING_INPUT &&
+            isAndroidAutoSteeringSkipKey(keyCode) &&
+            action == KeyEvent.ACTION_UP &&
+            nativeMediaCenterActive &&
+            !useAppCommandRoute
+        ) {
+            BottomBarService.markAndroidAutoTrackCommandProgressReset(
+                "Android Auto steering ${androidAutoTrackCommandName(keyCode)}"
+            )
+            skipFallbackScheduled = true
+            scheduleAndroidAutoSteeringSkipFallbackIfUnchanged(
+                keyCode = keyCode,
+                initialSignature = androidAutoSteeringMediaSignature(),
+                reason = "AA_STEERING_MEDIA_${keyCode}_ACTION_${action}"
+            )
+        }
         if (shouldSuppressAndroidAutoSteeringMediaInjection(source) && !useAppCommandRoute) {
+            val routeDescription =
+                when {
+                    playbackTargetReconcileScheduled ->
+                        "relying on native headunit route with delayed playback target fallback"
+                    skipFallbackScheduled ->
+                        "relying on native headunit route with delayed skip fallback"
+                    else ->
+                        "relying on native headunit route only"
+                }
             Log.w(
                 TAG,
                 "[AA_STEERING_MEDIA_${keyCode}_ACTION_${action}] Android Auto physical media key observed; " +
-                    "relying on native headunit route only"
+                    routeDescription
             )
             return true
         }
@@ -3701,6 +5428,9 @@ object DisplayAppLauncher {
         }
 
         scope.launch {
+            if (shouldDeferAndroidAutoMediaControlToNativeMedia("${reasonPrefix}_NATIVE_GUARD")) {
+                return@launch
+            }
             sendAndroidAutoFocus(3, "${reasonPrefix}_FOCUS_BEFORE")
             delay(80)
             val sentNative = sendAndroidAutoNativeMediaKeySequence(
@@ -3720,13 +5450,183 @@ object DisplayAppLauncher {
         return true
     }
 
+    private fun shouldSkipDuplicateAndroidAutoSteeringInputKey(
+        keyCode: Int,
+        action: Int,
+        now: Long
+    ): Boolean {
+        return synchronized(androidAutoSteeringInputDedupLock) {
+            val duplicate =
+                shouldSkipDuplicateAndroidAutoSteeringInputKeyForTest(
+                    keyCode = keyCode,
+                    action = action,
+                    now = now,
+                    lastKeyCode = lastAndroidAutoSteeringInputKeyCode,
+                    lastAction = lastAndroidAutoSteeringInputAction,
+                    lastHandledAt = lastAndroidAutoSteeringInputKeyAt
+                )
+            if (!duplicate) {
+                lastAndroidAutoSteeringInputKeyCode = keyCode
+                lastAndroidAutoSteeringInputAction = action
+                lastAndroidAutoSteeringInputKeyAt = now
+            }
+            duplicate
+        }
+    }
+
+    private fun resolveAndroidAutoSteeringPlaybackTarget(
+        keyCode: Int,
+        mediaIsPlaying: Boolean,
+        nativeMediaCenterIsPlaying: Boolean? = null
+    ): Boolean? {
+        return when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY -> true
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> false
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            ANDROID_AUTO_OEM_INPUT_MEDIA_PLAY_PAUSE -> !(nativeMediaCenterIsPlaying ?: mediaIsPlaying)
+            else -> null
+        }
+    }
+
+    private fun applyAndroidAutoSteeringPlaybackStateHint(
+        keyCode: Int,
+        targetPlaying: Boolean?,
+        reason: String
+    ) {
+        val nextPlaying = targetPlaying ?: return
+        BottomBarState.mediaPackageName = ANDROID_AUTO_MEDIA_PACKAGE
+        BottomBarState.mediaIsPlaying = nextPlaying
+        Log.w(
+            TAG,
+            "[$reason] Android Auto steering playback state hint applied playing=$nextPlaying"
+        )
+    }
+
+    private fun androidAutoSteeringMediaSignature(): String {
+        return listOf(
+            BottomBarState.mediaPackageName.orEmpty(),
+            BottomBarState.mediaTitle.orEmpty(),
+            BottomBarState.mediaArtist.orEmpty(),
+            BottomBarState.mediaAlbum.orEmpty(),
+            BottomBarState.mediaDurationMs.toString()
+        ).joinToString("|")
+    }
+
+    private fun scheduleAndroidAutoSteeringSkipFallbackIfUnchanged(
+        keyCode: Int,
+        initialSignature: String,
+        reason: String
+    ) {
+        val generation = androidAutoSteeringSkipFallbackGeneration.incrementAndGet()
+        Log.w(
+            TAG,
+            "[$reason] Scheduling Android Auto LinkCommand skip fallback keyCode=$keyCode"
+        )
+        scope.launch {
+            delay(ANDROID_AUTO_STEERING_SKIP_FALLBACK_DELAY_MS)
+            if (generation != androidAutoSteeringSkipFallbackGeneration.get()) {
+                Log.w(TAG, "[${reason}_SKIP_FALLBACK] Skipping stale Android Auto skip fallback")
+                return@launch
+            }
+            val currentSignature = androidAutoSteeringMediaSignature()
+            if (currentSignature != initialSignature) {
+                Log.w(
+                    TAG,
+                    "[${reason}_SKIP_FALLBACK] Native route changed media; " +
+                        "skipping LinkCommand fallback keyCode=$keyCode"
+                )
+                return@launch
+            }
+            val sent = sendAndroidAutoNativeMediaDirectCommand(
+                keyCode = keyCode,
+                reason = "${reason}_SKIP_FALLBACK"
+            )
+            if (sent) {
+                BottomBarService.markAndroidAutoTrackCommandProgressReset(
+                    "Android Auto steering fallback ${androidAutoTrackCommandName(keyCode)}"
+                )
+            }
+            Log.w(
+                TAG,
+                "[${reason}_SKIP_FALLBACK] Android Auto LinkCommand skip fallback " +
+                    "keyCode=$keyCode sent=$sent"
+            )
+        }
+    }
+
+    private fun scheduleAndroidAutoSteeringPlaybackTargetReconcile(
+        targetPlaying: Boolean,
+        reason: String
+    ) {
+        val generation = androidAutoSteeringPlaybackReconcileGeneration.incrementAndGet()
+        val targetLabel = if (targetPlaying) "play" else "pause"
+        Log.w(
+            TAG,
+            "[$reason] Scheduling Android Auto playback reconcile target=$targetLabel"
+        )
+        scope.launch {
+            delay(ANDROID_AUTO_STEERING_PLAYBACK_RECONCILE_FIRST_DELAY_MS)
+            val firstSent = enforceAndroidAutoSteeringPlaybackTargetIfCurrent(
+                generation = generation,
+                targetPlaying = targetPlaying,
+                reason = "${reason}_RECONCILE_1"
+            )
+            if (targetPlaying || firstSent) return@launch
+
+            delay(ANDROID_AUTO_STEERING_PLAYBACK_RECONCILE_SECOND_DELAY_MS)
+            enforceAndroidAutoSteeringPlaybackTargetIfCurrent(
+                generation = generation,
+                targetPlaying = targetPlaying,
+                reason = "${reason}_RECONCILE_2"
+            )
+        }
+    }
+
+    private suspend fun enforceAndroidAutoSteeringPlaybackTargetIfCurrent(
+        generation: Int,
+        targetPlaying: Boolean,
+        reason: String
+    ): Boolean {
+        if (generation != androidAutoSteeringPlaybackReconcileGeneration.get()) {
+            Log.w(TAG, "[$reason] Skipping stale Android Auto playback reconcile")
+            return false
+        }
+        val targetLabel = if (targetPlaying) "play" else "pause"
+        val sent =
+            if (BottomBarService.isNativeAndroidAutoMediaCenterRouteActive()) {
+                BottomBarService.sendAndroidAutoNativeMediaCenterPlaybackTarget(
+                    targetPlaying = targetPlaying,
+                    reason = "${reason}_MC"
+                )
+            } else {
+                sendAndroidAutoPlaybackTargetDirectCommand(
+                    targetPlaying = targetPlaying,
+                    reason = reason
+                )
+            }
+        Log.w(
+            TAG,
+            "[$reason] Android Auto playback reconcile target=$targetLabel sent=$sent"
+        )
+        return sent
+    }
+
+    private fun markAndroidAutoAccessibilityToggleObserved(keyCode: Int, now: Long) {
+        lastAndroidAutoAccessibilityToggleKeyCode = keyCode
+        lastAndroidAutoAccessibilityToggleKeyAt = now
+        if (blockedAndroidAutoAccessibilityToggleKeyCode == keyCode) {
+            blockedAndroidAutoAccessibilityToggleKeyCode = 0
+        }
+    }
+
     private fun isAndroidAutoActiveForMediaControlForState(
         activeProjectionPackage: String?,
         mediaPackageName: String?,
         activeClusterProjectionPackage: String?,
         androidAutoLinkStatus: Int?,
         androidAutoTaskPresent: Boolean,
-        androidAutoSessionReady: Boolean = true
+        androidAutoSessionReady: Boolean = true,
+        androidAutoAudioPlaybackActive: Boolean = false
     ): Boolean {
         val hasAndroidAutoState =
             activeProjectionPackage == ANDROID_AUTO_PACKAGE ||
@@ -3735,15 +5635,18 @@ object DisplayAppLauncher {
 
         return (hasAndroidAutoState && androidAutoSessionReady) ||
             isAndroidAutoLinkActiveForToggle(androidAutoLinkStatus) ||
-            (androidAutoTaskPresent && androidAutoSessionReady)
+            (androidAutoTaskPresent && androidAutoSessionReady) ||
+            androidAutoAudioPlaybackActive
     }
 
     private suspend fun sendAndroidAutoSteeringAppMediaCommand(
         keyCode: Int,
         reason: String
     ): Boolean {
-        sendAndroidAutoFocus(3, "${reason}_FOCUS_BEFORE")
-        delay(80)
+        if (shouldDeferAndroidAutoMediaControlToNativeMedia("${reason}_NATIVE_GUARD")) {
+            return false
+        }
+
         val sent = when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_NEXT -> {
                 BottomBarService.sendAndroidAutoProjectionMediaNext() ||
@@ -3755,38 +5658,205 @@ object DisplayAppLauncher {
             }
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
             KeyEvent.KEYCODE_MEDIA_PLAY,
-            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                // Mirror the Dashboard fix: use the AndroidAutoNowPlayingMonitor binder
-                // (same path as next/prev, confirmed working) instead of the native
-                // playback binder whose GET_MUSIC_STATUS query always returns NOT_START.
-                val isCurrentlyPlaying = when (keyCode) {
-                    KeyEvent.KEYCODE_MEDIA_PLAY -> false
-                    KeyEvent.KEYCODE_MEDIA_PAUSE -> true
-                    else -> BottomBarState.mediaIsPlaying
-                }
-                BottomBarService.sendAndroidAutoProjectionPlayPause(isCurrentlyPlaying) ||
-                    sendAndroidAutoNativePlaybackDirectCommand(keyCode, "${reason}_DIRECT_FALLBACK")
+            KeyEvent.KEYCODE_MEDIA_PAUSE,
+            ANDROID_AUTO_OEM_INPUT_MEDIA_PLAY_PAUSE -> {
+                val targetPlaying = resolveAndroidAutoSteeringPlaybackTarget(
+                    keyCode = keyCode,
+                    mediaIsPlaying = BottomBarState.mediaIsPlaying,
+                    nativeMediaCenterIsPlaying = BottomBarService.getAndroidAutoNativeMediaCenterIsPlaying()
+                ) ?: return false
+                sendAndroidAutoPlaybackTargetDirectCommand(
+                    targetPlaying = targetPlaying,
+                    reason = "${reason}_DIRECT_PLAYBACK"
+                )
             }
             else -> false
         }
-        delay(180)
-        sendAndroidAutoFocus(3, "${reason}_FOCUS_AFTER")
+        if (sent && isAndroidAutoSteeringSkipKey(keyCode)) {
+            BottomBarService.markAndroidAutoTrackCommandProgressReset(
+                "Android Auto app route ${androidAutoTrackCommandName(keyCode)}"
+            )
+        }
         return sent
     }
 
+    private fun androidAutoTrackCommandName(keyCode: Int): String {
+        return when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "previous"
+            KeyEvent.KEYCODE_MEDIA_NEXT -> "next"
+            else -> "track"
+        }
+    }
+
     suspend fun sendAndroidAutoDashboardPlaybackCommand(mediaIsPlayingHint: Boolean): Boolean {
+        val keyCode =
+            if (mediaIsPlayingHint) {
+                KeyEvent.KEYCODE_MEDIA_PAUSE
+            } else {
+                KeyEvent.KEYCODE_MEDIA_PLAY
+            }
         return sendAndroidAutoNativePlaybackDirectCommand(
-            keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            keyCode = keyCode,
             reason = "AA_DASHBOARD_PLAYBACK",
-            mediaIsPlayingHint = mediaIsPlayingHint
+            mediaIsPlayingHint = mediaIsPlayingHint,
+            requestVideoFocus = shouldRequestAndroidAutoMediaCommandVideoFocusForPlaybackTarget(
+                targetPlaying = !mediaIsPlayingHint
+            )
+        )
+    }
+
+    suspend fun sendAndroidAutoDashboardPlaybackAapCommand(mediaIsPlayingHint: Boolean): Boolean {
+        if (
+            !prepareAndroidAutoMediaCommandTarget(
+                reason = "AA_DASHBOARD_PLAYBACK_AAP_PREPARE",
+                requestVideoFocus = shouldRequestAndroidAutoMediaCommandVideoFocusForPlaybackTarget(
+                    targetPlaying = !mediaIsPlayingHint
+                )
+            )
+        ) {
+            return false
+        }
+        return sendAndroidAutoAapMediaKeySequenceOnly(
+            keyCode = resolveAndroidAutoDashboardPlaybackAapKeyCode(mediaIsPlayingHint),
+            reason = "AA_DASHBOARD_PLAYBACK_AAP"
+        )
+    }
+
+    private fun resolveAndroidAutoDashboardPlaybackAapKeyCode(mediaIsPlayingHint: Boolean): Int {
+        return if (mediaIsPlayingHint) {
+            KeyEvent.KEYCODE_MEDIA_PAUSE
+        } else {
+            KeyEvent.KEYCODE_MEDIA_PLAY
+        }
+    }
+
+    suspend fun sendAndroidAutoDashboardPlaybackToggleAapCommand(): Boolean {
+        if (!prepareAndroidAutoMediaCommandTarget("AA_DASHBOARD_PLAYBACK_TOGGLE_AAP_PREPARE")) {
+            return false
+        }
+        return sendAndroidAutoAapMediaKeySequenceOnly(
+            keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            reason = "AA_DASHBOARD_PLAYBACK_TOGGLE_AAP"
+        )
+    }
+
+    suspend fun sendAndroidAutoDashboardSkipAapCommand(
+        forward: Boolean,
+        alreadyPrepared: Boolean = false
+    ): Boolean {
+        val keyCode =
+            if (forward) {
+                KeyEvent.KEYCODE_MEDIA_NEXT
+            } else {
+                KeyEvent.KEYCODE_MEDIA_PREVIOUS
+            }
+        if (
+            !alreadyPrepared &&
+                !prepareAndroidAutoMediaCommandTarget("AA_DASHBOARD_SKIP_AAP_PREPARE")
+        ) {
+            return false
+        }
+        return sendAndroidAutoAapMediaKeySequenceOnly(
+            keyCode = keyCode,
+            reason = "AA_DASHBOARD_SKIP_AAP_${if (forward) "NEXT" else "PREVIOUS"}"
+        )
+    }
+
+    internal suspend fun sendAndroidAutoHardKeyPolicyMediaCommand(
+        request: AndroidAutoHardKeyPolicyMediaRequest,
+        reason: String = "AA_HARDKEY_POLICY"
+    ): Boolean {
+        return sendAndroidAutoHardKeyPolicyMediaCommand(
+            keyCode = request.keyCode,
+            targetDisplayId = request.targetDisplayId,
+            reason = reason
+        )
+    }
+
+    internal suspend fun sendAndroidAutoHardKeyPolicyMediaCommand(
+        keyCode: Int,
+        targetDisplayId: Int? = null,
+        reason: String = "AA_HARDKEY_POLICY"
+    ): Boolean {
+        if (!isAndroidAutoHardKeyPolicyMediaKey(keyCode)) {
+            Log.w(TAG, "[$reason] Android Auto HardKeyPolicy unsupported keyCode=$keyCode")
+            return false
+        }
+        val resolvedTargetDisplayId = targetDisplayId ?: resolveAndroidAutoMediaCommandDisplayId()
+        if (!prepareAndroidAutoMediaCommandTarget("${reason}_PREPARE", resolvedTargetDisplayId)) {
+            return false
+        }
+
+        val linkStatusBefore = readAndroidAutoLinkStatus("${reason}_BEFORE")
+        val musicStatusBefore = readAndroidAutoMusicStatus("${reason}_BEFORE")
+        val sent =
+            AndroidAutoHardKeyPolicyBridge.sendMediaKeySequence(
+                context = App.getContext(),
+                keyCode = keyCode,
+                targetDisplayId = resolvedTargetDisplayId,
+                reason = reason
+            )
+        delay(120)
+        val linkStatusAfter = readAndroidAutoLinkStatus("${reason}_AFTER")
+        val musicStatusAfter = readAndroidAutoMusicStatus("${reason}_AFTER")
+        Log.w(
+            TAG,
+            "[$reason] Android Auto HardKeyPolicy media key keyCode=$keyCode " +
+                    "targetDisplay=$resolvedTargetDisplayId sent=$sent " +
+                    "linkBefore=${describeAndroidAutoLinkStatus(linkStatusBefore)} " +
+                    "musicBefore=${describeAndroidAutoMusicStatus(musicStatusBefore)} " +
+                    "linkAfter=${describeAndroidAutoLinkStatus(linkStatusAfter)} " +
+                    "musicAfter=${describeAndroidAutoMusicStatus(musicStatusAfter)}"
+        )
+        return sent
+    }
+
+    suspend fun sendAndroidAutoDashboardPlaybackToggleHardKeyPolicyCommand(): Boolean {
+        return sendAndroidAutoHardKeyPolicyMediaCommand(
+            keyCode = ANDROID_AUTO_OEM_INPUT_MEDIA_PLAY_PAUSE,
+            reason = "AA_DASHBOARD_PLAYBACK_HARDKEY_TOGGLE"
+        )
+    }
+
+    private suspend fun sendAndroidAutoPlaybackTargetDirectCommand(
+        targetPlaying: Boolean,
+        reason: String
+    ): Boolean {
+        val keyCode =
+            if (targetPlaying) {
+                KeyEvent.KEYCODE_MEDIA_PLAY
+            } else {
+                KeyEvent.KEYCODE_MEDIA_PAUSE
+            }
+        return sendAndroidAutoNativePlaybackDirectCommand(
+            keyCode = keyCode,
+            reason = reason,
+            mediaIsPlayingHint = !targetPlaying,
+            requestVideoFocus = shouldRequestAndroidAutoMediaCommandVideoFocusForPlaybackTarget(
+                targetPlaying = targetPlaying
+            )
         )
     }
 
     private suspend fun sendAndroidAutoNativePlaybackDirectCommand(
         keyCode: Int,
         reason: String,
-        mediaIsPlayingHint: Boolean = BottomBarState.mediaIsPlaying
+        mediaIsPlayingHint: Boolean = BottomBarState.mediaIsPlaying,
+        requestVideoFocus: Boolean = true
     ): Boolean {
+        if (shouldDeferAndroidAutoMediaControlToNativeMedia("${reason}_NATIVE_GUARD")) {
+            return false
+        }
+
+        if (
+            !prepareAndroidAutoMediaCommandTarget(
+                reason = "${reason}_PREPARE",
+                requestVideoFocus = requestVideoFocus
+            )
+        ) {
+            return false
+        }
+
         if (androidAutoLinkCommandBinder?.isBinderAlive != true) {
             ensureAndroidAutoLinkCommandBound("${reason}_BIND")
             delay(ANDROID_AUTO_NATIVE_MEDIA_KEY_BIND_WAIT_MS)
@@ -3986,11 +6056,16 @@ object DisplayAppLauncher {
         return !failed
     }
 
-    private fun sendAndroidAutoNativeMediaDirectCommand(keyCode: Int, reason: String): Boolean {
+    private suspend fun sendAndroidAutoNativeMediaDirectCommand(keyCode: Int, reason: String): Boolean {
         val transactionCode = when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_NEXT -> ANDROID_AUTO_LINK_COMMAND_NEXT_TRANSACTION
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> ANDROID_AUTO_LINK_COMMAND_PREVIOUS_TRANSACTION
             else -> return false
+        }
+
+        if (androidAutoLinkCommandBinder?.isBinderAlive != true) {
+            ensureAndroidAutoLinkCommandBound("${reason}_BIND")
+            delay(ANDROID_AUTO_NATIVE_MEDIA_KEY_BIND_WAIT_MS)
         }
 
         val sent = transactAndroidAutoLinkCommandSync(
@@ -4032,6 +6107,20 @@ object DisplayAppLauncher {
                 now - lastHandledAt in 0..cooldownMs)
     }
 
+    internal fun shouldSkipDuplicateAndroidAutoSteeringInputKeyForTest(
+        keyCode: Int,
+        action: Int,
+        now: Long,
+        lastKeyCode: Int,
+        lastAction: Int,
+        lastHandledAt: Long,
+        cooldownMs: Long = ANDROID_AUTO_STEERING_INPUT_DEDUP_WINDOW_MS
+    ): Boolean {
+        if (lastHandledAt <= 0L) return false
+        if (lastKeyCode != keyCode || lastAction != action) return false
+        return now - lastHandledAt in 0..cooldownMs
+    }
+
     internal fun shouldConsumeAndroidAutoAccessibilityToggleKeyForTest(
         isAndroidAutoActive: Boolean,
         keyCode: Int,
@@ -4042,10 +6131,7 @@ object DisplayAppLauncher {
         blockedKeyCode: Int = 0,
         cooldownMs: Long = ANDROID_AUTO_MEDIA_KEY_COOLDOWN_MS
     ): Boolean {
-        if (!isAndroidAutoActive) return false
-        if (!isAndroidAutoMediaControlAction(action)) return false
-        if (!isAndroidAutoSteeringToggleKey(keyCode)) return false
-        return action == KeyEvent.ACTION_UP
+        return false
     }
 
     internal fun mapAndroidAutoClusterMediaCommandForTest(command: Int): Int? {
@@ -4063,12 +6149,31 @@ object DisplayAppLauncher {
         return mapAndroidAutoMediaKeyToAapHardkeyOrdinal(keyCode)
     }
 
+    internal fun resolveAndroidAutoDashboardPlaybackAapKeyCodeForTest(
+        mediaIsPlayingHint: Boolean
+    ): Int {
+        return resolveAndroidAutoDashboardPlaybackAapKeyCode(mediaIsPlayingHint)
+    }
+
     internal fun mapAndroidAutoMediaKeyToOemInputKeyCodeForTest(keyCode: Int): Int? {
         return mapAndroidAutoMediaKeyToOemInputKeyCode(keyCode)
     }
 
+    internal fun mapAndroidAutoHardKeyPolicyDebugCommandForTest(
+        command: String
+    ): AndroidAutoHardKeyPolicyMediaRequest? {
+        return mapAndroidAutoHardKeyPolicyDebugCommand(command)
+    }
+
     internal fun isAndroidAutoOemInputMediaFallbackEnabledForTest(): Boolean {
         return ANDROID_AUTO_OEM_INPUT_MEDIA_FALLBACK_ENABLED
+    }
+
+    internal fun shouldPreferAndroidAutoAapMediaKeyRouteForCommandForTest(
+        linkActive: Boolean,
+        mediaSessionReady: Boolean
+    ): Boolean {
+        return !linkActive && mediaSessionReady
     }
 
     internal fun shouldUseAndroidAutoOemOnlyMediaRouteForTest(keyCode: Int): Boolean {
@@ -4078,14 +6183,55 @@ object DisplayAppLauncher {
     internal fun shouldUseAndroidAutoSteeringAppCommandRouteForTest(
         keyCode: Int,
         action: Int,
-        isSteeringInput: Boolean
+        isSteeringInput: Boolean,
+        nativeMediaCenterActive: Boolean = false
     ): Boolean {
         val source = if (isSteeringInput) {
             AndroidAutoMediaKeySource.STEERING_INPUT
         } else {
             AndroidAutoMediaKeySource.CLUSTER_CALLBACK
         }
-        return shouldUseAndroidAutoSteeringAppCommandRoute(keyCode, action, source)
+        return shouldUseAndroidAutoSteeringAppCommandRoute(
+            keyCode = keyCode,
+            action = action,
+            source = source,
+            nativeMediaCenterActive = nativeMediaCenterActive
+        )
+    }
+
+    internal fun shouldScheduleAndroidAutoSteeringPlaybackTargetReconcileForTest(
+        keyCode: Int,
+        action: Int,
+        isSteeringInput: Boolean,
+        useAppCommandRoute: Boolean,
+        nativeMediaCenterActive: Boolean,
+        androidAutoDesiredOnCluster: Boolean = false
+    ): Boolean {
+        val source = if (isSteeringInput) {
+            AndroidAutoMediaKeySource.STEERING_INPUT
+        } else {
+            AndroidAutoMediaKeySource.CLUSTER_CALLBACK
+        }
+        return shouldScheduleAndroidAutoSteeringPlaybackTargetReconcile(
+            keyCode = keyCode,
+            action = action,
+            source = source,
+            useAppCommandRoute = useAppCommandRoute,
+            nativeMediaCenterActive = nativeMediaCenterActive,
+            androidAutoDesiredOnCluster = androidAutoDesiredOnCluster
+        )
+    }
+
+    internal fun resolveAndroidAutoSteeringPlaybackTargetForTest(
+        keyCode: Int,
+        mediaIsPlaying: Boolean,
+        nativeMediaCenterIsPlaying: Boolean? = null
+    ): Boolean? {
+        return resolveAndroidAutoSteeringPlaybackTarget(
+            keyCode = keyCode,
+            mediaIsPlaying = mediaIsPlaying,
+            nativeMediaCenterIsPlaying = nativeMediaCenterIsPlaying
+        )
     }
 
     internal fun shouldSuppressAndroidAutoSteeringMediaInjectionForTest(
@@ -4138,7 +6284,8 @@ object DisplayAppLauncher {
         activeClusterProjectionPackage: String?,
         androidAutoLinkStatus: Int? = null,
         androidAutoTaskPresent: Boolean = false,
-        androidAutoSessionReady: Boolean = true
+        androidAutoSessionReady: Boolean = true,
+        androidAutoAudioPlaybackActive: Boolean = false
     ): Boolean {
         return isAndroidAutoActiveForMediaControlForState(
             activeProjectionPackage = activeProjectionPackage,
@@ -4146,8 +6293,13 @@ object DisplayAppLauncher {
             activeClusterProjectionPackage = activeClusterProjectionPackage,
             androidAutoLinkStatus = androidAutoLinkStatus,
             androidAutoTaskPresent = androidAutoTaskPresent,
-            androidAutoSessionReady = androidAutoSessionReady
+            androidAutoSessionReady = androidAutoSessionReady,
+            androidAutoAudioPlaybackActive = androidAutoAudioPlaybackActive
         )
+    }
+
+    internal fun hasActiveAndroidAutoAudioPlaybackInDumpForTest(audioDump: String): Boolean {
+        return hasActiveAndroidAutoAudioPlaybackInDump(audioDump)
     }
 
     internal fun describeAndroidAutoLinkStatusForTest(status: Int?): String {
@@ -5750,23 +7902,10 @@ object DisplayAppLauncher {
      * fullscreen mode works fine after move-stack.
      */
     fun onAppWindowChanged(packageName: String) {
-        // Close Impulse's fullscreen menu overlay the instant the foreground window changes to
-        // anything else (e.g. user presses a hardware AC/native-panel button while our menu is
-        // open). Previously this only got cleared by a 500ms watchdog poll in BottomBarService,
-        // which left the transparent menu overlay up long enough to visibly show the native
-        // carousel transitioning underneath it.
-        if (packageName != App.getContext().packageName &&
-            (BottomBarState.isMenuExpanded ||
-                BottomBarState.isSettingsMenuExpanded ||
-                BottomBarState.isOverrideMenuExpanded ||
-                BottomBarState.activeSliderType != null)
-        ) {
-            BottomBarState.isMenuExpanded = false
-            BottomBarState.isSettingsMenuExpanded = false
-            BottomBarState.isOverrideMenuExpanded = false
-            BottomBarState.activeSliderType = null
-        }
-
+        BottomBarService.requestBarRestoreAfterExternalFocus(
+            packageName,
+            "D0_WINDOW_CHANGED"
+        )
         preserveCarPlayClusterContractAfterWindowChange(packageName)
         preserveAndroidAutoClusterContractAfterWindowChange(packageName)
 
@@ -5833,15 +7972,16 @@ object DisplayAppLauncher {
                     configureCarPlayProjection("FOCUS_SYNC_$triggerSource")
                     sendCarPlayFocus(taskInfo.displayId, "FOCUS_SYNC_$triggerSource")
                 } else if (isAndroidAutoPackage(config.packageName)) {
-                    configureAndroidAutoProjection("FOCUS_SYNC_$triggerSource")
-                    sendAndroidAutoFocus(taskInfo.displayId, "FOCUS_SYNC_$triggerSource")
+                    Log.w(
+                        "FOCUS_SYNC",
+                        "Skipping Android Auto focus poke during generic sync " +
+                                "(Trigger: $triggerSource, Display: ${taskInfo.displayId})"
+                    )
                 } else {
                     val sb = StringBuilder()
                     // 1. CARPLAY focus broadcast
                     sb.append("am broadcast -a com.ts.carplay.action.VIDEO_FOCUS_CHANGE --es \"focus\" \"${config.packageName}\" --ei \"displayId\" ${taskInfo.displayId}; ")
-                    // 2. ANDROID AUTO focus broadcast
-                    sb.append("am broadcast -a com.ts.androidauto.action.AndroidAutoService --es \"command\" \"requestVideoFocus\" --ei \"displayId\" ${taskInfo.displayId}; ")
-                    // 3. Force activity to front with aggressive flags (NEW_TASK | REORDER_TO_FRONT | CLEAR_TOP)
+                    // 2. Force activity to front with aggressive flags (NEW_TASK | REORDER_TO_FRONT | CLEAR_TOP)
                     val escapedActivity = config.activityName.replace("$", "\\$")
                     sb.append("am start -n ${config.packageName}/$escapedActivity --display ${taskInfo.displayId} --windowingMode 1 -f 0x14000000; ")
                     sh(sb.toString())

@@ -104,6 +104,39 @@ class DisplayAppLauncherUsbStateTest {
     }
 
     @Test
+    fun usbReconnectGraceDefersClusterContractRestoreOnlyWhenCarPlayIsOnMainDisplay() {
+        assertTrue(
+            DisplayAppLauncher.shouldDeferCarPlayClusterContractRestoreForTest(
+                now = 12_500L,
+                lastDisconnectedAt = 9_000L,
+                lastConfiguredAt = 10_000L,
+                carPlayOnMainDisplay = true,
+                graceMs = 4_000L
+            )
+        )
+
+        assertFalse(
+            DisplayAppLauncher.shouldDeferCarPlayClusterContractRestoreForTest(
+                now = 12_500L,
+                lastDisconnectedAt = 9_000L,
+                lastConfiguredAt = 10_000L,
+                carPlayOnMainDisplay = false,
+                graceMs = 4_000L
+            )
+        )
+
+        assertFalse(
+            DisplayAppLauncher.shouldDeferCarPlayClusterContractRestoreForTest(
+                now = 15_000L,
+                lastDisconnectedAt = 9_000L,
+                lastConfiguredAt = 10_000L,
+                carPlayOnMainDisplay = true,
+                graceMs = 4_000L
+            )
+        )
+    }
+
+    @Test
     fun projectionProcessPidOutputRequiresPositivePid() {
         assertFalse(DisplayAppLauncher.isProjectionProcessPidOutputAliveForTest(""))
         assertFalse(DisplayAppLauncher.isProjectionProcessPidOutputAliveForTest("pidof: not found"))

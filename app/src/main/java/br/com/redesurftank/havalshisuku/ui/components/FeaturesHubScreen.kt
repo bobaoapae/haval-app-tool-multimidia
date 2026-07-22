@@ -1,5 +1,6 @@
 package br.com.redesurftank.havalshisuku.ui.components
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Construction
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -36,6 +38,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightSettingsScreen
+import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 
 @Composable
 fun FeaturesHubScreen() {
@@ -43,12 +48,22 @@ fun FeaturesHubScreen() {
 
     when (selectedFeature) {
         "score" -> TripConsistencyScreen(onBackToFeatures = { selectedFeature = null })
-        else -> FeaturesHome(onOpenScore = { selectedFeature = "score" })
+        "ambient_light" -> AmbientLightSettingsScreen(onBackToFeatures = { selectedFeature = null })
+        else -> FeaturesHome(
+            onOpenScore = { selectedFeature = "score" },
+            onOpenAmbientLight = { selectedFeature = "ambient_light" }
+        )
     }
 }
 
 @Composable
-private fun FeaturesHome(onOpenScore: () -> Unit) {
+private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit) {
+    val prefs =
+        App.getDeviceProtectedContext()
+            .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+    val ambientLightEnabled =
+        prefs.getBoolean(SharedPreferencesKeys.AMBIENT_LIGHT_BLE_ENABLED.key, false)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -76,15 +91,42 @@ private fun FeaturesHome(onOpenScore: () -> Unit) {
                 modifier = Modifier.weight(1f),
                 onClick = onOpenScore
             )
-            FeatureCard(
-                title = "Vallet",
-                description = "Área reservada para controles e regras de uso em modo manobrista.",
-                status = "Em breve",
-                icon = Icons.Default.AdminPanelSettings,
-                enabled = false,
-                modifier = Modifier.weight(1f),
-                onClick = {}
-            )
+            if (ambientLightEnabled) {
+                FeatureCard(
+                    title = "Ambient Light BLE",
+                    description = "Controle LEDs externos LEDCAR/LEDDMX por Bluetooth, com testes RGB e modo de conducao.",
+                    status = "Opcional",
+                    icon = Icons.Default.Settings,
+                    enabled = true,
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenAmbientLight
+                )
+            } else {
+                FeatureCard(
+                    title = "Vallet",
+                    description = "Área reservada para controles e regras de uso em modo manobrista.",
+                    status = "Em breve",
+                    icon = Icons.Default.AdminPanelSettings,
+                    enabled = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = {}
+                )
+            }
+        }
+
+        if (ambientLightEnabled) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                FeatureCard(
+                    title = "Vallet",
+                    description = "Área reservada para controles e regras de uso em modo manobrista.",
+                    status = "Em breve",
+                    icon = Icons.Default.AdminPanelSettings,
+                    enabled = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = {}
+                )
+                Spacer(modifier = Modifier.weight(1f))
+            }
         }
 
         StyledCard {

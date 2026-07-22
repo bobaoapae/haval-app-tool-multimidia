@@ -4,6 +4,8 @@ import android.app.Application;
 import android.content.Context;
 import android.content.Intent;
 
+import br.com.redesurftank.havalshisuku.BuildConfig;
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger;
 import br.com.redesurftank.havalshisuku.services.ForegroundService;
 
 public class App extends Application {
@@ -30,11 +32,10 @@ public class App extends Application {
     public void onCreate() {
         super.onCreate();
         sApplication = this;
-        
-        // Keep projection patches available without remounting/restarting projection apps on
-        // every app launch when the existing bind mounts are already healthy.
-        br.com.redesurftank.havalshisuku.managers.AndroidAutoPatchManager.INSTANCE.ensureMounted();
-        br.com.redesurftank.havalshisuku.managers.CarPlayPatchManager.INSTANCE.ensureMounted();
+        ClusterPersistentEventLogger.logText(
+                "app_start",
+                "versionCode=" + BuildConfig.VERSION_CODE + " versionName=" + BuildConfig.VERSION_NAME
+        );
         br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.ensureDefaultDesktopShortcuts();
 
         var context = getContext();

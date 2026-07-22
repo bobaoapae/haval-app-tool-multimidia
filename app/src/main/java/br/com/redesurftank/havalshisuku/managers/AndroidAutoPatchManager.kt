@@ -13,6 +13,9 @@ object AndroidAutoPatchManager {
     private const val PATCH_DIR = "/data/local/tmp/aa_patches"
     private const val SERVICE_APK = "AndroidAutoService.apk"
     private const val APP_APK = "AndroidAutoApp.apk"
+    private const val SERVICE_PACKAGE = "com.ts.androidauto.projectionservice"
+    private const val LEGACY_SERVICE_PACKAGE = "com.ts.androidauto"
+    private const val APP_PACKAGE = "com.ts.androidauto.app"
 
     const val VENDOR_SERVICE_PATH = "/vendor/app/AndroidAutoService/AndroidAutoService.apk"
     const val VENDOR_APP_PATH = "/vendor/app/AndroidAutoApp/AndroidAutoApp.apk"
@@ -24,6 +27,12 @@ object AndroidAutoPatchManager {
         val output = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "$command 2>&1"))
         Log.d(TAG, "sh: $command -> $output")
         return output
+    }
+
+    private fun forceStopAndroidAutoPackages() {
+        sh("am force-stop $SERVICE_PACKAGE || true")
+        sh("am force-stop $LEGACY_SERVICE_PACKAGE || true")
+        sh("am force-stop $APP_PACKAGE || true")
     }
 
     private fun hasBundledAsset(context: Context, assetName: String): Boolean {
@@ -56,8 +65,20 @@ object AndroidAutoPatchManager {
         return sh("md5sum '$PATCH_DIR/$assetName' 2>/dev/null | awk '{print \$1}'").trim()
     }
 
+    private fun isAppPatchInstalled(): Boolean {
+        return sh("[ -f '$PATCH_DIR/$APP_APK' ] && echo yes || true").contains("yes")
+    }
+
     private fun isServicePatchInstalled(): Boolean {
         return sh("[ -f '$PATCH_DIR/$SERVICE_APK' ] && echo yes || true").contains("yes")
+    }
+
+    private fun isAppPatchMounted(): Boolean {
+        val vendorAppMd5 = sh("md5sum '$VENDOR_APP_PATH' 2>/dev/null | awk '{print \$1}'").trim()
+        val patchAppMd5 = installedPatchMd5(APP_APK)
+        val mounted = vendorAppMd5.isNotEmpty() && vendorAppMd5 == patchAppMd5
+        Log.d(TAG, "isAppPatchMounted (MD5): $mounted (Vendor: $vendorAppMd5, Patch: $patchAppMd5)")
+        return mounted
     }
 
     fun isPatchInstalled(): Boolean {
@@ -68,10 +89,7 @@ object AndroidAutoPatchManager {
     }
 
     fun isMounted(): Boolean {
-        val vendorAppMd5 = sh("md5sum '$VENDOR_APP_PATH' 2>/dev/null | awk '{print \$1}'").trim()
-        val patchAppMd5 = sh("md5sum '$PATCH_DIR/$APP_APK' 2>/dev/null | awk '{print \$1}'").trim()
-
-        val appMounted = vendorAppMd5.isNotEmpty() && vendorAppMd5 == patchAppMd5
+        val appMounted = isAppPatchMounted()
         val servicePatchInstalled = isServicePatchInstalled()
         val serviceMounted = if (servicePatchInstalled) {
             val vendorServiceMd5 = sh("md5sum '$VENDOR_SERVICE_PATH' 2>/dev/null | awk '{print \$1}'").trim()
@@ -81,9 +99,8 @@ object AndroidAutoPatchManager {
             true
         }
 
-        val mounted = appMounted && serviceMounted
-        Log.d(TAG, "isMounted (MD5): $mounted (Service: $serviceMounted, App: $appMounted)")
-        return mounted
+        Log.d(TAG, "isMounted (visual MD5): $appMounted (Service patch mounted: $serviceMounted)")
+        return appMounted
     }
 
     fun installPatches(context: Context): Boolean {
@@ -140,61 +157,87 @@ object AndroidAutoPatchManager {
         }
     }
 
+    private fun installAppPatch(context: Context): Boolean {
+        try {
+            if (!hasBundledAsset(context, APP_APK)) {
+                Log.e(TAG, "Cannot install Android Auto visual patch: missing bundled asset aa_patches/$APP_APK")
+                return false
+            }
+
+            sh("mkdir -p '$PATCH_DIR'")
+            sh("chmod 755 '$PATCH_DIR'")
+            sh("mkdir -p '$PATCH_DIR/empty_oat'")
+            sh("chmod 755 '$PATCH_DIR/empty_oat'")
+
+            val tempFile = File(context.cacheDir, APP_APK)
+            context.assets.open("aa_patches/$APP_APK").use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            val destPath = "$PATCH_DIR/$APP_APK"
+            val cpOut = sh("cp '${tempFile.absolutePath}' '$destPath'")
+            Log.d(TAG, "Copy output for visual patch $APP_APK: $cpOut")
+            sh("chmod 644 '$destPath'")
+            sh("chcon u:object_r:vendor_app_file:s0 '$destPath'")
+            tempFile.delete()
+
+            val success = isAppPatchInstalled()
+            Log.i(TAG, "Visual patch installation success: $success")
+            return success
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install Android Auto visual patch", e)
+            return false
+        }
+    }
+
+    private fun applyAppMount(): Boolean {
+        if (!isAppPatchInstalled()) {
+            Log.e(TAG, "Cannot apply Android Auto visual mount: App patch not installed")
+            return false
+        }
+
+        return try {
+            Log.i(TAG, "Applying Android Auto visual app bind mount only...")
+            sh("mkdir -p '$PATCH_DIR/empty_oat'")
+            sh("chmod 755 '$PATCH_DIR/empty_oat'")
+            sh("chmod 644 '$PATCH_DIR/$APP_APK'")
+            sh("chcon u:object_r:vendor_app_file:s0 '$PATCH_DIR/$APP_APK'")
+
+            sh("umount -l '$VENDOR_APP_PATH' 2>/dev/null || true")
+            sh("[ -d '$VENDOR_APP_OAT' ] && umount -l '$VENDOR_APP_OAT' 2>/dev/null || true")
+
+            val mountResult = sh("mount --bind '$PATCH_DIR/$APP_APK' '$VENDOR_APP_PATH'")
+            if (mountResult.contains("error", ignoreCase = true) || mountResult.contains("failed", ignoreCase = true)) {
+                Log.e(TAG, "Failed to mount Android Auto visual APK: $mountResult")
+            }
+            sh("[ -d '$VENDOR_APP_OAT' ] && mount --bind '$PATCH_DIR/empty_oat' '$VENDOR_APP_OAT' || true")
+
+            sh("rm -f /data/dalvik-cache/arm64/*AndroidAutoApp* 2>/dev/null || true")
+            sh("am force-stop $APP_PACKAGE || true")
+
+            val success = isAppPatchMounted()
+            if (success) {
+                Log.w(TAG, "Android Auto visual patch mounted successfully")
+            } else {
+                Log.e(TAG, "Android Auto visual mount verification failed")
+            }
+            success
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to apply Android Auto visual mount", e)
+            false
+        }
+    }
+
     fun applyMounts(): Boolean {
         if (!isPatchInstalled()) {
             Log.e(TAG, "Cannot apply mounts: Patches not installed")
             return false
         }
-        
-        try {
-            Log.i(TAG, "Applying bind mounts...")
-            // 1. Unmount existing if any (aggressive)
-            sh("umount -l '$VENDOR_SERVICE_PATH' 2>/dev/null || true")
-            sh("umount -l '$VENDOR_APP_PATH' 2>/dev/null || true")
-            sh("[ -d '$VENDOR_SERVICE_OAT' ] && umount -l '$VENDOR_SERVICE_OAT' 2>/dev/null || true")
-            sh("[ -d '$VENDOR_APP_OAT' ] && umount -l '$VENDOR_APP_OAT' 2>/dev/null || true")
 
-            // 2. Apply Bind Mounts
-            var res1 = "Service patch not bundled"
-            if (isServicePatchInstalled()) {
-                res1 = sh("mount --bind '$PATCH_DIR/$SERVICE_APK' '$VENDOR_SERVICE_PATH'")
-                if (res1.contains("error", ignoreCase = true) || res1.contains("failed", ignoreCase = true)) {
-                    Log.e(TAG, "Failed to mount Service APK: $res1")
-                }
-            }
-
-            val res2 = sh("mount --bind '$PATCH_DIR/$APP_APK' '$VENDOR_APP_PATH'")
-            if (res2.contains("error", ignoreCase = true) || res2.contains("failed", ignoreCase = true)) {
-                Log.e(TAG, "Failed to mount App APK: $res2")
-            }
-            
-            // Mount empty oat only if target exists
-            if (isServicePatchInstalled()) {
-                sh("[ -d '$VENDOR_SERVICE_OAT' ] && mount --bind '$PATCH_DIR/empty_oat' '$VENDOR_SERVICE_OAT' || true")
-            }
-            sh("[ -d '$VENDOR_APP_OAT' ] && mount --bind '$PATCH_DIR/empty_oat' '$VENDOR_APP_OAT' || true")
-            
-            Log.d(TAG, "Mount Service Result: $res1")
-            Log.d(TAG, "Mount App Result: $res2")
-
-            // 3. Wipe dalvik cache to force reload
-            sh("rm -f /data/dalvik-cache/arm64/*AndroidAuto* 2>/dev/null || true")
-
-            // 4. Force stop apps
-            sh("am force-stop com.ts.androidauto")
-            sh("am force-stop com.ts.androidauto.app")
-
-            val success = isMounted()
-            if (success) {
-                Log.w(TAG, "Patches mounted successfully")
-            } else {
-                Log.e(TAG, "Mount verification failed. Check if Shizuku has root permissions.")
-            }
-            return success
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to apply mounts", e)
-            return false
-        }
+        Log.w(TAG, "Applying Android Auto visual mount only; service APK auto/manual UI mount is disabled")
+        return applyAppMount()
     }
 
     fun removeMounts(): Boolean {
@@ -205,8 +248,7 @@ object AndroidAutoPatchManager {
             sh("[ -d '$VENDOR_SERVICE_OAT' ] && umount -l '$VENDOR_SERVICE_OAT' 2>/dev/null || true")
             sh("[ -d '$VENDOR_APP_OAT' ] && umount -l '$VENDOR_APP_OAT' 2>/dev/null || true")
 
-            sh("am force-stop com.ts.androidauto")
-            sh("am force-stop com.ts.androidauto.app")
+            forceStopAndroidAutoPackages()
             
             return true
         } catch (e: Exception) {
@@ -223,53 +265,45 @@ object AndroidAutoPatchManager {
     }
     
     /**
-     * Auto-mount patches if installed but not yet mounted.
+     * Auto-mount the visual Android Auto patch if installed but not yet mounted.
      * Designed to be called from ForegroundService on boot after Shizuku is ready.
-     * No-op if patches aren't installed or are already mounted.
+     * The service APK is intentionally not auto-mounted because service variants have regressed
+     * video startup before; manual controls remain available for explicit diagnostics.
      */
     fun ensureMounted() {
         try {
             val context = App.getContext()
             val bundledAppMd5 = bundledPatchMd5(context, APP_APK)
             if (bundledAppMd5 == null) {
-                Log.e(TAG, "No bundled Android Auto patch available; skipping auto-mount")
+                Log.e(TAG, "No bundled Android Auto visual patch available; skipping auto-mount")
                 return
             }
 
-            val bundledServiceMd5 = if (hasBundledAsset(context, SERVICE_APK)) {
-                bundledPatchMd5(context, SERVICE_APK)
-            } else {
-                null
-            }
-
             val installedAppMd5 = installedPatchMd5(APP_APK)
-            val installedServiceMd5 = installedPatchMd5(SERVICE_APK)
             val needsInstall =
-                !isPatchInstalled() ||
-                        bundledAppMd5 != installedAppMd5 ||
-                        (bundledServiceMd5 != null && bundledServiceMd5 != installedServiceMd5) ||
-                        (bundledServiceMd5 == null && isServicePatchInstalled())
+                !isAppPatchInstalled() ||
+                        bundledAppMd5 != installedAppMd5
 
             if (needsInstall) {
-                Log.i(TAG, "Installing bundled Android Auto patch update...")
-                if (!installPatches(context)) {
-                    Log.e(TAG, "Cannot auto-mount Android Auto patch: install failed")
+                Log.i(TAG, "Installing bundled Android Auto visual patch update...")
+                if (!installAppPatch(context)) {
+                    Log.e(TAG, "Cannot auto-mount Android Auto visual patch: install failed")
                     return
                 }
             }
 
-            if (!isMounted() || needsInstall) {
+            if (!isAppPatchMounted() || needsInstall) {
                 Log.i(
                     TAG,
-                    "Android Auto patch auto-mounting. bundledApp=$bundledAppMd5 installedApp=$installedAppMd5 refreshed=$needsInstall"
+                    "Android Auto visual patch auto-mounting. bundledApp=$bundledAppMd5 installedApp=$installedAppMd5 refreshed=$needsInstall"
                 )
-                val success = applyMounts()
-                Log.i(TAG, "Auto-mount result: $success")
+                val success = applyAppMount()
+                Log.i(TAG, "Visual auto-mount result: $success")
             } else {
-                Log.d(TAG, "Patches already mounted, nothing to do")
+                Log.d(TAG, "Android Auto visual patch already mounted, nothing to do")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Auto-mount failed", e)
+            Log.e(TAG, "Android Auto visual auto-mount failed", e)
         }
     }
 

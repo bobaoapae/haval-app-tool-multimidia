@@ -76,4 +76,43 @@ class DisplayAppLauncherSurfaceBufferTest {
         assertNull(buffer)
         assertFalse(DisplayAppLauncher.isCarPlaySurfaceBufferStaleForTest(buffer))
     }
+
+    @Test
+    fun parsesStaleAndroidAutoSurfaceViewActiveBuffer() {
+        val dump = """
+            + BufferLayer (SurfaceView - com.ts.androidauto.app/com.ts.androidauto.app.display.AapActivity#0)
+                  layerStack=   3, z=       -2, pos=(-128,-180), size=(2048,1080)
+                  activeBuffer=[   0x   0:   0,Unknown/None], queued-frames=0
+            + ColorLayer (Background for -SurfaceView - com.ts.androidauto.app/com.ts.androidauto.app.display.AapActivity#0)
+                  activeBuffer=[   0x   0:   0,Unknown/None], queued-frames=0
+        """.trimIndent()
+
+        val buffer = DisplayAppLauncher.parseAndroidAutoSurfaceViewActiveBufferForTest(dump)
+
+        assertEquals(0 to 0, buffer)
+        assertTrue(DisplayAppLauncher.isAndroidAutoSurfaceBufferStaleForTest(buffer))
+    }
+
+    @Test
+    fun ignoresOverlayActiveBufferBeforeRealAndroidAutoSurfaceView() {
+        val dump = """
+            [SurfaceView - com.ts.androidauto.app/com.ts.androidauto.app.display.AapActivity#0] 1.70 0.000 1.000 0.000
+            Visible layers (count = 101)
+            + BufferLayer (Display Overlays#1)
+                  activeBuffer=[   0x   0:   0,Unknown/None], queued-frames=0
+            + BufferLayer (SurfaceView - com.ts.androidauto.app/com.ts.androidauto.app.display.AapActivity#0)
+                  layerStack=   3, z=       -2, pos=(-128,-180), size=(2048,1080)
+                  activeBuffer=[1920x1088:1920,Unknown 0x7fa30c06], queued-frames=0
+            + BufferLayer (com.ts.androidauto.app/com.ts.androidauto.app.display.AapActivity#0)
+                  activeBuffer=[1920x 720:1920,RGBA_8888], queued-frames=0
+        """.trimIndent()
+
+        val firstBufferInRawDump = DisplayAppLauncher.parseCarPlaySurfaceActiveBufferForTest(dump)
+        val androidAutoBuffer = DisplayAppLauncher.parseAndroidAutoSurfaceViewActiveBufferForTest(dump)
+
+        assertEquals(0 to 0, firstBufferInRawDump)
+        assertTrue(DisplayAppLauncher.isAndroidAutoSurfaceBufferStaleForTest(firstBufferInRawDump))
+        assertEquals(1920 to 1088, androidAutoBuffer)
+        assertFalse(DisplayAppLauncher.isAndroidAutoSurfaceBufferStaleForTest(androidAutoBuffer))
+    }
 }

@@ -1,6 +1,6 @@
 # Estrategia de Patch Nativo: Android Auto x CarPlay
 
-Atualizado em: 2026-06-12 01:33 -03
+Atualizado em: 2026-06-18 13:47 -03
 
 ## Objetivo
 
@@ -11,6 +11,13 @@ Este documento nao declara a tela preta do CarPlay resolvida. Ele registra a est
 ## Resumo Executivo
 
 Android Auto esta usando um caminho patchado e mais agressivo de recuperacao porque esse fluxo foi implementado, validado como montavel e documentado como melhor para dimensoes/foco no cluster.
+
+Atualizacao operacional de 2026-06-18 19:21: apos regressao de conexao Android Auto, a central
+`192.168.15.101` recebeu v216 `rollback-v194` preservando `AndroidAutoService.apk` stock
+`54df14713bf26466af55a76382a67ce6`. O APK v194 exato foi encontrado e validado por SHA-256, mas
+nao foi reinstalado porque embute `AndroidAutoService.apk` MD5
+`4f07b9deeb7097a2b21de33935a702ca`. Ate haver nova evidencia fisica, rollback de app-side deve
+preservar o nativo stock e nao trocar o service AA.
 
 CarPlay saiu do estado stock para uma excecao controlada de foco D3 em 2026-05-28/29:
 `TsCarPlayApp.apk` mantem `view_state=foreground` durante `onPause` e
@@ -47,7 +54,7 @@ Portanto, a estrategia atual e:
 | Estrategia atual | APK patchado via bind mount em `/vendor/app/...` | Patch minimo em `/system/app/TsCarPlayApp` + `/vendor/app/TsCarPlayService` |
 | Patch runtime | Ativo quando instalado/montado | Ativo para CarPlay D3 v13 |
 | Recuperacao permitida | Mais agressiva no app visual e foco | Conservadora, baseada em estado real e logs |
-| Evidencia recente | Usuario reportou que nao reproduz a tela preta | HVAC corrigido; app normal no D0 validado por stack + screencap; camera/AVM ainda depende de teste fisico |
+| Evidencia recente | v156 valida hardkeys por ACK dentro do processo system AA; efeito fisico ainda depende de teste no carro | HVAC corrigido; app normal no D0 validado por stack + screencap; camera/AVM ainda depende de teste fisico |
 
 MD5s do estado protegido:
 
@@ -78,9 +85,170 @@ Motivo tecnico:
 - A propria UI do app descreve o patch como "Ajusta melhor as dimensoes do cluster e nao perde o foco".
 - O fluxo de recuperacao Android Auto ficou isolado, sem depender de regras do CarPlay.
 
+### Rota nativa de hardkeys Android Auto
+
+Reverse realizado em 2026-06-17 na central `192.168.15.100` confirmou que os botoes de midia do
+Android Auto nao passam apenas por `LinkCommand`/`MediaCenter`.
+
+Artefatos relevantes:
+
+- APKs puxados para `reverse/native-apks/system-dump-20260617/`;
+- decompilados JADX em `reverse/jadx-androidauto-app-20260617/`,
+  `reverse/jadx-inputservice-20260617/` e `reverse/jadx-ts-framework-20260617/`;
+- `CoreSystemServer.vdex` extraido para
+  `reverse/native-apks/system-dump-20260617/core-system-vdex-extracted/CoreSystemServer_classes.cdex`;
+- disassembly em
+  `reverse/dexdump-coresystemserver-cdex-20260617/CoreSystemServer_classes.dexdump.txt`;
+- configs nativas em `reverse/native-configs/system-dump-20260617/keycode_config.json` e
+  `reverse/native-configs/system-dump-20260617/keycode-ui.xml`.
+
+Fluxo confirmado:
+
+1. `com.ts.androidauto.app.model.hardkey.HardKeyModel` registra callback no
+   `HardKeyPolicyManager` quando o link Android Auto fica `LINK_STATUS_ACTIVATED`.
+2. O registro usa a cena `SCENE_ANDROID_AUTO = 505` para eventos normais e long press.
+3. `keycode_config.json` declara `KEYCODE_MEDIA_LEFT`, `KEYCODE_MEDIA_RIGHT` e
+   `KEYCODE_MEDIA_OK` como pertencentes a `scene_android_auto`.
+4. `keycode-ui.xml` configura essas teclas com `scene_android_auto,14` e politica `3`
+   (`delivery to next scene`).
+5. `HardKeyPolicyManager.KEYCODE_MAP` traduz:
+   - `KEYCODE_MEDIA_LEFT` -> `1002`;
+   - `KEYCODE_MEDIA_RIGHT` -> `1003`;
+   - `KEYCODE_MEDIA_OK` -> `1004`;
+   - `KEYCODE_MEDIA_MUTE` -> `1006`.
+6. `HardKeyInputPolicyManagerService.processHardKeyFromPolicy(KeyEvent, targetDisplay)` valida
+   down/up, consulta os mapas carregados do XML/JSON e chama `notifyKeyEvent(event, scene,
+   targetDisplay, longPress)`.
+7. `HardKeyModel.onKeyEvent(...)` aceita apenas `scene == 505`, exige `mCurrentScene == 0`, e
+   mapeia `1002/1003/1004` para `AAP_KEYCODE_MEDIA_PREVIOUS/NEXT/PLAY_PAUSE`.
+8. `HardKeyModel.handleMediaKeyEvent(...)` so envia DOWN para o Android Auto quando
+   `mIsMediaFocus == true`; esse flag vem de `AudioExtManager` quando algum `AudioFocusInfo`
+   reporta `usage == 28`.
+
+Implicacoes:
+
+- A rota mais fiel ao volante nativo para `prev/next/play/pause` e entregar, dentro do processo
+  system do Android Auto, um par DOWN/UP para
+  `HardKeyPolicyManager.processHardKeyFromPolicy(KeyEvent(ACTION_DOWN/UP, 1002/1003/1004),
+  targetDisplay)`, nao chamar diretamente `LinkCommand.pause()` ou `input keyevent 85/87/88`.
+- O segundo argumento dessa API e `targetDisplay`, nao a cena. A cena `505` vem do mapa/config e
+  do callback registrado pelo Android Auto.
+- `KEYCODE_MEDIA_MUTE` nao tem `scene_android_auto` nos configs nativos desta central; mute/unmute
+  deve permanecer separado pela rota de volume/adapter ja diagnosticada, salvo nova evidencia.
+- Como `AndroidAutoApp.apk` em `/vendor/app/AndroidAutoApp/AndroidAutoApp.apk` esta montado a
+  partir de `/data/local/tmp/aa_patches/AndroidAutoApp.apk`, este reverse reflete o estado patchado
+  atual da central.
+
+Implementacao atual em 2026-06-17:
+
+- A tentativa direta pelo Impulse/Shizuku/root foi descartada. `input_policy` valida UID system ou
+  a permissao protegida `android.car.permission.BIND_CAR_INPUT_SERVICE`; app/UID root fora do
+  processo system nao passa nessa checagem.
+- `AndroidAutoApp.apk` foi patchado para registrar dinamicamente, no
+  `AndroidAutoRemoteUiService`, um receiver interno para
+  `br.com.redesurftank.havalshisuku.AA_MEDIA_COMMAND`.
+- O receiver aceita somente token conhecido, displays `0`/`3` e keycodes `1002/1003/1004`, chama
+  `HardKeyPolicyManager.processHardKeyFromPolicy(...)` para DOWN/UP e retorna
+  `resultCode=1` apenas quando despachou o comando.
+- O receiver estatico tambem existe no APK, mas o `PackageManager` nao o expôs no mesmo boot apos
+  bind mount; a rota efetiva de mesma sessao e o receiver dinamico registrado pelo service.
+- O Impulse usa `AndroidAutoHardKeyPolicyBridge`: inicia
+  `com.ts.androidauto.app/.AndroidAutoRemoteUiService`, aguarda brevemente, envia broadcast
+  ordenado com ACK e registra falha se o resultado nao for `1`.
+- APK nativo validado na central `192.168.15.100`:
+  `/vendor/app/AndroidAutoApp/AndroidAutoApp.apk` e
+  `/data/local/tmp/aa_patches/AndroidAutoApp.apk` com MD5
+  `2465e5dcd6fa4dc78d90cf3af5bf21ce`.
+- Validacao tecnica v156:
+  - broadcast nativo `1003`/D3: `result=1`;
+  - broadcast nativo `1004`/D3: `result=1`;
+  - broadcast nativo `1006`/D3: `result=0`, esperado;
+  - debug Impulse `aa_hardkey_next_d3` e `aa_hardkey_pause_d3`: ACK `resultCode=1`.
+- Pendente: validar fisicamente que o ACK resulta em troca de faixa/pausa real no Android Auto em
+  D0 e D3. Se `play/pause` ainda falhar com ACK, investigar `mIsMediaFocus`, `mCurrentScene`,
+  `USAGE_AAUTO_MEDIA` e o app de audio do telefone.
+
+Atualizacao 2026-06-17 21:13 - card Android Auto sem toggle:
+
+- O decompile do MediaCenter mostrou que o fluxo nativo Android Auto chama
+  `DeviceMirrorManager.pause()/play()` e retorna sucesso sem validar efeito fisico.
+- A camada `AapController.pause()` so envia `sendPauseKey(true/false)` quando
+  `isAapConnected()` esta verdadeiro; com `aaLink=NO_DEVICE_OR_POWER(-1)` o Binder pode aceitar a
+  chamada sem o telefone receber pausa.
+- Por isso, o card/debug do Impulse nao deve usar `PLAY_PAUSE` como substituto do fluxo nativo.
+  A v186 deixa o card em comandos por alvo: `KEYCODE_MEDIA_PAUSE`/AAP hardkey `8` para pausar e
+  `KEYCODE_MEDIA_PLAY`/AAP hardkey `7` para tocar.
+- Se a sessao AA estiver desconectada (`NO_DEVICE_OR_POWER`, `aaDevices=[]`), `sent=true`/ACK nao
+  comprova funcionamento. O teste fisico so e conclusivo com link `ACTIVATED(3)` ou `AAP_FRX(8)`.
+
+Atualizacao 2026-06-17 22:13 - FM/source 12 abandonado para play/pause:
+
+- A hipotese de usar o caminho do radio como "freio" do Spotify/Android Auto foi testada na v193
+  com source `12`.
+- O resultado nao sustentou pause: o audio AA pausou apos comandos nativos de radio, mas retomou
+  sozinho poucos segundos depois.
+- A v194 remove esse caminho do fluxo normal e dos debug commands `aa_pause_brake` /
+  `aa_pause_fm_brake`.
+- OEM audio focus hold tambem nao roda mais automaticamente dentro do `aa_pause`; permanece apenas
+  como diagnostico manual.
+- Proibicao operacional: nao usar FM/source `12` como fallback de botao Android Auto. Se a UI de
+  radio/FM manual resolve algo, mapear o fluxo completo da UI/servicos nativos antes de qualquer
+  nova implementacao.
+
+Atualizacao 2026-06-18 13:47 - AndroidAutoService reportAction para play/pause:
+
+- A v205 preservou a guarda nativa contra autoplay apos pause, mas o teste limpo do card/debug
+  ainda falhou: `KEYCODE_MEDIA_PAUSE` e AAP hardkey `8` retornaram `sent=true`, enquanto o AA
+  seguia em `aaMusic=NOT_START(0)` e o audio real continuava em
+  `USAGE_AAUTO_MEDIA state:started` no processo `com.ts.androidauto`.
+- A v206 muda o ponto nativo de menor alcance antes da saida do comando: `AapController` passa a
+  chamar `mGal.mediaPlaybackStatus.reportAction(126/127)` antes de `play()`, `pause()`,
+  `sendKeyEvent(II)` para `ACTION_DOWN` de `126/127`, `sendMediaPlayKey(true)` e
+  `sendMediaPauseKey(true)`.
+- Essa rota nao tenta trocar source, nao usa FM/source `12`, nao usa `PLAY_PAUSE` generico, nao
+  usa `input keyevent` e nao altera `mute`, `next` ou `prev`.
+- A validacao fisica deve procurar `IMPULSE_MEDIA_PATCH reportAction action=127 result=` no log e
+  so considerar sucesso se o Spotify permanecer pausado depois da janela sustentada. Se o pause
+  ainda nao sustentar, a proxima investigacao deve continuar no controlador nativo AA/telefone,
+  nao em MediaCenter/radio.
+
+Atualizacao 2026-06-18 14:41 - reload correto do service Android Auto:
+
+- Na central `192.168.33.194`, o pacote real que hospeda o service nativo e
+  `com.ts.androidauto.projectionservice`, embora o processo apareca como `com.ts.androidauto`.
+- Durante o deploy v207, o APK patchado estava montado com MD5 correto, mas o processo
+  `com.ts.androidauto` ainda tinha `ELAPSED` anterior ao mount. `am force-stop com.ts.androidauto`
+  nao bastou porque nao era o nome do pacote instalado.
+- `AndroidAutoPatchManager` deve parar `com.ts.androidauto.projectionservice`, manter
+  `com.ts.androidauto` apenas como compatibilidade legado e tambem parar o app visual
+  `com.ts.androidauto.app`.
+- Regra operacional: apos trocar `AndroidAutoService.apk`, confirmar nao so o bind mount/hash em
+  `/vendor/app`, mas tambem que o processo `com.ts.androidauto` foi reiniciado depois do mount.
+
+Atualizacao 2026-06-18 18:55 - transporte real antes de metadata/comando AA:
+
+- A central pode manter `source=402` no MediaCenter e Activity visual Android Auto mesmo quando a
+  sessao de midia real esta em Bluetooth.
+- Evidencia v215 na central `192.168.33.206`:
+  - `dumpsys media_session` tinha apenas `com.android.bluetooth/A2dpMediaBrowserService`;
+  - Bluetooth A2DP/AVRCP estava conectado ao `moto g56 5G`;
+  - Android Auto estava sem link/audio real (`NO_DEVICE_OR_POWER`, `mMusicActiveMs=0`, sem
+    `USAGE_AAUTO_MEDIA state:started`);
+  - o MediaCenter ainda reportava source `402`.
+- Regra: `source=402` e Activity visual nao bastam para rotear o card como Android Auto. Para
+  publicar metadata nativa AA, preservar estado AA ou enviar comandos AA pelo card, exigir
+  transporte real: link/USB AA ativo ou audio `USAGE_AAUTO_MEDIA state:started`.
+- Se a sessao real for Bluetooth, o card deve permanecer em `mediaPackage=com.android.bluetooth` e
+  usar `MediaController` Bluetooth. Esse caminho foi validado com play e pause sustentado por mais
+  de 30s na v215.
+- O problema de `play/pause` Android Auto puro continua separado: so deve ser testado quando o
+  transporte AA real estiver ativo.
+
 Consequencia:
 
 - Android Auto tem uma combinacao de APK patchado + foco explicito + recuperacao visual dedicada.
+- Para hardkeys de midia, a chamada nativa tambem fica encapsulada no APK patchado do AA, porque e
+  o contexto que satisfaz as validacoes de `input_policy`.
 - Isso explica por que ele pode sobreviver melhor a AC/camera/app no display 0.
 
 ## Atualizacao 2026-06-07 - Contrato App-side Android Auto D3
@@ -239,10 +407,10 @@ Atualizacao 2026-06-11 21:52 - Toggle Android Auto sem fallback OEM:
   padrao, inclusive para `PLAY_PAUSE=1004`.
 - `1004` deve ser reconhecido como input/eco de `PLAY_PAUSE`, mas apenas observado/consumido pelo
   Impulse.
-- Decisao substituida em 2026-06-12 10:59: nesta etapa, o `AccessibilityService` consumia apenas
+- Decisao substituida em 2026-06-12 13:42: nesta etapa, o `AccessibilityService` consumia apenas
   repeticao curta de teclas toggle Android Auto ativo; depois passou por uma tentativa de consumir
-  o toggle inteiro. A regra atual passa `ACTION_DOWN` e consome `ACTION_UP`, mantendo
-  `next/previous` fora dessa trava.
+  o toggle inteiro e por outra de passar `ACTION_DOWN`/consumir `ACTION_UP`. A regra atual nao
+  consome toggles pelo Accessibility, mantendo `next/previous` fora dessa trava.
 - Essa regra nao toca em CarPlay, Surface, foco, bounds, handoff D0/D3 ou fluxo sem Android Auto
   ativo.
 
@@ -264,12 +432,177 @@ Atualizacao 2026-06-12 01:33 - Pre-start CarPlay e midia Android Auto:
   - `next/previous` fisicos usam excecao controlada desde `2026-06-12 10:59`: rota app-side apenas
     no `ACTION_UP`, reaproveitando o caminho do card de midia, porque a rota nativa nao estava
     passando musica no teste fisico;
-  - o `AccessibilityService` passa `ACTION_DOWN` e consome `ACTION_UP` dos toggles Android Auto
-    ativos para permitir o primeiro evento nativo e bloquear o eco mais provavel;
+  - o `AccessibilityService` nao consome toggles Android Auto ativos; `pause/play/mute` fisicos
+    ficam sem reenvio app-side e sem consumo parcial pelo Impulse;
+  - o keepalive de foco Android Auto so pulsa quando a fonte AA esta tocando e nao esta mutada;
   - midia Android Auto nao deve ser limpa apenas por USB sysfs desconectado se sessao/projecao
     continuar ativa, especialmente em wireless/hotspot;
   - fallback de metadata/capa de Bluetooth/MediaCenter so e aceito quando a frente atual continua
     sendo Android Auto, sem afetar CarPlay.
+
+Atualizacao 2026-06-12 23:18 - Contrato de capa/metadata Android Auto:
+
+- `dumpsys media_session` nao e fonte confiavel para capa/metadata Android Auto nesta central:
+  pode mostrar apenas `com.android.bluetooth` desconectado enquanto a musica do Android Auto toca.
+- O caminho preferencial do dashboard para capa/metadata Android Auto e o Binder nativo do
+  `com.beantechs.mediacenter`, somente quando `IPlayService.getCurrentSource()` ou
+  `getCurrentAudioSource()` retorna a fonte Android Auto `402`.
+- Nesse estado, o Impulse pode chamar `IPlayService.getPlayMediaInfoBySource(402)` por transacao
+  `22` e publicar o retorno como Android Auto (`com.ts.androidauto`), lendo apenas os campos
+  necessarios de `MediaInfo`: `title`, `author`, `albumId`, `imageUrl`, `imageBitmap` e `duration`.
+- Fora da fonte nativa `402`, `com.beantechs.mediacenter` e
+  `com.beantechs.mediacenter.h5.core` continuam proibidos como fallback generico. Isso evita
+  regredir o bug em que a radio nativa era sobrescrita pelo Android Auto.
+- Se o MediaCenter emitir update posterior sem `imageBitmap` enquanto a fonte segue Android Auto,
+  o card deve preservar a ultima capa valida. A capa so deve ser limpa por troca real de fonte,
+  desconexao/limpeza Android Auto ou nova metadata com capa valida de outra faixa.
+- Esta regra e Android Auto-only: nao altera CarPlay, Surface, foco, bounds, handoff D0/D3 ou
+  fluxo sem Android Auto ativo.
+
+Atualizacao 2026-06-13 08:55 - Progresso Android Auto via MediaCenter:
+
+- O polling de metadata do MediaCenter nao pode chamar `updateMediaProgressState(...)` com o mesmo
+  `elapsedMs` antigo e um `updatedAtMs` novo. Isso faz o dashboard avancar um segundo e voltar no
+  proximo polling, congelando visualmente em dois valores proximos.
+- Quando a fonte nativa Android Auto `402` esta ativa, o Impulse tambem consulta
+  `IPlayService.getPlayStateBySource(402)` por transacao `19` e usa `duration`/`currentProgress`
+  como fonte preferencial do tempo do card.
+- Se o estado nativo nao trouxer elapsed, o progresso da mesma faixa e estimado pelo ultimo
+  `mediaElapsedMs` + delta desde `mediaProgressUpdatedAtMs`. Se a metadata indicar troca real de
+  faixa e nao houver elapsed nativo, o tempo zera.
+- A barra de progresso Android Auto continua visual-only: esta regra nao reabilita seek/scrub,
+  nao altera comandos de midia, CarPlay, Surface, foco, bounds ou handoff D0/D3.
+
+Atualizacao 2026-06-13 09:19 - Play/pause Android Auto fora do MediaCenter:
+
+- A transacao nativa do MediaCenter para `pauseMediaBySource(402)`/`resumeMediaBySource(402)`
+  retornou sucesso no log, mas o teste fisico reportado mostrou que a musica nao pausava pelo card
+  nem pelo volante.
+- Portanto, o MediaCenter nao deve ser usado para toggles Android Auto. A rota permitida para
+  `play/pause` e `AndroidAutoNowPlayingMonitor.pause()/play()`, com fallback para
+  `DisplayAppLauncher.sendAndroidAutoDashboardPlaybackCommand(...)` se o Binder do monitor nao
+  estiver pronto.
+- `next/previous` permanecem separados. A partir de 2026-06-16, somente `next` pode continuar pela
+  rota MediaCenter `402`; `previous` deve usar `AndroidAutoNowPlayingMonitor.previous()`/
+  `LinkCommand.previous`, porque `playPreviousBySource(402)` retornou sucesso sem efeito fisico em
+  teste posterior.
+- `clear` do NowPlaying durante sessao Android Auto ativa deve preservar `mediaIsPlaying`; limpar
+  esse estado durante a projecao ativa faz o proximo toggle inverter a decisao.
+- Esta regra e Android Auto-only e nao altera CarPlay, Surface, foco, bounds, handoff D0/D3 ou seek.
+
+Atualizacao 2026-06-13 09:34 - Next/previous fisico Android Auto nativo-only:
+
+- Logs da build `106` mostraram que um clique fisico de volante em `next/previous` ja chegava ao
+  Android Auto pela rota nativa da headunit e, em seguida, o Impulse enviava outro comando via
+  MediaCenter `source=402` no `ACTION_UP`.
+- A excecao de 2026-06-12 10:59 para skip app-side em evento fisico fica substituida: volante
+  `KEYCODE_MEDIA_NEXT/PREVIOUS` deve ser observado pelo Impulse, mas nao deve enviar comando
+  app-side.
+- O card de midia permanece separado e pode continuar usando sua rota explicita para
+  `next/previous`; a proibicao aqui e somente para evento fisico de volante.
+- Confirmacao fisica posterior do usuario: `prev/next` ficaram funcionando no Android Auto.
+- Regra substituida para playback fisico em 09:45: `play/pause` do volante tambem fica
+  nativo-only.
+- Esta regra e Android Auto-only e nao altera CarPlay, Surface, foco, bounds, handoff D0/D3 ou seek.
+
+Atualizacao 2026-06-16 - Supersede da reconciliacao MediaCenter v120:
+
+- A tentativa v120 de aplicar alvo tardio `pauseMediaBySource(402)`/`resumeMediaBySource(402)` para
+  volante Android Auto fica revertida. Na pratica, esses comandos podem concorrer com o processamento
+  nativo do proprio volante e produzir o ciclo observado de pausar e voltar a tocar.
+- O contrato v127 e:
+  - volante fisico Android Auto fora da fonte MediaCenter `402`: nativo-only para `next`,
+    `previous`, `play/pause`, `play`, `pause` e `mute`, sem comando app-side e sem reconciliacao
+    tardia;
+  - volante fisico Android Auto com fonte MediaCenter `402` ativa: tambem nativo-only. Logs da
+    central `192.168.33.49` em v126 mostraram `KEYCODE_MEDIA_NEXT` fisico mais
+    `playNextBySource(402)` app-side imediato, seguido por duas trocas de faixa;
+  - card Android Auto: `next` pode usar `playNextBySource(402)` quando fonte MediaCenter `402` esta
+    ativa;
+  - card Android Auto: `previous` usa monitor/LinkCommand, nao `playPreviousBySource(402)`;
+  - card Android Auto: `play/pause` com fonte MediaCenter `402` ativa usa
+    `pauseMediaBySource(402)`/`resumeMediaBySource(402)` em comando unico;
+  - mute fisico Android Auto com fonte `402` usa o toggle nativo de audio e reaplica o alvo somente
+    se a central desfizer o mute sozinha.
+- MediaCenter `402` segue valido para metadata, capa, progresso e play state consultado.
+- Esta regra e Android Auto-only e nao altera CarPlay, Surface, foco, bounds, handoff D0/D3 ou seek.
+  Se o volante precisar de fallback em algum estado futuro, ele deve ser tardio e condicionado a
+  ausencia real de mudanca nativa, nunca imediato em paralelo com a tecla fisica.
+- A v128 implementa esse fallback tardio apenas para `play/pause` quando o Android Auto esta com
+  alvo desejado no D3. `next/previous` continuam nativo-only no volante. Antes de enviar
+  `pauseMediaBySource(402)`/`resumeMediaBySource(402)`, o app consulta o play state nativo; se o
+  alvo ja foi atingido, nao envia comando. Essa regra nao se aplica ao card D0, que continua com
+  comandos explicitos MediaCenter.
+- A v129 ajusta o calculo do alvo desse fallback tardio: quando a fonte MediaCenter Android Auto
+  `402` esta disponivel, o toggle `play/pause` do volante usa o play state nativo como fonte
+  primaria, e nao `BottomBarState.mediaIsPlaying`, porque o estado visual pode ficar stale apos o
+  handoff D0 -> D3. Se a leitura nativa falhar, o estado visual continua como fallback. O mute
+  target-aware tambem passa a considerar qualquer valor real divergente como motivo para reassert.
+  Esta regra segue Android Auto-only e nao altera CarPlay, bounds, Surface ou handoff.
+- A v130 adiciona dedupe de callback fisico do `InputService` para Android Auto. Logs da central
+  mostraram o mesmo `KEYCODE_MEDIA_PLAY_PAUSE`/`KEYCODE_MUTE` chegando duas vezes no mesmo ms apos
+  Android Auto ir para D3; no mute isso gerava duas solicitacoes de toggle e podia produzir
+  `mute:1 -> mute:0`. O app agora consome callbacks identicos `keyCode + action` dentro de `280ms`
+  antes de qualquer hint, reconciliacao ou comando. Esta regra nao altera CarPlay.
+- A v131 ajusta a reconciliacao tardia de `play/pause` Android Auto D3: o play state nativo `402`
+  pode reportar alvo ja atingido de forma stale, portanto a reconciliacao nao usa mais esse estado
+  para abortar o comando. Ela envia o alvo idempotente `pauseMediaBySource(402)` ou
+  `resumeMediaBySource(402)` apos o atraso. O reassert de mute tambem passa a agendar as janelas de
+  `3.8s` e `7.2s` em paralelo a partir do toque. Esta regra nao altera CarPlay.
+- A v139 reativa essa reconciliacao tardia para o caso observado na central `192.168.33.143`: o
+  botao fisico `KEYCODE_MEDIA_PLAY_PAUSE` chegou ao MediaCenter com `currentSource=402`, mas o
+  nativo registrou `isPhoneLinkCarMediaSource=false` e nao tratou a tecla. A regra continua sem
+  rota app-side imediata: o evento fisico aplica hint visual, agenda o alvo e depois envia
+  `pauseMediaBySource(402)`/`resumeMediaBySource(402)` se a geracao ainda for atual. `next` e
+  `previous` continuam nativo-only para nao recriar duplo skip; mute continua no fluxo proprio de
+  audio.
+- A v140 supersede a v139 e as excecoes de comando MediaCenter. Logs da central mostraram que o
+  MediaCenter `402` aceitava transacoes de comando, mas o audio real seguia tocando. A partir dela,
+  o MediaCenter `402` fica restrito a metadata/capa/progresso/play state. Card Android Auto usa
+  `AndroidAutoNowPlayingMonitor`/`LinkCommand` para `next`, `previous`, `play` e `pause`; se o
+  monitor falhar, o fallback direto tambem e `LinkCommand`. `play/pause` usa alvo explicito
+  `PLAY`/`PAUSE`, sem toggle baseado em estado stale. A reconciliacao tardia do volante tambem usa
+  `LinkCommand`; `next/previous` do volante so enviam fallback tardio por `LinkCommand` se a faixa
+  nao mudar apos a janela de espera.
+- A v181 supersede apenas o caso inconclusivo do card. Quando a fonte nativa Android Auto `402`
+  esta ativa e o estado retorna `NOT_START(0)` sem audio ativo, o card nao deve inferir `PLAY`.
+  Ele envia `MEDIA_PLAY_PAUSE` via `AndroidAutoHardKeyPolicyBridge`/patch
+  `AndroidAutoRemoteUiService`, aguardando ACK `dispatched=true`. Essa excecao nao reabilita
+  comandos MediaCenter `402` e nao se aplica ao volante fisico.
+- A v157 amplia a reconciliacao tardia de `play/pause` fisico para D0 e D3 quando o MediaCenter
+  Android Auto esta ativo. Evidencia da central `192.168.15.100`: `KEYCODE_MEDIA_PLAY_PAUSE`
+  chegou pelo `InputService`, `currentSource=402`, mas `isPhoneLinkCarMediaSource=false`, e a regra
+  anterior nao agendou fallback porque `desiredOnCluster` nao estava ativo. A partir da v157, esse
+  caso agenda `_RECONCILE_1` por alvo explicito; `next/previous` e `mute` permanecem isolados.
+
+Atualizacao 2026-06-13 09:45 - Play/pause fisico Android Auto nativo-only:
+
+- Usuario confirmou `prev/next` OK e reportou novo bug: `play/pause` duplicado no volante e no
+  card de midia.
+- Logs da build `107` mostraram `KEYCODE_MEDIA_PLAY_PAUSE` fisico chegando pelo `IInputService` e
+  o Impulse enviando comando app-side em seguida. Como `play/pause` e toggle, app-side apos rota
+  nativa pode desfazer a acao esperada.
+- Volante fisico `KEYCODE_MEDIA_PLAY_PAUSE/PLAY/PAUSE/1004` passa a ser observado e nativo-only:
+  nao reenviar por LinkCommand, MediaCenter, AAP hardkey, OEM input ou shell.
+- Card de midia continua separado: usa `AndroidAutoNowPlayingMonitor.pause()/play()` com cooldown.
+  Se o monitor ja existe e retorna `false`, nao cair em fallback direto no mesmo toque; fallback
+  direto fica reservado para ausencia do monitor.
+- Esta regra e Android Auto-only e nao altera CarPlay, Surface, foco, bounds, handoff D0/D3 ou seek.
+
+Atualizacao 2026-06-13 09:52 - Estado visual de playback Android Auto:
+
+- Apos a build `108`, o usuario reportou que o pause funcionou uma vez pelo volante, mas o icone do
+  card nao mudou. Em seguida, o card decidiu o proximo comando com estado antigo e o fluxo regrediu.
+- Causa encontrada: `IPlayService.getPlayStateBySource(402)` pode retornar
+  `MediaPlayStateInfo` com `mSrc=0` mesmo quando o log nativo mostra `currentSrc=402`. O Impulse
+  filtrava esse playState fora por nao ser `402`, preservando `mediaIsPlaying` antigo durante
+  `clear` continuo do NowPlaying.
+- O contrato atual aceita `mSrc=0` como estado da fonte consultada `402`, aplica
+  `PLAYING/PAUSED` mesmo quando a metadata vem vazia, e usa esse estado para corrigir o icone do
+  card.
+- Evento fisico de volante tambem aplica um hint visual imediato no `BottomBarState`; o polling
+  nativo corrige logo depois se necessario.
+- Esta regra e Android Auto-only e nao altera CarPlay, Surface, foco, bounds, handoff D0/D3 ou seek.
 
 ## Por Que CarPlay Nao Esta Mais Stock
 
