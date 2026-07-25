@@ -703,8 +703,8 @@ button {
   color: #ffffff;
   text-transform: uppercase;
   line-height: 1;
-  opacity: 0.9;
-  transition: color 0.2s ease, opacity 0.2s ease, text-decoration-color 0.2s ease;
+  opacity: 0.8;
+  transition: color 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
 }
 
 .ac-section.is-focused .ac-section-label {
@@ -714,10 +714,20 @@ button {
   text-shadow: none;
 }
 
+/* FAN label moves UP when FAN section is focused */
+.ac-section-fan.is-focused .ac-section-label {
+  transform: translateY(-6px);
+}
+
+/* TEMP label moves DOWN when TEMP section is focused */
+.ac-section-temp.is-focused .ac-section-label {
+  transform: translateY(6px);
+}
+
 .ac-section-value,
 .ac-section .ac-section-value {
   font-family: 'Khand', sans-serif;
-  font-size: 52px;
+  font-size: 50px;
   font-weight: 300;
   color: rgba(255, 255, 255, 0.6);
   line-height: 0.95;
@@ -728,24 +738,26 @@ button {
   justify-content: center;
   text-shadow: none;
   padding-top: 2px;
-  transition: color 0.2s ease, font-size 0.2s ease, font-weight 0.2s ease, text-shadow 0.2s ease;
+  transition: color 0.2s ease, font-size 0.2s ease, transform 0.2s ease;
 }
 
 .ac-temp-value {
   font-size: 38px;
 }
 
-.ac-section.is-focused .ac-section-value {
+/* Focused Fan Value: larger font size (66px), same font-weight (300) */
+.ac-section-fan.is-focused .ac-section-value {
   color: #00ff88;
-  font-size: 68px;
-  font-weight: 500;
+  font-size: 66px;
+  font-weight: 300;
   text-shadow: none;
 }
 
-.ac-section.is-focused .ac-temp-value {
+/* Focused Temp Value: larger font size (54px), same font-weight (300) */
+.ac-section-temp.is-focused .ac-temp-value {
   color: #00ff88;
-  font-size: 50px;
-  font-weight: 500;
+  font-size: 54px;
+  font-weight: 300;
   text-shadow: none;
 }
 
