@@ -712,9 +712,13 @@ public class ServiceManager {
                                 lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
                                 lastHandledClusterInputAtMs = now;
                                 if (ClusterCardNavigationPolicy.isCardNavigationKey(key)) {
-                                    // Card ownership stays in the backend. Themes receive the
-                                    // resulting CLUSTER_CARD_CHANGED callback, never LEFT/RIGHT.
-                                    handleClusterCardNavigationKey(key);
+                                    // Card navigation belongs to the car. We deliberately do not
+                                    // predict the next card locally: the predicted sequence does
+                                    // not always match what the car actually does, and once the
+                                    // two disagree the app renders one card while the cluster
+                                    // shows another. The car cycles its own cards and reports the
+                                    // result via msgId=133, which is the single source of truth.
+                                    // Themes never receive LEFT/RIGHT.
                                 } else {
                                     if (key == ClusterKey.BACK) {
                                         dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);

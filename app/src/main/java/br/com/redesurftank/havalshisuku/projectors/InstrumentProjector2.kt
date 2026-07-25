@@ -796,9 +796,17 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         )
 
         // Contract (THEME_GUIDE): backend owns the active card and informs the
-        // frontend exclusively via window.onCardChanged(cardId). All v1.0 themes
-        // (Default, Minimalist) implement this; no legacy control('cardId', ...) push.
-        evaluateJsIfReady(webView, "if (window.onCardChanged) window.onCardChanged($currentCard);")
+        // frontend via window.onCardChanged(cardId). Themes installed before that
+        // contract existed only implement control('cardId', ...); since the
+        // onCardChanged call is feature-detected it silently no-ops for them, leaving
+        // the theme stuck on the last card it rendered (observed: card 0 never
+        // painting until something forced a full state resync). Fall back to the
+        // legacy push so an older installed theme still tracks the active card.
+        evaluateJsIfReady(
+                webView,
+                "if (window.onCardChanged) { window.onCardChanged($currentCard); }" +
+                        " else if (window.control) { control('cardId', $currentCard); }"
+        )
 
         if (decision.updateVirtualClusterVisibility) {
             updateVirtualClusterVisibility(

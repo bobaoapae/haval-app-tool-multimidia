@@ -5,7 +5,8 @@ export const ajustesItems = [
     { id: 'ajuste_driving', label: 'Condução', stateKey: 'drivingMode' },
     { id: 'ajuste_ev', label: 'Modo EV', stateKey: 'evMode' },
     { id: 'ajuste_steer', label: 'Direção', stateKey: 'steerMode' },
-    { id: 'ajuste_esp', label: 'ESP', stateKey: 'espStatus' }
+    { id: 'ajuste_esp', label: 'ESP', stateKey: 'espStatus' },
+    { id: 'ajuste_regen', label: 'Regeneração', stateKey: 'regenMode' }
 ];
 
 export function createAjustesMenu() {
@@ -89,7 +90,8 @@ export function createAjustesMenu() {
         subscribe('espStatus', () => updateItemValue(ajustesItems.find(i => i.stateKey === 'espStatus'))),
         subscribe('evMode', () => updateItemValue(ajustesItems.find(i => i.stateKey === 'evMode'))),
         subscribe('drivingMode', () => updateItemValue(ajustesItems.find(i => i.stateKey === 'drivingMode'))),
-        subscribe('steerMode', () => updateItemValue(ajustesItems.find(i => i.stateKey === 'steerMode')))
+        subscribe('steerMode', () => updateItemValue(ajustesItems.find(i => i.stateKey === 'steerMode'))),
+        subscribe('regenMode', () => updateItemValue(ajustesItems.find(i => i.stateKey === 'regenMode')))
     ];
 
     updateFocus();

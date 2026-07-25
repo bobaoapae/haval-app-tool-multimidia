@@ -130,13 +130,12 @@ function initializeLayout() {
 
         // Pre-load critical screens
         if (menuWrapper) {
-            const cachedScreens = ['main_menu', 'aircon', 'regen', 'display_selection', 'graph', 'ajustes', 'info'];
+            const cachedScreens = ['main_menu', 'aircon', 'display_selection', 'graph', 'ajustes', 'info'];
             cachedScreens.forEach(screen => {
                 try {
                     let result = null;
                     if (screen === 'main_menu') result = createMainMenu();
                     else if (screen === 'aircon') result = createAcControlScreen();
-                    else if (screen === 'regen') result = createRegenScreen();
                     else if (screen === 'display_selection') result = createDisplaySelectionScreen();
                     else if (screen === 'graph') result = createGraphScreen();
                     else if (screen === 'ajustes') result = createAjustesMenu();
@@ -243,7 +242,6 @@ function render() {
         let previewScreen = null;
         if (focused === 'option_7') previewScreen = 'graph';
         else if (focused === 'option_ajustes') previewScreen = 'ajustes';
-        else if (focused === 'option_6') previewScreen = 'regen';
         else if (focused === 'option_info') previewScreen = 'info';
 
         if (previewScreen && screenCache[previewScreen]) {

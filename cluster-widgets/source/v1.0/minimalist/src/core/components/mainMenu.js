@@ -13,7 +13,6 @@ const iconEV = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaX
 export const menuItems = [
     { id: 'option_7', label: 'Gráficos', iconSrc: iconProfiles },
     { id: 'option_ajustes', label: 'Ajustes', iconSrc: iconSteer },
-    { id: 'option_6', label: 'Regeneração', iconSrc: iconRegen },
     { id: 'option_info', label: 'Informações', iconSrc: iconDisplay },
 ];
 

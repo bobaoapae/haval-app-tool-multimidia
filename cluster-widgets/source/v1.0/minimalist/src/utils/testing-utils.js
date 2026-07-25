@@ -153,7 +153,7 @@ document.addEventListener('keydown', (e) => {
 
             const activeMenu = currentState.focusedMenuItem;
             if (activeMenu === 'option_ajustes') {
-                const ajustes = ['ajuste_driving', 'ajuste_ev', 'ajuste_steer', 'ajuste_esp'];
+                const ajustes = ['ajuste_driving', 'ajuste_ev', 'ajuste_steer', 'ajuste_esp', 'ajuste_regen'];
                 const subIndex = ajustes.indexOf(currentState.focusedAjustesItem || 'ajuste_driving');
 
                 if (e.key === 'ArrowUp') {
@@ -179,6 +179,10 @@ document.addEventListener('keydown', (e) => {
                         const modes = ['Normal', 'Conforto', 'Esportiva'];
                         const nextVal = modes[(modes.indexOf(currentState.steerMode) + 1) % modes.length];
                         setState('steerMode', nextVal);
+                    } else if (currentSub === 'ajuste_regen') {
+                        const modes = ['Alto', 'Normal', 'Baixo'];
+                        const nextVal = modes[(modes.indexOf(currentState.regenMode) + 1) % modes.length];
+                        setState('regenMode', nextVal);
                     }
                 }
             } else if (activeMenu === 'option_6') {
