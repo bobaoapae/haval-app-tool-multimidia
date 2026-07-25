@@ -415,10 +415,45 @@ const GRAPH_NAV_IDS = graphList.map((g) => g.id);
 let lastKeyTimeMs = 0;
 const KEY_DEBOUNCE_MS = 50;
 
+function getCurrentCanValueFromState(carKey) {
+    switch (carKey) {
+        case 'car.drive_setting.esp_enable':
+            return get('espStatus') === 'ON' ? '1' : '0';
+        case 'car.ev_setting.power_model_config': {
+            const mode = String(get('evMode')).toUpperCase();
+            if (mode === 'EV' || mode === 'MODO EV') return '3';
+            if (mode === 'EVP' || mode === 'PRIOR. EV') return '1';
+            return '0';
+        }
+        case 'car.drive_setting.drive_mode': {
+            const mode = String(get('drivingMode')).toLowerCase();
+            if (mode === 'sport') return '1';
+            if (mode === 'eco') return '2';
+            return '0';
+        }
+        case 'car.drive_setting.steering_wheel_assist_mode': {
+            const mode = String(get('steerMode')).toLowerCase();
+            if (mode === 'conforto') return '2';
+            if (mode === 'esportiva') return '1';
+            return '0';
+        }
+        case 'car.ev_setting.energy_recovery_level': {
+            const mode = String(get('regenMode')).toLowerCase();
+            if (mode === 'alto') return '1';
+            if (mode === 'baixo') return '2';
+            return '0';
+        }
+        default:
+            return '';
+    }
+}
+
 function androidUpdateCarData(key, value) {
     try {
         if (window.Android && typeof window.Android.updateCarData === 'function') {
             window.Android.updateCarData(key, String(value));
+        } else {
+            handleSettingsTelemetry(key, String(value));
         }
     } catch (e) {
         console.error('[onKeyEvent] updateCarData failed:', key, value, e);
@@ -432,6 +467,8 @@ function cycleCarSetting(carKey, values, direction) {
     try {
         if (window.Android && typeof window.Android.getCarData === 'function') {
             current = String(window.Android.getCarData(carKey));
+        } else {
+            current = getCurrentCanValueFromState(carKey);
         }
     } catch (e) {
         current = '';
