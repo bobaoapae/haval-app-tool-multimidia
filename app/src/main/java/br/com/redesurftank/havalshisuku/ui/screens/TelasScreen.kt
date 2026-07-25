@@ -871,14 +871,16 @@ fun TelasTab() {
                 Spacer(Modifier.height(16.dp))
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
                     verticalAlignment = Alignment.Top
                 ) {
                     // ── LEFT (50%): Background do Cluster Card ──
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -912,7 +914,7 @@ fun TelasTab() {
                             )
                         }
 
-                        // Thumbnail Box Preview
+                        // Thumbnail Preview + TROCAR BACKGROUND Button Side-by-Side
                         val activeFolder = remember(selectedTheme) {
                             prefs.getString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
                         }
@@ -950,93 +952,122 @@ fun TelasTab() {
                             }
                         }
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(82.dp)
-                                .background(Color(0xFF1E2228), RoundedCornerShape(8.dp))
-                                .border(1.dp, Color(0xFF2C3139), RoundedCornerShape(8.dp))
-                                .clip(RoundedCornerShape(8.dp)),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (enableCustomBg && bgModel != null) {
-                                if (bgModel is String && bgModel.startsWith("#")) {
-                                    val colorParsed = try { Color(android.graphics.Color.parseColor(bgModel)) } catch (e: Exception) { Color(0xFF121212) }
-                                    Box(modifier = Modifier.fillMaxSize().background(colorParsed))
+                            // 1920x720 Ultrawide Aspect Ratio Thumbnail (160dp x 60dp = 8:3)
+                            Box(
+                                modifier = Modifier
+                                    .width(160.dp)
+                                    .height(60.dp)
+                                    .background(Color(0xFF1E2228), RoundedCornerShape(8.dp))
+                                    .border(1.dp, Color(0xFF2C3139), RoundedCornerShape(8.dp))
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (enableCustomBg && bgModel != null) {
+                                    if (bgModel is String && bgModel.startsWith("#")) {
+                                        val colorParsed = try { Color(android.graphics.Color.parseColor(bgModel)) } catch (e: Exception) { Color(0xFF121212) }
+                                        Box(modifier = Modifier.fillMaxSize().background(colorParsed))
+                                    } else {
+                                        AsyncImage(
+                                            model = bgModel,
+                                            contentDescription = "Thumbnail Background 1920x720",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
                                 } else {
-                                    AsyncImage(
-                                        model = bgModel,
-                                        contentDescription = "Thumbnail Background",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
-                            } else {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Wallpaper,
-                                        contentDescription = null,
-                                        tint = Color(0xFF6B7280),
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        if (!enableCustomBg) "Sem background" else "Sem imagem selecionada",
-                                        color = Color(0xFFB0B8C4),
-                                        fontSize = 11.sp
-                                    )
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Wallpaper,
+                                            contentDescription = null,
+                                            tint = Color(0xFF6B7280),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            if (!enableCustomBg) "Sem fundo" else "Sem imagem",
+                                            color = Color(0xFFB0B8C4),
+                                            fontSize = 10.sp
+                                        )
+                                    }
                                 }
                             }
-                        }
 
-                        if (allClusterFunctionsEnabled) {
-                            Button(
-                                onClick = { showBackgroundSettingsDialog = true },
-                                enabled = enableCustomBg,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (enableCustomBg) Color(0xFF2C3139) else Color(0xFF1E2228),
-                                    contentColor = if (enableCustomBg) Color(0xFF4A9EFF) else Color(0xFF6B7280)
-                                ),
-                                border = BorderStroke(1.dp, if (enableCustomBg) Color(0xFF4A9EFF) else Color(0xFF2C3139)),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth().height(42.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Image,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("TROCAR BACKGROUND", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            // Button to the right of thumbnail
+                            if (allClusterFunctionsEnabled) {
+                                Button(
+                                    onClick = { showBackgroundSettingsDialog = true },
+                                    enabled = enableCustomBg,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (enableCustomBg) Color(0xFF2C3139) else Color(0xFF1E2228),
+                                        contentColor = if (enableCustomBg) Color(0xFF4A9EFF) else Color(0xFF6B7280)
+                                    ),
+                                    border = BorderStroke(1.dp, if (enableCustomBg) Color(0xFF4A9EFF) else Color(0xFF2C3139)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(60.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Image,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        "TROCAR BACKGROUND",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
                     }
 
-                    // ── RIGHT (50%): App Padrão & Unidade de Consumo ──
+                    // ── RIGHT (50%): Inicialização & Consumo Card ──
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        Column {
+                            Text(
+                                "Inicialização & Exibição",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "App de arranque e unidade de consumo",
+                                color = Color(0xFFB0B8C4),
+                                fontSize = 12.sp
+                            )
+                        }
+
                         // 1. App Padrão na Inicialização
                         Column {
                             Text(
                                 "App Padrão na Inicialização",
                                 color = Color(0xFFB0B8C4),
-                                fontSize = 12.sp
+                                fontSize = 11.sp
                             )
-                            Spacer(Modifier.height(6.dp))
+                            Spacer(Modifier.height(4.dp))
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(46.dp)
+                                    .height(42.dp)
                                     .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
                                     .clickable(enabled = allClusterFunctionsEnabled) {
                                         appExpanded = true
                                     }
-                                    .padding(horizontal = 16.dp),
+                                    .padding(horizontal = 14.dp),
                                 contentAlignment = Alignment.CenterStart
                             ) {
                                 val resolvedApp = remember(defaultApp, configs) {
@@ -1066,17 +1097,17 @@ fun TelasTab() {
                                             AsyncImage(
                                                 model = resolvedApp.icon,
                                                 contentDescription = null,
-                                                modifier = Modifier.size(24.dp)
+                                                modifier = Modifier.size(22.dp)
                                             )
                                         } else {
                                             Icon(
                                                 imageVector = if (defaultApp.isEmpty()) Icons.Default.Block else Icons.Default.Apps,
                                                 contentDescription = null,
                                                 tint = if (defaultApp.isEmpty()) Color(0xFFB0B8C4) else Color(0xFF4A9EFF),
-                                                modifier = Modifier.size(24.dp)
+                                                modifier = Modifier.size(22.dp)
                                             )
                                         }
-                                        Text(resolvedApp.label, color = Color.White, fontSize = 14.sp)
+                                        Text(resolvedApp.label, color = Color.White, fontSize = 13.sp)
                                     }
                                     Icon(
                                         Icons.Default.ArrowDropDown,
@@ -1144,11 +1175,11 @@ fun TelasTab() {
                         }
 
                         // 2. Unidade de Consumo de Combustível
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                "Unidade de Consumo de Combustível",
+                                "Unidade de Consumo",
                                 color = Color(0xFFB0B8C4),
-                                fontSize = 12.sp
+                                fontSize = 11.sp
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1160,7 +1191,7 @@ fun TelasTab() {
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
-                                            .height(46.dp)
+                                            .height(42.dp)
                                             .background(
                                                 if (isSelected) Color(0xFF4A9EFF) else Color(0xFF2A2F37),
                                                 RoundedCornerShape(8.dp)
@@ -1169,13 +1200,13 @@ fun TelasTab() {
                                                 clusterFuelDisplayUnit = unitId
                                                 prefs.edit { putString(SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key, unitId) }
                                             }
-                                            .padding(horizontal = 12.dp),
+                                            .padding(horizontal = 10.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
                                             label,
                                             color = Color.White,
-                                            fontSize = 13.sp,
+                                            fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
