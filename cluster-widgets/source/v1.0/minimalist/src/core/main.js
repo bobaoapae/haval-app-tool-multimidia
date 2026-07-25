@@ -576,6 +576,7 @@ function handleSteeringWheelKey(keyName) {
         console.error('[Error] Bridge onKeyEvent failed:', e);
     }
 }
+window.onKeyEvent = handleSteeringWheelKey;
 
 // Route steering wheel keys through the shared ThemeBridgeAdapter (matches the
 // Default theme) instead of clobbering window.onKeyEvent directly. This gives
