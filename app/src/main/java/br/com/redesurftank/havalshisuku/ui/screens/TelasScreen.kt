@@ -866,97 +866,178 @@ fun TelasTab() {
                         }
                         Spacer(Modifier.height(16.dp))
                     }
-                }
-
-                // Background do Cluster - nested inside the Painel Virtual card, right after theme selection
+                      // ── SIDE-BY-SIDE CARDS (50% / 50% width) ──
                 HorizontalDivider(color = Color(0xFF2C3139))
+                Spacer(Modifier.height(16.dp))
 
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "Background do Cluster",
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "Papel de parede do painel (Display 1). Por padrão usa a imagem do tema ativo, se existir.",
-                            color = Color(0xFFB0B8C4),
-                            fontSize = 14.sp
-                        )
-                    }
-                    Switch(
-                        checked = enableCustomBg,
-                        enabled = allClusterFunctionsEnabled,
-                        onCheckedChange = { checked ->
-                            enableCustomBg = checked
-                            prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, checked) }
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF4A9EFF)
-                        )
-                    )
-                }
-
-                if (enableCustomBg && allClusterFunctionsEnabled) {
-                    Button(
-                        onClick = { showBackgroundSettingsDialog = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2C3139),
-                            contentColor = Color(0xFF4A9EFF)
-                        ),
-                        border = BorderStroke(1.dp, Color(0xFF4A9EFF)),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                    // ── LEFT (50%): Background do Cluster Card ──
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Configurar Background", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                // App defaults / odometer / revision — continues inside the same Painel Virtual card
-                if (enableMask) {
-                    HorizontalDivider(color = Color(0xFF2C3139))
-                    Spacer(Modifier.height(16.dp))
-
-                    // Default screen/app when cluster initializes and fuel consumption unit merged
-                    Row(
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalAlignment = Alignment.Top
-                    ) {
-                        // 1. Default screen/app when cluster initializes
-                        Column(
-                            modifier = Modifier.weight(1f)
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                    "App Padrão na Inicialização",
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Background do Cluster",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    if (enableCustomBg) "Papel de parede do painel" else "Padrão do sistema",
                                     color = Color(0xFFB0B8C4),
                                     fontSize = 12.sp
+                                )
+                            }
+                            Switch(
+                                checked = enableCustomBg,
+                                enabled = allClusterFunctionsEnabled,
+                                onCheckedChange = { checked ->
+                                    enableCustomBg = checked
+                                    prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, checked) }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Color(0xFF4A9EFF)
+                                )
                             )
-                            Spacer(Modifier.height(8.dp))
+                        }
+
+                        // Thumbnail Box Preview
+                        val activeFolder = remember(selectedTheme) {
+                            prefs.getString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
+                        }
+                        val themeMeta = remember(activeFolder, selectedTheme, localThemes) {
+                            ThemeManager.getInstance(context).getThemeMetadata(activeFolder)
+                                ?: localThemes.firstOrNull {
+                                    it.name == selectedTheme || it.folderName == activeFolder
+                                }
+                        }
+
+                        val bgModel = remember(enableCustomBg, showBackgroundSettingsDialog, selectedTheme, activeFolder) {
+                            if (!enableCustomBg) null
+                            else {
+                                val bgType = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME"
+                                val bgValue = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: ""
+                                when (bgType) {
+                                    "THEME" -> {
+                                        val bgPath = themeMeta?.backgroundAbsolutePath.orEmpty()
+                                        if (bgPath.isNotEmpty() && java.io.File(bgPath).exists()) {
+                                            java.io.File(bgPath)
+                                        } else {
+                                            "file:///android_asset/backgrounds/car-bg.png"
+                                        }
+                                    }
+                                    "PRESET" -> {
+                                        if (bgValue.isNotBlank()) {
+                                            val uploadedFile = java.io.File(BackgroundSyncServer.getUploadsDir(), bgValue)
+                                            if (uploadedFile.exists()) uploadedFile
+                                            else "file:///android_asset/backgrounds/$bgValue"
+                                        } else null
+                                    }
+                                    "COLOR" -> bgValue
+                                    else -> null
+                                }
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(82.dp)
+                                .background(Color(0xFF1E2228), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFF2C3139), RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(8.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (enableCustomBg && bgModel != null) {
+                                if (bgModel is String && bgModel.startsWith("#")) {
+                                    val colorParsed = try { Color(android.graphics.Color.parseColor(bgModel)) } catch (e: Exception) { Color(0xFF121212) }
+                                    Box(modifier = Modifier.fillMaxSize().background(colorParsed))
+                                } else {
+                                    AsyncImage(
+                                        model = bgModel,
+                                        contentDescription = "Thumbnail Background",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            } else {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Wallpaper,
+                                        contentDescription = null,
+                                        tint = Color(0xFF6B7280),
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        if (!enableCustomBg) "Sem background" else "Sem imagem selecionada",
+                                        color = Color(0xFFB0B8C4),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        if (allClusterFunctionsEnabled) {
+                            Button(
+                                onClick = { showBackgroundSettingsDialog = true },
+                                enabled = enableCustomBg,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (enableCustomBg) Color(0xFF2C3139) else Color(0xFF1E2228),
+                                    contentColor = if (enableCustomBg) Color(0xFF4A9EFF) else Color(0xFF6B7280)
+                                ),
+                                border = BorderStroke(1.dp, if (enableCustomBg) Color(0xFF4A9EFF) else Color(0xFF2C3139)),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth().height(42.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Image,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("TROCAR BACKGROUND", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // ── RIGHT (50%): App Padrão & Unidade de Consumo ──
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        // 1. App Padrão na Inicialização
+                        Column {
+                            Text(
+                                "App Padrão na Inicialização",
+                                color = Color(0xFFB0B8C4),
+                                fontSize = 12.sp
+                            )
+                            Spacer(Modifier.height(6.dp))
                             Box(
-                                    modifier =
-                                            Modifier.fillMaxWidth()
-                                                    .height(46.dp)
-                                                    .background(
-                                                            Color(0xFF2A2F37),
-                                                            RoundedCornerShape(8.dp)
-                                                    )
-                                                    .clickable(enabled = allClusterFunctionsEnabled) {
-                                                        appExpanded = true
-                                                    }
-                                                    .padding(horizontal = 16.dp),
-                                    contentAlignment = Alignment.CenterStart
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp)
+                                    .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
+                                    .clickable(enabled = allClusterFunctionsEnabled) {
+                                        appExpanded = true
+                                    }
+                                    .padding(horizontal = 16.dp),
+                                contentAlignment = Alignment.CenterStart
                             ) {
                                 val resolvedApp = remember(defaultApp, configs) {
                                     if (defaultApp.isEmpty()) {
@@ -973,9 +1054,9 @@ fun TelasTab() {
                                 }
 
                                 Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Row(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -998,141 +1079,115 @@ fun TelasTab() {
                                         Text(resolvedApp.label, color = Color.White, fontSize = 14.sp)
                                     }
                                     Icon(
-                                            Icons.Default.ArrowDropDown,
-                                            contentDescription = "Expandir",
-                                            tint = Color.White
+                                        Icons.Default.ArrowDropDown,
+                                        contentDescription = "Expandir",
+                                        tint = Color.White
                                     )
                                 }
 
                                 DropdownMenu(
-                                        expanded = appExpanded && allClusterFunctionsEnabled,
-                                        onDismissRequest = { appExpanded = false },
-                                        modifier =
-                                                Modifier.fillMaxWidth(0.45f)
-                                                        .background(Color(0xFF1E2228))
+                                    expanded = appExpanded && allClusterFunctionsEnabled,
+                                    onDismissRequest = { appExpanded = false },
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.45f)
+                                        .background(Color(0xFF1E2228))
                                 ) {
                                     DropdownMenuItem(
-                                            text = { Text("Nenhum", color = Color.White, fontSize = 14.sp) },
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = Icons.Default.Block,
-                                                    contentDescription = null,
-                                                    tint = Color(0xFFB0B8C4),
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            },
-                                            onClick = {
-                                                defaultApp = ""
-                                                prefs.edit {
-                                                    putString(
-                                                            SharedPreferencesKeys
-                                                                    .DEFAULT_DISPLAY_APP_PACKAGE
-                                                                    .key,
-                                                            ""
-                                                    )
-                                                }
-                                                appExpanded = false
-                                            }
+                                        text = { Text("Nenhum", color = Color.White, fontSize = 14.sp) },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Block,
+                                                contentDescription = null,
+                                                tint = Color(0xFFB0B8C4),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        },
+                                        onClick = {
+                                            defaultApp = ""
+                                            prefs.edit { putString(SharedPreferencesKeys.DEFAULT_DISPLAY_APP_PACKAGE.key, "") }
+                                            appExpanded = false
+                                        }
                                     )
                                     configs.forEach { config ->
                                         val resolved = remember(config.packageName, config.customName) {
                                             DisplayAppLauncher.resolveAppInfo(context, config.packageName, config.customName)
                                         }
                                         DropdownMenuItem(
-                                                text = { Text(resolved.label, color = Color.White, fontSize = 14.sp) },
-                                                leadingIcon = if (resolved.icon != null) {
-                                                    {
-                                                        AsyncImage(
-                                                            model = resolved.icon,
-                                                            contentDescription = null,
-                                                            modifier = Modifier.size(20.dp)
-                                                        )
-                                                    }
-                                                } else {
-                                                    {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Apps,
-                                                            contentDescription = null,
-                                                            tint = Color(0xFF4A9EFF),
-                                                            modifier = Modifier.size(20.dp)
-                                                        )
-                                                    }
-                                                },
-                                                onClick = {
-                                                    defaultApp = config.packageName
-                                                    prefs.edit {
-                                                        putString(
-                                                                SharedPreferencesKeys
-                                                                        .DEFAULT_DISPLAY_APP_PACKAGE
-                                                                        .key,
-                                                                config.packageName
-                                                        )
-                                                    }
-                                                    appExpanded = false
+                                            text = { Text(resolved.label, color = Color.White, fontSize = 14.sp) },
+                                            leadingIcon = if (resolved.icon != null) {
+                                                {
+                                                    AsyncImage(
+                                                        model = resolved.icon,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
                                                 }
+                                            } else {
+                                                {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Apps,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF4A9EFF),
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            },
+                                            onClick = {
+                                                defaultApp = config.packageName
+                                                prefs.edit { putString(SharedPreferencesKeys.DEFAULT_DISPLAY_APP_PACKAGE.key, config.packageName) }
+                                                appExpanded = false
+                                            }
                                         )
                                     }
                                 }
                             }
                         }
 
-                        // 2. Personalizações de Exibição (Unidade de Consumo)
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
+                        // 2. Unidade de Consumo de Combustível
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
-                                    "Unidade de Consumo de Combustível",
-                                    color = Color(0xFFB0B8C4),
-                                    fontSize = 12.sp
+                                "Unidade de Consumo de Combustível",
+                                color = Color(0xFFB0B8C4),
+                                fontSize = 12.sp
                             )
                             Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 val units = listOf("liters" to "Litros", "percent" to "Porcentagem")
                                 units.forEach { (unitId, label) ->
                                     val isSelected = clusterFuelDisplayUnit == unitId
                                     Box(
-                                            modifier =
-                                                    Modifier.weight(1f)
-                                                            .height(46.dp)
-                                                            .background(
-                                                                    if (isSelected) Color(0xFF4A9EFF)
-                                                                    else Color(0xFF2A2F37),
-                                                                    RoundedCornerShape(8.dp)
-                                                            )
-                                                            .clickable(
-                                                                    enabled = allClusterFunctionsEnabled
-                                                            ) {
-                                                                clusterFuelDisplayUnit = unitId
-                                                                prefs.edit {
-                                                                    putString(
-                                                                            SharedPreferencesKeys
-                                                                                    .CLUSTER_FUEL_DISPLAY_UNIT
-                                                                                    .key,
-                                                                            unitId
-                                                                    )
-                                                                }
-                                                            }
-                                                            .padding(horizontal = 12.dp),
-                                            contentAlignment = Alignment.Center
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(46.dp)
+                                            .background(
+                                                if (isSelected) Color(0xFF4A9EFF) else Color(0xFF2A2F37),
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable(enabled = allClusterFunctionsEnabled) {
+                                                clusterFuelDisplayUnit = unitId
+                                                prefs.edit { putString(SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key, unitId) }
+                                            }
+                                            .padding(horizontal = 12.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                                label,
-                                                color = Color.White,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold
+                                            label,
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
                                         )
                                     }
                                 }
                             }
                         }
                     }
+                }
 
-                    Spacer(Modifier.height(16.dp))
-                    HorizontalDivider(color = Color(0xFF2C3139))
-                    Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(color = Color(0xFF2C3139))
+                Spacer(Modifier.height(16.dp))
 
                     // Odômetro e Aviso de Revisão
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
