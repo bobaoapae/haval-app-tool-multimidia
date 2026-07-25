@@ -118,12 +118,12 @@ export function createAcControlScreen() {
         ],
     });
 
-    // Gauge + ticks, big value, then TEMP label underneath
+    // Gauge + ticks below gauge, big value, then TEMP label underneath
     const tempSection = div({
         className: 'ac-section ac-section-temp',
         children: [
-            tempTicks,
             tempGauge.element,
+            tempTicks,
             tempValue,
             tempLabel,
         ],

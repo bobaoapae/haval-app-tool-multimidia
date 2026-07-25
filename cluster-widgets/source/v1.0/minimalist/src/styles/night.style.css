@@ -678,8 +678,8 @@ button {
   flex-direction: column;
   align-items: stretch;
   justify-content: center;
-  gap: 0;
-  padding: 8px 12px 10px;
+  gap: 10px;
+  padding: 4px 12px 6px;
   box-sizing: border-box;
 }
 
@@ -688,10 +688,17 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 2px;
   min-height: 0;
   transition: opacity 0.25s ease;
+}
+
+.ac-section-fan {
+  justify-content: flex-end;
+}
+
+.ac-section-temp {
+  justify-content: flex-start;
 }
 
 /* AC ON: white labels/values; green accent on focused section label & value */
@@ -732,20 +739,27 @@ button {
   color: rgba(255, 255, 255, 0.6);
   line-height: 0.95;
   letter-spacing: 0.02em;
-  min-height: 38px;
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
   text-shadow: none;
-  padding-top: 2px;
+  padding-top: 0;
   transition: color 0.2s ease, font-size 0.2s ease, transform 0.2s ease;
+  overflow: visible;
 }
 
 .ac-temp-value {
   font-size: 38px;
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
+  margin-top: 6px;
 }
 
-/* Focused Fan Value: larger font size (66px), same font-weight (300) */
+/* Focused Fan Value: larger font size (66px), height stays 56px (gauge fixed) */
 .ac-section-fan.is-focused .ac-section-value {
   color: #00ff88;
   font-size: 66px;
@@ -753,7 +767,7 @@ button {
   text-shadow: none;
 }
 
-/* Focused Temp Value: larger font size (54px), same font-weight (300) */
+/* Focused Temp Value: larger font size (54px), height stays 48px (gauge fixed) */
 .ac-section-temp.is-focused .ac-temp-value {
   color: #00ff88;
   font-size: 54px;
@@ -798,7 +812,7 @@ button {
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
-  margin-top: 2px;
+  margin-top: 0;
 }
 
 .ac-linear-fill {
