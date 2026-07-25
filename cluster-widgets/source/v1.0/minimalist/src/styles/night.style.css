@@ -710,9 +710,7 @@ button {
 .ac-section.is-focused .ac-section-label {
   color: #00ff88;
   opacity: 1;
-  text-decoration: underline;
-  text-decoration-color: #00ff88;
-  text-underline-offset: 4px;
+  text-decoration: none;
   text-shadow: none;
 }
 
