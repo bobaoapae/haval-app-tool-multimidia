@@ -2448,20 +2448,33 @@ canvas.graph-chart {
 
 /* Cluster Disabled Mode */
 .cluster-disabled .dashboard-speed-container,
+.cluster-disabled .dashboard-info-container,
 .cluster-disabled .dashboard-top-center,
 .cluster-disabled .dashboard-bottom-gauges,
 .cluster-disabled .dashboard-fuel-container,
 .cluster-disabled .dashboard-battery-container,
 .cluster-disabled .dashboard-bottom-ev-mode,
+.cluster-disabled .dashboard-menu-container,
+.cluster-disabled .cluster-mask-bg,
+.cluster-disabled .mask-panel.left,
+.cluster-disabled .mask-panel.right,
 .cluster-disabled .mask-circle.left,
 .cluster-disabled .mask-circle-border.left,
 .cluster-disabled .partial-app-mask,
 .cluster-disabled .mask-bottom-bar,
-.cluster-disabled .mask-top-bar {
+.cluster-disabled .mask-top-bar,
+.cluster-disabled .graph-screen,
+.cluster-disabled .graph-container,
+.cluster-disabled .ac-main,
+.cluster-disabled .ajustes-screen,
+.cluster-disabled .regen-screen,
+.cluster-disabled .info-screen,
+.cluster-disabled .main-theme-container {
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
 }
+
 
 /* Warning mode: hide right-side chrome (mirrors default theme) */
 .warn-is-active .dashboard-menu-container,

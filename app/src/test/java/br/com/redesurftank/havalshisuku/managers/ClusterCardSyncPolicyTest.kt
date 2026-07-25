@@ -6,8 +6,11 @@ import org.junit.Test
 
 class ClusterCardSyncPolicyTest {
     @Test
-    fun recentSyntheticMainMenuNavigationIgnoresDivergentNativeAcEcho() {
-        assertTrue(
+    fun recentSyntheticNavigationAcceptsDivergentNativeReportAsCorrection() {
+        // Prediction said card 1, the car reports card 3. The car wins: dropping this
+        // left the app on card 1 while the cluster showed card 3, with no later report
+        // to recover from (subsequent echoes match the stale card and get deduped).
+        assertFalse(
             ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
                 1,
                 3,
@@ -34,8 +37,28 @@ class ClusterCardSyncPolicyTest {
     }
 
     @Test
-    fun staleNativeZeroWithoutRecentInputIsIgnored() {
-        assertTrue(
+    fun homeKeyReportToCardZeroIsAcceptedAfterRecentPrediction() {
+        // Regression, captured on-car: HOME was pressed on card 1, the car reported
+        // card 0 (msgId=133 intValue=0) 635ms later, but a LEFT/RIGHT prediction to
+        // card 1 had happened 1242ms earlier — inside the echo window. The report was
+        // discarded, so HOME appeared dead and card 0 rendered blank.
+        assertFalse(
+            ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
+                1,
+                0,
+                635L,
+                1029,
+                1242L,
+                1
+            )
+        )
+    }
+
+    @Test
+    fun nativeZeroWithoutRecentNavigationInputIsAccepted() {
+        // The car can move to card 0 without a LEFT/RIGHT press (HOME, or its own
+        // logic). Requiring recent wheel input to believe it discarded those reports.
+        assertFalse(
             ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
                 1,
                 0,
