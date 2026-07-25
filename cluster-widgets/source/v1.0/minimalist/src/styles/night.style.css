@@ -708,47 +708,47 @@ button {
 }
 
 .ac-section.is-focused .ac-section-label {
-  color: #ffffff;
+  color: #00ff88;
   opacity: 1;
   text-decoration: underline;
   text-decoration-color: #00ff88;
   text-underline-offset: 4px;
-  text-shadow:
-    0 0 6px #00ff88,
-    0 0 16px rgba(0, 255, 136, 0.8),
-    0 0 30px rgba(0, 255, 136, 0.5);
+  text-shadow: none;
 }
 
 .ac-section-value,
-.ac-section .ac-section-value,
-.ac-temp-value {
+.ac-section .ac-section-value {
   font-family: 'Khand', sans-serif;
-  font-size: 56px;
+  font-size: 52px;
   font-weight: 300;
-  color: #ffffff;
+  color: rgba(255, 255, 255, 0.6);
   line-height: 0.95;
   letter-spacing: 0.02em;
   min-height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
-  text-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+  text-shadow: none;
   padding-top: 2px;
-  transition: color 0.2s ease, text-shadow 0.2s ease;
-}
-
-.ac-section.is-focused .ac-section-value,
-.ac-section.is-focused .ac-temp-value {
-  color: #ffffff;
-  text-shadow:
-    0 0 8px #00ff88,
-    0 0 20px rgba(0, 255, 136, 0.85),
-    0 0 36px rgba(0, 255, 136, 0.55),
-    0 0 50px rgba(0, 255, 136, 0.3);
+  transition: color 0.2s ease, font-size 0.2s ease, font-weight 0.2s ease, text-shadow 0.2s ease;
 }
 
 .ac-temp-value {
-  font-size: 40px;
+  font-size: 38px;
+}
+
+.ac-section.is-focused .ac-section-value {
+  color: #00ff88;
+  font-size: 68px;
+  font-weight: 500;
+  text-shadow: none;
+}
+
+.ac-section.is-focused .ac-temp-value {
+  color: #00ff88;
+  font-size: 50px;
+  font-weight: 500;
+  text-shadow: none;
 }
 
 /* Segmented fan gauge — white fill; green edge accent when focused */
@@ -4317,22 +4317,17 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 }
 
 /* Label + value share the exact same transition (no inherit mismatch) */
-.ajustes-item-label,
-.ajustes-item-value {
-  color: rgba(255, 255, 255, 0.4);
+.ajustes-item-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  color: rgba(255, 255, 255, 0.45);
   font-weight: 200;
   text-shadow: 0 0 8px rgba(0, 0, 0, 0.9), 0 2px 4px rgba(0, 0, 0, 0.85);
   transition:
     color var(--ajustes-dur) var(--ajustes-ease),
     font-weight var(--ajustes-dur) var(--ajustes-ease),
-    text-shadow var(--ajustes-dur) var(--ajustes-ease),
     opacity var(--ajustes-dur) var(--ajustes-ease);
-}
-
-.ajustes-item-label {
-  flex: 1;
-  min-width: 0;
-  text-align: left;
 }
 
 .ajustes-item-value {
@@ -4341,13 +4336,25 @@ body.native-mock-enabled .dashboard-fixed-overlay {
   border-radius: 0;
   text-align: right;
   white-space: nowrap;
+  color: #ffffff;
+  font-weight: 300;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9), 0 2px 4px rgba(0, 0, 0, 0.85);
+  transition:
+    color var(--ajustes-dur) var(--ajustes-ease),
+    font-weight var(--ajustes-dur) var(--ajustes-ease),
+    opacity var(--ajustes-dur) var(--ajustes-ease);
 }
 
 /*
  * Active config (Enter / sub-focus): strong highlight + green line
  * Line sits in the last 40% of the row — fixed position, not under text width.
  */
-.ajustes-item.active-focus .ajustes-item-label,
+.ajustes-item.active-focus .ajustes-item-label {
+  color: #ffffff;
+  font-weight: 500;
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.95), 0 2px 4px rgba(0, 0, 0, 0.9);
+}
+
 .ajustes-item.active-focus .ajustes-item-value {
   color: #ffffff;
   font-weight: 500;
@@ -4378,12 +4385,15 @@ body.native-mock-enabled .dashboard-fixed-overlay {
   transform: scaleX(1);
 }
 
-/* Preview (no Enter): never highlight — all items stay dim and uniform */
-.ajustes-item.focused:not(.active-focus) .ajustes-item-label,
-.ajustes-item.focused:not(.active-focus) .ajustes-item-value {
-  color: rgba(255, 255, 255, 0.4);
+/* Preview (no Enter): labels stay dim gray, values stay crisp white */
+.ajustes-item.focused:not(.active-focus) .ajustes-item-label {
+  color: rgba(255, 255, 255, 0.45);
   font-weight: 200;
-  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9), 0 2px 4px rgba(0, 0, 0, 0.85);
+}
+
+.ajustes-item.focused:not(.active-focus) .ajustes-item-value {
+  color: #ffffff;
+  font-weight: 300;
 }
 
 /* Graph Visual Redesign Overrides */
