@@ -4769,17 +4769,17 @@ body.native-mock-enabled .dashboard-fixed-overlay {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: 90%;
-  max-width: 300px;
+  width: 95%;
+  max-width: 340px;
   align-items: stretch;
   justify-content: center;
 }
 
 .info-row {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: baseline;
-  gap: 16px;
+  gap: 12px;
   width: 100%;
   padding: 2px 0;
   box-sizing: border-box;
@@ -4787,13 +4787,13 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 
 .info-item-label {
   font-family: 'Khand', sans-serif;
-  font-size: 22px;
-  font-weight: 200;
-  color: rgba(255, 255, 255, 0.4);
+  font-size: 24px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.85);
   text-transform: uppercase;
   letter-spacing: 1px;
-  flex: 1;
-  min-width: 0;
+  width: 135px;
+  flex: 0 0 135px;
   text-align: left;
   text-shadow: 0 0 8px rgba(0, 0, 0, 0.9), 0 2px 4px rgba(0, 0, 0, 0.85);
   line-height: 1.1;
@@ -4801,28 +4801,29 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 
 .info-item-val {
   font-family: 'Khand', sans-serif;
-  font-size: 30px;
+  font-size: 32px;
   font-weight: 500;
   color: #ffffff;
-  text-align: right;
+  text-align: left;
   white-space: nowrap;
   line-height: 1.05;
   letter-spacing: 0.5px;
   text-shadow: 0 0 12px rgba(0, 0, 0, 0.95), 0 2px 4px rgba(0, 0, 0, 0.9);
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 .info-item-val .unit {
-  font-size: 20px;
+  font-size: 26px;
   font-weight: 300;
-  color: rgba(255, 255, 255, 0.45);
-  margin-left: 3px;
+  color: rgba(255, 255, 255, 0.75);
+  margin-left: 4px;
 }
 
 .info-item-val .range {
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 300;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.65);
   margin-left: 8px;
 }
 
