@@ -133,7 +133,7 @@ var stateManager = new StateManager({
     tripAnalysisActive: false,
     tripAnalysisScore: null,
     menuFocusArea: 'main',
-    focusedAjustesItem: 'ajuste_esp',
+    focusedAjustesItem: 'ajuste_driving',
 });
 
 var getState = function (key) { return stateManager.get(key); };

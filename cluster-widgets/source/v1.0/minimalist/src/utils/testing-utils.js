@@ -118,89 +118,20 @@ document.addEventListener('keydown', (e) => {
     }
 
     if (currentScreen === 'main_menu') {
-        const menuItems = focusableAreas.main_menu;
-        const currentIndex = menuItems.indexOf(currentState.focusedMenuItem);
-        const focusArea = currentState.menuFocusArea || 'main';
-
-        if (focusArea === 'main') {
-            if (e.key === 'ArrowUp') {
-                const prevIndex = (currentIndex - 1 + menuItems.length) % menuItems.length;
-                window.focus(menuItems[prevIndex]);
-            } else if (e.key === 'ArrowDown') {
-                const nextIndex = (currentIndex + 1) % menuItems.length;
-                window.focus(menuItems[nextIndex]);
-            } else if (e.key === 'Enter') {
-                // Info is view-only — Enter does nothing
-                if (currentState.focusedMenuItem === 'option_info') {
-                    console.log('[Menu Simulation] Informações is view-only — Enter ignored');
-                    return;
-                }
-                console.log(`[Menu Simulation] Selecting ${currentState.focusedMenuItem} -> Entering sub-focus`);
-                setState('menuFocusArea', 'sub');
-                // Set initial focus for sub-menus
-                if (currentState.focusedMenuItem === 'option_ajustes') {
-                    setState('focusedAjustesItem', 'ajuste_driving');
-                } else if (currentState.focusedMenuItem === 'option_4') {
-                    setState('displayFocus', 'mode_normal');
-                }
-            }
-        } else if (focusArea === 'sub') {
-            if (e.key === 'Backspace') {
-                console.log(`[Menu Simulation] Backpressed -> Returning to main menu focus`);
-                setState('menuFocusArea', 'main');
-                return;
-            }
-
-            const activeMenu = currentState.focusedMenuItem;
-            if (activeMenu === 'option_ajustes') {
-                const ajustes = ['ajuste_driving', 'ajuste_ev', 'ajuste_steer', 'ajuste_regen', 'ajuste_esp'];
-                const subIndex = ajustes.indexOf(currentState.focusedAjustesItem || 'ajuste_driving');
-
-                if (e.key === 'ArrowUp') {
-                    const prevSub = (subIndex - 1 + ajustes.length) % ajustes.length;
-                    setState('focusedAjustesItem', ajustes[prevSub]);
-                } else if (e.key === 'ArrowDown') {
-                    const nextSub = (subIndex + 1) % ajustes.length;
-                    setState('focusedAjustesItem', ajustes[nextSub]);
-                } else if (e.key === 'Enter') {
-                    const currentSub = currentState.focusedAjustesItem || 'ajuste_driving';
-                    if (currentSub === 'ajuste_esp') {
-                        const nextVal = (currentState.espStatus === 'ON') ? 'OFF' : 'ON';
-                        setState('espStatus', nextVal);
-                    } else if (currentSub === 'ajuste_ev') {
-                        const modes = ['EV', 'EVP', 'HEV'];
-                        const nextVal = modes[(modes.indexOf(currentState.evMode) + 1) % modes.length];
-                        setState('evMode', nextVal);
-                    } else if (currentSub === 'ajuste_driving') {
-                        const modes = ['Normal', 'Eco', 'Sport'];
-                        const nextVal = modes[(modes.indexOf(currentState.drivingMode) + 1) % modes.length];
-                        setState('drivingMode', nextVal);
-                    } else if (currentSub === 'ajuste_steer') {
-                        const modes = ['Normal', 'Conforto', 'Esportiva'];
-                        const nextVal = modes[(modes.indexOf(currentState.steerMode) + 1) % modes.length];
-                        setState('steerMode', nextVal);
-                    } else if (currentSub === 'ajuste_regen') {
-                        const modes = ['Alto', 'Normal', 'Baixo'];
-                        const nextVal = modes[(modes.indexOf(currentState.regenMode) + 1) % modes.length];
-                        setState('regenMode', nextVal);
-                    }
-                }
-            } else if (activeMenu === 'option_6') {
-                const modes = ['Alto', 'Normal', 'Baixo'];
-                const currentMode = currentState.regenMode;
-                const subIndex = modes.indexOf(currentMode);
-
-                if (e.key === 'Enter') {
-                    const nextValue = !currentState.onepedal;
-                    setState('onepedal', nextValue);
-                } else if (e.key === 'ArrowUp') {
-                    const prevVal = modes[(subIndex - 1 + modes.length) % modes.length];
-                    setState('regenMode', prevVal);
-                } else if (e.key === 'ArrowDown') {
-                    const nextVal = modes[(subIndex + 1) % modes.length];
-                    setState('regenMode', nextVal);
-                }
-            } else if (activeMenu === 'option_7') {
+        if (e.key === 'ArrowUp') {
+            if (window.onKeyEvent) window.onKeyEvent('UP');
+            return;
+        } else if (e.key === 'ArrowDown') {
+            if (window.onKeyEvent) window.onKeyEvent('DOWN');
+            return;
+        } else if (e.key === 'Enter') {
+            if (window.onKeyEvent) window.onKeyEvent('ENTER');
+            return;
+        } else if (e.key === 'Backspace') {
+            if (window.onKeyEvent) window.onKeyEvent('BACK');
+            return;
+        }
+    } else if (activeMenu === 'option_7') {
                 const graphs = focusableAreas.graph;
                 const subIndex = graphs.indexOf(currentState.currentGraph);
 
