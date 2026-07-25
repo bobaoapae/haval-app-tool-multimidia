@@ -5,8 +5,8 @@ export const ajustesItems = [
     { id: 'ajuste_driving', label: 'Condução', stateKey: 'drivingMode' },
     { id: 'ajuste_ev', label: 'Modo EV', stateKey: 'evMode' },
     { id: 'ajuste_steer', label: 'Direção', stateKey: 'steerMode' },
-    { id: 'ajuste_esp', label: 'ESP', stateKey: 'espStatus' },
-    { id: 'ajuste_regen', label: 'Regeneração', stateKey: 'regenMode' }
+    { id: 'ajuste_regen', label: 'Regeneração', stateKey: 'regenMode' },
+    { id: 'ajuste_esp', label: 'ESP', stateKey: 'espStatus' }
 ];
 
 export function createAjustesMenu() {

@@ -403,12 +403,13 @@ window.onCardChanged = function (cardId) {
 // committed through window.Android.updateCarData using raw CAN values (mirroring the
 // Default theme); the backend then echoes the applied value back via control(...).
 const AJUSTES_CAR_KEYS = {
-    ajuste_esp: { key: 'car.drive_setting.esp_enable', values: ['1', '0'] },
-    ajuste_ev: { key: 'car.ev_setting.power_model_config', values: ['3', '1', '0'] },
     ajuste_driving: { key: 'car.drive_setting.drive_mode', values: ['0', '2', '1'] },
-    ajuste_steer: { key: 'car.drive_setting.steering_wheel_assist_mode', values: ['2', '0', '1'] }
+    ajuste_ev: { key: 'car.ev_setting.power_model_config', values: ['3', '1', '0'] },
+    ajuste_steer: { key: 'car.drive_setting.steering_wheel_assist_mode', values: ['2', '0', '1'] },
+    ajuste_regen: { key: 'car.ev_setting.energy_recovery_level', values: ['2', '0', '1'] },
+    ajuste_esp: { key: 'car.drive_setting.esp_enable', values: ['1', '0'] }
 };
-const AJUSTES_ORDER = ['ajuste_driving', 'ajuste_ev', 'ajuste_steer', 'ajuste_esp'];
+const AJUSTES_ORDER = ['ajuste_driving', 'ajuste_ev', 'ajuste_steer', 'ajuste_regen', 'ajuste_esp'];
 const GRAPH_NAV_IDS = graphList.map((g) => g.id);
 
 let lastKeyTimeMs = 0;

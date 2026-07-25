@@ -4370,13 +4370,8 @@ body.native-mock-enabled .dashboard-fixed-overlay {
   transform: scaleX(1);
 }
 
-/* Preview (no Enter): never highlight — all items stay dim */
-.ajustes-item.focused:not(.active-focus) .ajustes-item-label {
-  color: rgba(255, 255, 255, 0.8);
-  font-weight: 200;
-  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9), 0 2px 4px rgba(0, 0, 0, 0.85);
-}
-
+/* Preview (no Enter): never highlight — all items stay dim and uniform */
+.ajustes-item.focused:not(.active-focus) .ajustes-item-label,
 .ajustes-item.focused:not(.active-focus) .ajustes-item-value {
   color: rgba(255, 255, 255, 0.4);
   font-weight: 200;

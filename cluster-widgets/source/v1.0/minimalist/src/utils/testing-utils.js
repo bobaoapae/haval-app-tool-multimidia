@@ -153,7 +153,7 @@ document.addEventListener('keydown', (e) => {
 
             const activeMenu = currentState.focusedMenuItem;
             if (activeMenu === 'option_ajustes') {
-                const ajustes = ['ajuste_driving', 'ajuste_ev', 'ajuste_steer', 'ajuste_esp', 'ajuste_regen'];
+                const ajustes = ['ajuste_driving', 'ajuste_ev', 'ajuste_steer', 'ajuste_regen', 'ajuste_esp'];
                 const subIndex = ajustes.indexOf(currentState.focusedAjustesItem || 'ajuste_driving');
 
                 if (e.key === 'ArrowUp') {
