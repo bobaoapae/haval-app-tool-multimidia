@@ -131,47 +131,7 @@ document.addEventListener('keydown', (e) => {
             if (window.onKeyEvent) window.onKeyEvent('BACK');
             return;
         }
-    } else if (activeMenu === 'option_7') {
-                const graphs = focusableAreas.graph;
-                const subIndex = graphs.indexOf(currentState.currentGraph);
-
-                if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                    const offset = (e.key === 'ArrowUp') ? -1 : 1;
-                    const nextIndex = (subIndex + offset + graphs.length) % graphs.length;
-                    setState('currentGraph', graphs[nextIndex]);
-                } else if (e.key === 'Enter') {
-                    const nextIndex = (subIndex + 1) % graphs.length;
-                    setState('currentGraph', graphs[nextIndex]);
-                }
-            } else if (activeMenu === 'option_4') {
-                const controls = focusableAreas.display_selection;
-                const currentFocus = currentState.displayFocus || 'mode_normal';
-                const subIndex = Math.max(0, controls.indexOf(currentFocus));
-
-                if (e.key === 'ArrowUp') {
-                    let prevIndex = (subIndex - 1 + controls.length) % controls.length;
-                    if (controls[prevIndex] === 'title_mask') {
-                        prevIndex = (prevIndex - 1 + controls.length) % controls.length;
-                    }
-                    setState('displayFocus', controls[prevIndex]);
-                } else if (e.key === 'ArrowDown') {
-                    let nextIndex = (subIndex + 1) % controls.length;
-                    if (controls[nextIndex] === 'title_mask') {
-                        nextIndex = (nextIndex + 1) % controls.length;
-                    }
-                    setState('displayFocus', controls[nextIndex]);
-                } else if (e.key === 'Enter') {
-                    if (currentFocus.startsWith('mode_')) {
-                        const newDisplay = currentFocus.replace('mode_', '');
-                        const formattedDisplay = newDisplay.charAt(0).toUpperCase() + newDisplay.slice(1);
-                        setState('display', formattedDisplay);
-                    }
-                }
-            }
-        }
-    }
-
-    else if (currentScreen === 'aircon') {
+    } else if (currentScreen === 'aircon') {
         const focusedArea = currentState.focusArea;
 
         if (e.key === 'Enter') {
