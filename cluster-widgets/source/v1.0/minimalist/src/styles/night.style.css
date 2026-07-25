@@ -713,6 +713,7 @@ button {
   text-decoration: underline;
   text-decoration-color: #00ff88;
   text-underline-offset: 4px;
+  text-shadow: 0 0 8px rgba(0, 255, 136, 0.6), 0 0 16px rgba(0, 255, 136, 0.35);
 }
 
 .ac-section-value,
@@ -735,8 +736,8 @@ button {
 
 .ac-section.is-focused .ac-section-value,
 .ac-section.is-focused .ac-temp-value {
-  color: #00ff88;
-  text-shadow: 0 0 14px rgba(0, 255, 136, 0.5);
+  color: #ffffff;
+  text-shadow: 0 0 10px rgba(0, 255, 136, 0.7), 0 0 20px rgba(0, 255, 136, 0.4);
 }
 
 .ac-temp-value {

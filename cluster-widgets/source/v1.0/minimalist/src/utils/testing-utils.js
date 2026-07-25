@@ -132,17 +132,18 @@ document.addEventListener('keydown', (e) => {
             return;
         }
     } else if (currentScreen === 'aircon') {
-        const focusedArea = currentState.focusArea;
-
-        if (e.key === 'Enter') {
-            if (currentState.impulseauto == 1) {
-                window.focus('temp');
-            } else {
-                const controls = focusableAreas.ac_control;
-                const currentIndex = controls.indexOf(focusedArea);
-                const nextIndex = (currentIndex + 1) % controls.length;
-                window.focus(controls[nextIndex]);
-            }
+        if (e.key === 'ArrowUp') {
+            if (window.onKeyEvent) window.onKeyEvent('UP');
+            return;
+        } else if (e.key === 'ArrowDown') {
+            if (window.onKeyEvent) window.onKeyEvent('DOWN');
+            return;
+        } else if (e.key === 'Enter') {
+            if (window.onKeyEvent) window.onKeyEvent('ENTER');
+            return;
+        } else if (e.key === 'Backspace') {
+            if (window.onKeyEvent) window.onKeyEvent('BACK');
+            return;
         } else if (e.key === ' ') {
             // Space — toggle AUTO
             e.preventDefault();
@@ -167,38 +168,6 @@ document.addEventListener('keydown', (e) => {
             const next = (currentState.power == 0 || currentState.power === '0') ? 1 : 0;
             console.log(`[AC Sim] Power -> ${next === 1 ? 'ON' : 'OFF'}`);
             setState('power', next);
-        }
-
-        switch (focusedArea) {
-            case 'fan':
-                const currentFan = parseInt(currentState.fan, 10) || 0;
-                if (e.key === 'ArrowUp' && currentFan < 7) {
-                    window.control('fan', String(currentFan + 1));
-                } else if (e.key === 'ArrowDown' && currentFan > 0) {
-                    window.control('fan', String(currentFan - 1));
-                }
-                break;
-
-            case 'temp':
-                if (currentState.impulseauto == 1) {
-                    const currentTargetTemp = parseFloat(currentState.targetTemp) || 21.0;
-                    if (e.key === 'ArrowUp' && currentTargetTemp < 32.0) {
-                        window.control('targetTemp', (currentTargetTemp + 0.5).toFixed(1));
-                    } else if (e.key === 'ArrowDown' && currentTargetTemp > 16.0) {
-                        window.control('targetTemp', (currentTargetTemp - 0.5).toFixed(1));
-                    }
-                } else {
-                    const currentTemp = parseFloat(currentState.temp) || 21.0;
-                    if (e.key === 'ArrowUp' && currentTemp < 32.0) {
-                        window.control('temp', (currentTemp + 0.5).toFixed(1));
-                    } else if (e.key === 'ArrowDown' && currentTemp > 16.0) {
-                        window.control('temp', (currentTemp - 0.5).toFixed(1));
-                    }
-                }
-                break;
-
-            default:
-                break;
         }
     }
 
