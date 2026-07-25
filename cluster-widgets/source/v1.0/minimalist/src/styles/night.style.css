@@ -713,7 +713,10 @@ button {
   text-decoration: underline;
   text-decoration-color: #00ff88;
   text-underline-offset: 4px;
-  text-shadow: 0 0 8px rgba(0, 255, 136, 0.6), 0 0 16px rgba(0, 255, 136, 0.35);
+  text-shadow:
+    0 0 6px #00ff88,
+    0 0 16px rgba(0, 255, 136, 0.8),
+    0 0 30px rgba(0, 255, 136, 0.5);
 }
 
 .ac-section-value,
@@ -737,7 +740,11 @@ button {
 .ac-section.is-focused .ac-section-value,
 .ac-section.is-focused .ac-temp-value {
   color: #ffffff;
-  text-shadow: 0 0 10px rgba(0, 255, 136, 0.7), 0 0 20px rgba(0, 255, 136, 0.4);
+  text-shadow:
+    0 0 8px #00ff88,
+    0 0 20px rgba(0, 255, 136, 0.85),
+    0 0 36px rgba(0, 255, 136, 0.55),
+    0 0 50px rgba(0, 255, 136, 0.3);
 }
 
 .ac-temp-value {

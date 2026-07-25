@@ -537,10 +537,15 @@ function handleMainMenuKey(keyName) {
 
 function handleAirconKey(keyName) {
     const focusArea = get('focusArea') || 'fan';
+    const isAcPowerOn = Number(get('power')) > 0;
 
     // LEFT/RIGHT are reserved for backend-driven card navigation and are not
     // forwarded to the theme, so ENTER toggles the fan/temp focus here.
     if (keyName === 'ENTER') {
+        if (!isAcPowerOn) {
+            setState('focusArea', 'fan');
+            return;
+        }
         setState('focusArea', focusArea === 'fan' ? 'temp' : 'fan');
         return;
     }
@@ -578,7 +583,6 @@ function handleSteeringWheelKey(keyName) {
     try {
         const now = Date.now();
         if (now - lastKeyTimeMs < KEY_DEBOUNCE_MS) {
-            logger.log('[onKeyEvent] debounced duplicate:', keyName);
             return;
         }
         lastKeyTimeMs = now;
@@ -677,9 +681,12 @@ function handleSettingsTelemetry(key, value) {
         case KEYS.PEDAL_CONTROL_ENABLE:
             setState('onepedal', value === "1" || value === 1 || value === "true" || value === true);
             break;
-        case KEYS.HVAC_POWER:
-            setState('power', Number(value));
+        case KEYS.HVAC_POWER: {
+            const p = Number(value);
+            setState('power', p);
+            if (p === 0) setState('focusArea', 'fan');
             break;
+        }
         case KEYS.HVAC_FAN_SPEED:
             setState('fan', Number(value));
             break;
