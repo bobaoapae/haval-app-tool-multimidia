@@ -874,13 +874,13 @@ fun TelasTab() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(end = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(32.dp),
                     verticalAlignment = Alignment.Top
                 ) {
                     // ── LEFT (50%): Background do Cluster Card ──
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -914,7 +914,7 @@ fun TelasTab() {
                             )
                         }
 
-                        // Thumbnail Preview + TROCAR BACKGROUND Button Side-by-Side
+                        // Thumbnail Preview + TROCAR Button Overlayed
                         val activeFolder = remember(selectedTheme) {
                             prefs.getString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
                         }
@@ -952,81 +952,76 @@ fun TelasTab() {
                             }
                         }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        // 100% Height Ultrawide Thumbnail Box matching right card height (~132dp)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(132.dp)
+                                .background(Color(0xFF1E2228), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFF2C3139), RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(8.dp))
                         ) {
-                            // 1920x720 Ultrawide Aspect Ratio Thumbnail (160dp x 60dp = 8:3)
-                            Box(
-                                modifier = Modifier
-                                    .width(160.dp)
-                                    .height(60.dp)
-                                    .background(Color(0xFF1E2228), RoundedCornerShape(8.dp))
-                                    .border(1.dp, Color(0xFF2C3139), RoundedCornerShape(8.dp))
-                                    .clip(RoundedCornerShape(8.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (enableCustomBg && bgModel != null) {
-                                    if (bgModel is String && bgModel.startsWith("#")) {
-                                        val colorParsed = try { Color(android.graphics.Color.parseColor(bgModel)) } catch (e: Exception) { Color(0xFF121212) }
-                                        Box(modifier = Modifier.fillMaxSize().background(colorParsed))
-                                    } else {
-                                        AsyncImage(
-                                            model = bgModel,
-                                            contentDescription = "Thumbnail Background 1920x720",
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    }
+                            if (enableCustomBg && bgModel != null) {
+                                if (bgModel is String && bgModel.startsWith("#")) {
+                                    val colorParsed = try { Color(android.graphics.Color.parseColor(bgModel)) } catch (e: Exception) { Color(0xFF121212) }
+                                    Box(modifier = Modifier.fillMaxSize().background(colorParsed))
                                 } else {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Wallpaper,
-                                            contentDescription = null,
-                                            tint = Color(0xFF6B7280),
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                        Spacer(Modifier.height(2.dp))
-                                        Text(
-                                            if (!enableCustomBg) "Sem fundo" else "Sem imagem",
-                                            color = Color(0xFFB0B8C4),
-                                            fontSize = 10.sp
-                                        )
-                                    }
+                                    AsyncImage(
+                                        model = bgModel,
+                                        contentDescription = "Thumbnail Background 1920x720",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Wallpaper,
+                                        contentDescription = null,
+                                        tint = Color(0xFF6B7280),
+                                        modifier = Modifier.size(34.dp)
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        if (!enableCustomBg) "Sem background" else "Sem imagem selecionada",
+                                        color = Color(0xFFB0B8C4),
+                                        fontSize = 11.sp
+                                    )
                                 }
                             }
 
-                            // Button to the right of thumbnail
-                            if (allClusterFunctionsEnabled) {
-                                Button(
-                                    onClick = { showBackgroundSettingsDialog = true },
-                                    enabled = enableCustomBg,
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (enableCustomBg) Color(0xFF2C3139) else Color(0xFF1E2228),
-                                        contentColor = if (enableCustomBg) Color(0xFF4A9EFF) else Color(0xFF6B7280)
-                                    ),
-                                    border = BorderStroke(1.dp, if (enableCustomBg) Color(0xFF4A9EFF) else Color(0xFF2C3139)),
-                                    shape = RoundedCornerShape(8.dp),
+                            // Overlay Button "TROCAR" pinned to Bottom-Right corner inside image
+                            if (allClusterFunctionsEnabled && enableCustomBg) {
+                                Box(
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .height(60.dp)
+                                        .align(Alignment.BottomEnd)
+                                        .padding(8.dp)
+                                        .background(Color(0xD91E2228), RoundedCornerShape(6.dp))
+                                        .border(1.dp, Color(0xFF4A9EFF), RoundedCornerShape(6.dp))
+                                        .clickable { showBackgroundSettingsDialog = true }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Image,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        "TROCAR BACKGROUND",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Palette,
+                                            contentDescription = null,
+                                            tint = Color(0xFF4A9EFF),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            "TROCAR",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
                         }
