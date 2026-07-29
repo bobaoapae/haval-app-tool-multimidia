@@ -653,6 +653,14 @@ const GRAPH_KEYS_TO_SUBSCRIBE = [
     KEYS.INSTANT_ENERGY_CONSUMPTION
 ];
 
+const GAUGE_KEYS_TO_SUBSCRIBE = [
+    KEYS.GEAR_STATUS,
+    KEYS.REMAIN_FUEL_PERCENTAGE,
+    KEYS.BATTERY_POWER_PERCENTAGE,
+    KEYS.FUEL_MODE_REMAIN_ODOMETER,
+    KEYS.ELECTRIC_MODE_REMAIN_ODOMETER
+];
+
 const handleGraphTelemetry = createGraphTelemetryHandler(setState, {
     adjustSpeed: (rawSpeed) => {
         const enabled = bridge.getPreference('enableSpeedAdjustment', 'false') === 'true';
@@ -680,6 +688,21 @@ function handleSettingsTelemetry(key, value) {
             break;
         case KEYS.PEDAL_CONTROL_ENABLE:
             setState('onepedal', value === "1" || value === 1 || value === "true" || value === true);
+            break;
+        case KEYS.GEAR_STATUS:
+            setState('gearState', getLabel(KEYS.GEAR_STATUS, value));
+            break;
+        case KEYS.REMAIN_FUEL_PERCENTAGE:
+            setState('fuelPercent', Number(value));
+            break;
+        case KEYS.BATTERY_POWER_PERCENTAGE:
+            setState('batteryPercent', Number(value));
+            break;
+        case KEYS.FUEL_MODE_REMAIN_ODOMETER:
+            setState('fuelRange', Number(value));
+            break;
+        case KEYS.ELECTRIC_MODE_REMAIN_ODOMETER:
+            setState('batteryRange', Number(value));
             break;
         case KEYS.HVAC_POWER: {
             const p = Number(value);
@@ -712,7 +735,7 @@ async function initMinimalistBridge() {
     await bridge.init();
     bridge.subscribeKeys(handleSteeringWheelKey);
     bridge.subscribe(
-        [...SETTINGS_KEYS_TO_SUBSCRIBE, ...GRAPH_KEYS_TO_SUBSCRIBE],
+        [...SETTINGS_KEYS_TO_SUBSCRIBE, ...GRAPH_KEYS_TO_SUBSCRIBE, ...GAUGE_KEYS_TO_SUBSCRIBE],
         (key, value) => {
             if (!handleGraphTelemetry(key, value)) {
                 handleSettingsTelemetry(key, value);

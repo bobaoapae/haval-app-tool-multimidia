@@ -536,6 +536,10 @@ async function initDecentralizedBridge() {
         KEYS.CHARGE_CURRENT,
         KEYS.BATTERY_VOLTAGE,
         KEYS.INSTANT_ENERGY_CONSUMPTION,
+        KEYS.REMAIN_FUEL_PERCENTAGE,
+        KEYS.BATTERY_POWER_PERCENTAGE,
+        KEYS.FUEL_MODE_REMAIN_ODOMETER,
+        KEYS.ELECTRIC_MODE_REMAIN_ODOMETER,
         "car.basic.total_odometer",
         "car.basic.gear_status",
         "car.drive_setting.esp_enable",
@@ -653,6 +657,18 @@ async function initDecentralizedBridge() {
                 break;
             case "car.configure.default_temp_unit":
                 setState('tempUnit', value === "1" ? "°F" : "°C");
+                break;
+            case KEYS.REMAIN_FUEL_PERCENTAGE:
+                setState('fuelPercent', val);
+                break;
+            case KEYS.BATTERY_POWER_PERCENTAGE:
+                setState('batteryPercent', val);
+                break;
+            case KEYS.FUEL_MODE_REMAIN_ODOMETER:
+                setState('fuelRange', val);
+                break;
+            case KEYS.ELECTRIC_MODE_REMAIN_ODOMETER:
+                setState('batteryRange', val);
                 break;
             
             // Preference updates

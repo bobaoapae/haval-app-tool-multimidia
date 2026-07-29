@@ -22,7 +22,11 @@ export const KEYS = {
     CHARGE_CURRENT: "car.ev_info.cur_charge_current",
     BATTERY_VOLTAGE: "car.ev_info.power_battery_voltage",
     INSTANT_ENERGY_CONSUMPTION: "car.ev_info.Instant_energy_consumption",
-    
+    REMAIN_FUEL_PERCENTAGE: "car.basic.remain_fuel_percentage",
+    BATTERY_POWER_PERCENTAGE: "car.ev_info.cur_battery_power_percentage",
+    FUEL_MODE_REMAIN_ODOMETER: "car.ev_info.fuel_mode_remain_odometer",
+    ELECTRIC_MODE_REMAIN_ODOMETER: "car.ev_info.electric_mode_remain_odometer",
+
     // HVAC Controls
     HVAC_POWER: "car.hvac.power_mode",
     HVAC_FAN_SPEED: "car.hvac.fan_speed",
@@ -83,12 +87,18 @@ export const VALUE_LABELS = {
         "1": "Esportiva",
         "2": "Conforto"
     },
+    // Matches the native getGearLabel()/formatGear() mapping used by the
+    // Kotlin side (InstrumentProjector2.kt / BottomBarUI.kt): only 2/3/4 are
+    // meaningful, everything else (0, 1, unknown) is neutral/"N". This table
+    // previously used a different P/R/N/D order than native, which caused the
+    // WebView cluster gear indicator to show the wrong letter (e.g. D as R)
+    // on every live telemetry update after the correct initial page-load value.
     [KEYS.GEAR_STATUS]: {
-        "1": "P",
-        "2": "R",
-        "3": "N",
-        "4": "D",
-        "0": "--"
+        "0": "N",
+        "1": "N",
+        "2": "D",
+        "3": "P",
+        "4": "R"
     },
     [KEYS.REGEN_LEVEL]: {
         "0": "Normal",

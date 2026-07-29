@@ -269,6 +269,10 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "car.basic.gear_status",
             "car.basic.inside_temp",
             "car.basic.outside_temp",
+            "car.basic.remain_fuel_percentage",
+            "car.ev_info.cur_battery_power_percentage",
+            "car.ev_info.fuel_mode_remain_odometer",
+            "car.ev_info.electric_mode_remain_odometer",
             "car.configure.default_temp_unit",
             // Drive/EV settings: already in ServiceManager.DEFAULT_KEYS (continuously
             // monitored), but were missing here, so ThemeBridgeAdapter.hasKey() silently
