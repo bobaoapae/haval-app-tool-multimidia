@@ -880,41 +880,9 @@ fun TelasTab() {
                     // ── LEFT (50%): Background do Cluster Card ──
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalAlignment = Alignment.Start
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Background do Cluster",
-                                    color = Color.White,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    if (enableCustomBg) "Papel de parede do painel" else "Padrão do sistema",
-                                    color = Color(0xFFB0B8C4),
-                                    fontSize = 12.sp
-                                )
-                            }
-                            Switch(
-                                checked = enableCustomBg,
-                                enabled = allClusterFunctionsEnabled,
-                                onCheckedChange = { checked ->
-                                    enableCustomBg = checked
-                                    prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, checked) }
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = Color(0xFF4A9EFF)
-                                )
-                            )
-                        }
-
-                        // Thumbnail Preview + TROCAR Button Overlayed
                         val activeFolder = remember(selectedTheme) {
                             prefs.getString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
                         }
@@ -952,17 +920,54 @@ fun TelasTab() {
                             }
                         }
 
-                        // 100% Height Ultrawide Thumbnail Box matching right card height (~132dp) in exact 1920x720 (2.67:1) ratio
-                        Box(
+                        // Container constrained to thumbnail width (~420dp) so Switch right edge aligns with thumbnail right border
+                        val thumbHeight = 158.dp // +20% size increase
+                        val thumbWidth = thumbHeight * (1920f / 720f) // ~421.3dp
+
+                        Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(132.dp),
-                            contentAlignment = Alignment.Center
+                                .widthIn(max = thumbWidth)
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            // Header Row: Title on Left, Switch on Right (aligned to thumbnail right border)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "Background do Cluster",
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        if (enableCustomBg) "Papel de parede do painel" else "Padrão do sistema",
+                                        color = Color(0xFFB0B8C4),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                Switch(
+                                    checked = enableCustomBg,
+                                    enabled = allClusterFunctionsEnabled,
+                                    onCheckedChange = { checked ->
+                                        enableCustomBg = checked
+                                        prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, checked) }
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = Color(0xFF4A9EFF)
+                                    )
+                                )
+                            }
+
+                            // Left-Aligned Ultrawide Thumbnail Box (158dp height, 1920x720 aspect ratio)
                             Box(
                                 modifier = Modifier
-                                    .fillMaxHeight()
-                                    .aspectRatio(1920f / 720f)
+                                    .fillMaxWidth()
+                                    .height(thumbHeight)
                                     .background(Color(0xFF1E2228), RoundedCornerShape(8.dp))
                                     .border(1.dp, Color(0xFF2C3139), RoundedCornerShape(8.dp))
                                     .clip(RoundedCornerShape(8.dp))
@@ -989,7 +994,7 @@ fun TelasTab() {
                                             imageVector = Icons.Default.Wallpaper,
                                             contentDescription = null,
                                             tint = Color(0xFF6B7280),
-                                            modifier = Modifier.size(34.dp)
+                                            modifier = Modifier.size(36.dp)
                                         )
                                         Spacer(Modifier.height(4.dp))
                                         Text(
