@@ -804,13 +804,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         // silently no-op and sit on whatever card it last rendered (observed on-car with
         // a stale installed theme: card 0 never painted). Fail loudly instead — the fix
         // for that case is redeploying the theme, not a second channel.
-        evaluateJsIfReady(
-                webView,
-                "if (window.onCardChanged) { window.onCardChanged($currentCard); }" +
-                        " else { console.error('[contract] theme does not implement" +
-                        " window.onCardChanged; active card cannot be delivered (cardId=" +
-                        "$currentCard)'); }"
-        )
+        pushActiveCardToTheme(currentCard)
 
         if (decision.updateVirtualClusterVisibility) {
             updateVirtualClusterVisibility(
@@ -1754,6 +1748,41 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Deliver the active card to the theme and report what actually happened.
+     *
+     * The card is the one piece of state with no periodic re-push: telemetry is resent
+     * constantly via onDataChanged, but a dropped card leaves the theme rendering a
+     * different card from the one the cluster is on, with nothing to correct it. The
+     * result callback distinguishes "delivered", "theme has no handler" and "the handler
+     * threw" — which is otherwise invisible from the Kotlin side.
+     */
+    private fun pushActiveCardToTheme(cardId: Int) {
+        val wv = webView ?: return
+        val js =
+                "(function(){ try {" +
+                        " if (!window.onCardChanged) return 'missing';" +
+                        " window.onCardChanged($cardId); return 'ok';" +
+                        " } catch (e) { return 'threw:' + e; } })()"
+        if (webViewsLoaded.getOrDefault(wv, false)) {
+            wv.evaluateJavascript(js) { result ->
+                if (result == null || !result.contains("ok")) {
+                    Log.e(TAG, "[CARD_PUSH] card=$cardId not delivered to theme: $result")
+                    ClusterPersistentEventLogger.log(
+                            "card_push_failed",
+                            mapOf("card" to cardId, "result" to (result ?: "null"))
+                    )
+                } else {
+                    Log.w(TAG, "[CARD_PUSH] card=$cardId delivered")
+                }
+            }
+        } else {
+            Log.w(TAG, "[CARD_PUSH] card=$cardId queued (webview not loaded)")
+            ClusterPersistentEventLogger.log("card_push_queued", mapOf("card" to cardId))
+            evaluateJsIfReady(wv, js)
         }
     }
 
