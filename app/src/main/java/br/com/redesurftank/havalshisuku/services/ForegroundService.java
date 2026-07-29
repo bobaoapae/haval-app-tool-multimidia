@@ -736,6 +736,14 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
 
     @Override
     public void onDestroy() {
+        // Drop our cluster callback before the process goes away. The car's
+        // ClusterService otherwise keeps dispatching to a dead binder and throws
+        // DeadObjectException, which can stop card reports reaching the next instance.
+        try {
+            ServiceManager.getInstance().releaseClusterCallback();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to release cluster callback on destroy", e);
+        }
         if (handlerThread != null) {
             handlerThread.quitSafely();
         }

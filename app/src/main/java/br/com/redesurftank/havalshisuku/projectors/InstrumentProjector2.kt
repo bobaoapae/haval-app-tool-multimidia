@@ -795,17 +795,21 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 snapshot.active
         )
 
-        // Contract (THEME_GUIDE): backend owns the active card and informs the
-        // frontend via window.onCardChanged(cardId). Themes installed before that
-        // contract existed only implement control('cardId', ...); since the
-        // onCardChanged call is feature-detected it silently no-ops for them, leaving
-        // the theme stuck on the last card it rendered (observed: card 0 never
-        // painting until something forced a full state resync). Fall back to the
-        // legacy push so an older installed theme still tracks the active card.
+        // Contract (THEME_GUIDE): backend owns the active card and informs the frontend
+        // via window.onCardChanged(cardId) — the single canonical channel. No legacy
+        // control('cardId', ...) push: two channels means two code paths and ambiguity
+        // about which one a theme is actually honouring.
+        //
+        // The call is feature-detected, so a theme that predates the contract would
+        // silently no-op and sit on whatever card it last rendered (observed on-car with
+        // a stale installed theme: card 0 never painted). Fail loudly instead — the fix
+        // for that case is redeploying the theme, not a second channel.
         evaluateJsIfReady(
                 webView,
                 "if (window.onCardChanged) { window.onCardChanged($currentCard); }" +
-                        " else if (window.control) { control('cardId', $currentCard); }"
+                        " else { console.error('[contract] theme does not implement" +
+                        " window.onCardChanged; active card cannot be delivered (cardId=" +
+                        "$currentCard)'); }"
         )
 
         if (decision.updateVirtualClusterVisibility) {

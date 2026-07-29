@@ -261,6 +261,21 @@ public class ServiceManager {
     private static final long CLUSTER_INPUT_DEDUP_WINDOW_MS = 220L;
     private int lastHandledClusterInputKeyCode = -1;
     private long lastHandledClusterInputAtMs = 0L;
+    // Cluster callback liveness. The car's ClusterService keeps callbacks registered by
+    // previous instances of this process; when it hits a dead one it throws
+    // DeadObjectException while dispatching (seen in its own logs), after which card
+    // reports can stop arriving even though the cluster still navigates normally. There
+    // is no signal for this on our side other than the reports going quiet, so we detect
+    // staleness and re-register.
+    private volatile long lastClusterCardReportAtMs = 0L;
+    private long lastClusterCallbackRefreshAtMs = 0L;
+    // Measured on-car: re-registering restores delivery within ~35ms, every time, and
+    // the callback itself is not slow (fan-out timing showed no overruns). The
+    // registration simply stops being dispatched to after a while; the cause is not yet
+    // understood. Recover reactively and rarely — a proactive re-register loop was tried
+    // and only added churn without fixing the navigation defect it was mistaken for.
+    private static final long CLUSTER_CALLBACK_STALE_MS = 8000L;
+    private static final long CLUSTER_CALLBACK_REFRESH_COOLDOWN_MS = 15000L;
     private long lastSyntheticClusterCardNavigationAtMs = 0L;
     private int lastSyntheticClusterCardTarget = -1;
     private static final long STEERING_WHEEL_PROJECTION_TOGGLE_DEDUP_WINDOW_MS = 800L;
@@ -278,6 +293,88 @@ public class ServiceManager {
     private final Map<String, String> previousAcState = new HashMap<>();
     private boolean isMaxAcActive = false;
     private Runnable maxAcTimeoutRunnable;
+
+    /**
+     * Dispatch a ServiceManager event without holding the caller's thread.
+     *
+     * Used from the cluster service's binder callback: the listener fan-out is
+     * synchronous and can touch the projector/WebView, so running it inline would keep
+     * com.autolink.clusterservice blocked on us for the duration.
+     */
+    private void dispatchClusterEventOffBinderThread(ServiceManagerEventType event, Object... args) {
+        Handler handler = backgroundHandler;
+        if (handler == null) {
+            dispatchServiceManagerEvent(event, args);
+            return;
+        }
+        handler.post(() -> {
+            long startedAt = SystemClock.uptimeMillis();
+            dispatchServiceManagerEvent(event, args);
+            long elapsedMs = SystemClock.uptimeMillis() - startedAt;
+            if (elapsedMs > 50L) {
+                Log.w(TAG, "Cluster event fan-out slow: " + event + " took " + elapsedMs + "ms");
+            }
+        });
+    }
+
+    /**
+     * Re-register the cluster callback when the car has stopped reporting card changes.
+     *
+     * Called on cluster wheel input: if the user is navigating but no msgId=133 has
+     * arrived recently, our registration is very likely no longer being dispatched to,
+     * and re-registering is the only way to recover short of a head-unit reboot.
+     * Rate-limited so normal use (where reports do arrive) never triggers it.
+     */
+    private void refreshClusterCallbackIfStale() {
+        long now = SystemClock.uptimeMillis();
+        if (lastClusterCardReportAtMs != 0L
+                && now - lastClusterCardReportAtMs < CLUSTER_CALLBACK_STALE_MS) {
+            return;
+        }
+        if (lastClusterCallbackRefreshAtMs != 0L
+                && now - lastClusterCallbackRefreshAtMs < CLUSTER_CALLBACK_REFRESH_COOLDOWN_MS) {
+            return;
+        }
+        final IClusterService service = clusterService;
+        final IClusterCallback.Stub callback = clusterCallback;
+        if (service == null || callback == null) return;
+        lastClusterCallbackRefreshAtMs = now;
+        final long staleMs = lastClusterCardReportAtMs == 0L ? -1L : now - lastClusterCardReportAtMs;
+        backgroundHandler.post(() -> {
+            try {
+                service.unregisterCallback(callback);
+            } catch (Exception ignored) {
+                // Already gone on the car side; re-registering below is what matters.
+            }
+            try {
+                service.registerCallback(callback);
+                Log.w(TAG, "Re-registered cluster callback after stale reporting (staleMs=" + staleMs + ")");
+                logPersistentClusterEvent(
+                        "cluster_callback_refreshed",
+                        "staleMs=" + staleMs + " card=" + clusterCardView
+                );
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to re-register cluster callback", e);
+            }
+        });
+    }
+
+    /**
+     * Drop our cluster callback registration on shutdown. Without this the car's
+     * ClusterService keeps a reference to this process's callback after we die, and
+     * dispatching to it throws DeadObjectException on the car side.
+     */
+    public void releaseClusterCallback() {
+        final IClusterService service = clusterService;
+        final IClusterCallback.Stub callback = clusterCallback;
+        if (service == null || callback == null) return;
+        try {
+            service.unregisterCallback(callback);
+            Log.w(TAG, "Cluster callback unregistered on shutdown");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to unregister cluster callback on shutdown", e);
+        }
+    }
 
     private void logPersistentClusterEvent(String event, String detail) {
         ClusterPersistentEventLogger.logText(event, detail);
@@ -418,6 +515,10 @@ public class ServiceManager {
             }
             handlerThread = null;
             backgroundHandler = null;
+            // The heartbeat runnable lived on the handler we just destroyed. Without
+            // clearing this flag startClusterHeartbeat() short-circuits forever, so the
+            // 1s msgId=134 "Android is alive" signal never resumes after a re-init.
+            isClusterHeartbeatRunning = false;
         } catch (Exception e) {
             Log.e(TAG, "Error during service cleanup", e);
         }
@@ -496,6 +597,10 @@ public class ServiceManager {
                         int whichCard = data.getIntValue();
                         int previousCard = clusterCardView;
                         long now = SystemClock.uptimeMillis();
+                        // Liveness marker for the cluster callback: the car reached us.
+                        // Used to detect a silently-dropped registration (see
+                        // refreshClusterCallbackIfStale).
+                        lastClusterCardReportAtMs = now;
                         long sinceInputMs =
                                 lastClusterInputAtMs == 0L
                                         ? -1L
@@ -542,7 +647,15 @@ public class ServiceManager {
                             return;
                         }
                         clusterCardView = whichCard;
-                        dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, clusterCardView);
+                        // Fan-out runs off the car's binder thread. dispatchServiceManagerEvent
+                        // notifies every listener synchronously, and this callback is invoked by
+                        // com.autolink.clusterservice — holding its thread risks it treating the
+                        // callback as unresponsive and dropping it (the symptom being card
+                        // reports going silent until we re-register).
+                        dispatchClusterEventOffBinderThread(
+                                ServiceManagerEventType.CLUSTER_CARD_CHANGED,
+                                clusterCardView
+                        );
                         Log.w(
                                 TAG,
                                 "Cluster card changed: "
@@ -567,8 +680,19 @@ public class ServiceManager {
                     } else if (msgId == 134) {
                         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
                             if (data.getIntValue() == 2) {
-                                sendHeartBeatToCluster();
-                                startClusterHeartbeat();
+                                // sendHeartBeatToCluster() calls back into the cluster service
+                                // via binder. Doing that from inside its own callback keeps its
+                                // thread blocked on us; run it off-thread.
+                                Handler heartbeatHandler = backgroundHandler;
+                                if (heartbeatHandler != null) {
+                                    heartbeatHandler.post(() -> {
+                                        sendHeartBeatToCluster();
+                                        startClusterHeartbeat();
+                                    });
+                                } else {
+                                    sendHeartBeatToCluster();
+                                    startClusterHeartbeat();
+                                }
                             }
                         }
                     } else if (msgId == 135) {
@@ -711,6 +835,10 @@ public class ServiceManager {
                             if (!duplicateClusterInput && isPhysicalClusterAction) {
                                 lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
                                 lastHandledClusterInputAtMs = now;
+                                // Any cluster key means the user is driving the cluster, so the
+                                // car should be reporting card changes. If it has gone quiet our
+                                // callback registration is likely no longer live; recover it.
+                                refreshClusterCallbackIfStale();
                                 if (ClusterCardNavigationPolicy.isCardNavigationKey(key)) {
                                     // Card navigation belongs to the car. We deliberately do not
                                     // predict the next card locally: the predicted sequence does
