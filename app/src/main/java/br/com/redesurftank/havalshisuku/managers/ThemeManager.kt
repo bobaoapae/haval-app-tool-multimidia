@@ -52,7 +52,7 @@ class ThemeManager private constructor(val context: Context) {
             val xmlFile = File(dir, "theme.xml")
             if (xmlFile.exists()) {
                 val metadata = parseThemeXml(xmlFile.inputStream(), dir.name, true)
-                if (metadata != null) {
+                if (metadata != null && isContractCompatible(metadata.contractVersion)) {
                     results.add(metadata.copy(isLocal = true, isDownloaded = true))
                 }
             }
@@ -60,19 +60,20 @@ class ThemeManager private constructor(val context: Context) {
         
         // Handle legacy flat HTML files if any (fallback)
         themesDir.listFiles { file -> file.extension == "html" }?.forEach { file ->
-            results.add(
-                ThemeMetadata(
-                    name = file.nameWithoutExtension,
-                    description = "Arraste e solte para instalar",
-                    version = "1.0.0",
-                    thumbnailUrl = "",
-                    mainFile = file.name,
-                    folderName = "",
-                    isLocal = true,
-                    isDownloaded = true,
-                    contractVersion = "legacy"
-                )
+            val metadata = ThemeMetadata(
+                name = file.nameWithoutExtension,
+                description = "Arraste e solte para instalar",
+                version = "1.0.0",
+                thumbnailUrl = "",
+                mainFile = file.name,
+                folderName = "",
+                isLocal = true,
+                isDownloaded = true,
+                contractVersion = "legacy"
             )
+            if (isContractCompatible(metadata.contractVersion)) {
+                results.add(metadata)
+            }
         }
         
         return results
@@ -98,11 +99,27 @@ class ThemeManager private constructor(val context: Context) {
     fun sanitizeActiveThemeContract(context: Context) {
         val prefs = context.getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
         val activeFolder = prefs.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
-        if (activeFolder.isBlank() || activeFolder.equals("Default", ignoreCase = true)) return
+        val virtualTheme = prefs.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default") ?: "Default"
 
-        val metadata = getThemeMetadata(activeFolder)
-        if (metadata == null || !isContractCompatible(metadata.contractVersion)) {
-            Log.w(TAG, "Active theme '$activeFolder' is incompatible with contract $CURRENT_CONTRACT_VERSION. Falling back to Default.")
+        var isFolderInvalid = false
+        if (activeFolder.isNotBlank() && !activeFolder.equals("Default", ignoreCase = true)) {
+            val metadata = getThemeMetadata(activeFolder)
+            if (metadata == null || !isContractCompatible(metadata.contractVersion)) {
+                isFolderInvalid = true
+            }
+        }
+
+        var isVirtualInvalid = false
+        if (!virtualTheme.equals("Default", ignoreCase = true) && !virtualTheme.equals("Minimalist", ignoreCase = true)) {
+            // Check if virtualTheme metadata is contract compatible
+            val metadata = getLocalThemes().firstOrNull { it.name.equals(virtualTheme, ignoreCase = true) }
+            if (metadata == null || !isContractCompatible(metadata.contractVersion)) {
+                isVirtualInvalid = true
+            }
+        }
+
+        if (isFolderInvalid || isVirtualInvalid) {
+            Log.w(TAG, "Active theme (folder='$activeFolder', virtual='$virtualTheme') is incompatible with contract $CURRENT_CONTRACT_VERSION. Falling back to Default.")
             prefs.edit()
                 .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "")
                 .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default")
