@@ -331,5 +331,6 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     HEV_SOC_TARGET_VALUE("hevSocTargetValue", "% de bateria a manter no HEV Prioritário (20-80)"),
     ENABLE_CUSTOM_BACKGROUND_D1("enableCustomBackgroundD1", "Habilitar fundo personalizado no Display 1"),
     CUSTOM_BACKGROUND_TYPE_D1("customBackgroundTypeD1", "Tipo de fundo do Display 1"),
-    CUSTOM_BACKGROUND_VALUE_D1("customBackgroundValueD1", "Valor do fundo do Display 1")
+    CUSTOM_BACKGROUND_VALUE_D1("customBackgroundValueD1", "Valor do fundo do Display 1"),
+    WEB_IMAGE_API_KEYS("webImageApiKeys", "Chaves de API dos provedores de imagens da web")
 }

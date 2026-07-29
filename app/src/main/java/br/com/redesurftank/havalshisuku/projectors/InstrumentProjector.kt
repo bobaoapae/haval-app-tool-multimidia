@@ -17,6 +17,7 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType
+import br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec
 import coil.imageLoader
 import coil.request.ImageRequest
 
@@ -202,6 +203,18 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
                     imageView.setBackgroundColor(Color.BLACK)
                 }
             }
+            SolidBackgroundSpec.TYPE -> {
+                webView?.isVisible = false
+                imageView.isVisible = true
+                val spec = SolidBackgroundSpec.parse(value)
+                if (spec != null) {
+                    imageView.setBackgroundColor(Color.TRANSPARENT)
+                    imageView.setImageDrawable(buildSolidBackground(spec))
+                } else {
+                    imageView.setImageDrawable(null)
+                    imageView.setBackgroundColor(Color.BLACK)
+                }
+            }
             "WEB_URL" -> {
                 imageView.isVisible = false
                 webView?.let { wv ->
@@ -270,6 +283,47 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
             imageView.setImageDrawable(null)
             imageView.setBackgroundColor(Color.BLACK)
         }
+    }
+
+    /**
+     * Cor sólida + vinheta elíptica, desenhada em um bitmap pequeno: o ImageView usa
+     * CENTER_CROP, então o gradiente escala suavemente até 1920x720 sem alocar um bitmap
+     * em tamanho real a cada mudança de cor.
+     */
+    private fun buildSolidBackground(spec: SolidBackgroundSpec): android.graphics.drawable.Drawable {
+        val width = 640
+        val height = 240
+        val bitmap = android.graphics.Bitmap.createBitmap(
+            width, height, android.graphics.Bitmap.Config.ARGB_8888
+        )
+        val canvas = android.graphics.Canvas(bitmap)
+        canvas.drawColor(spec.color)
+
+        if (spec.vignette > 0) {
+            val alpha = (spec.vignette * 255 / 100).coerceIn(0, 255)
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                shader = android.graphics.RadialGradient(
+                    width / 2f,
+                    height / 2f,
+                    width * 0.62f,
+                    intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, Color.argb(alpha, 0, 0, 0)),
+                    floatArrayOf(0f, 0.45f, 1f),
+                    android.graphics.Shader.TileMode.CLAMP
+                )
+            }
+            // Achata o círculo na vertical para acompanhar o formato panorâmico do cluster.
+            canvas.save()
+            canvas.scale(1f, height.toFloat() / width, width / 2f, height / 2f)
+            canvas.drawRect(
+                0f,
+                height / 2f - width,
+                width.toFloat(),
+                height / 2f + width,
+                paint
+            )
+            canvas.restore()
+        }
+        return android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
     }
 
     private fun loadRemoteImage(url: String) {

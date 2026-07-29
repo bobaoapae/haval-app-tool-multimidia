@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.*
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -20,7 +22,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.*
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.*
 import androidx.compose.ui.platform.LocalContext
@@ -47,17 +55,23 @@ import br.com.redesurftank.havalshisuku.managers.WebImageProvider
 import br.com.redesurftank.havalshisuku.managers.WebImageSearch
 import br.com.redesurftank.havalshisuku.models.DisplayAppConfig
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
+import br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec
 import br.com.redesurftank.havalshisuku.models.ThemeMetadata
 import br.com.redesurftank.havalshisuku.models.ThemeConfig
 import br.com.redesurftank.havalshisuku.ui.components.StyledCard
 import br.com.redesurftank.havalshisuku.ui.components.StyledTextField
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+/** Busca inicial da aba Web — abre o diálogo já com resultados úteis para o cluster. */
+private const val DEFAULT_WEB_QUERY = "gradient background"
 
 data class RevisionEntry(val km: Int, val date: Long)
 
@@ -939,29 +953,82 @@ fun TelasTab() {
                                 }
                         }
 
-                        val bgModel = remember(enableCustomBg, showBackgroundSettingsDialog, selectedTheme, activeFolder) {
-                            if (!enableCustomBg) null
-                            else {
+                        val bgThumb = remember(enableCustomBg, showBackgroundSettingsDialog, selectedTheme, activeFolder) {
+                            if (!enableCustomBg) {
+                                ClusterBgThumb.Empty(
+                                    Icons.Default.VisibilityOff,
+                                    "Fundo personalizado desligado",
+                                    "Ative a chave acima para escolher um fundo"
+                                )
+                            } else {
                                 val bgType = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME"
                                 val bgValue = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: ""
                                 when (bgType) {
                                     "THEME" -> {
                                         val bgPath = themeMeta?.backgroundAbsolutePath.orEmpty()
                                         if (bgPath.isNotEmpty() && java.io.File(bgPath).exists()) {
-                                            java.io.File(bgPath)
+                                            ClusterBgThumb.Picture(java.io.File(bgPath))
                                         } else {
-                                            "file:///android_asset/backgrounds/car-bg.png"
+                                            // O projetor deixa o cluster transparente nesse caso: a miniatura
+                                            // não deve fingir que existe um papel de parede.
+                                            ClusterBgThumb.Empty(
+                                                Icons.Default.ImageNotSupported,
+                                                "O tema ativo não tem imagem de fundo",
+                                                "Escolha uma cor ou imagem em TROCAR"
+                                            )
                                         }
                                     }
                                     "PRESET" -> {
                                         if (bgValue.isNotBlank()) {
                                             val uploadedFile = java.io.File(BackgroundSyncServer.getUploadsDir(), bgValue)
-                                            if (uploadedFile.exists()) uploadedFile
-                                            else "file:///android_asset/backgrounds/$bgValue"
-                                        } else null
+                                            if (uploadedFile.exists()) ClusterBgThumb.Picture(uploadedFile)
+                                            else ClusterBgThumb.Picture("file:///android_asset/backgrounds/$bgValue")
+                                        } else {
+                                            ClusterBgThumb.Empty(
+                                                Icons.Default.Wallpaper,
+                                                "Nenhum preset selecionado",
+                                                "Escolha em TROCAR › Presets"
+                                            )
+                                        }
                                     }
-                                    "COLOR" -> bgValue
-                                    else -> null
+                                    SolidBackgroundSpec.TYPE -> {
+                                        val spec = SolidBackgroundSpec.parse(bgValue)
+                                        if (spec != null) ClusterBgThumb.Solid(spec)
+                                        else ClusterBgThumb.Empty(
+                                            Icons.Default.Palette,
+                                            "Cor inválida",
+                                            "Escolha novamente em TROCAR › Cor"
+                                        )
+                                    }
+                                    "FILE" -> {
+                                        val file = bgValue.takeIf { it.isNotBlank() }?.let { java.io.File(it) }
+                                        when {
+                                            file == null -> ClusterBgThumb.Empty(
+                                                Icons.Default.Wallpaper,
+                                                "Nenhuma imagem selecionada",
+                                                "Escolha em TROCAR › Biblioteca"
+                                            )
+                                            !file.exists() -> ClusterBgThumb.Empty(
+                                                Icons.Default.BrokenImage,
+                                                "Imagem da biblioteca não encontrada",
+                                                "Ela pode ter sido excluída — escolha outra"
+                                            )
+                                            else -> ClusterBgThumb.Picture(file)
+                                        }
+                                    }
+                                    "IMAGE_URL" -> {
+                                        if (bgValue.isNotBlank()) ClusterBgThumb.Picture(bgValue)
+                                        else ClusterBgThumb.Empty(
+                                            Icons.Default.Wallpaper,
+                                            "Nenhuma imagem selecionada",
+                                            "Escolha em TROCAR › Web"
+                                        )
+                                    }
+                                    else -> ClusterBgThumb.Empty(
+                                        Icons.Default.Wallpaper,
+                                        "Nenhuma imagem selecionada",
+                                        "Escolha um fundo em TROCAR"
+                                    )
                                 }
                             }
                         }
@@ -975,38 +1042,10 @@ fun TelasTab() {
                                 .border(1.dp, Color(0xFF3F4652), RoundedCornerShape(8.dp))
                                 .clip(RoundedCornerShape(8.dp))
                         ) {
-                            if (enableCustomBg && bgModel != null) {
-                                if (bgModel is String && bgModel.startsWith("#")) {
-                                    val colorParsed = try { Color(android.graphics.Color.parseColor(bgModel)) } catch (e: Exception) { Color(0xFF121212) }
-                                    Box(modifier = Modifier.fillMaxSize().background(colorParsed))
-                                } else {
-                                    AsyncImage(
-                                        model = bgModel,
-                                        contentDescription = "Thumbnail Background 1920x720",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
-                            } else {
-                                Column(
-                                    modifier = Modifier.fillMaxSize(),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Wallpaper,
-                                        contentDescription = null,
-                                        tint = Color(0xFF6B7280),
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        if (!enableCustomBg) "Sem background" else "Sem imagem selecionada",
-                                        color = Color(0xFFB0B8C4),
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
+                            ClusterBackgroundThumbContent(
+                                state = bgThumb,
+                                modifier = Modifier.fillMaxSize()
+                            )
 
                             // Overlay Button "TROCAR" pinned to Bottom-Right corner inside image
                             if (allClusterFunctionsEnabled && enableCustomBg) {
@@ -2374,10 +2413,32 @@ fun ClusterBackgroundSettingsDialog(
         }
     }
 
+    // ── Cor sólida + vinheta ──
+    val initialSolid = remember {
+        SolidBackgroundSpec.parse(initialBgValue)
+            ?.takeIf { initialBgType == SolidBackgroundSpec.TYPE }
+            ?: SolidBackgroundSpec.DEFAULT
+    }
+    val initialHsv = remember {
+        FloatArray(3).also { android.graphics.Color.colorToHSV(initialSolid.color, it) }
+    }
+    var solidHue by remember { mutableFloatStateOf(initialHsv[0]) }
+    var solidSat by remember { mutableFloatStateOf(initialHsv[1]) }
+    var solidVal by remember { mutableFloatStateOf(initialHsv[2]) }
+    var solidVignette by remember { mutableIntStateOf(initialSolid.vignette) }
+
+    // Só grava (e portanto só aplica no cluster) ao soltar o dedo: arrastar no mapa
+    // dispararia dezenas de escritas de preferência por segundo.
+    val commitSolidColor: () -> Unit = {
+        val argb = android.graphics.Color.HSVToColor(floatArrayOf(solidHue, solidSat, solidVal))
+        customBgType = SolidBackgroundSpec.TYPE
+        customBgValue = SolidBackgroundSpec(argb, solidVignette).encode()
+    }
+
     // ── Busca na web (estado no nível do diálogo para sobreviver à troca de abas) ──
     val ioScope = rememberCoroutineScope()
     var webProvider by remember { mutableStateOf(WebImageProvider.WALLHAVEN) }
-    var webQuery by remember { mutableStateOf("") }
+    var webQuery by remember { mutableStateOf(DEFAULT_WEB_QUERY) }
     var webResults by remember { mutableStateOf<List<WebImage>>(emptyList()) }
     var webPage by remember { mutableIntStateOf(1) }
     var webHasMore by remember { mutableStateOf(false) }
@@ -2393,6 +2454,12 @@ fun ClusterBackgroundSettingsDialog(
 
     val webApiKey = remember(webProvider, apiKeyRefreshToken) {
         WebImageSearch.getApiKey(prefs, webProvider)
+    }
+    val lockedProviders = remember(apiKeyRefreshToken) {
+        WebImageProvider.entries
+            .filter { it.requiresKey && WebImageSearch.getApiKey(prefs, it).isBlank() }
+            .map { it.id }
+            .toSet()
     }
 
     suspend fun loadWebPage(page: Int) {
@@ -2431,8 +2498,10 @@ fun ClusterBackgroundSettingsDialog(
         }
         if (webQuery.isNotBlank()) delay(500) // debounce da digitação
         webLoadedSignature = webSignature
-        webGridState.scrollToItem(0)
         loadWebPage(1)
+        // Só depois de ter resultados: scrollToItem espera o primeiro layout da grade e
+        // ficaria suspenso para sempre enquanto a grade não estiver composta.
+        if (webResults.isNotEmpty()) webGridState.scrollToItem(0)
     }
 
     // Scroll infinito: carrega a próxima página ao chegar perto do fim da grade.
@@ -2442,7 +2511,9 @@ fun ClusterBackgroundSettingsDialog(
             lastVisible >= 0 && lastVisible >= webResults.size - 6
         }
     }
-    LaunchedEffect(shouldLoadMoreWeb, webHasMore, webLoading, webLoadingMore) {
+    // Os flags de carregamento não entram nas chaves: mudá-los aqui reiniciaria o próprio
+    // efeito e cancelaria a requisição em andamento.
+    LaunchedEffect(shouldLoadMoreWeb, webHasMore) {
         if (shouldLoadMoreWeb && webHasMore && !webLoading && !webLoadingMore) {
             loadWebPage(webPage + 1)
         }
@@ -2491,7 +2562,7 @@ fun ClusterBackgroundSettingsDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth(0.82f)
-                .fillMaxHeight(0.92f)
+                .fillMaxHeight(0.84f)
                 .padding(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2228)),
             shape = RoundedCornerShape(16.dp),
@@ -2571,6 +2642,7 @@ fun ClusterBackgroundSettingsDialog(
                     ) {
                         listOf(
                             "THEME" to "Tema",
+                            SolidBackgroundSpec.TYPE to "Cor",
                             "PRESET" to "Presets",
                             "IMAGE_URL" to "Web",
                             "FILE" to "Biblioteca"
@@ -2672,6 +2744,28 @@ fun ClusterBackgroundSettingsDialog(
                                         }
                                     }
                                 }
+                            }
+                            SolidBackgroundSpec.TYPE -> {
+                                SolidColorTab(
+                                    hue = solidHue,
+                                    saturation = solidSat,
+                                    brightness = solidVal,
+                                    vignette = solidVignette,
+                                    onHueChange = { solidHue = it },
+                                    onSatValChange = { s, v ->
+                                        solidSat = s
+                                        solidVal = v
+                                    },
+                                    onArgbChange = { argb ->
+                                        val hsv = FloatArray(3)
+                                        android.graphics.Color.colorToHSV(argb, hsv)
+                                        solidHue = hsv[0]
+                                        solidSat = hsv[1]
+                                        solidVal = hsv[2]
+                                    },
+                                    onVignetteChange = { solidVignette = it },
+                                    onCommit = commitSolidColor
+                                )
                             }
                             "PRESET" -> {
                                 Column {
@@ -2783,8 +2877,7 @@ fun ClusterBackgroundSettingsDialog(
                                     ) {
                                         items(WebImageProvider.entries.toList()) { provider ->
                                             val isSelected = webProvider == provider
-                                            val locked = provider.requiresKey &&
-                                                    WebImageSearch.getApiKey(prefs, provider).isBlank()
+                                            val locked = provider.id in lockedProviders
                                             Box(
                                                 modifier = Modifier
                                                     .background(
@@ -2816,14 +2909,14 @@ fun ClusterBackgroundSettingsDialog(
                                         }
                                     }
 
-                                    libraryMessage?.let { message ->
-                                        Text(
-                                            message,
-                                            color = Color(0xFF4A9EFF),
-                                            fontSize = 11.sp,
-                                            maxLines = 1
-                                        )
-                                    }
+                                    Text(
+                                        libraryMessage
+                                            ?: "Toque para pré-visualizar no cluster · ♥ salva na Biblioteca para usar sem internet.",
+                                        color = if (libraryMessage != null) Color(0xFF4A9EFF) else Color(0xFF718096),
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
 
                                     val needsKey = webProvider.requiresKey && webApiKey.isBlank()
 
@@ -3290,6 +3383,380 @@ fun ClusterBackgroundSettingsDialog(
                     }
                 }
             }
+        }
+    }
+}
+
+/** O que a miniatura 1920x720 da tela Telas deve mostrar para o fundo atual do cluster. */
+private sealed interface ClusterBgThumb {
+    data class Picture(val model: Any) : ClusterBgThumb
+    data class Solid(val spec: SolidBackgroundSpec) : ClusterBgThumb
+    data class Empty(val icon: ImageVector, val title: String, val hint: String) : ClusterBgThumb
+}
+
+@Composable
+private fun ClusterBackgroundThumbContent(state: ClusterBgThumb, modifier: Modifier = Modifier) {
+    Box(modifier = modifier) {
+        when (state) {
+            is ClusterBgThumb.Solid -> SolidBackgroundPreview(
+                color = Color(state.spec.color),
+                vignette = state.spec.vignette,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            is ClusterBgThumb.Picture -> SubcomposeAsyncImage(
+                model = state.model,
+                contentDescription = "Miniatura do fundo do cluster (1920x720)",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                loading = {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = Color(0xFF4A9EFF),
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                },
+                error = {
+                    // Fundos "Web" dependem da rede do carro a cada carregamento.
+                    ClusterBgThumbPlaceholder(
+                        icon = Icons.Default.CloudOff,
+                        title = "Não foi possível carregar a imagem",
+                        hint = "Verifique a conexão do carro ou salve na Biblioteca"
+                    )
+                }
+            )
+
+            is ClusterBgThumb.Empty -> ClusterBgThumbPlaceholder(
+                icon = state.icon,
+                title = state.title,
+                hint = state.hint
+            )
+        }
+    }
+}
+
+/** Placeholder hachurado: deixa claro que não há imagem, sem parecer um fundo preto válido. */
+@Composable
+private fun ClusterBgThumbPlaceholder(icon: ImageVector, title: String, hint: String) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawRect(Color(0xFF13151A))
+            val step = 18.dp.toPx()
+            val stripe = Color(0xFF1C212B)
+            var x = -size.height
+            while (x < size.width) {
+                drawLine(
+                    color = stripe,
+                    start = Offset(x, size.height),
+                    end = Offset(x + size.height, 0f),
+                    strokeWidth = 7f
+                )
+                x += step
+            }
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Color(0xFF6B7280),
+                modifier = Modifier.size(30.dp)
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                title,
+                color = Color(0xFFB0B8C4),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                hint,
+                color = Color(0xFF6B7280),
+                fontSize = 9.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * Desenha a cor sólida com a mesma vinheta elíptica que o projetor aplica no cluster,
+ * para que a miniatura e a pré-visualização batam com o que aparece no painel.
+ */
+@Composable
+private fun SolidBackgroundPreview(color: Color, vignette: Int, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        drawRect(color)
+        if (vignette > 0) {
+            scale(scaleX = 1f, scaleY = size.height / size.width, pivot = center) {
+                drawRect(
+                    brush = Brush.radialGradient(
+                        0f to Color.Transparent,
+                        0.45f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = vignette / 100f),
+                        center = center,
+                        radius = size.width * 0.62f
+                    ),
+                    topLeft = Offset(0f, center.y - size.width),
+                    size = Size(size.width, size.width * 2)
+                )
+            }
+        }
+    }
+}
+
+/** Paleta rápida pensada para o cluster: tons escuros que não ofuscam à noite. */
+private val SOLID_COLOR_SWATCHES = listOf(
+    0xFF000000.toInt() to "Preto",
+    0xFF101820.toInt() to "Azul noite",
+    0xFF1C1F26.toInt() to "Grafite",
+    0xFF123A63.toInt() to "Azul GWM",
+    0xFF0F2A1D.toInt() to "Verde escuro",
+    0xFF3A0D14.toInt() to "Vinho",
+    0xFF241533.toInt() to "Roxo",
+    0xFF3A4048.toInt() to "Cinza"
+)
+
+/**
+ * Aba "Cor": mapa saturação/brilho + faixa de matiz (o mapa RGB), sliders R/G/B para ajuste
+ * fino e vinheta opcional, com pré-visualização no formato do cluster (1920x720).
+ */
+@Composable
+private fun SolidColorTab(
+    hue: Float,
+    saturation: Float,
+    brightness: Float,
+    vignette: Int,
+    onHueChange: (Float) -> Unit,
+    onSatValChange: (Float, Float) -> Unit,
+    onArgbChange: (Int) -> Unit,
+    onVignetteChange: (Int) -> Unit,
+    onCommit: () -> Unit
+) {
+    val argb = remember(hue, saturation, brightness) {
+        android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness))
+    }
+    val color = Color(argb)
+    val red = android.graphics.Color.red(argb)
+    val green = android.graphics.Color.green(argb)
+    val blue = android.graphics.Color.blue(argb)
+    val hex = remember(argb) { "#%06X".format(argb and 0x00FFFFFF) }
+
+    Row(
+        modifier = Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // ── Mapa de cores ──
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Mapa de cores", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(150.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .pointerInput(Unit) {
+                        detectTapGestures { offset ->
+                            onSatValChange(
+                                (offset.x / size.width).coerceIn(0f, 1f),
+                                (1f - offset.y / size.height).coerceIn(0f, 1f)
+                            )
+                            onCommit()
+                        }
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGestures(onDragEnd = { onCommit() }) { change, _ ->
+                            onSatValChange(
+                                (change.position.x / size.width).coerceIn(0f, 1f),
+                                (1f - change.position.y / size.height).coerceIn(0f, 1f)
+                            )
+                        }
+                    }
+            ) {
+                val pureHue = Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
+                drawRect(Brush.horizontalGradient(listOf(Color.White, pureHue)))
+                drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black)))
+                drawCircle(
+                    color = Color.White,
+                    radius = 7.dp.toPx(),
+                    center = Offset(saturation * size.width, (1f - brightness) * size.height),
+                    style = Stroke(width = 2.dp.toPx())
+                )
+            }
+
+            // Faixa de matiz
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .pointerInput(Unit) {
+                        detectTapGestures { offset ->
+                            onHueChange((offset.x / size.width).coerceIn(0f, 1f) * 360f)
+                            onCommit()
+                        }
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGestures(onDragEnd = { onCommit() }) { change, _ ->
+                            onHueChange((change.position.x / size.width).coerceIn(0f, 1f) * 360f)
+                        }
+                    }
+            ) {
+                val hues = (0..6).map {
+                    Color(android.graphics.Color.HSVToColor(floatArrayOf(it * 60f, 1f, 1f)))
+                }
+                drawRect(Brush.horizontalGradient(hues))
+                val markerX = (hue / 360f) * size.width
+                drawLine(
+                    color = Color.White,
+                    start = Offset(markerX, 0f),
+                    end = Offset(markerX, size.height),
+                    strokeWidth = 3.dp.toPx()
+                )
+            }
+
+            Text("Atalhos", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(SOLID_COLOR_SWATCHES) { (swatch, name) ->
+                    val isSelected = (swatch and 0x00FFFFFF) == (argb and 0x00FFFFFF)
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(swatch))
+                            .border(
+                                2.dp,
+                                if (isSelected) Color(0xFF4A9EFF) else Color(0xFF2C3139),
+                                RoundedCornerShape(6.dp)
+                            )
+                            .clickable {
+                                onArgbChange(swatch)
+                                onCommit()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = name,
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Pré-visualização e ajustes ──
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SolidBackgroundPreview(
+                color = color,
+                vignette = vignette,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1920f / 720f)
+                    .clip(RoundedCornerShape(8.dp))
+            )
+
+            Text(
+                "$hex · R $red  G $green  B $blue",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            listOf(
+                Triple("R", red, 0),
+                Triple("G", green, 1),
+                Triple("B", blue, 2)
+            ).forEach { (label, value, channel) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(label, color = Color(0xFFB0B8C4), fontSize = 11.sp, modifier = Modifier.width(12.dp))
+                    Slider(
+                        value = value.toFloat(),
+                        onValueChange = { raw ->
+                            val channelValue = raw.roundToInt().coerceIn(0, 255)
+                            val updated = when (channel) {
+                                0 -> android.graphics.Color.rgb(channelValue, green, blue)
+                                1 -> android.graphics.Color.rgb(red, channelValue, blue)
+                                else -> android.graphics.Color.rgb(red, green, channelValue)
+                            }
+                            onArgbChange(updated)
+                        },
+                        onValueChangeFinished = onCommit,
+                        valueRange = 0f..255f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF4A9EFF),
+                            activeTrackColor = Color(0xFF4A9EFF),
+                            inactiveTrackColor = Color(0xFF2C3139)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(28.dp)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = Color(0xFF2C3139))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Vinheta", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    if (vignette > 0) "$vignette%" else "desligada",
+                    color = Color(0xFF4A9EFF),
+                    fontSize = 11.sp
+                )
+            }
+            Slider(
+                value = vignette.toFloat(),
+                onValueChange = { onVignetteChange(it.roundToInt().coerceIn(0, 100)) },
+                onValueChangeFinished = onCommit,
+                valueRange = 0f..100f,
+                colors = SliderDefaults.colors(
+                    thumbColor = Color(0xFF4A9EFF),
+                    activeTrackColor = Color(0xFF4A9EFF),
+                    inactiveTrackColor = Color(0xFF2C3139)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(28.dp)
+            )
+            Text(
+                "Escurece as bordas do cluster, deixando os mostradores em destaque.",
+                color = Color(0xFF718096),
+                fontSize = 11.sp
+            )
         }
     }
 }

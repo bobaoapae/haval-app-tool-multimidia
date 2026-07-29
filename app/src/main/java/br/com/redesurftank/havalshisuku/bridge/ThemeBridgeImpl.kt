@@ -100,6 +100,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
      *  - "PRESET"     value = asset filename under assets/backgrounds/
      *  - "IMAGE_URL"  value = http(s) URL
      *  - "FILE"       value = absolute filesystem path
+     *  - "COLOR"      value = cor sólida com vinheta opcional, ex. "#101820|V45"
      *  - "WEB_URL"    value = page URL rendered in a WebView
      *
      * Enables custom background automatically. Safe no-op when type is blank.
