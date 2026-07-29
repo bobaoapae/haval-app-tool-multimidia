@@ -364,6 +364,23 @@ public class ServiceManager {
      * ClusterService keeps a reference to this process's callback after we die, and
      * dispatching to it throws DeadObjectException on the car side.
      */
+    /**
+     * Drop our key-event listener on shutdown, for the same reason as the cluster
+     * callback: the input service keeps its binder reference after we die, so the next
+     * process adds a second listener rather than replacing the first.
+     */
+    public void releaseInputListener() {
+        final IInputService service = inputService;
+        final IInputListener listener = inputListener;
+        if (service == null || listener == null) return;
+        try {
+            service.unregisterKeyEventListener(INPUT_LISTENER_KEY_CODES, listener);
+            Log.w(TAG, "Input listener unregistered on shutdown");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to unregister input listener on shutdown", e);
+        }
+    }
+
     public void releaseClusterCallback() {
         final IClusterService service = clusterService;
         final IClusterCallback.Stub callback = clusterCallback;
@@ -506,6 +523,19 @@ public class ServiceManager {
             if (clusterServiceConnection != null) {
                 context.unbindService(clusterServiceConnection);
             }
+            // Unbinding does NOT drop the key-event listener: the input service holds its
+            // own binder reference, so every re-init used to leave the previous listener
+            // registered and add another. Observed on-car: after one re-init each press
+            // was dispatched to us twice, and the car stopped acting on exactly those
+            // doubled presses (single-dispatch presses still worked). Drop ours first.
+            if (inputService != null && inputListener != null) {
+                try {
+                    inputService.unregisterKeyEventListener(INPUT_LISTENER_KEY_CODES, inputListener);
+                    Log.w(TAG, "InputService listener unregistered");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to unregister input listener", e);
+                }
+            }
             if (inputServiceConnection != null) {
                 context.unbindService(inputServiceConnection);
             }
@@ -584,6 +614,13 @@ public class ServiceManager {
             clusterCallback = new IClusterCallback.Stub() {
                 @Override
                 public void callbackMsg(int msgId, ClusterMsgData data) {
+                    // Only the cluster-protocol messages we care about. Logging every
+                    // msgId floods logcat: registering the callback makes the car dump
+                    // ~100 messages at once, which rotates the buffer and destroys the
+                    // window around a failure (happened twice while investigating).
+                    if (msgId == 133 || msgId == 134 || msgId == 135 || msgId == 75) {
+                        Log.w(TAG, "[CLUSTER_RX] msgId=" + msgId + " value=" + data.getIntValue());
+                    }
                     if (DisplayAppLauncher.INSTANCE.shouldLogAndroidAutoClusterCallbackProbe(msgId)) {
                         Log.w(
                                 TAG,
@@ -731,6 +768,12 @@ public class ServiceManager {
             inputListener = new IInputListener.Stub() {
                 @Override
                 public void dispatchKeyEvent(KeyEvent keyEvent) {
+                    // How long we hold com.beantechs.inputservice's dispatch thread. Our
+                    // app logs every press while the car acts on roughly one in five, so
+                    // the question is whether we are starving its delivery path.
+                    final long dispatchStartedAt = SystemClock.uptimeMillis();
+                    final int dispatchKeyCode = keyEvent.getKeyCode();
+                    try {
                     Log.w(
                             TAG,
                             "InputService dispatch key="
@@ -871,6 +914,16 @@ public class ServiceManager {
                                                 + " currentCard=" + clusterCardView
                                 );
                             }
+                        }
+                    }
+                    } finally {
+                        long heldMs = SystemClock.uptimeMillis() - dispatchStartedAt;
+                        if (heldMs > 15L) {
+                            Log.e(
+                                    TAG,
+                                    "[INPUT_HOLD] held inputservice thread " + heldMs
+                                            + "ms for key=" + dispatchKeyCode
+                            );
                         }
                     }
                 }
@@ -1501,15 +1554,16 @@ public class ServiceManager {
 
     private void sendClusterIntMsg(int type, int value) {
         if (clusterService == null) {
-            Log.e(TAG, "ClusterService not initialized");
+            Log.e(TAG, "[CLUSTER_TX] setMsg(" + type + ", " + value + ") dropped: service null");
             return;
         }
         ClusterMsgData msg = new ClusterMsgData();
         msg.setIntValue(value);
         try {
             clusterService.setMsg(type, msg);
+            Log.w(TAG, "[CLUSTER_TX] setMsg(" + type + ", " + value + ")");
         } catch (RemoteException e) {
-            Log.e(TAG, "Error sending message to cluster service", e);
+            Log.e(TAG, "[CLUSTER_TX] setMsg(" + type + ", " + value + ") failed", e);
         }
     }
 
@@ -1518,26 +1572,42 @@ public class ServiceManager {
             ClusterMsgData msg = new ClusterMsgData();
             msg.setIntValue(1);
             clusterService.setMsg(75, msg);
+            Log.w(TAG, "[CLUSTER_TX] setMsg(75, 1) android-ready");
         } catch (Exception e) {
-            Log.e(TAG, "Error setting cluster service message", e);
+            Log.e(TAG, "[CLUSTER_TX] setMsg(75, 1) android-ready failed", e);
         }
     }
 
     public synchronized void startClusterHeartbeat() {
-        if (isClusterHeartbeatRunning)
+        if (isClusterHeartbeatRunning) {
+            Log.w(TAG, "[HEARTBEAT] start skipped: already running");
             return;
+        }
+        Handler handler = backgroundHandler;
+        if (handler == null) {
+            // Previously this NPE'd silently out of the caller; the loop just never began.
+            Log.e(TAG, "[HEARTBEAT] start failed: backgroundHandler null");
+            return;
+        }
         isClusterHeartbeatRunning = true;
+        Log.w(TAG, "[HEARTBEAT] loop starting");
         sendAndroidReadyToCluster();
-        backgroundHandler.postDelayed(new Runnable() {
+        handler.postDelayed(new Runnable() {
             @Override
             public void run() {
                 if (!sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
+                    Log.e(TAG, "[HEARTBEAT] loop exiting: media-integration pref is off");
                     isClusterHeartbeatRunning = false;
                     return;
                 }
                 sendHeartBeatToCluster();
-                backgroundHandler.postDelayed(this, 1000);
-
+                Handler h = backgroundHandler;
+                if (h != null) {
+                    h.postDelayed(this, 1000);
+                } else {
+                    Log.e(TAG, "[HEARTBEAT] loop exiting: backgroundHandler gone");
+                    isClusterHeartbeatRunning = false;
+                }
             }
         }, 1000);
     }
@@ -1547,11 +1617,21 @@ public class ServiceManager {
             clusterHeartBeatCount = 0; // Reset to avoid overflow
         }
         ClusterMsgData msg = new ClusterMsgData();
-        msg.setIntValue(clusterHeartBeatCount++);
+        int beat = clusterHeartBeatCount++;
+        msg.setIntValue(beat);
         try {
-            clusterService.setMsg(134, msg);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Error sending heartbeat to cluster service", e);
+            IClusterService service = clusterService;
+            if (service == null) {
+                // Was an uncaught NPE that killed the handler thread silently.
+                Log.e(TAG, "[HEARTBEAT] beat=" + beat + " dropped: service null");
+                return;
+            }
+            service.setMsg(134, msg);
+            if (beat % 10 == 0) {
+                Log.w(TAG, "[HEARTBEAT] alive beat=" + beat);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "[HEARTBEAT] beat=" + beat + " failed", e);
         }
     }
 

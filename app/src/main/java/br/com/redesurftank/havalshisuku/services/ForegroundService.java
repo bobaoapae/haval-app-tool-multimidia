@@ -744,6 +744,11 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
         } catch (Exception e) {
             Log.e(TAG, "Failed to release cluster callback on destroy", e);
         }
+        try {
+            ServiceManager.getInstance().releaseInputListener();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to release input listener on destroy", e);
+        }
         if (handlerThread != null) {
             handlerThread.quitSafely();
         }
