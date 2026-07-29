@@ -871,18 +871,47 @@ fun TelasTab() {
                 Spacer(Modifier.height(16.dp))
 
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(end = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(32.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    // ── LEFT (50%): Background do Cluster Card ──
+                    // ── LEFT (40%): Background do Cluster Card (aligned with Exibir Odômetro below) ──
                     Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalAlignment = Alignment.Start
+                        modifier = Modifier.weight(0.40f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Background do Cluster",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    if (enableCustomBg) "Papel de parede do painel" else "Padrão do sistema",
+                                    color = Color(0xFFB0B8C4),
+                                    fontSize = 12.sp
+                                )
+                            }
+                            Switch(
+                                checked = enableCustomBg,
+                                enabled = allClusterFunctionsEnabled,
+                                onCheckedChange = { checked ->
+                                    enableCustomBg = checked
+                                    prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, checked) }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Color(0xFF4A9EFF)
+                                )
+                            )
+                        }
+
                         val activeFolder = remember(selectedTheme) {
                             prefs.getString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
                         }
@@ -920,128 +949,84 @@ fun TelasTab() {
                             }
                         }
 
-                        // Container constrained to thumbnail width (~420dp) so Switch right edge aligns with thumbnail right border
-                        val thumbHeight = 158.dp // +20% size increase
-                        val thumbWidth = thumbHeight * (1920f / 720f) // ~421.3dp
-
-                        Column(
+                        // Ultrawide Thumbnail Box (1920x720 ratio, filling 40% card width, right edge aligned with Exibir Odômetro below)
+                        Box(
                             modifier = Modifier
-                                .widthIn(max = thumbWidth)
-                                .fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                .fillMaxWidth()
+                                .aspectRatio(1920f / 720f)
+                                .background(Color(0xFF1E2228), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFF2C3139), RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(8.dp))
                         ) {
-                            // Header Row: Title on Left, Switch on Right (aligned to thumbnail right border)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        "Background do Cluster",
-                                        color = Color.White,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        if (enableCustomBg) "Papel de parede do painel" else "Padrão do sistema",
-                                        color = Color(0xFFB0B8C4),
-                                        fontSize = 12.sp
+                            if (enableCustomBg && bgModel != null) {
+                                if (bgModel is String && bgModel.startsWith("#")) {
+                                    val colorParsed = try { Color(android.graphics.Color.parseColor(bgModel)) } catch (e: Exception) { Color(0xFF121212) }
+                                    Box(modifier = Modifier.fillMaxSize().background(colorParsed))
+                                } else {
+                                    AsyncImage(
+                                        model = bgModel,
+                                        contentDescription = "Thumbnail Background 1920x720",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
                                     )
                                 }
-                                Switch(
-                                    checked = enableCustomBg,
-                                    enabled = allClusterFunctionsEnabled,
-                                    onCheckedChange = { checked ->
-                                        enableCustomBg = checked
-                                        prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, checked) }
-                                    },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = Color.White,
-                                        checkedTrackColor = Color(0xFF4A9EFF)
+                            } else {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Wallpaper,
+                                        contentDescription = null,
+                                        tint = Color(0xFF6B7280),
+                                        modifier = Modifier.size(36.dp)
                                     )
-                                )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        if (!enableCustomBg) "Sem background" else "Sem imagem selecionada",
+                                        color = Color(0xFFB0B8C4),
+                                        fontSize = 11.sp
+                                    )
+                                }
                             }
 
-                            // Left-Aligned Ultrawide Thumbnail Box (158dp height, 1920x720 aspect ratio)
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(thumbHeight)
-                                    .background(Color(0xFF1E2228), RoundedCornerShape(8.dp))
-                                    .border(1.dp, Color(0xFF2C3139), RoundedCornerShape(8.dp))
-                                    .clip(RoundedCornerShape(8.dp))
-                            ) {
-                                if (enableCustomBg && bgModel != null) {
-                                    if (bgModel is String && bgModel.startsWith("#")) {
-                                        val colorParsed = try { Color(android.graphics.Color.parseColor(bgModel)) } catch (e: Exception) { Color(0xFF121212) }
-                                        Box(modifier = Modifier.fillMaxSize().background(colorParsed))
-                                    } else {
-                                        AsyncImage(
-                                            model = bgModel,
-                                            contentDescription = "Thumbnail Background 1920x720",
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    }
-                                } else {
-                                    Column(
-                                        modifier = Modifier.fillMaxSize(),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
+                            // Overlay Button "TROCAR" pinned to Bottom-Right corner inside image
+                            if (allClusterFunctionsEnabled && enableCustomBg) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(8.dp)
+                                        .background(Color(0xD91E2228), RoundedCornerShape(6.dp))
+                                        .border(1.dp, Color(0xFF4A9EFF), RoundedCornerShape(6.dp))
+                                        .clickable { showBackgroundSettingsDialog = true }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Wallpaper,
+                                            imageVector = Icons.Default.Palette,
                                             contentDescription = null,
-                                            tint = Color(0xFF6B7280),
-                                            modifier = Modifier.size(36.dp)
+                                            tint = Color(0xFF4A9EFF),
+                                            modifier = Modifier.size(16.dp)
                                         )
-                                        Spacer(Modifier.height(4.dp))
                                         Text(
-                                            if (!enableCustomBg) "Sem background" else "Sem imagem selecionada",
-                                            color = Color(0xFFB0B8C4),
-                                            fontSize = 11.sp
+                                            "TROCAR",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
                                         )
-                                    }
-                                }
-
-                                // Overlay Button "TROCAR" pinned to Bottom-Right corner inside image
-                                if (allClusterFunctionsEnabled && enableCustomBg) {
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomEnd)
-                                            .padding(8.dp)
-                                            .background(Color(0xD91E2228), RoundedCornerShape(6.dp))
-                                            .border(1.dp, Color(0xFF4A9EFF), RoundedCornerShape(6.dp))
-                                            .clickable { showBackgroundSettingsDialog = true }
-                                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Palette,
-                                                contentDescription = null,
-                                                tint = Color(0xFF4A9EFF),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(
-                                                "TROCAR",
-                                                color = Color.White,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
                                     }
                                 }
                             }
                         }
                     }
 
-                    // ── RIGHT (50%): Inicialização & Consumo Card ──
+                    // ── RIGHT (60%): Inicialização & Consumo Card (aligned with Próxima Revisão below) ──
                     Column(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(0.60f),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Column {
