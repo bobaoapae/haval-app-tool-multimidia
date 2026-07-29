@@ -315,7 +315,7 @@ fun CompactThemeCard(
 private val EMBEDDED_DEFAULT_THEME = ThemeMetadata(
         name = "Default",
         description = "Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.",
-        version = "1.4.20",
+        version = "1.4.21",
         thumbnailUrl = "",
         mainFile = "index.html",
         folderName = "Default",
@@ -338,6 +338,13 @@ private val EMBEDDED_DEFAULT_THEME = ThemeMetadata(
                         defaultValue = "Dark",
                         stateVariable = "mode",
                         options = listOf("Dark", "Light")
+                ),
+                ThemeConfig(
+                        id = "bar_images",
+                        label = "Imagens das Barras",
+                        type = "boolean",
+                        defaultValue = "true",
+                        stateVariable = "barImages"
                 ),
                 ThemeConfig(
                         id = "gauge_style",
@@ -875,10 +882,13 @@ fun TelasTab() {
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    // ── LEFT (40%): Background do Cluster Card (aligned with Exibir Odômetro below) ──
+                    // ── LEFT CARD (40%): Background do Cluster Card (aligned with Exibir Odômetro below) ──
                     Column(
-                        modifier = Modifier.weight(0.40f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier
+                            .weight(0.40f)
+                            .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -954,8 +964,8 @@ fun TelasTab() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(1920f / 720f)
-                                .background(Color(0xFF1E2228), RoundedCornerShape(8.dp))
-                                .border(1.dp, Color(0xFF2C3139), RoundedCornerShape(8.dp))
+                                .background(Color(0xFF13151A), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFF3F4652), RoundedCornerShape(8.dp))
                                 .clip(RoundedCornerShape(8.dp))
                         ) {
                             if (enableCustomBg && bgModel != null) {
@@ -1024,9 +1034,12 @@ fun TelasTab() {
                         }
                     }
 
-                    // ── RIGHT (60%): Inicialização & Consumo Card (aligned with Próxima Revisão below) ──
+                    // ── RIGHT CARD (60%): Inicialização & Consumo Card (aligned with Próxima Revisão below) ──
                     Column(
-                        modifier = Modifier.weight(0.60f),
+                        modifier = Modifier
+                            .weight(0.60f)
+                            .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
+                            .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Column {
@@ -1055,7 +1068,7 @@ fun TelasTab() {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(42.dp)
-                                    .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF1E2228), RoundedCornerShape(8.dp))
                                     .clickable(enabled = allClusterFunctionsEnabled) {
                                         appExpanded = true
                                     }
@@ -1185,7 +1198,7 @@ fun TelasTab() {
                                             .weight(1f)
                                             .height(42.dp)
                                             .background(
-                                                if (isSelected) Color(0xFF4A9EFF) else Color(0xFF2A2F37),
+                                                if (isSelected) Color(0xFF4A9EFF) else Color(0xFF1E2228),
                                                 RoundedCornerShape(8.dp)
                                             )
                                             .clickable(enabled = allClusterFunctionsEnabled) {
@@ -1212,8 +1225,8 @@ fun TelasTab() {
                 HorizontalDivider(color = Color(0xFF2C3139))
                 Spacer(Modifier.height(16.dp))
 
-                    // Odômetro e Aviso de Revisão
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Odômetro e Aviso de Revisão
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
