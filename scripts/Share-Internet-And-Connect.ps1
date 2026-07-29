@@ -17,7 +17,10 @@ param (
     [string]$MmiAddress = "",
 
     [Parameter(Mandatory = $false)]
-    [int]$HeartbeatIntervalSec = 5
+    [int]$HeartbeatIntervalSec = 5,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ForceCopy
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,15 +45,23 @@ $androidScript = @(
     'if [ ! -z "$WLAN0_IP" ]; then',
     '    echo "Detected active uplink: wlan0 ($WLAN0_IP)"',
     '    ',
-    '    # Find gateway',
-    '    GW=$(ip route show | grep "dev wlan0" | grep default | awk ''{print $3}'')',
+    '    # Find gateway: check routing tables, DHCP system properties, ARP for .254/.1, or default fallback',
+    '    GW=$(ip route show table all 2>/dev/null | grep "dev wlan0" | grep default | awk ''{print $3}'' | head -n 1)',
     '    if [ -z "$GW" ]; then',
-    '        # Try to extract the gateway from resolved ARP entries on wlan0',
-    '        GW=$(cat /proc/net/arp | grep wlan0 | grep -E ''0x2|0x6'' | awk ''{print $1}'' | head -n 1)',
+    '        GW=$(getprop dhcp.wlan0.gateway 2>/dev/null)',
     '    fi',
     '    if [ -z "$GW" ]; then',
-    '        # Fallback to .254 as a sensible default',
-    '        GW="192.168.1.254"',
+    '        GW=$(getprop net.wlan0.gw 2>/dev/null)',
+    '    fi',
+    '    if [ -z "$GW" ]; then',
+    '        SUBNET=$(echo "$WLAN0_IP" | cut -d''.'' -f1-3)',
+    '        if grep -q "${SUBNET}\.254" /proc/net/arp 2>/dev/null; then',
+    '            GW="${SUBNET}.254"',
+    '        elif grep -q "${SUBNET}\.1" /proc/net/arp 2>/dev/null; then',
+    '            GW="${SUBNET}.1"',
+    '        else',
+    '            GW="${SUBNET}.254"',
+    '        fi',
     '    fi',
     '    ',
     '    echo "Setting default route via wlan0 gateway: $GW"',
@@ -98,8 +109,14 @@ $androidScript = @(
     'exit 1'
 ) -join "`n"
 
+# Compute local script byte size & MD5 checksum for remote synchronization check
+$scriptBytes = [System.Text.Encoding]::UTF8.GetBytes($androidScript)
+$expectedScriptSize = $scriptBytes.Length
+$md5Alg = [System.Security.Cryptography.MD5]::Create()
+$expectedScriptMd5 = ([System.BitConverter]::ToString($md5Alg.ComputeHash($scriptBytes))).Replace("-", "").ToLower()
+
 # Helper check script run on Android shell
-$checkShellCommand = 'UP=""; if [ ! -z "$(ip addr show wlan0 2>/dev/null | grep -o ''inet '')" ]; then UP="wlan0"; elif [ ! -z "$(ip addr show vt3 2>/dev/null | grep -o ''inet '')" ]; then UP="vt3"; fi; if [ -z "$UP" ]; then echo "NOT_APPLIED"; else GW=$(ip route show | grep "dev $UP" | grep default | awk ''{print $3}''); if [ -z "$GW" ] && [ "$UP" = "wlan0" ]; then GW=$(cat /proc/net/arp | grep wlan0 | grep -E ''0x2|0x6'' | awk ''{print $1}'' | head -n 1); fi; if [ -z "$GW" ] && [ "$UP" = "vt3" ]; then GW="192.168.118.2"; fi; if [ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" = "1" ] && [ ! -z "$(ip route show | grep \"default via $GW dev $UP\" 2>/dev/null)" ] && [ ! -z "$(iptables -t nat -S POSTROUTING 2>/dev/null | grep -E \"MASQUERADE.*$UP|-A POSTROUTING -o $UP -j MASQUERADE\")" ]; then echo "YES_OK"; else echo "NOT_APPLIED"; fi; fi'
+$checkShellCommand = 'UP=""; if [ ! -z "$(ip addr show wlan0 2>/dev/null | grep -o ''inet '')" ]; then UP="wlan0"; elif [ ! -z "$(ip addr show vt3 2>/dev/null | grep -o ''inet '')" ]; then UP="vt3"; fi; if [ -z "$UP" ]; then echo "NOT_APPLIED"; else GW=$(ip route show table all 2>/dev/null | grep "dev $UP" | grep default | awk ''{print $3}'' | head -n 1); if [ -z "$GW" ] && [ "$UP" = "wlan0" ]; then GW=$(getprop dhcp.wlan0.gateway 2>/dev/null); fi; if [ -z "$GW" ] && [ "$UP" = "wlan0" ]; then GW=$(getprop net.wlan0.gw 2>/dev/null); fi; if [ -z "$GW" ] && [ "$UP" = "wlan0" ]; then WLAN0_IP=$(ip addr show wlan0 2>/dev/null | grep -o ''inet [0-9.]*'' | cut -d'' '' -f2); SUBNET=$(echo "$WLAN0_IP" | cut -d''.'' -f1-3); if grep -q "${SUBNET}\.254" /proc/net/arp 2>/dev/null; then GW="${SUBNET}.254"; elif grep -q "${SUBNET}\.1" /proc/net/arp 2>/dev/null; then GW="${SUBNET}.1"; else GW="${SUBNET}.254"; fi; fi; if [ -z "$GW" ] && [ "$UP" = "vt3" ]; then GW="192.168.118.2"; fi; if [ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" = "1" ] && [ ! -z "$(ip route show | grep \"default via $GW dev $UP\" 2>/dev/null)" ] && [ ! -z "$(iptables -t nat -S POSTROUTING 2>/dev/null | grep -E \"MASQUERADE.*$UP|-A POSTROUTING -o $UP -j MASQUERADE\")" ]; then echo "YES_OK"; else echo "NOT_APPLIED"; fi; fi'
 
 # 1. Resolve ADB Executable Path
 $sdkDir = "C:\Users\vanes\AppData\Local\Android\Sdk"
@@ -297,15 +314,22 @@ while ($true) {
         } else {
             Write-Host "[!] Routing not configured. Applying internet sharing now..." -ForegroundColor Yellow
             
-            # ADB execution flow
-            Write-Host "[+] Transferring routing script via ADB..." -ForegroundColor Cyan
-            $tempFile = [System.IO.Path]::GetTempFileName()
-            [System.IO.File]::WriteAllText($tempFile, $androidScript, [System.Text.Encoding]::ASCII)
-            
-            & $adbPath -s "${mmiIp}:5555" push $tempFile "/data/local/tmp/share_internet.sh" 2>&1 | Out-Null
-            Remove-Item $tempFile -Force
-            
-            & $adbPath -s "${mmiIp}:5555" shell "chmod 755 /data/local/tmp/share_internet.sh" 2>&1 | Out-Null
+            # Check if script already exists on MMI and contains valid routing header
+            $checkScriptCmd = 'if [ -s /data/local/tmp/share_internet.sh ] && grep -q "Car Internet Sharing Script" /data/local/tmp/share_internet.sh 2>/dev/null; then echo "PRESENT_OK"; else echo "MISSING"; fi'
+            $scriptCheck = (& $adbPath -s "${mmiIp}:5555" shell $checkScriptCmd 2>&1) -join ""
+
+            if (-not $ForceCopy -and $scriptCheck -match "PRESENT_OK") {
+                Write-Host "[+] Routing script is already present on MMI (/data/local/tmp/share_internet.sh). Skipping file transfer." -ForegroundColor Green
+            } else {
+                Write-Host "[+] Transferring routing script via ADB..." -ForegroundColor Cyan
+                $tempFile = [System.IO.Path]::GetTempFileName()
+                [System.IO.File]::WriteAllText($tempFile, $androidScript, [System.Text.Encoding]::ASCII)
+                
+                & $adbPath -s "${mmiIp}:5555" push $tempFile "/data/local/tmp/share_internet.sh" 2>&1 | Out-Null
+                Remove-Item $tempFile -Force
+                
+                & $adbPath -s "${mmiIp}:5555" shell "chmod 755 /data/local/tmp/share_internet.sh" 2>&1 | Out-Null
+            }
             
             Write-Host "[*] Executing internet sharing script..." -ForegroundColor Cyan
             $output = & $adbPath -s "${mmiIp}:5555" shell "/system/bin/sh /data/local/tmp/share_internet.sh" 2>&1
@@ -360,20 +384,30 @@ while ($true) {
             $client.Close()
         } else {
             Write-Host "[!] Routing not configured. Applying internet sharing now..." -ForegroundColor Yellow
-            Write-Host "Connected via Telnet! Transferring routing script line-by-line..." -ForegroundColor DarkGray
             
-            # Create empty script
-            Send-Cmd "echo '#!/system/bin/sh' > /data/local/tmp/share_internet.sh"
+            # Check if script already exists on MMI via Telnet
+            Send-Cmd 'if [ -s /data/local/tmp/share_internet.sh ] && grep -q "Car Internet Sharing Script" /data/local/tmp/share_internet.sh 2>/dev/null; then echo "PRESENT_OK"; else echo "MISSING"; fi'
+            $scriptCheckOut = Read-All
             
-            $lines = $androidScript -split "\r?\n"
-            foreach ($line in $lines) {
-                if ($line -match "^#!" -or $line -match "^\s*$") { continue }
-                $escaped = $line.Replace('\', '\\').Replace("'", "'\''")
-                Send-Cmd "echo '$escaped' >> /data/local/tmp/share_internet.sh"
+            if (-not $ForceCopy -and $scriptCheckOut -match "PRESENT_OK") {
+                Write-Host "[+] Routing script is already present on MMI (/data/local/tmp/share_internet.sh). Skipping Telnet transfer." -ForegroundColor Green
+            } else {
+                Write-Host "Connected via Telnet! Transferring routing script line-by-line..." -ForegroundColor DarkGray
+                
+                Send-Cmd "echo -n '' > /data/local/tmp/share_internet.sh"
+                $lines = $androidScript -split "\r?\n"
+                foreach ($line in $lines) {
+                    if ($line -eq "") {
+                        Send-Cmd "echo '' >> /data/local/tmp/share_internet.sh"
+                    } else {
+                        $escaped = $line.Replace('\', '\\').Replace("'", "'\''")
+                        Send-Cmd "echo '$escaped' >> /data/local/tmp/share_internet.sh"
+                    }
+                }
+                
+                Send-Cmd "chmod 755 /data/local/tmp/share_internet.sh"
+                $null = Read-All
             }
-            
-            Send-Cmd "chmod 755 /data/local/tmp/share_internet.sh"
-            $null = Read-All
             
             Write-Host "[*] Executing internet sharing script..." -ForegroundColor Cyan
             Send-Cmd "/system/bin/sh /data/local/tmp/share_internet.sh"
