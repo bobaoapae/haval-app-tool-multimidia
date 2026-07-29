@@ -41,6 +41,10 @@ import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.managers.ThemeManager
 import br.com.redesurftank.havalshisuku.managers.BackgroundSyncServer
+import br.com.redesurftank.havalshisuku.managers.WallpaperLibrary
+import br.com.redesurftank.havalshisuku.managers.WebImage
+import br.com.redesurftank.havalshisuku.managers.WebImageProvider
+import br.com.redesurftank.havalshisuku.managers.WebImageSearch
 import br.com.redesurftank.havalshisuku.models.DisplayAppConfig
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.ThemeMetadata
@@ -878,7 +882,9 @@ fun TelasTab() {
                 Spacer(Modifier.height(16.dp))
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Max),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.Top
                 ) {
@@ -886,6 +892,7 @@ fun TelasTab() {
                     Column(
                         modifier = Modifier
                             .weight(0.40f)
+                            .fillMaxHeight()
                             .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1038,9 +1045,10 @@ fun TelasTab() {
                     Column(
                         modifier = Modifier
                             .weight(0.60f)
+                            .fillMaxHeight()
                             .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
                             .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
                             Text(
@@ -1056,7 +1064,10 @@ fun TelasTab() {
                             )
                         }
 
-                        // 1. App Padrão na Inicialização
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            // 1. App Padrão na Inicialização
                         Column {
                             Text(
                                 "App Padrão na Inicialização",
@@ -1220,6 +1231,7 @@ fun TelasTab() {
                         }
                     }
                 }
+            }
 
                 Spacer(Modifier.height(16.dp))
                 HorizontalDivider(color = Color(0xFF2C3139))
@@ -2329,10 +2341,118 @@ fun ClusterBackgroundSettingsDialog(
     val initialBgType = remember { customBgType }
     val initialBgValue = remember { customBgValue }
 
+    // Aba sendo navegada — independente do que está aplicado, para que apenas abrir uma aba
+    // nunca mude o cluster; só clicar em uma miniatura muda.
+    var selectedTab by remember { mutableStateOf(customBgType) }
+
     var currentView by remember { mutableStateOf("SETTINGS") } // "SETTINGS" or "SYNC"
     var uploadedRefreshToken by remember { mutableIntStateOf(0) }
-    val uploadedImages = remember(uploadedRefreshToken) {
-        BackgroundSyncServer.listUploadedImages()
+    val libraryItems = remember(uploadedRefreshToken) {
+        WallpaperLibrary.list()
+    }
+    val libraryFileNames = remember(libraryItems) {
+        libraryItems.map { it.file.name }.toSet()
+    }
+
+    // ── Preview ao vivo: toda seleção é aplicada no cluster na hora e só vira definitiva
+    // no OK. Cancelar / fechar restaura o que estava valendo ao abrir o diálogo.
+    LaunchedEffect(customBgType, customBgValue) {
+        if (customBgType == "THEME" || customBgValue.isNotBlank()) {
+            prefs.edit {
+                putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, customBgType)
+                putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, customBgValue)
+            }
+        }
+    }
+
+    val revertPreview: () -> Unit = {
+        customBgType = initialBgType
+        customBgValue = initialBgValue
+        prefs.edit {
+            putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, initialBgType)
+            putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, initialBgValue)
+        }
+    }
+
+    // ── Busca na web (estado no nível do diálogo para sobreviver à troca de abas) ──
+    val ioScope = rememberCoroutineScope()
+    var webProvider by remember { mutableStateOf(WebImageProvider.WALLHAVEN) }
+    var webQuery by remember { mutableStateOf("") }
+    var webResults by remember { mutableStateOf<List<WebImage>>(emptyList()) }
+    var webPage by remember { mutableIntStateOf(1) }
+    var webHasMore by remember { mutableStateOf(false) }
+    var webLoading by remember { mutableStateOf(false) }
+    var webLoadingMore by remember { mutableStateOf(false) }
+    var webError by remember { mutableStateOf<String?>(null) }
+    var webRetryToken by remember { mutableIntStateOf(0) }
+    var webLoadedSignature by remember { mutableStateOf("") }
+    var apiKeyRefreshToken by remember { mutableIntStateOf(0) }
+    var favoriteBusyKey by remember { mutableStateOf<String?>(null) }
+    var libraryMessage by remember { mutableStateOf<String?>(null) }
+    val webGridState = rememberLazyGridState()
+
+    val webApiKey = remember(webProvider, apiKeyRefreshToken) {
+        WebImageSearch.getApiKey(prefs, webProvider)
+    }
+
+    suspend fun loadWebPage(page: Int) {
+        if (page == 1) {
+            webLoading = true
+            webError = null
+        } else {
+            webLoadingMore = true
+        }
+        try {
+            val result = WebImageSearch.search(webProvider, webQuery, page, webApiKey)
+            webResults = if (page == 1) result.images else webResults + result.images
+            webPage = result.page
+            webHasMore = result.hasMore && result.images.isNotEmpty()
+            webError = null
+        } catch (e: Exception) {
+            if (page == 1) webResults = emptyList()
+            webHasMore = false
+            webError = e.message ?: "Falha ao buscar imagens."
+        } finally {
+            webLoading = false
+            webLoadingMore = false
+        }
+    }
+
+    val webTabActive = selectedTab == "IMAGE_URL"
+    val webSignature = "${webProvider.id}|${webQuery.trim()}|$webRetryToken|${webApiKey.isNotBlank()}"
+
+    LaunchedEffect(webTabActive, webSignature) {
+        if (!webTabActive) return@LaunchedEffect
+        if (webSignature == webLoadedSignature && webResults.isNotEmpty()) return@LaunchedEffect
+        if (webProvider.requiresKey && webApiKey.isBlank()) {
+            webResults = emptyList()
+            webError = null
+            return@LaunchedEffect
+        }
+        if (webQuery.isNotBlank()) delay(500) // debounce da digitação
+        webLoadedSignature = webSignature
+        webGridState.scrollToItem(0)
+        loadWebPage(1)
+    }
+
+    // Scroll infinito: carrega a próxima página ao chegar perto do fim da grade.
+    val shouldLoadMoreWeb by remember {
+        derivedStateOf {
+            val lastVisible = webGridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            lastVisible >= 0 && lastVisible >= webResults.size - 6
+        }
+    }
+    LaunchedEffect(shouldLoadMoreWeb, webHasMore, webLoading, webLoadingMore) {
+        if (shouldLoadMoreWeb && webHasMore && !webLoading && !webLoadingMore) {
+            loadWebPage(webPage + 1)
+        }
+    }
+
+    LaunchedEffect(libraryMessage) {
+        if (libraryMessage != null) {
+            delay(2500)
+            libraryMessage = null
+        }
     }
 
     val localIp = remember { BackgroundSyncServer.getLocalIpAddress() ?: "127.0.0.1" }
@@ -2361,13 +2481,17 @@ fun ClusterBackgroundSettingsDialog(
     }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            // Fechar sem confirmar equivale a cancelar: desfaz o preview.
+            revertPreview()
+            onDismiss()
+        },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Card(
             modifier = Modifier
-                .fillMaxWidth(0.6f)
-                .heightIn(max = 640.dp)
+                .fillMaxWidth(0.82f)
+                .fillMaxHeight(0.92f)
                 .padding(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2228)),
             shape = RoundedCornerShape(16.dp),
@@ -2375,10 +2499,9 @@ fun ClusterBackgroundSettingsDialog(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
+                    .fillMaxSize()
                     .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (currentView == "SYNC") {
                     Text(
@@ -2450,39 +2573,43 @@ fun ClusterBackgroundSettingsDialog(
                             "THEME" to "Tema",
                             "PRESET" to "Presets",
                             "IMAGE_URL" to "Web",
-                            "FILE" to "Enviados"
+                            "FILE" to "Biblioteca"
                         ).forEach { (type, label) ->
-                            val isSelected = customBgType == type
+                            val isBrowsing = selectedTab == type
+                            val isApplied = customBgType == type
                             Button(
-                                onClick = {
-                                    customBgType = type
-                                    val defaultValue = when (type) {
-                                        "THEME" -> "" // load from active theme.xml <background>
-                                        "PRESET" -> localAssetList.firstOrNull() ?: ""
-                                        "FILE" -> uploadedImages.firstOrNull()?.absolutePath ?: ""
-                                        else -> ""
-                                    }
-                                    customBgValue = defaultValue
-                                },
+                                onClick = { selectedTab = type },
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isSelected) Color(0xFF4A9EFF) else Color(0xFF2C3139),
+                                    containerColor = if (isBrowsing) Color(0xFF4A9EFF) else Color(0xFF2C3139),
                                     contentColor = Color.White
                                 ),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text(label, fontSize = 11.sp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (isApplied) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Em uso",
+                                            tint = if (isBrowsing) Color.White else Color(0xFF4A9EFF),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                    Text(label, fontSize = 11.sp)
+                                }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(2.dp))
-
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .weight(1f)
                     ) {
-                        when (customBgType) {
+                        when (selectedTab) {
                             "THEME" -> {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(
@@ -2494,13 +2621,14 @@ fun ClusterBackgroundSettingsDialog(
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(100.dp)
+                                            .height(160.dp)
                                             .border(
                                                 2.dp,
-                                                if (hasThemeBg) Color(0xFF4A9EFF) else Color(0xFF2C3139),
+                                                if (customBgType == "THEME") Color(0xFF4A9EFF) else Color(0xFF2C3139),
                                                 RoundedCornerShape(8.dp)
                                             )
                                             .clickable {
+                                                customBgType = "THEME"
                                                 customBgValue = ""
                                             },
                                         colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A))
@@ -2549,19 +2677,22 @@ fun ClusterBackgroundSettingsDialog(
                                 Column {
                                     Text("Presets Locais (assets/backgrounds/)", color = Color(0xFFB0B8C4), fontSize = 12.sp)
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    LazyRow(
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Adaptive(minSize = 150.dp),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxSize()
                                     ) {
                                         items(localAssetList) { fileName ->
-                                            val isSelected = customBgValue == fileName
+                                            val isSelected = customBgType == "PRESET" && customBgValue == fileName
                                             val borderColor = if (isSelected) Color(0xFF4A9EFF) else Color.Transparent
                                             Card(
                                                 modifier = Modifier
-                                                    .width(120.dp)
-                                                    .height(70.dp)
+                                                    .fillMaxWidth()
+                                                    .height(88.dp)
                                                     .border(2.dp, borderColor, RoundedCornerShape(8.dp))
                                                     .clickable {
+                                                        customBgType = "PRESET"
                                                         customBgValue = fileName
                                                     },
                                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A))
@@ -2595,35 +2726,22 @@ fun ClusterBackgroundSettingsDialog(
                                 }
                             }
                             "IMAGE_URL" -> {
-                                var webSearchQuery by remember { mutableStateOf("") }
-                                var selectedServiceFilter by remember { mutableStateOf("ALL") }
-
-                                val curatedWebImages = listOf(
-                                    Triple("Carbon Fiber Dark", "Unsplash", "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800&auto=format&fit=crop"),
-                                    Triple("Cyberpunk Neon City", "Unsplash", "https://images.unsplash.com/photo-1515621061946-eff1c2a352bd?w=800&auto=format&fit=crop"),
-                                    Triple("Minimal Tech Grid", "Unsplash", "https://images.unsplash.com/photo-1550684848-fac1c5b4e853?w=800&auto=format&fit=crop"),
-                                    Triple("Circuit Board Blue", "Unsplash", "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop"),
-                                    Triple("Supercar Cockpit", "Pexels", "https://images.pexels.com/photos/3729464/pexels-photo-3729464.jpeg?auto=compress&cs=tinysrgb&w=800"),
-                                    Triple("Deep Space Nebula", "Pixabay", "https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?w=800&auto=format&fit=crop"),
-                                    Triple("Abstract Geometric", "Wallhaven", "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop"),
-                                    Triple("Dark Speed Lines", "Pexels", "https://images.pexels.com/photos/268533/pexels-photo-268533.jpeg?auto=compress&cs=tinysrgb&w=800"),
-                                    Triple("Night City Horizon", "Pixabay", "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=800&auto=format&fit=crop")
-                                )
-
-                                val filteredWebImages = remember(webSearchQuery, selectedServiceFilter) {
-                                    curatedWebImages.filter { (name, service, _) ->
-                                        val matchesQuery = webSearchQuery.isBlank() || name.contains(webSearchQuery, ignoreCase = true) || service.contains(webSearchQuery, ignoreCase = true)
-                                        val matchesService = selectedServiceFilter == "ALL" || service.equals(selectedServiceFilter, ignoreCase = true)
-                                        matchesQuery && matchesService
-                                    }
-                                }
-
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    // Search Input Filter
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // Busca ao vivo no provedor selecionado
                                     OutlinedTextField(
-                                        value = webSearchQuery,
-                                        onValueChange = { webSearchQuery = it },
-                                        placeholder = { Text("Buscar papéis de parede online...", fontSize = 12.sp, color = Color(0xFFB0B8C4)) },
+                                        value = webQuery,
+                                        onValueChange = { webQuery = it },
+                                        placeholder = {
+                                            Text(
+                                                "Buscar no ${webProvider.label}: carros, paisagem, abstrato...",
+                                                fontSize = 12.sp,
+                                                color = Color(0xFFB0B8C4),
+                                                maxLines = 1
+                                            )
+                                        },
                                         leadingIcon = {
                                             Icon(
                                                 imageVector = Icons.Default.Search,
@@ -2632,9 +2750,9 @@ fun ClusterBackgroundSettingsDialog(
                                                 modifier = Modifier.size(18.dp)
                                             )
                                         },
-                                        trailingIcon = if (webSearchQuery.isNotEmpty()) {
-                                            {
-                                                IconButton(onClick = { webSearchQuery = "" }) {
+                                        trailingIcon = {
+                                            if (webQuery.isNotEmpty()) {
+                                                IconButton(onClick = { webQuery = "" }) {
                                                     Icon(
                                                         imageVector = Icons.Default.Clear,
                                                         contentDescription = "Limpar busca",
@@ -2643,7 +2761,7 @@ fun ClusterBackgroundSettingsDialog(
                                                     )
                                                 }
                                             }
-                                        } else null,
+                                        },
                                         colors = OutlinedTextFieldDefaults.colors(
                                             focusedBorderColor = Color(0xFF4A9EFF),
                                             unfocusedBorderColor = Color(0xFF2C3139),
@@ -2657,50 +2775,38 @@ fun ClusterBackgroundSettingsDialog(
                                         modifier = Modifier.fillMaxWidth()
                                     )
 
-                                    // Free Image Service Filters
-                                    Row(
+                                    // Provedores de imagens públicas
+                                    LazyRow(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        val services = listOf(
-                                            "ALL" to "Todos",
-                                            "Unsplash" to "Unsplash",
-                                            "Pexels" to "Pexels",
-                                            "Pixabay" to "Pixabay",
-                                            "Wallhaven" to "Wallhaven"
-                                        )
-                                        services.forEach { (srvId, srvName) ->
-                                            val isSelected = selectedServiceFilter == srvId
+                                        items(WebImageProvider.entries.toList()) { provider ->
+                                            val isSelected = webProvider == provider
+                                            val locked = provider.requiresKey &&
+                                                    WebImageSearch.getApiKey(prefs, provider).isBlank()
                                             Box(
                                                 modifier = Modifier
                                                     .background(
                                                         if (isSelected) Color(0xFF4A9EFF) else Color(0xFF2C3139),
                                                         RoundedCornerShape(6.dp)
                                                     )
-                                                    .clickable { selectedServiceFilter = srvId }
-                                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                                    .clickable { webProvider = provider }
+                                                    .padding(horizontal = 10.dp, vertical = 5.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                 ) {
-                                                    val iconVector = when (srvId) {
-                                                        "Unsplash" -> Icons.Default.Language
-                                                        "Pexels" -> Icons.Default.PhotoCamera
-                                                        "Pixabay" -> Icons.Default.Image
-                                                        "Wallhaven" -> Icons.Default.Wallpaper
-                                                        else -> Icons.Default.Public
-                                                    }
                                                     Icon(
-                                                        imageVector = iconVector,
+                                                        imageVector = if (locked) Icons.Default.Lock else Icons.Default.Public,
                                                         contentDescription = null,
-                                                        tint = Color.White,
+                                                        tint = if (locked) Color(0xFFB0B8C4) else Color.White,
                                                         modifier = Modifier.size(12.dp)
                                                     )
                                                     Text(
-                                                        srvName,
+                                                        provider.label,
                                                         color = Color.White,
                                                         fontSize = 11.sp,
                                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -2710,48 +2816,364 @@ fun ClusterBackgroundSettingsDialog(
                                         }
                                     }
 
-                                    Spacer(Modifier.height(2.dp))
+                                    libraryMessage?.let { message ->
+                                        Text(
+                                            message,
+                                            color = Color(0xFF4A9EFF),
+                                            fontSize = 11.sp,
+                                            maxLines = 1
+                                        )
+                                    }
 
-                                    // Filtered Wallpapers List
-                                    if (filteredWebImages.isEmpty()) {
+                                    val needsKey = webProvider.requiresKey && webApiKey.isBlank()
+
+                                    when {
+                                        needsKey -> {
+                                            var keyInput by remember(webProvider) { mutableStateOf("") }
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(top = 12.dp),
+                                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Text(
+                                                    "${webProvider.label} exige uma chave de API gratuita.",
+                                                    color = Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    "Crie a sua em ${webProvider.keyPortal} e cole abaixo. Ela fica salva no carro e vale para as próximas buscas. Wallhaven e Openverse funcionam sem chave.",
+                                                    color = Color(0xFFB0B8C4),
+                                                    fontSize = 12.sp
+                                                )
+                                                OutlinedTextField(
+                                                    value = keyInput,
+                                                    onValueChange = { keyInput = it },
+                                                    placeholder = {
+                                                        Text("Cole aqui a chave de API", fontSize = 12.sp, color = Color(0xFF718096))
+                                                    },
+                                                    colors = OutlinedTextFieldDefaults.colors(
+                                                        focusedBorderColor = Color(0xFF4A9EFF),
+                                                        unfocusedBorderColor = Color(0xFF2C3139),
+                                                        focusedContainerColor = Color(0xFF13151A),
+                                                        unfocusedContainerColor = Color(0xFF13151A),
+                                                        focusedTextColor = Color.White,
+                                                        unfocusedTextColor = Color.White
+                                                    ),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    singleLine = true,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                                Button(
+                                                    onClick = {
+                                                        WebImageSearch.setApiKey(prefs, webProvider, keyInput)
+                                                        keyInput = ""
+                                                        apiKeyRefreshToken++
+                                                    },
+                                                    enabled = keyInput.isNotBlank(),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF)),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Text("Salvar chave", fontSize = 12.sp, color = Color.White)
+                                                }
+                                            }
+                                        }
+
+                                        webLoading && webResults.isEmpty() -> {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                    CircularProgressIndicator(color = Color(0xFF4A9EFF))
+                                                    Spacer(Modifier.height(8.dp))
+                                                    Text("Buscando em ${webProvider.label}...", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+                                                }
+                                            }
+                                        }
+
+                                        webError != null && webResults.isEmpty() -> {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.CloudOff,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF718096),
+                                                        modifier = Modifier.size(32.dp)
+                                                    )
+                                                    Text(
+                                                        webError ?: "",
+                                                        color = Color(0xFFB0B8C4),
+                                                        fontSize = 12.sp,
+                                                        textAlign = TextAlign.Center
+                                                    )
+                                                    Button(
+                                                        onClick = { webRetryToken++ },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C3139)),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Refresh,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFF4A9EFF),
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Tentar novamente", color = Color.White, fontSize = 12.sp)
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        webResults.isEmpty() -> {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    if (webQuery.isBlank()) "Digite algo para buscar em ${webProvider.label}."
+                                                    else "Nenhuma imagem encontrada para \"$webQuery\".",
+                                                    color = Color(0xFFB0B8C4),
+                                                    fontSize = 12.sp,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+                                        }
+
+                                        else -> {
+                                            LazyVerticalGrid(
+                                                state = webGridState,
+                                                columns = GridCells.Adaptive(minSize = 150.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.fillMaxSize()
+                                            ) {
+                                                items(webResults) { image ->
+                                                    val isSelected = customBgType == "IMAGE_URL" &&
+                                                            customBgValue == image.fullUrl
+                                                    val isSaved = libraryFileNames.contains(
+                                                        WallpaperLibrary.fileNameFor(image)
+                                                    )
+                                                    val isSaving = favoriteBusyKey == image.libraryKey
+                                                    Card(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(92.dp)
+                                                            .border(
+                                                                2.dp,
+                                                                if (isSelected) Color(0xFF4A9EFF) else Color.Transparent,
+                                                                RoundedCornerShape(8.dp)
+                                                            )
+                                                            .clickable {
+                                                                // Preview imediato no cluster; só persiste no OK.
+                                                                customBgType = "IMAGE_URL"
+                                                                customBgValue = image.fullUrl
+                                                            },
+                                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A))
+                                                    ) {
+                                                        Box(modifier = Modifier.fillMaxSize()) {
+                                                            AsyncImage(
+                                                                model = image.thumbUrl,
+                                                                contentDescription = image.title,
+                                                                contentScale = ContentScale.Crop,
+                                                                modifier = Modifier.fillMaxSize()
+                                                            )
+                                                            // Favoritar: baixa para a Biblioteca (offline)
+                                                            IconButton(
+                                                                onClick = {
+                                                                    if (isSaving) return@IconButton
+                                                                    favoriteBusyKey = image.libraryKey
+                                                                    ioScope.launch {
+                                                                        val result = WallpaperLibrary.favorite(image)
+                                                                        favoriteBusyKey = null
+                                                                        result
+                                                                            .onSuccess {
+                                                                                uploadedRefreshToken++
+                                                                                libraryMessage = "Imagem salva na Biblioteca."
+                                                                            }
+                                                                            .onFailure {
+                                                                                libraryMessage = it.message
+                                                                                    ?: "Não foi possível salvar a imagem."
+                                                                            }
+                                                                    }
+                                                                },
+                                                                modifier = Modifier
+                                                                    .align(Alignment.TopEnd)
+                                                                    .size(28.dp)
+                                                                    .background(
+                                                                        Color.Black.copy(alpha = 0.55f),
+                                                                        RoundedCornerShape(bottomStart = 8.dp)
+                                                                    )
+                                                            ) {
+                                                                if (isSaving) {
+                                                                    CircularProgressIndicator(
+                                                                        color = Color(0xFF4A9EFF),
+                                                                        strokeWidth = 2.dp,
+                                                                        modifier = Modifier.size(14.dp)
+                                                                    )
+                                                                } else {
+                                                                    Icon(
+                                                                        imageVector = if (isSaved) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                                                        contentDescription = if (isSaved) "Já está na Biblioteca" else "Favoritar na Biblioteca",
+                                                                        tint = if (isSaved) Color(0xFFFF6B81) else Color.White,
+                                                                        modifier = Modifier.size(16.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .background(Color.Black.copy(alpha = 0.65f))
+                                                                    .align(Alignment.BottomCenter)
+                                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                            ) {
+                                                                Row(
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                                    verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                    Text(
+                                                                        text = image.title.ifBlank { image.provider.label },
+                                                                        color = Color.White,
+                                                                        fontSize = 10.sp,
+                                                                        fontWeight = FontWeight.Medium,
+                                                                        maxLines = 1,
+                                                                        overflow = TextOverflow.Ellipsis,
+                                                                        modifier = Modifier.weight(1f)
+                                                                    )
+                                                                    Text(
+                                                                        text = image.resolutionLabel,
+                                                                        color = Color(0xFF4A9EFF),
+                                                                        fontSize = 9.sp,
+                                                                        maxLines = 1
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                if (webLoadingMore) {
+                                                    item(span = { GridItemSpan(maxLineSpan) }) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(vertical = 8.dp),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            CircularProgressIndicator(
+                                                                color = Color(0xFF4A9EFF),
+                                                                strokeWidth = 2.dp,
+                                                                modifier = Modifier.size(20.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                } else if (!webHasMore) {
+                                                    item(span = { GridItemSpan(maxLineSpan) }) {
+                                                        Text(
+                                                            "Fim dos resultados de ${webProvider.label}.",
+                                                            color = Color(0xFF718096),
+                                                            fontSize = 11.sp,
+                                                            textAlign = TextAlign.Center,
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(vertical = 8.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            "FILE" -> {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        "Sua biblioteca: imagens enviadas pelo celular e favoritas da Web (ficam salvas no carro e funcionam sem internet).",
+                                        color = Color(0xFFB0B8C4),
+                                        fontSize = 12.sp
+                                    )
+                                    libraryMessage?.let { message ->
+                                        Text(message, color = Color(0xFF4A9EFF), fontSize = 11.sp, maxLines = 1)
+                                    }
+                                    if (libraryItems.isEmpty()) {
                                         Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(80.dp),
+                                            modifier = Modifier.fillMaxSize(),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                "Nenhum papel de parede encontrado para \"$webSearchQuery\"",
-                                                color = Color(0xFFB0B8C4),
-                                                fontSize = 12.sp
+                                                "Biblioteca vazia. Favorite uma imagem na aba Web (ícone de coração) ou use \"Carregar pelo Celular\" para enviar uma foto.",
+                                                color = Color(0xFF718096),
+                                                fontSize = 12.sp,
+                                                textAlign = TextAlign.Center
                                             )
                                         }
                                     } else {
-                                        LazyRow(
+                                        LazyVerticalGrid(
+                                            columns = GridCells.Adaptive(minSize = 150.dp),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            modifier = Modifier.fillMaxWidth()
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.fillMaxSize()
                                         ) {
-                                            items(filteredWebImages) { (name, service, url) ->
-                                                val isSelected = customBgValue == url
-                                                val borderColor = if (isSelected) Color(0xFF4A9EFF) else Color.Transparent
+                                            items(libraryItems, key = { it.file.absolutePath }) { item ->
+                                                val isSelected = customBgType == "FILE" &&
+                                                        customBgValue == item.file.absolutePath
                                                 Card(
                                                     modifier = Modifier
-                                                        .width(135.dp)
-                                                        .height(80.dp)
-                                                        .border(2.dp, borderColor, RoundedCornerShape(8.dp))
+                                                        .fillMaxWidth()
+                                                        .height(92.dp)
+                                                        .border(
+                                                            2.dp,
+                                                            if (isSelected) Color(0xFF4A9EFF) else Color.Transparent,
+                                                            RoundedCornerShape(8.dp)
+                                                        )
                                                         .clickable {
-                                                            customBgValue = url
-                                                            customBgType = "IMAGE_URL"
+                                                            customBgType = "FILE"
+                                                            customBgValue = item.file.absolutePath
                                                         },
                                                     colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A))
                                                 ) {
                                                     Box(modifier = Modifier.fillMaxSize()) {
                                                         AsyncImage(
-                                                            model = url,
-                                                            contentDescription = name,
+                                                            model = item.file,
+                                                            contentDescription = item.title,
                                                             contentScale = ContentScale.Crop,
                                                             modifier = Modifier.fillMaxSize()
                                                         )
+                                                        IconButton(
+                                                            onClick = {
+                                                                val wasApplied = customBgType == "FILE" &&
+                                                                        customBgValue == item.file.absolutePath
+                                                                if (WallpaperLibrary.delete(item.file)) {
+                                                                    if (wasApplied) revertPreview()
+                                                                    uploadedRefreshToken++
+                                                                }
+                                                            },
+                                                            modifier = Modifier
+                                                                .align(Alignment.TopEnd)
+                                                                .size(28.dp)
+                                                                .background(
+                                                                    Color.Black.copy(alpha = 0.55f),
+                                                                    RoundedCornerShape(bottomStart = 8.dp)
+                                                                )
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Delete,
+                                                                contentDescription = "Excluir da biblioteca",
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
                                                         Box(
                                                             modifier = Modifier
                                                                 .fillMaxWidth()
@@ -2765,85 +3187,31 @@ fun ClusterBackgroundSettingsDialog(
                                                                 verticalAlignment = Alignment.CenterVertically
                                                             ) {
                                                                 Text(
-                                                                    text = name,
+                                                                    text = item.title,
                                                                     color = Color.White,
                                                                     fontSize = 10.sp,
-                                                                    fontWeight = FontWeight.Medium,
                                                                     maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis,
                                                                     modifier = Modifier.weight(1f)
                                                                 )
-                                                                Text(
-                                                                    text = service,
-                                                                    color = Color(0xFF4A9EFF),
-                                                                    fontSize = 9.sp
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            "FILE" -> {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        "Imagens Enviadas pelo Celular (via Sincronização Wi-Fi)",
-                                        color = Color(0xFFB0B8C4),
-                                        fontSize = 12.sp
-                                    )
-                                    if (uploadedImages.isEmpty()) {
-                                        Text(
-                                            "Nenhuma imagem enviada ainda. Use \"Carregar pelo Celular\" abaixo para escanear o QR Code e enviar uma foto.",
-                                            color = Color(0xFF718096),
-                                            fontSize = 12.sp
-                                        )
-                                    } else {
-                                        LazyRow(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            items(uploadedImages, key = { it.absolutePath }) { file ->
-                                                val isSelected = customBgValue == file.absolutePath
-                                                val borderColor = if (isSelected) Color(0xFF4A9EFF) else Color.Transparent
-                                                Card(
-                                                    modifier = Modifier
-                                                        .width(150.dp)
-                                                        .height(90.dp)
-                                                        .border(2.dp, borderColor, RoundedCornerShape(8.dp))
-                                                        .clickable {
-                                                            customBgValue = file.absolutePath
-                                                        },
-                                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A))
-                                                ) {
-                                                    Box(modifier = Modifier.fillMaxSize()) {
-                                                        AsyncImage(
-                                                            model = file,
-                                                            contentDescription = file.name,
-                                                            contentScale = ContentScale.Crop,
-                                                            modifier = Modifier.fillMaxSize()
-                                                        )
-                                                        IconButton(
-                                                            onClick = {
-                                                                if (BackgroundSyncServer.deleteUploadedImage(file.name)) {
-                                                                    if (customBgValue == file.absolutePath) {
-                                                                        customBgValue = ""
-                                                                    }
-                                                                    uploadedRefreshToken++
+                                                                Row(
+                                                                    verticalAlignment = Alignment.CenterVertically,
+                                                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                                                ) {
+                                                                    Icon(
+                                                                        imageVector = if (item.isFromWeb) Icons.Default.Public else Icons.Default.PhoneAndroid,
+                                                                        contentDescription = null,
+                                                                        tint = Color(0xFF4A9EFF),
+                                                                        modifier = Modifier.size(10.dp)
+                                                                    )
+                                                                    Text(
+                                                                        text = item.providerLabel ?: "Celular",
+                                                                        color = Color(0xFF4A9EFF),
+                                                                        fontSize = 9.sp,
+                                                                        maxLines = 1
+                                                                    )
                                                                 }
-                                                            },
-                                                            modifier = Modifier
-                                                                .align(Alignment.TopEnd)
-                                                                .size(28.dp)
-                                                                .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(bottomStart = 8.dp))
-                                                        ) {
-                                                            Icon(
-                                                                imageVector = Icons.Default.Delete,
-                                                                contentDescription = "Excluir imagem enviada",
-                                                                tint = Color.White,
-                                                                modifier = Modifier.size(16.dp)
-                                                            )
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -2890,12 +3258,7 @@ fun ClusterBackgroundSettingsDialog(
                         // 2. Cancelar (Reverts & Closes)
                         Button(
                             onClick = {
-                                customBgType = initialBgType
-                                customBgValue = initialBgValue
-                                prefs.edit {
-                                    putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, initialBgType)
-                                    putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, initialBgValue)
-                                }
+                                revertPreview()
                                 onDismiss()
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C3139)),
