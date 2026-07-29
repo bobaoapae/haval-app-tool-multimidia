@@ -158,7 +158,7 @@ function render() {
     // Update app class based on display mode
     if (appContainer) {
         logger.log('Rendering screen:', screen);
-        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'hide-bottom' && c !== 'app-in-dash-disabled' && c !== 'menu-minimized' && c !== 'carplay-in-dash' && c !== 'projection-mirror-in-dash' && c !== 'projection-preparing-d3' && c !== 'projection-map-display-active' && c !== 'projection-card-overlay-active');
+        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'hide-bottom' && c !== 'bar-images-hidden' && c !== 'app-in-dash-disabled' && c !== 'menu-minimized' && c !== 'carplay-in-dash' && c !== 'projection-mirror-in-dash' && c !== 'projection-preparing-d3' && c !== 'projection-map-display-active' && c !== 'projection-card-overlay-active');
         classes.push('display-' + displayMode.toLowerCase());
 
         if (get('clusterEnabled') === false) {
@@ -185,6 +185,11 @@ function render() {
         }
         if (hiddenBars === 'Inferior' || hiddenBars === 'Ambas') {
             classes.push('hide-bottom');
+        }
+        // Decorative top/bottom bar artwork is on unless explicitly turned off,
+        // so an unresolved setting (pre-bind boot frame) still renders the images
+        if (get('barImages') === false) {
+            classes.push('bar-images-hidden');
         }
 
         if (projectionMapDisplayActive) {
@@ -307,6 +312,7 @@ subscribe('hiddenBars', (val) => {
 });
 subscribe('mode', render);
 subscribe('gaugeStyle', render);
+subscribe('barImages', render);
 
 subscribe('clusterEnabled', render);
 subscribe('appInDash', render);
@@ -503,6 +509,7 @@ async function initDecentralizedBridge() {
     bridge.bindThemeSetting('hiddenBars', 'Nenhuma', setState);
     bridge.bindThemeSetting('mode', 'Dark', setState);
     bridge.bindThemeSetting('gaugeStyle', 'Esportivo', setState);
+    bridge.bindThemeSetting('barImages', true, setState);
     const enableOdometer = bridge.getPreference('enableOdometer', 'true') === 'true';
     const enableRevisionWarning = bridge.getPreference('enableRevisionWarning', 'false') === 'true';
     const nextRevisionKm = Number(bridge.getPreference('nextRevisionKm', '0')) || 0;

@@ -3856,12 +3856,6 @@ canvas.graph-chart {
   pointer-events: auto !important;
 }
 
-.menu-arrow {
-  font-size: 30px;
-  color: var(--primary-blue);
-  cursor: pointer;
-  padding: 0 20px;
-}
 
 /* ==========================================================================
    MINIMALIST THEME STRUCTURAL LAYOUT
@@ -3923,24 +3917,46 @@ canvas.graph-chart {
   text-transform: uppercase !important;
 }
 
-.menu-icon-number {
-  font-size: 30px !important;
+/* Inline up/down affordance, in place of the old "1." ordinal and of the
+   stray arrows that used to float above and below the whole menu */
+.menu-nav-hint {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 1px !important;
+  line-height: 1 !important;
+  margin-right: 4px !important;
+}
+
+/* Same size and grey as the arrows that used to sit above/below the menu */
+.menu-nav-arrow {
+  font-size: 13px !important;
+  line-height: 1 !important;
+  color: #94a3b8 !important;
+}
+
+/* Enter glyph replaces the arrows once focus moves into the sub-menu */
+.menu-enter-hint {
+  display: none !important;
+  font-size: 28px !important;
+  line-height: 1 !important;
+  color: var(--primary-blue) !important;
+  margin-right: 6px !important;
+}
+
+.menu-item.in-sub-area .menu-nav-hint {
+  display: none !important;
+}
+
+.menu-item.in-sub-area .menu-enter-hint {
+  display: block !important;
 }
 
 .menu-item.focused .menu-label {
   color: var(--menu-item-text-focused) !important;
   font-size: 46px !important;
   font-weight: 300 !important;
-}
-
-.menu-arrow {
-  font-size: 14px !important;
-  color: #94a3b8 !important;
-  cursor: pointer !important;
-  padding: 0 20px !important;
-  position: static !important;
-  margin: 0 !important;
-  line-height: 1 !important;
 }
 
 /* 1. Keep Top Info at bottom center */
@@ -4634,7 +4650,7 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 
 /* RPM indicator + compact thin 270° ring (left of speed dial) */
 .dashboard-rpm-container {
-  display: none;
+  display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
@@ -5007,3 +5023,28 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 
 
 
+
+/* ==========================================================================
+   THEME SETTINGS (theme.xml <configurations>)
+   Negative classes only, so the on-by-default options already render correctly
+   on the boot frame that runs before bindThemeSetting resolves the preference.
+   ========================================================================== */
+
+/* hideBottomBar = true: the bottom strip and every readout anchored to it */
+.hide-bottom-bar .mask-bottom-bar,
+.hide-bottom-bar .dashboard-bottom-gauges,
+.hide-bottom-bar .dashboard-bottom-ev-mode {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* showRegenIcon = false */
+.hide-regen-icon .dashboard-bottom-regen {
+  display: none !important;
+}
+
+/* showRpmIcon = false */
+.hide-rpm-icon .dashboard-rpm-container {
+  display: none !important;
+}

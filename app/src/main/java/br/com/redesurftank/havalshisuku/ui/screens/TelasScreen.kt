@@ -333,7 +333,7 @@ fun CompactThemeCard(
 private val EMBEDDED_DEFAULT_THEME = ThemeMetadata(
         name = "Default",
         description = "Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.",
-        version = "1.4.21",
+        version = "1.4.22",
         thumbnailUrl = "",
         mainFile = "index.html",
         folderName = "Default",

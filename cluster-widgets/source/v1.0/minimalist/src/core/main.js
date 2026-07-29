@@ -185,7 +185,10 @@ function render() {
             !c.startsWith('theme-') &&
             c !== 'cluster-disabled' &&
             c !== 'warn-is-active' &&
-            c !== 'card-0-active'
+            c !== 'card-0-active' &&
+            c !== 'hide-bottom-bar' &&
+            c !== 'hide-regen-icon' &&
+            c !== 'hide-rpm-icon'
         );
         classes.push('display-' + displayMode.toLowerCase());
 
@@ -203,6 +206,19 @@ function render() {
         }
         if (nativeMockEnabled) {
             classes.push('native-mock-enabled');
+        }
+
+        // theme.xml settings. Only the "off" side gets a class, so the boot frame
+        // that renders before bindThemeSetting resolves already matches the defaults
+        // (bottom bar shown, regen and RPM indicators shown).
+        if (get('hideBottomBar') === true) {
+            classes.push('hide-bottom-bar');
+        }
+        if (get('showRegenIcon') === false) {
+            classes.push('hide-regen-icon');
+        }
+        if (get('showRpmIcon') === false) {
+            classes.push('hide-rpm-icon');
         }
 
         appContainer.className = classes.join(' ').trim();
@@ -288,6 +304,9 @@ subscribe('focusedMenuItem', (item) => {
 });
 
 subscribe('clusterEnabled', render);
+subscribe('hideBottomBar', render);
+subscribe('showRegenIcon', render);
+subscribe('showRpmIcon', render);
 render();
 
 
@@ -733,6 +752,12 @@ function handleSettingsTelemetry(key, value) {
 async function initMinimalistBridge() {
     if (typeof bridge.reset === 'function') bridge.reset();
     await bridge.init();
+
+    // theme.xml <configurations>
+    bridge.bindThemeSetting('hideBottomBar', false, setState);
+    bridge.bindThemeSetting('showRegenIcon', true, setState);
+    bridge.bindThemeSetting('showRpmIcon', true, setState);
+
     bridge.subscribeKeys(handleSteeringWheelKey);
     bridge.subscribe(
         [...SETTINGS_KEYS_TO_SUBSCRIBE, ...GRAPH_KEYS_TO_SUBSCRIBE, ...GAUGE_KEYS_TO_SUBSCRIBE],

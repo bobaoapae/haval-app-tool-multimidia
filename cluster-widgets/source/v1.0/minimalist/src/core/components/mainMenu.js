@@ -18,13 +18,9 @@ export const menuItems = [
 
 export function createMainMenu() {
     const container = div({ className: 'main-menu-container' });
-    const arrowUp = div({ className: 'menu-arrow up', children: ['▲'] });
     const carousel = div({ className: 'menu-carousel' });
-    const arrowDown = div({ className: 'menu-arrow down', children: ['▼'] });
-    
-    container.appendChild(arrowUp);
+
     container.appendChild(carousel);
-    container.appendChild(arrowDown);
     const focusedItemId = getState('focusedMenuItem');
     const itemElements = {};
 
@@ -40,7 +36,18 @@ export function createMainMenu() {
             children: [
                 div({
                     className: 'icon-container',
-                    children: [span({ className: 'menu-icon-number', children: [`${index + 1}.`] })]
+                    children: [
+                        // Up/down affordance sits inline ahead of the label instead of
+                        // as separate glyphs above and below the whole menu
+                        div({
+                            className: 'menu-nav-hint',
+                            children: [
+                                span({ className: 'menu-nav-arrow up', children: ['▲'] }),
+                                span({ className: 'menu-nav-arrow down', children: ['▼'] })
+                            ]
+                        }),
+                        span({ className: 'menu-enter-hint', children: ['↵'] })
+                    ]
                 }),
                 span({
                     className: 'menu-label',
@@ -70,26 +77,12 @@ export function createMainMenu() {
         const area = getState('menuFocusArea');
         const currentFocused = getState('focusedMenuItem');
 
-        if (area === 'sub') {
-            arrowUp.style.visibility = 'hidden';
-            arrowDown.style.visibility = 'hidden';
-        } else {
-            arrowUp.style.visibility = 'visible';
-            arrowDown.style.visibility = 'visible';
-        }
-
-        menuItems.forEach((item, index) => {
+        menuItems.forEach((item) => {
             const el = itemElements[item.id];
-            if (el) {
-                const numberEl = el.querySelector('.menu-icon-number');
-                if (numberEl) {
-                    if (area === 'sub' && item.id === currentFocused) {
-                        numberEl.textContent = '↵';
-                    } else {
-                        numberEl.textContent = `${index + 1}.`;
-                    }
-                }
-            }
+            if (!el) return;
+            // Inside a sub-menu the wheel no longer walks the menu entries, so the
+            // up/down hint gives way to the "you are in here" enter glyph
+            el.classList.toggle('in-sub-area', area === 'sub' && item.id === currentFocused);
         });
     };
 

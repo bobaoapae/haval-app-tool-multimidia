@@ -157,10 +157,16 @@ try {
 
 // Copy to Themes/v1.0/Default folder
 var themesOutputPath = path.join(__dirname, '..', '..', '..', 'Themes', 'v1.0', 'Default', 'index.html');
+var themeXmlSourcePath = path.join(__dirname, 'theme.xml');
+var themeXmlDestPath = path.join(__dirname, '..', '..', '..', 'Themes', 'v1.0', 'Default', 'theme.xml');
 try {
   fs.mkdirSync(path.dirname(themesOutputPath), { recursive: true });
   fs.copyFileSync(appOutputPath, themesOutputPath);
-  console.log(`\u2705 Copiado para Themes: ${themesOutputPath}`);
+  console.log(`✅ Copiado para Themes: ${themesOutputPath}`);
+  if (fs.existsSync(themeXmlSourcePath)) {
+    fs.copyFileSync(themeXmlSourcePath, themeXmlDestPath);
+    console.log(`✅ Copiado theme.xml para Themes: ${themeXmlDestPath}`);
+  }
 } catch (err) {
   console.error(`❌ Erro ao copiar para Themes: ${err.message}`);
 }
