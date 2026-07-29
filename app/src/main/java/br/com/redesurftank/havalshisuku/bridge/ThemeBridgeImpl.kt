@@ -32,11 +32,6 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
     }
 
     @JavascriptInterface
-    fun setCardId(cardId: Int) {
-        context.setCardId(cardId)
-    }
-
-    @JavascriptInterface
     fun saveSetting(key: String, value: String) {
         context.saveClusterDisplay(value)
     }

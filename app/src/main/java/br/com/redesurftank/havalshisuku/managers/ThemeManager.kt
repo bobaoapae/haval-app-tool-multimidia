@@ -32,6 +32,7 @@ class ThemeManager private constructor(val context: Context) {
         private const val TAG = "ThemeManager"
         /** GitHub tree where packaged themes are listed (Telas → fetch/download). Path stays Themes/v1.0; branch is feature/new-screen-enhancements-v7. */
         const val THEME_REPO_URL = "https://github.com/netseek/haval-app-tool-multimidia/tree/feature/new-screen-enhancements-v7/cluster-widgets/Themes/v1.0"
+        const val CURRENT_CONTRACT_VERSION = "v1.0"
         
         @Volatile
         private var instance: ThemeManager? = null
@@ -68,7 +69,8 @@ class ThemeManager private constructor(val context: Context) {
                     mainFile = file.name,
                     folderName = "",
                     isLocal = true,
-                    isDownloaded = true
+                    isDownloaded = true,
+                    contractVersion = "legacy"
                 )
             )
         }
@@ -83,6 +85,29 @@ class ThemeManager private constructor(val context: Context) {
         return if (xmlFile.exists()) {
             parseThemeXml(xmlFile.inputStream(), folderName, true)
         } else null
+    }
+
+    fun isContractCompatible(contractVersion: String?): Boolean {
+        if (contractVersion.isNullOrBlank()) return false
+        val normalized = contractVersion.trim().lowercase().let {
+            if (it.startsWith("v")) it else "v$it"
+        }
+        return normalized == CURRENT_CONTRACT_VERSION || normalized == "v1.0" || normalized == "1.0"
+    }
+
+    fun sanitizeActiveThemeContract(context: Context) {
+        val prefs = context.getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+        val activeFolder = prefs.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
+        if (activeFolder.isBlank() || activeFolder.equals("Default", ignoreCase = true)) return
+
+        val metadata = getThemeMetadata(activeFolder)
+        if (metadata == null || !isContractCompatible(metadata.contractVersion)) {
+            Log.w(TAG, "Active theme '$activeFolder' is incompatible with contract $CURRENT_CONTRACT_VERSION. Falling back to Default.")
+            prefs.edit()
+                .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "")
+                .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default")
+                .apply()
+        }
     }
 
     private fun parseThemeXml(inputStream: InputStream, folderName: String, isLocal: Boolean): ThemeMetadata? {
@@ -103,6 +128,7 @@ class ThemeManager private constructor(val context: Context) {
             var height: Int? = null
             var decentralized = false
             var minBridgeVersion: String? = null
+            var contractVersion = ""
             val configurations = mutableListOf<ThemeConfig>()
             
             var inConfigurations = false
@@ -135,6 +161,7 @@ class ThemeManager private constructor(val context: Context) {
                         "height" -> if (inAppDefaultPosition) height = parser.nextText().toIntOrNull()
                         "decentralized" -> decentralized = parser.nextText().trim().lowercase() == "true"
                         "minBridgeVersion" -> minBridgeVersion = parser.nextText().trim()
+                        "contractVersion" -> contractVersion = parser.nextText().trim()
                         
                         "configurations" -> inConfigurations = true
                         "configuration" -> {
@@ -192,6 +219,7 @@ class ThemeManager private constructor(val context: Context) {
                 height = height,
                 decentralized = decentralized,
                 minBridgeVersion = minBridgeVersion,
+                contractVersion = contractVersion.ifEmpty { "v1.0" },
                 configurations = configurations,
                 background = background,
                 backgroundAbsolutePath = resolvedBackgroundAbs

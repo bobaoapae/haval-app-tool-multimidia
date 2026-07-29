@@ -214,6 +214,88 @@ class BottomBarService : LifecycleService() {
     private val BOTTOM_BAR_BASE_HEIGHT_DP = 60f
     private val REFERENCE_OVERSCAN = 20
 
+    /**
+     * Last non-zero width of the left navigation pane, in px. Kept even after a fullscreen app hides
+     * the pane so the content gutter never changes at runtime.
+     */
+    private var cachedLeftGutterPx = 0
+
+    /**
+     * Pins an overlay window to the physical display: real display width, left edge at physical x=0.
+     *
+     * The left navigation pane is a NAVIGATION_BAR window that insets the frame our windows are laid
+     * out against, so a MATCH_PARENT overlay silently shrinks (1920 -> 1792) and shifts right by the
+     * pane width whenever the pane appears. Requesting the real width with `gravity=START` and
+     * `x = -leftInset` cancels that out: `x` is relative to the parent frame's left edge, which moves
+     * with the pane by exactly `leftInset`, so the window lands at physical 0 in both states.
+     *
+     * Requires FLAG_LAYOUT_NO_LIMITS on the window, otherwise the width is clamped to the frame.
+     */
+    private fun pinToPhysicalDisplay(lp: WindowManager.LayoutParams) {
+        val metrics = android.util.DisplayMetrics()
+        mWindowManager?.defaultDisplay?.getRealMetrics(metrics)
+        val realWidth = metrics.widthPixels
+        val realHeight = metrics.heightPixels
+        if (realWidth <= 0) return
+
+        val appWidth = resources.displayMetrics.widthPixels
+        val leftInset = (realWidth - appWidth).coerceAtLeast(0)
+        if (leftInset > 0) {
+            cachedLeftGutterPx = leftInset
+        }
+
+        lp.width = realWidth
+        lp.x = -leftInset
+        lp.gravity = Gravity.BOTTOM or Gravity.START
+
+        BottomBarState.overlayWindowWidthPx = realWidth
+        BottomBarState.overlayLeftGutterPx = cachedLeftGutterPx
+
+        Log.d(
+                "BottomBarService",
+                "[PIN] real=${realWidth}x$realHeight app=$appWidth leftInset=$leftInset gutter=$cachedLeftGutterPx x=${lp.x} w=${lp.width}"
+        )
+    }
+
+    /** Re-applies the physical pin to both overlay windows after a display/configuration change. */
+    private fun repinOverlayWindows() {
+        val wm = mWindowManager ?: return
+
+        params?.let { lp ->
+            pinToPhysicalDisplay(lp)
+            composeView?.let { cv ->
+                try {
+                    wm.updateViewLayout(cv, lp)
+                } catch (e: Exception) {
+                    Log.e("BottomBarService", "Error re-pinning bar window", e)
+                }
+            }
+        }
+
+        // The menu window is collapsed to 0x0 while hidden; updateMenuWindow re-pins it on show.
+        if (isMenuWindowAdded && isAnyMenuExpanded()) {
+            updateMenuWindow(true)
+        }
+    }
+
+    private fun isAnyMenuExpanded(): Boolean =
+            BottomBarState.isMenuExpanded ||
+                    BottomBarState.isDashboardExpanded ||
+                    BottomBarState.isSettingsMenuExpanded ||
+                    BottomBarState.isOverrideMenuExpanded ||
+                    BottomBarState.activeSliderType != null
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // The left navigation pane showing/hiding changes the app frame, which is the only thing the
+        // pin depends on. Re-apply it so the windows stay at physical x=0.
+        Log.d(
+                "BottomBarService",
+                "onConfigurationChanged screenWidthDp=${newConfig.screenWidthDp} -> re-pinning overlays"
+        )
+        repinOverlayWindows()
+    }
+
     override fun onCreate() {
         android.util.Log.e("BottomBarService", "SERVICE ONCREATE - STARTING")
         super.onCreate()
@@ -3082,6 +3164,7 @@ class BottomBarService : LifecycleService() {
             withContext(Dispatchers.Main) {
                 // Apply custom yOffset relative to the logical bottom (where y=0 is the edge)
                 lp.y = yOffsetPx
+                pinToPhysicalDisplay(lp)
                 try {
                     wm.updateViewLayout(cv, lp)
                 } catch (e: Exception) {
@@ -3321,6 +3404,7 @@ class BottomBarService : LifecycleService() {
             ShizukuUtils.runCommandAndGetOutput(overscanCmd)
 
             withContext(Dispatchers.Main) {
+                pinToPhysicalDisplay(lp)
                 try {
                     wm.updateViewLayout(cv, lp)
                 } catch (e: Exception) {
@@ -3355,16 +3439,11 @@ class BottomBarService : LifecycleService() {
 
         try {
             if (show) {
-                val realWidth = displayMetrics.widthPixels.takeIf { it > 0 }
-                val realHeight = displayMetrics.heightPixels.takeIf { it > 0 }
-                val appWidth = resources.displayMetrics.widthPixels.takeIf { it > 0 }
-                val leftInset = ((realWidth ?: 0) - (appWidth ?: 0)).coerceAtLeast(0)
-
-                mp.width = realWidth ?: WindowManager.LayoutParams.MATCH_PARENT
-                mp.height = realHeight ?: WindowManager.LayoutParams.MATCH_PARENT
-                mp.x = -leftInset
+                pinToPhysicalDisplay(mp)
+                mp.height =
+                        displayMetrics.heightPixels.takeIf { it > 0 }
+                                ?: WindowManager.LayoutParams.MATCH_PARENT
                 mp.y = 0
-                mp.gravity = Gravity.TOP or Gravity.START
                 mp.flags = mp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
             } else {
                 mp.width = 0
@@ -3431,7 +3510,9 @@ class BottomBarService : LifecycleService() {
                                                     .SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
                                             android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION)
 
-                            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                            // START (not CENTER_HORIZONTAL) so pinToPhysicalDisplay can cancel the
+                            // left navigation pane inset via a negative x.
+                            gravity = Gravity.BOTTOM or Gravity.START
                             // On show, we derive y from the currently applied overscan value if
                             // possible,
                             // but setting it to -defaultOverscan below in show logic.
@@ -3469,7 +3550,7 @@ class BottomBarService : LifecycleService() {
                                                     .SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
                                             android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION)
 
-                            gravity = Gravity.TOP or Gravity.START
+                            gravity = Gravity.BOTTOM or Gravity.START
                             y = 0
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                                 layoutInDisplayCutoutMode =
@@ -3477,6 +3558,10 @@ class BottomBarService : LifecycleService() {
                                                 .LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
                             }
                         }
+
+        // Pin before the first addView so the bar never renders at the inset width, not even for a
+        // frame.
+        params?.let { pinToPhysicalDisplay(it) }
 
         if (android.provider.Settings.canDrawOverlays(this)) {
             try {
@@ -3547,7 +3632,10 @@ class BottomBarService : LifecycleService() {
                             val density = resources.displayMetrics.density
                             val displayMetrics = android.util.DisplayMetrics()
                             mWindowManager?.defaultDisplay?.getRealMetrics(displayMetrics)
-                            val windowWidth = displayMetrics.widthPixels
+                            // Regions are window-local, so measure the window itself rather than the
+                            // display; they only agree because the window is pinned to physical size.
+                            val windowWidth =
+                                    composeView.width.takeIf { it > 0 } ?: displayMetrics.widthPixels
 
                             if (isMenuWindow) {
                                 // Menu window is MATCH_PARENT (full screen height)

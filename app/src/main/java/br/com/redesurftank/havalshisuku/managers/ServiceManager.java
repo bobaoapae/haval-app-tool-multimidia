@@ -276,8 +276,6 @@ public class ServiceManager {
     // and only added churn without fixing the navigation defect it was mistaken for.
     private static final long CLUSTER_CALLBACK_STALE_MS = 8000L;
     private static final long CLUSTER_CALLBACK_REFRESH_COOLDOWN_MS = 15000L;
-    private long lastSyntheticClusterCardNavigationAtMs = 0L;
-    private int lastSyntheticClusterCardTarget = -1;
     private static final long STEERING_WHEEL_PROJECTION_TOGGLE_DEDUP_WINDOW_MS = 800L;
     private static final long STEERING_WHEEL_DASHBOARD_TOGGLE_DEDUP_WINDOW_MS = 800L;
     private static final long STEERING_WHEEL_CLIMATE_COMMAND_DEDUP_WINDOW_MS = 800L;
@@ -642,45 +640,9 @@ public class ServiceManager {
                                 lastClusterInputAtMs == 0L
                                         ? -1L
                                         : now - lastClusterInputAtMs;
-                        long sinceSyntheticMs =
-                                lastSyntheticClusterCardNavigationAtMs == 0L
-                                        ? -1L
-                                        : now - lastSyntheticClusterCardNavigationAtMs;
-                        if (ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
-                                previousCard,
-                                whichCard,
-                                sinceInputMs,
-                                lastClusterInputKeyCode,
-                                sinceSyntheticMs,
-                                lastSyntheticClusterCardTarget
-                        )) {
-                            Log.w(
-                                    TAG,
-                                    "Ignoring stale native cluster card change: "
-                                            + previousCard
-                                            + " -> "
-                                            + whichCard
-                                            + " lastInputKey="
-                                            + lastClusterInputKeyName
-                                            + "("
-                                            + lastClusterInputKeyCode
-                                            + ") sinceInputMs="
-                                            + sinceInputMs
-                                            + " syntheticTarget="
-                                            + lastSyntheticClusterCardTarget
-                                            + " sinceSyntheticMs="
-                                            + sinceSyntheticMs
-                            );
-                            logPersistentClusterEvent(
-                                    "native_cluster_card_ignored",
-                                    "from=" + previousCard
-                                            + " to=" + whichCard
-                                            + " lastInputKey=" + lastClusterInputKeyName
-                                            + "(" + lastClusterInputKeyCode + ")"
-                                            + " sinceInputMs=" + sinceInputMs
-                                            + " syntheticTarget=" + lastSyntheticClusterCardTarget
-                                            + " sinceSyntheticMs=" + sinceSyntheticMs
-                            );
+                        // The car owns the active card, so the only report worth skipping is
+                        // one restating the card we already hold. Everything else is applied.
+                        if (previousCard == whichCard) {
                             return;
                         }
                         clusterCardView = whichCard;
@@ -1053,6 +1015,9 @@ public class ServiceManager {
         // ligado antes do serviço subir, a flag ficaria falsa).
         wifiTetherEnabled = currentWifiTetherState();
         Log.w(TAG, "Services initialized successfully");
+        if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false)) {
+            autoOpenSunroofCurtain();
+        }
         // HEV Prioritário: no boot o carro costuma resetar o % (ex.: 45->80) e o app pode subir
         // depois do evento -> reaplica o valor salvo no init e depois monitora continuamente.
         backgroundHandler.postDelayed(() -> applyHevSocTargetIfActive("INIT+8s"), 8000);
@@ -1382,35 +1347,6 @@ public class ServiceManager {
         boolean enabled = currentState.equals("1");
         updateData(key, enabled ? "0" : "1");
         Log.w(TAG, label + " state changed to: " + !enabled);
-    }
-
-    private void handleClusterCardNavigationKey(ClusterKey key) {
-        int currentCard = clusterCardView;
-        int nextCard = ClusterCardNavigationPolicy.nextCard(currentCard, key);
-        int previousCard = clusterCardView;
-        clusterCardView = nextCard;
-        lastSyntheticClusterCardNavigationAtMs = SystemClock.uptimeMillis();
-        lastSyntheticClusterCardTarget = nextCard;
-
-        Log.w(
-                TAG,
-                "Synthetic cluster card navigation: "
-                        + currentCard
-                        + " -> "
-                        + nextCard
-                        + " key="
-                        + key
-                        + " previousServiceCard="
-                        + previousCard
-        );
-        logPersistentClusterEvent(
-                "synthetic_cluster_card_navigation",
-                "from=" + currentCard
-                        + " to=" + nextCard
-                        + " key=" + key
-                        + " previousServiceCard=" + previousCard
-        );
-        dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, clusterCardView);
     }
 
     private void handleSteeringWheelProjectionDisplayToggle(int button) {
@@ -2089,9 +2025,6 @@ public class ServiceManager {
                     restoreWifiTetherIfWasDisabled();
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), false)) {
                         if (!isMaxAcActive) enableMaxAcOn();
-                    }
-                    if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false)) {
-                        autoOpenSunroofCurtain();
                     }
                     // Ao ligar o carro, reaplica o % de bateria do HEV Prioritario (o carro costuma resetar).
                     applyHevSocTargetIfActive("POWER_ON");

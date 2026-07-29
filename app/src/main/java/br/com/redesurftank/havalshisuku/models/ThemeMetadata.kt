@@ -19,6 +19,7 @@ data class ThemeMetadata(
     val remoteSize: Long? = null,
     val decentralized: Boolean = false,
     val minBridgeVersion: String? = null,
+    val contractVersion: String = "v1.0",
     val configurations: List<ThemeConfig> = emptyList(),
     /** Relative path inside theme package (e.g. car-bg.png). Empty = no theme bg. */
     val background: String = "",

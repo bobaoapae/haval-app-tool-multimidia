@@ -15,6 +15,21 @@ object BottomBarState {
         VOLUME
     }
 
+    /**
+     * Width of the overlay windows, in px. The bar and menu windows are both pinned to the physical
+     * display, so this is the real display width and does not shrink when the left navigation pane
+     * appears. 0 until the service has pinned the windows.
+     */
+    var overlayWindowWidthPx by mutableStateOf(0)
+
+    /**
+     * Width of the left navigation pane, in px. The pane is a NAVIGATION_BAR window that always
+     * draws above our APPLICATION_OVERLAY windows, so overlay content is inset by this much to stay
+     * clear of it. Cached rather than measured live, so it stays constant when a fullscreen app
+     * hides the pane and the bar never reflows.
+     */
+    var overlayLeftGutterPx by mutableStateOf(0)
+
     var activeSliderType by mutableStateOf<SliderType?>(null)
     var sliderPositionX by mutableStateOf(0f)
     var sliderInteractionTrigger by mutableStateOf(0)

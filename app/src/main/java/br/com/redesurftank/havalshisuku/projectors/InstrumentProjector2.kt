@@ -1838,10 +1838,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                 outerContext
                         )
                 val metadata = themeManager.getThemeMetadata(customThemeName)
-                activeThemeMetadata = metadata
-                
-                val decentralized = metadata?.decentralized ?: false
-                Log.d(TAG, "Theme $customThemeName isThemeDecentralized = $decentralized")
+                if (metadata != null && !themeManager.isContractCompatible(metadata.contractVersion)) {
+                    Log.w(TAG, "Theme '$customThemeName' contract version '${metadata.contractVersion}' is incompatible. Falling back to default raw asset.")
+                    activeThemeMetadata = null
+                } else {
+                    activeThemeMetadata = metadata
+                    val decentralized = metadata?.decentralized ?: false
+                    Log.d(TAG, "Theme $customThemeName isThemeDecentralized = $decentralized")
+                }
 
                 val mainFile = metadata?.mainFile ?: "index.html"
 
@@ -2089,33 +2093,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         ensureUi { action.run() }
     }
 
-    override fun setCardId(cardId: Int) {
-        if (currentCard == cardId) {
-            Log.d(TAG, "Card ID bridge echo ignored: $cardId")
-            logClusterPerfEvent("js_card_echo", mapOf("cardId" to cardId))
-            return
-        }
-        val previousCard = currentCard
-        currentCard = cardId
-        updateKnownScreenForCard(cardId)
-        Log.d(TAG, "Card ID updated to $cardId")
-        logClusterPerfEvent(
-                "js_card_update",
-                mapOf("from" to previousCard, "to" to cardId)
-        )
-        ensureUi {
-            if (
-                    hasManagedSecondaryDisplayWork(3) &&
-                            ClusterCardFlowPolicy.cardCanAffectManagedAppBounds(
-                                    previousCard,
-                                    cardId
-                            )
-            ) {
-                lastAppliedConfigs.clear()
-                syncSecondaryDisplayApps(3)
-            }
-        }
-    }
+    // setCardId is intentionally gone. The theme used to echo the card back here, which
+    // made currentCard writable from JS and let a theme's stale view overwrite the card
+    // the car had reported. Card state flows one way: car -> backend -> theme.
 
     override fun updateHeartbeat() {
         lastHeartbeatTime = System.currentTimeMillis()

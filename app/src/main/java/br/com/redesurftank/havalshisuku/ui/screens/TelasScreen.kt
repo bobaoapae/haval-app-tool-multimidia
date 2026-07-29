@@ -262,7 +262,7 @@ fun CompactThemeCard(
                         }
                     } else {
                         Text(
-                                text = if (theme.name == "Default") "Original" else "Instalado",
+                                text = if (theme.name == "Default") "Original" else if (theme.version.isNotBlank()) "Instalado v${theme.version}" else "Instalado",
                                 color = if (isSelected) Color(0xFF4A9EFF) else Color(0xFFB0B8C4),
                                 fontSize = 11.sp
                         )
@@ -521,6 +521,8 @@ fun TelasTab() {
 
     // Refresh local themes on start just in case, and fetch from GitHub
     LaunchedEffect(Unit) {
+        ThemeManager.getInstance(context).sanitizeActiveThemeContract(context)
+        selectedTheme = prefs.getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default") ?: "Default"
         localThemes = ThemeManager.getInstance(context).getLocalThemes()
         if (githubThemes.isEmpty()) {
             isFetchingThemes = true
@@ -684,11 +686,48 @@ fun TelasTab() {
 
                     // Theme Selector - Horizontal compact carousel
                     Column {
-                        Text(
-                                "Tema do Painel (Toque para selecionar)",
-                                color = Color(0xFFB0B8C4),
-                                fontSize = 12.sp
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                    "Tema do Painel (Toque para selecionar)",
+                                    color = Color(0xFFB0B8C4),
+                                    fontSize = 12.sp
+                            )
+                            if (isFetchingThemes) {
+                                CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = Color(0xFF4A9EFF),
+                                        strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Buscar atualizações",
+                                        tint = Color(0xFF4A9EFF),
+                                        modifier = Modifier
+                                                .size(20.dp)
+                                                .clickable {
+                                                    isFetchingThemes = true
+                                                    scope.launch {
+                                                        try {
+                                                            localThemes = ThemeManager.getInstance(context).getLocalThemes()
+                                                            githubThemes = ThemeManager.getInstance(context)
+                                                                    .fetchThemesFromGithub(ThemeManager.THEME_REPO_URL)
+                                                        } catch (e: Exception) {
+                                                            if (BuildConfig.DEBUG) {
+                                                                Log.e("TelasTab", "Error refreshing themes", e)
+                                                            }
+                                                        } finally {
+                                                            isFetchingThemes = false
+                                                        }
+                                                    }
+                                                }
+                                )
+                            }
+                        }
                         Spacer(Modifier.height(8.dp))
                         val allThemes =
                                 remember(githubThemes, localThemes) {
@@ -751,7 +790,9 @@ fun TelasTab() {
                                         }
                                     }
 
-                                    merged
+                                    merged.filter {
+                                        ThemeManager.getInstance(context).isContractCompatible(it.contractVersion)
+                                    }
                                 }
 
                         Row(

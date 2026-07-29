@@ -6,11 +6,11 @@ import br.com.redesurftank.havalshisuku.models.ThemeMetadata
 
 object CompatTranslationLayer {
     private const val TAG = "CompatTranslation"
-    const val CURRENT_BRIDGE_VERSION = "1.1.9"
+    const val CURRENT_BRIDGE_VERSION = "1.0.0"
 
     fun injectPolyfillsIfNecessary(webView: WebView?, metadata: ThemeMetadata?) {
         if (webView == null) return
-        val minVersion = metadata?.minBridgeVersion ?: "1.0.0"
+        val minVersion = metadata?.minBridgeVersion ?: "0.1.0"
         
         Log.d(TAG, "Checking compat: theme minBridgeVersion = $minVersion, active BRIDGE_VERSION = $CURRENT_BRIDGE_VERSION")
 

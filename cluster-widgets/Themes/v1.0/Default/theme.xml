@@ -5,7 +5,8 @@
     <thumbnail>thumbnail.png</thumbnail>
     <mainFile>index.html</mainFile>
     <decentralized>true</decentralized>
-    <minBridgeVersion>1.1.9</minBridgeVersion>
+    <minBridgeVersion>1.0.0</minBridgeVersion>
+    <contractVersion>v1.0</contractVersion>
     <AppDefaultPosition>
         <x>0</x>
         <y>62</y>

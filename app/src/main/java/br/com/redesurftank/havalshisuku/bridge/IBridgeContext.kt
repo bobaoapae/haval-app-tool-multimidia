@@ -9,7 +9,10 @@ interface IBridgeContext {
     val subscribedKeys: MutableSet<String>
     fun runOnUiThread(action: Runnable)
     fun updateWarningUI(isActive: Boolean)
-    fun setCardId(cardId: Int)
+    // No setCardId: the active card is owned by the car and flows one way only,
+    // car -> backend -> theme via window.onCardChanged(cardId). A frontend->backend
+    // card channel gave currentCard two writers and let a theme's view of the card
+    // overwrite the car's.
     fun saveClusterDisplay(value: String)
     fun updateHeartbeat()
     fun refreshDisplayBounds()

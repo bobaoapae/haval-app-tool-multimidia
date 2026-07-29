@@ -383,7 +383,9 @@ function handleSteeringWheelKey(keyName) {
         }
     } else if (screen === 'aircon') {
         const focusArea = get('focusArea') || 'fan';
-        if (keyName === 'LEFT' || keyName === 'RIGHT' || keyName === 'ENTER') {
+        // ENTER only: LEFT/RIGHT are reserved for cluster card navigation and are never
+        // delivered to themes, so keying fan/temp focus off them silently did nothing.
+        if (keyName === 'ENTER') {
             setState('focusArea', focusArea === 'fan' ? 'temp' : 'fan');
         } else if (keyName === 'UP' || keyName === 'DOWN') {
             if (focusArea === 'fan') {
@@ -729,10 +731,9 @@ initDecentralizedBridge().catch(e => console.error("Bridge initialization failed
 subscribe('cardId', (cardId) => {
     logger.log('cardId change:', cardId);
 
-    // Sync with Android bridge for correct app resizing
-    if (window.Android && window.Android.setCardId) {
-        window.Android.setCardId(cardId);
-    }
+    // No echo back to the backend: the card is owned by the car and travels one way,
+    // car -> backend -> onCardChanged. Reporting it back gave the backend a second
+    // writer for the active card.
 
     // 0 = hide the right menu display
     if (menuWrapper) {

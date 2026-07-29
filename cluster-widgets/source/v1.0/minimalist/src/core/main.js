@@ -319,10 +319,9 @@ subscribe('cardId', (cardId) => {
         setState('warningDismissed', false);
     }
 
-    // Sync with Android bridge for correct app resizing
-    if (window.Android && window.Android.setCardId) {
-        window.Android.setCardId(cardId);
-    }
+    // No echo back to the backend: the card is owned by the car and travels one way,
+    // car -> backend -> onCardChanged. Reporting it back gave the backend a second
+    // writer for the active card.
 
     // Top menu container stays mounted; card 0 hides right content via .card-0-active
     if (menuWrapper) {

@@ -118,33 +118,98 @@ The metadata file tells the launcher how to identify and validate your theme:
     <name>Sports Radial</name>
     <description>Vibrant neon instrumentation dials with radial grid layouts.</description>
     <version>1.2.0</version>
-    <minBridgeVersion>1</minBridgeVersion>
+    <minBridgeVersion>1.0.0</minBridgeVersion>
+    <contractVersion>v1.0</contractVersion>
     <thumbnail>thumbnail.png</thumbnail>
     <mainFile>app.html</mainFile>
 </theme>
 ```
 
-* **`<minBridgeVersion>`**: Required. Tells the Android launcher the minimum bridge protocol required. If the app version is lower than this value, it will prevent load to avoid runtime crashes.
+* **`<minBridgeVersion>`**: Required. Specifies the minimum Android JavaScript Bridge API version required (`1.0.0` for current standardized bridge, `0.1.0` for legacy bridge).
+* **`<contractVersion>`**: Required. Specifies the telemetry schema and layout contract (`v1.0`).
+
+---
+
+## Architectural Separation: Bridge Version vs. Contract Version
+
+* **Bridge Version (`minBridgeVersion` / `CURRENT_BRIDGE_VERSION = "1.0.0"`)**:
+  - Defines the **native Java/Kotlin API capabilities** exposed to WebView JS via `window.Android`.
+  - Controls whether methods like `window.Android.subscribe()`, `setClusterBackground()`, or `launchApp()` exist.
+  - Backward compatibility is maintained dynamically via JS polyfills in `CompatTranslationLayer.kt`.
+* **Contract Version (`contractVersion = "v1.0"`)**:
+  - Defines the **telemetry data key dictionary** (`car.basic.vehicle_speed`), steering key event protocol (`'UP'`, `'DOWN'`, `'ENTER'`, `'BACK'`), and layout rules.
+  - Used by `ThemeManager.kt` and `TelasScreen.kt` to ensure only compatible themes are displayed in the Telas tab.
 
 ---
 
 ## The JavaScript Bridge & Primitives
 
-Theme interactions occur via the global `window.Android` namespace and standard reactive hooks:
+Theme interactions occur via the global `window.Android` namespace and standard reactive hooks.
 
-### JS-to-Android Hooks
-* **`window.Android.subscribe(keysJson)`**: Registers persistent push updates for one or more keys (JSON encoded string array, e.g. `'["CAR_SPEED"]'`). Immediately triggers `onDataChanged` with their current values.
-* **`window.Android.unsubscribe(keysJson)`**: Unsubscribes from push notifications.
-* **`window.Android.getCarData(key)`**: Performs a one-shot read for a telemetry value.
-* **`window.Android.updateCarData(key, value)`**: Commands the backend to write a CAN option.
-* **`window.Android.triggerSystemAction(action)`**: Executes quick native commands (`'CANCEL_MAX_AC'`, `'TRIGGER_AVM_CAMERA'`, `'DISMISS_WARNINGS'`).
-* **`window.Android.savePreference(key, value)`** and **`getPreference(key, defaultValue)`**: Read/write user-persistent UI state.
+### Complete Bridge Function Reference (`v1.0` / `1.0.0`)
+
+| Category | Function | Direction | Description |
+| :--- | :--- | :--- | :--- |
+| **Diagnostics** | `heartbeat()` | JS → Host | Periodic ping (every 2s) to signal WebView renderer liveness. |
+| **Diagnostics** | `getAvailableKeys(): String` | JS → Host | Returns JSON array of all supported CAN-bus/app telemetry keys. |
+| **Telemetry** | `subscribe(keysJson: String)` | JS → Host | Subscribes theme to live CAN-bus streaming for JSON array of keys. |
+| **Telemetry** | `unsubscribe(keysJson: String)` | JS → Host | Unsubscribes theme from telemetry updates. |
+| **Telemetry** | `getCarData(key: String): String` | JS → Host | Synchronously reads current cached telemetry value for a key. |
+| **Telemetry** | `updateCarData(key: String, val: String)` | JS → Host | Sends CAN-bus setting command back to vehicle hardware. |
+| **Layout & Cutouts** | `setAppDefaultDimensions(x, y, w, h)` | JS → Host | Informs Android of theme canvas bounds for CarPlay/AA cutouts. |
+| **Layout & Cutouts** | `setWarningActive(isActive: Boolean)` | JS → Host | Toggles cluster warning banner overlay state. |
+| **Wallpaper** | `setClusterBackground(type, val)` | JS → Host | Sets Display-1 cluster background (`THEME`, `PRESET`, `IMAGE_URL`, `FILE`, `COLOR`). |
+| **Wallpaper** | `setThemeBackground(relativePath)` | JS → Host | Registers theme package wallpaper asset (e.g. `car-bg.png`). |
+| **Preferences** | `savePreference(key, val)` | JS → Host | Persists theme-scoped user configuration. |
+| **Preferences** | `getPreference(key, defaultVal): String` | JS → Host | Reads theme-scoped user configuration. |
+| **Preferences** | `saveSetting(key, val)` | JS → Host | Saves cluster display setting. |
+| **System Actions** | `triggerSystemAction(action, payload)` | JS → Host | Triggers vehicle action (`CANCEL_MAX_AC`, `TRIGGER_AVM_CAMERA`, `BRING_ALL_TO_MAIN`). |
+| **Multi-Display** | `launchApp(packageName, displayId)` | JS → Host | Launches target Android app on main or cluster display. |
+| **Multi-Display** | `killApp(packageName)` | JS → Host | Kills target Android app process. |
+
+### Lifecycle Execution Sequence
+
+```mermaid
+sequenceDiagram
+    participant Android as Android Host App
+    participant WebView as WebView Engine
+    participant Theme as Theme JS Frontend
+
+    Android->>WebView: 1. addJavascriptInterface(ThemeBridgeImpl, "Android")
+    Android->>WebView: 2. loadUrl("file:///.../app.html")
+    WebView->>Android: 3. onPageFinished() event
+    Android->>WebView: 4. CompatTranslationLayer.injectPolyfillsIfNecessary()
+    Theme->>Android: 5. window.Android.subscribe(keysJson)
+    Theme->>Android: 6. window.Android.setAppDefaultDimensions(x, y, w, h)
+    Android->>Theme: 7. updateValuesWebView() [Initial telemetry snapshot push]
+    Theme->>Android: 8. window.Android.heartbeat() [Every 2s ping]
+    Android->>Theme: 9. window.onCarDataChanged(key, value) [Live telemetry push]
+    Android->>Theme: 10. window.onKeyEvent(keyName) [Steering wheel button press]
+    Android->>Theme: 11. window.onCardChanged(cardId) [Vehicle switched active card]
+```
+
+Note the direction of step 11: card changes originate in the vehicle, not in the theme and
+not in the host. LEFT/RIGHT wheel presses are consumed by the vehicle's own cluster
+navigation and never reach step 10.
 
 ### Reacting to Backend Pushes
 Exposed globally in the window scope:
-* **`window.onKeyEvent(keyName)`**: Triggered on physical wheel inputs (`'UP'`, `'DOWN'`, `'LEFT'`, `'RIGHT'`, `'ENTER'`, `'BACK'`, `'ENTER_LONG'`, `'BACK_LONG'`).
+* **`window.onKeyEvent(keyName)`**: Triggered on physical wheel inputs (`'UP'`, `'DOWN'`, `'ENTER'`, `'BACK'`, `'HOME'`, `'ENTER_LONG'`, `'BACK_LONG'`).
+  **`LEFT` and `RIGHT` are never delivered.** They are reserved for cluster card
+  navigation, which the vehicle performs itself; the host deliberately withholds them so a
+  theme cannot fight the car for card control. A theme needing a two-way toggle should use
+  `ENTER` (as the Default theme's AC screen does for fan/temp focus).
 * **`window.onDataChanged(key, value)`**: Triggered when a subscribed telemetry key emits a new value.
-* **`window.onCardChanged(cardId)`**: Fired when native launcher focus/active card changes (0 = Hidden, 1 = Main Widgets, 3 = AC).
+* **`window.onCardChanged(cardId)`**: Fired when the active cluster card changes
+  (0 = Hidden, 1 = Main Widgets, 3 = AC). **Required — every v1.0 theme must implement it.**
+  This is the single channel by which a theme learns the active card, and it is one-way:
+  the card is owned by the vehicle and flows car → host → theme. There is deliberately no
+  reverse channel; a theme must never report a card back to the host.
+
+  Note that `cardId` is **not** a 1:1 map of what the cluster is displaying. Card 0 has
+  vehicle-state-dependent sub-pages (two of them while the car is charging), and every one
+  of them reports `cardId` 0. A theme must therefore not infer a card ordering, assume a
+  fixed rotation, or treat "same `cardId` as before" as "nothing changed on the cluster".
 
 ---
 
