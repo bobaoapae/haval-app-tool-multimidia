@@ -88,7 +88,7 @@ class ThemeManager private constructor(val context: Context) {
     }
 
     fun isContractCompatible(contractVersion: String?): Boolean {
-        if (contractVersion.isNullOrBlank()) return false
+        if (contractVersion.isNullOrBlank() || contractVersion.equals("legacy", ignoreCase = true)) return false
         val normalized = contractVersion.trim().lowercase().let {
             if (it.startsWith("v")) it else "v$it"
         }
@@ -205,6 +205,14 @@ class ThemeManager private constructor(val context: Context) {
                 ""
             }
             
+            val resolvedContractVersion = if (contractVersion.isNotBlank()) {
+                contractVersion
+            } else if (folderName.equals("Default", ignoreCase = true) || folderName.equals("minimalist", ignoreCase = true)) {
+                "v1.0"
+            } else {
+                "legacy"
+            }
+            
             return ThemeMetadata(
                 name = name,
                 description = description,
@@ -219,7 +227,7 @@ class ThemeManager private constructor(val context: Context) {
                 height = height,
                 decentralized = decentralized,
                 minBridgeVersion = minBridgeVersion,
-                contractVersion = contractVersion.ifEmpty { "v1.0" },
+                contractVersion = resolvedContractVersion,
                 configurations = configurations,
                 background = background,
                 backgroundAbsolutePath = resolvedBackgroundAbs

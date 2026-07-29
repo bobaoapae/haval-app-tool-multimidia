@@ -301,8 +301,13 @@ fun BottomBarContent() {
                 onDispose { serviceManager.removeDataChangedListener(listener) }
         }
 
+        // The window spans the physical display, so inset the content past the left navigation pane
+        // (which draws above us). Constant at runtime, so the bar never reflows when a fullscreen app
+        // hides the pane.
+        val leftGutter = with(LocalDensity.current) { BottomBarState.overlayLeftGutterPx.toDp() }
+
         Box(
-                modifier = Modifier.fillMaxWidth().height(60.dp),
+                modifier = Modifier.fillMaxWidth().height(60.dp).padding(start = leftGutter),
                 contentAlignment = Alignment.BottomCenter
         ) {
                 if (BottomBarState.isVisible && !BottomBarState.isDashboardExpanded) {
@@ -1812,55 +1817,74 @@ fun BottomBarMenus() {
                         Box(
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 60.dp),
                         ) {
-                                // Custom Vertical Slider Overlay
+                                // Custom Vertical Slider Overlay. Deliberately outside the gutter
+                                // inset below: it positions itself from an absolute root coordinate
+                                // captured in the bar window, so an extra inset would double-count.
                                 if (BottomBarState.activeSliderType != null) {
                                         VerticalSliderOverlay()
                                 }
 
-                                // App Menu (Left side)
-                                if (br.com.redesurftank.havalshisuku.models.BottomBarState
-                                                .isMenuExpanded
-                                ) {
-                                        Box(
-                                                modifier =
-                                                        Modifier.padding(start = 16.dp)
-                                                                .align(Alignment.BottomStart)
-                                                                .onGloballyPositioned {
-                                                                        appMenuBounds =
-                                                                                it.boundsInRoot()
-                                                                }
-                                        ) { AppMenuContent() }
-                                }
+                                // The window spans the physical display; inset the menus past the
+                                // left navigation pane, which draws above us. This also makes the
+                                // menus measure against the app width, so their proportional widths
+                                // are unchanged by the pin.
+                                val leftGutter =
+                                        with(LocalDensity.current) {
+                                                BottomBarState.overlayLeftGutterPx.toDp()
+                                        }
 
-                                // Settings/Override Menu
-                                if (BottomBarState.isSettingsMenuExpanded ||
-                                                BottomBarState.isOverrideMenuExpanded
-                                ) {
-                                        Box(
-                                                modifier =
-                                                        Modifier.align(
-                                                                        if (BottomBarState
-                                                                                        .isSettingsMenuExpanded
-                                                                        )
-                                                                                Alignment
-                                                                                        .BottomStart
-                                                                        else Alignment.BottomEnd
-                                                                )
-                                                                .padding(horizontal = 16.dp)
-                                                                .onGloballyPositioned {
-                                                                        secondaryMenuBounds =
-                                                                                it.boundsInRoot()
-                                                                }
+                                Box(modifier = Modifier.fillMaxWidth().padding(start = leftGutter)) {
+                                        // App Menu (Left side)
+                                        if (br.com.redesurftank.havalshisuku.models.BottomBarState
+                                                        .isMenuExpanded
                                         ) {
-                                                if (BottomBarState.isSettingsMenuExpanded) {
-                                                        SettingsMenuContent(
-                                                                driveMode,
-                                                                powerModel,
-                                                                energyRecovery,
-                                                                steeringMode
-                                                        )
-                                                } else if (BottomBarState.isOverrideMenuExpanded) {
-                                                        OverrideMenuContent()
+                                                Box(
+                                                        modifier =
+                                                                Modifier.padding(start = 16.dp)
+                                                                        .align(
+                                                                                Alignment.BottomStart
+                                                                        )
+                                                                        .onGloballyPositioned {
+                                                                                appMenuBounds =
+                                                                                        it.boundsInRoot()
+                                                                        }
+                                                ) { AppMenuContent() }
+                                        }
+
+                                        // Settings/Override Menu
+                                        if (BottomBarState.isSettingsMenuExpanded ||
+                                                        BottomBarState.isOverrideMenuExpanded
+                                        ) {
+                                                Box(
+                                                        modifier =
+                                                                Modifier.align(
+                                                                                if (BottomBarState
+                                                                                                .isSettingsMenuExpanded
+                                                                                )
+                                                                                        Alignment
+                                                                                                .BottomStart
+                                                                                else
+                                                                                        Alignment
+                                                                                                .BottomEnd
+                                                                        )
+                                                                        .padding(horizontal = 16.dp)
+                                                                        .onGloballyPositioned {
+                                                                                secondaryMenuBounds =
+                                                                                        it.boundsInRoot()
+                                                                        }
+                                                ) {
+                                                        if (BottomBarState.isSettingsMenuExpanded) {
+                                                                SettingsMenuContent(
+                                                                        driveMode,
+                                                                        powerModel,
+                                                                        energyRecovery,
+                                                                        steeringMode
+                                                                )
+                                                        } else if (BottomBarState
+                                                                        .isOverrideMenuExpanded
+                                                        ) {
+                                                                OverrideMenuContent()
+                                                        }
                                                 }
                                         }
                                 }
@@ -6670,8 +6694,18 @@ fun VerticalSliderOverlay() {
         val density = LocalDensity.current
         val sliderWidthDp = 80.dp
         val sliderWidthPx = with(density) { sliderWidthDp.toPx() }
-        val screenWidthPx = LocalConfiguration.current.screenWidthDp * density.density
-        val finalX = (positionX - sliderWidthPx / 2f).coerceIn(0f, screenWidthPx - sliderWidthPx)
+        // positionX is a root coordinate from the bar window, which is pinned to the physical display
+        // - so clamp against the window width, not the (inset) app width, and keep the slider out of
+        // the left navigation pane's gutter.
+        val windowWidthPx =
+                BottomBarState.overlayWindowWidthPx
+                        .takeIf { it > 0 }
+                        ?.toFloat()
+                        ?: (LocalConfiguration.current.screenWidthDp * density.density)
+        val gutterPx = BottomBarState.overlayLeftGutterPx.toFloat()
+        val finalX =
+                (positionX - sliderWidthPx / 2f)
+                        .coerceIn(gutterPx, (windowWidthPx - sliderWidthPx).coerceAtLeast(gutterPx))
         val finalXDp = with(density) { finalX.toDp() }
 
         Box(

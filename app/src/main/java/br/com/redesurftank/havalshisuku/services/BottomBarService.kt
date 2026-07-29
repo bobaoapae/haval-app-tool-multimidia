@@ -3638,13 +3638,8 @@ class BottomBarService : LifecycleService() {
                                     composeView.width.takeIf { it > 0 } ?: displayMetrics.widthPixels
 
                             if (isMenuWindow) {
-                                // Menu window is MATCH_PARENT (full screen height)
-                                val anyMenuExpanded =
-                                        BottomBarState.isMenuExpanded ||
-                                                BottomBarState.isDashboardExpanded ||
-                                                BottomBarState.isSettingsMenuExpanded ||
-                                                BottomBarState.isOverrideMenuExpanded ||
-                                                BottomBarState.activeSliderType != null
+                                // Menu window covers the full pinned display
+                                val anyMenuExpanded = isAnyMenuExpanded()
                                 Log.d(
                                         "BottomBarService",
                                         "TouchRegion[MENU] anyMenuExpanded=$anyMenuExpanded"
@@ -3670,23 +3665,27 @@ class BottomBarService : LifecycleService() {
                                         "TouchRegion[BAR] isVisible=${BottomBarState.isVisible}, windowWidth=$windowWidth, windowHeight=$windowHeight, visibleBarTouchHeight=$visibleBarTouchHeight"
                                 )
 
+                                // The left navigation pane draws above us and owns the gutter, so
+                                // there is nothing of ours to touch there.
+                                val left = BottomBarState.overlayLeftGutterPx
+
                                 if (BottomBarState.isVisible) {
                                     // Main Bar touchable area - full width, bottom 80dp
                                     region.union(
                                             Rect(
-                                                    0,
+                                                    left,
                                                     windowHeight - visibleBarTouchHeight,
                                                     windowWidth,
                                                     windowHeight
                                             )
                                     )
                                     // Top Handle for swipe gesture
-                                    region.union(Rect(0, 0, windowWidth, topHandleHeight))
+                                    region.union(Rect(left, 0, windowWidth, topHandleHeight))
                                 } else {
                                     // Hidden: only a small trigger zone at the bottom for swipe-up
                                     region.union(
                                             Rect(
-                                                    0,
+                                                    left,
                                                     windowHeight - hiddenTriggerHeight,
                                                     windowWidth,
                                                     windowHeight
