@@ -58,7 +58,7 @@ function isMainMenuSessionScreen(screen) {
 
 function getEffectiveDisplayMode() {
     if (isProjectionMapDisplayActive()) {
-        return 'Mapa';
+        return get('navigationDisplayMode') || 'Mapa';
     }
     return get('display') || 'Normal';
 }
@@ -313,6 +313,7 @@ subscribe('hiddenBars', (val) => {
 subscribe('mode', render);
 subscribe('gaugeStyle', render);
 subscribe('barImages', render);
+subscribe('navigationDisplayMode', render);
 
 subscribe('clusterEnabled', render);
 subscribe('appInDash', render);
@@ -521,6 +522,7 @@ async function initDecentralizedBridge() {
     bridge.bindThemeSetting('mode', 'Dark', setState);
     bridge.bindThemeSetting('gaugeStyle', 'Esportivo', setState);
     bridge.bindThemeSetting('barImages', true, setState);
+    bridge.bindThemeSetting('navigationDisplayMode', 'Mapa', setState);
     const enableOdometer = bridge.getPreference('enableOdometer', 'true') === 'true';
     const enableRevisionWarning = bridge.getPreference('enableRevisionWarning', 'false') === 'true';
     const nextRevisionKm = Number(bridge.getPreference('nextRevisionKm', '0')) || 0;
@@ -533,9 +535,12 @@ async function initDecentralizedBridge() {
     setState('nextRevisionDate', nextRevisionDate);
     setState('fuelDisplayUnit', fuelUnit);
     
-    // Sync initial cardId from JNI
-    const initialCardId = Number(bridge.getCarData('cardId')) || 1;
-    setState('cardId', initialCardId);
+    // No initial cardId seeding here. The card is owned by the car and arrives via
+    // window.onCardChanged, which the host pushes on page load as well as on every
+    // change. Reading it back off the car-data map made this async init a second
+    // writer that raced the push: it landed after it and reset the card to 1, so
+    // loading the theme while the cluster sat on card 3 dropped to the main menu.
+    // (The old `|| 1` also mapped card 0 to 1, since Number('0') is falsy.)
 
     const handleGraphTelemetry = createGraphTelemetryHandler(setState, {
         adjustSpeed: (rawSpeed) => {
