@@ -24,6 +24,7 @@ export function createMask() {
 
     const updateVisibility = () => {
         const appInDash = get('appInDash');
+        const carPlayInDash = get('carPlayInDash') === true || get('projectionMirrorInDash') === true;
         const cardId = get('cardId');
         const isCard0 = cardId == 0 || cardId === '0';
 
@@ -32,23 +33,22 @@ export function createMask() {
         rightPanel.style.visibility = isCard0 ? 'hidden' : 'visible';
         maskBg.classList.toggle('card-0-active', isCard0);
 
-        // partialAppMask / warnMask opacity hooks left commented for future use
-        // partialAppMask.style.opacity = ...
-        // warnMask.style.opacity = ...
+        const isAppActive = (appInDash === true || appInDash === 'left' || appInDash === 'right') && !carPlayInDash;
 
-        if (appInDash === true || appInDash === 'left' || appInDash === 'right') {
-            maskBg.classList.add('app-in-dash-active');
-            document.body.classList.add('app-in-dash-active');
-        } else {
-            maskBg.classList.remove('app-in-dash-active');
-            document.body.classList.remove('app-in-dash-active');
-        }
+        maskBg.classList.toggle('app-in-dash-active', isAppActive);
+        maskBg.classList.toggle('carplay-in-dash', carPlayInDash);
+        maskBg.classList.toggle('projection-map-display-active', carPlayInDash);
+        document.body.classList.toggle('app-in-dash-active', isAppActive);
+        document.body.classList.toggle('carplay-in-dash', carPlayInDash);
+        document.body.classList.toggle('projection-map-display-active', carPlayInDash);
     };
 
     const unsub1 = subscribe('appInDash', updateVisibility);
     const unsub2 = subscribe('cardId', updateVisibility);
     const unsub3 = subscribe('warningActive', updateVisibility);
     const unsub4 = subscribe('warningDismissed', updateVisibility);
+    const unsub5 = subscribe('carPlayInDash', updateVisibility);
+    const unsub6 = subscribe('projectionMirrorInDash', updateVisibility);
     updateVisibility();
 
     return {
@@ -59,6 +59,8 @@ export function createMask() {
             unsub2();
             unsub3();
             unsub4();
+            unsub5();
+            unsub6();
         }
     };
 }

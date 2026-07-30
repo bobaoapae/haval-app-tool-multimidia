@@ -155,6 +155,7 @@ function initializeLayout() {
 
 function render() {
     logger.enter('render', { screen: get('screen'), display: get('display') });
+    updateAppDimensions();
     const screen = get('screen');
     const projectionMapDisplayActive = isProjectionMapDisplayActive();
     const displayMode = getEffectiveDisplayMode();
@@ -298,6 +299,56 @@ function render() {
         }
     }
     logger.leave('render');
+}
+
+function updateAppDimensions() {
+    const hiddenBars = get('hiddenBars') || 'Nenhuma';
+    let x = 0;
+    let y = 62;
+    let width = 1920;
+    let height = 596;
+
+    if (hiddenBars === 'Superior' || hiddenBars === 'Ambas') {
+        y = 0;
+        height += 62;
+    }
+    if (hiddenBars === 'Inferior' || hiddenBars === 'Ambas') {
+        height += 62;
+    }
+
+    if (window.Android && typeof window.Android.setAppDefaultDimensions === 'function') {
+        window.Android.setAppDefaultDimensions(x, y, width, height);
+    } else {
+        console.log(`[AppDimensions] Default theme setAppDefaultDimensions(x: ${x}, y: ${y}, w: ${width}, h: ${height})`);
+    }
+
+    const isMapActive = isProjectionMapDisplayActive();
+    // TODO: Review map app resizing in future. For now, map background stays 1920x720.
+
+    const devBg = document.querySelector('.dev-background');
+    if (devBg) {
+        let badge = devBg.querySelector('.dev-bg-badge');
+        if (!badge) {
+            badge = div({ className: 'dev-bg-badge' });
+            devBg.appendChild(badge);
+        }
+
+        if (isMapActive) {
+            devBg.style.left = '0px';
+            devBg.style.top = '0px';
+            devBg.style.width = '1920px';
+            devBg.style.height = '720px';
+            devBg.style.backgroundSize = '100% 100%';
+            badge.textContent = 'Map In Dash (Fixed 1920x720)';
+        } else {
+            devBg.style.left = `${x}px`;
+            devBg.style.top = `${y}px`;
+            devBg.style.width = `${width}px`;
+            devBg.style.height = `${height}px`;
+            devBg.style.backgroundSize = '100% 100%';
+            badge.textContent = `App In Dash: x=${x}, y=${y}, w=${width}, h=${height} (${hiddenBars})`;
+        }
+    }
 }
 
 subscribe('warningActive', () => render());

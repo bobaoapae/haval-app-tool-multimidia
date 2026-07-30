@@ -257,6 +257,14 @@ document.addEventListener('keydown', (e) => {
         setState('appInDash', nextValue);
     }
 
+    if (e.key.toLowerCase() === 'n') {
+        const currentNav = stateManager.getState().carPlayInDash === true || stateManager.getState().projectionMirrorInDash === true;
+        const nextNav = !currentNav;
+        console.log(`[Navigation Simulation] Toggle projectionInDash (CarPlay/AA) -> ${nextNav}`);
+        setState('carPlayInDash', nextNav);
+        setState('projectionMirrorInDash', nextNav);
+    }
+
     if (e.key.toLowerCase() === 'c') {
         const current = stateManager.getState().clusterEnabled;
         console.log(`[Cluster Simulation] Toggling clusterEnabled to: ${!current}`);

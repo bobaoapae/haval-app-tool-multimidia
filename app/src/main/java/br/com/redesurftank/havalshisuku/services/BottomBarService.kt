@@ -213,68 +213,125 @@ class BottomBarService : LifecycleService() {
 
     private val BOTTOM_BAR_BASE_HEIGHT_DP = 60f
     private val REFERENCE_OVERSCAN = 20
+    private val MAX_HOLD_CORRECTIONS = 4
+    private val HOLD_SETTLE_MS = 250L
 
     /**
-     * Last non-zero width of the left navigation pane, in px. Kept even after a fullscreen app hides
-     * the pane so the content gutter never changes at runtime.
+     * Physical width of the left navigation pane, in px: the largest on-screen offset our bar window
+     * has ever been given. Only ever grows, so the content gutter stays put once a fullscreen app
+     * hides the pane.
      */
     private var cachedLeftGutterPx = 0
+    private var lastLoggedGutterPx = -1
 
     /**
-     * Pins an overlay window to the physical display: real display width, left edge at physical x=0.
-     *
-     * The left navigation pane is a NAVIGATION_BAR window that insets the frame our windows are laid
-     * out against, so a MATCH_PARENT overlay silently shrinks (1920 -> 1792) and shifts right by the
-     * pane width whenever the pane appears. Requesting the real width with `gravity=START` and
-     * `x = -leftInset` cancels that out: `x` is relative to the parent frame's left edge, which moves
-     * with the pane by exactly `leftInset`, so the window lands at physical 0 in both states.
-     *
-     * Requires FLAG_LAYOUT_NO_LIMITS on the window, otherwise the width is clamped to the frame.
+     * Consecutive failed attempts to pull a window back to physical x=0, per window. Guards against
+     * relayout looping forever if WindowManager ever refuses the offset we ask for.
      */
-    private fun pinToPhysicalDisplay(lp: WindowManager.LayoutParams) {
+    private val holdAttempts = java.util.WeakHashMap<android.view.View, Int>()
+
+    /**
+     * Windows with a correction in flight. Without this, a second layout pass reads the old position
+     * and corrects again on top of a correction already applied, which made x oscillate -128/-256.
+     */
+    private val holdPending = java.util.WeakHashMap<android.view.View, Boolean>()
+
+    /** Real display width in px (1920 here) - the width both overlay windows are held at. */
+    private fun realDisplayWidth(): Int {
         val metrics = android.util.DisplayMetrics()
         mWindowManager?.defaultDisplay?.getRealMetrics(metrics)
-        val realWidth = metrics.widthPixels
-        val realHeight = metrics.heightPixels
-        if (realWidth <= 0) return
-
-        val appWidth = resources.displayMetrics.widthPixels
-        val leftInset = (realWidth - appWidth).coerceAtLeast(0)
-        if (leftInset > 0) {
-            cachedLeftGutterPx = leftInset
-        }
-
-        lp.width = realWidth
-        lp.x = -leftInset
-        lp.gravity = Gravity.BOTTOM or Gravity.START
-
-        BottomBarState.overlayWindowWidthPx = realWidth
-        BottomBarState.overlayLeftGutterPx = cachedLeftGutterPx
-
-        Log.d(
-                "BottomBarService",
-                "[PIN] real=${realWidth}x$realHeight app=$appWidth leftInset=$leftInset gutter=$cachedLeftGutterPx x=${lp.x} w=${lp.width}"
-        )
+        return metrics.widthPixels
     }
 
-    /** Re-applies the physical pin to both overlay windows after a display/configuration change. */
-    private fun repinOverlayWindows() {
-        val wm = mWindowManager ?: return
+    /**
+     * Holds an overlay window at physical x=0 across the full display width, so it never resizes when
+     * the left navigation pane appears.
+     *
+     * The windows are anchored to the frame's RIGHT edge, which the pane never moves (it is 1920 in
+     * both states) - so with an explicit full-display width they already span [0,1920] at all times,
+     * and nothing has to be corrected when the pane appears. That is what keeps the bar from visibly
+     * resizing on the transition.
+     *
+     * This is only a safety net for the case where the right edge does move after all. It corrects
+     * from where the window actually landed (getLocationOnScreen is authoritative, unlike
+     * `resources.displayMetrics`, which lags the live frame and put the window at [-128,1792] once and
+     * [128,2048] after a restart). With RIGHT gravity a positive `x` moves the window left, hence the
+     * sign here.
+     */
+    private fun holdWindowAtPhysicalLeft(view: android.view.View, lp: WindowManager.LayoutParams) {
+        if (view.width <= 0) return
+        if (holdPending[view] == true) return
 
-        params?.let { lp ->
-            pinToPhysicalDisplay(lp)
-            composeView?.let { cv ->
-                try {
-                    wm.updateViewLayout(cv, lp)
-                } catch (e: Exception) {
-                    Log.e("BottomBarService", "Error re-pinning bar window", e)
-                }
-            }
+        val location = IntArray(2)
+        view.getLocationOnScreen(location)
+        val physicalLeft = location[0]
+        if (physicalLeft == 0) {
+            holdAttempts.remove(view)
+            return
         }
 
-        // The menu window is collapsed to 0x0 while hidden; updateMenuWindow re-pins it on show.
-        if (isMenuWindowAdded && isAnyMenuExpanded()) {
-            updateMenuWindow(true)
+        val attempts = (holdAttempts[view] ?: 0) + 1
+        holdAttempts[view] = attempts
+        if (attempts > MAX_HOLD_CORRECTIONS) {
+            if (attempts == MAX_HOLD_CORRECTIONS + 1) {
+                Log.e(
+                        "BottomBarService",
+                        "[HOLD] giving up after $MAX_HOLD_CORRECTIONS tries; window stuck at left=$physicalLeft"
+                )
+            }
+            return
+        }
+
+        lp.x += physicalLeft
+        realDisplayWidth().takeIf { it > 0 }?.let { lp.width = it }
+        Log.w(
+                "BottomBarService",
+                "[HOLD] observedLeft=$physicalLeft -> x=${lp.x} w=${lp.width} (try $attempts)"
+        )
+        // Deferred: this runs from a layout/insets pass, which is not a safe point to relayout.
+        holdPending[view] = true
+        view.post {
+            try {
+                mWindowManager?.updateViewLayout(view, lp)
+            } catch (e: Exception) {
+                Log.e("BottomBarService", "Error holding window at physical left", e)
+            } finally {
+                // Let the new frame settle before trusting another observation.
+                view.postDelayed({ holdPending.remove(view) }, HOLD_SETTLE_MS)
+            }
+        }
+    }
+
+    /**
+     * Publishes the geometry the Compose layer needs. With the windows held at physical 0 spanning the
+     * whole display, the content gutter is simply the pane's width - a constant, so nothing reflows.
+     */
+    private fun syncOverlayMetrics(view: android.view.View) {
+        // The app frame inset lags the live frame, but it only ever needs to be seen once: the cache
+        // keeps the largest value, so the gutter is stable from then on.
+        val observedPaneWidth = realDisplayWidth() - resources.displayMetrics.widthPixels
+        if (observedPaneWidth > cachedLeftGutterPx) {
+            cachedLeftGutterPx = observedPaneWidth
+        }
+
+        // With the pane hidden on purpose there is nothing to stay clear of, so hand the content the
+        // full width instead of leaving a permanent empty gutter.
+        val gutter = if (BottomBarState.leftNavPaneHidden) 0 else cachedLeftGutterPx
+        if (BottomBarState.overlayLeftGutterPx != gutter) {
+            BottomBarState.overlayLeftGutterPx = gutter
+        }
+        val width = view.width
+        if (width > 0 && BottomBarState.overlayWindowWidthPx != width) {
+            BottomBarState.overlayWindowWidthPx = width
+        }
+
+        if (gutter != lastLoggedGutterPx) {
+            lastLoggedGutterPx = gutter
+            // Log.w: this device drops Log.d for our tags.
+            Log.w(
+                    "BottomBarService",
+                    "[GUTTER] width=$width paneWidth=$cachedLeftGutterPx gutter=$gutter"
+            )
         }
     }
 
@@ -287,13 +344,14 @@ class BottomBarService : LifecycleService() {
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
-        // The left navigation pane showing/hiding changes the app frame, which is the only thing the
-        // pin depends on. Re-apply it so the windows stay at physical x=0.
-        Log.d(
+        // The pane showing/hiding resizes our windows; recompute the content gutter from the new
+        // frame. The layout pass that follows also calls syncOverlayMetrics, this just makes the
+        // update immediate.
+        Log.w(
                 "BottomBarService",
-                "onConfigurationChanged screenWidthDp=${newConfig.screenWidthDp} -> re-pinning overlays"
+                "onConfigurationChanged screenWidthDp=${newConfig.screenWidthDp}"
         )
-        repinOverlayWindows()
+        composeView?.let { syncOverlayMetrics(it) }
     }
 
     override fun onCreate() {
@@ -307,6 +365,8 @@ class BottomBarService : LifecycleService() {
                         .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
         BottomBarState.autoHideEnabled =
                 prefs.getBoolean(SharedPreferencesKeys.BOTTOM_BAR_AUTO_HIDE.key, false)
+        BottomBarState.leftNavPaneHidden =
+                prefs.getBoolean(SharedPreferencesKeys.HIDE_LEFT_NAV_PANE.key, false)
 
         BottomBarState.isVisible = true
 
@@ -3164,7 +3224,6 @@ class BottomBarService : LifecycleService() {
             withContext(Dispatchers.Main) {
                 // Apply custom yOffset relative to the logical bottom (where y=0 is the edge)
                 lp.y = yOffsetPx
-                pinToPhysicalDisplay(lp)
                 try {
                     wm.updateViewLayout(cv, lp)
                 } catch (e: Exception) {
@@ -3404,7 +3463,6 @@ class BottomBarService : LifecycleService() {
             ShizukuUtils.runCommandAndGetOutput(overscanCmd)
 
             withContext(Dispatchers.Main) {
-                pinToPhysicalDisplay(lp)
                 try {
                     wm.updateViewLayout(cv, lp)
                 } catch (e: Exception) {
@@ -3439,11 +3497,18 @@ class BottomBarService : LifecycleService() {
 
         try {
             if (show) {
-                pinToPhysicalDisplay(mp)
+                // Explicit real width, anchored right - same as the bar, so the two share one
+                // coordinate space (the menus and sliders rely on that).
+                // Height is explicit too, so the dashboard bleeds past the bottom overscan.
+                mp.width = realDisplayWidth().takeIf { it > 0 }
+                        ?: WindowManager.LayoutParams.MATCH_PARENT
                 mp.height =
                         displayMetrics.heightPixels.takeIf { it > 0 }
                                 ?: WindowManager.LayoutParams.MATCH_PARENT
+                // Keep whatever x the hold already converged on; resetting it to 0 would misplace the
+                // window for a frame on every open. If it is stale, the next layout corrects it.
                 mp.y = 0
+                mp.gravity = Gravity.BOTTOM or Gravity.RIGHT
                 mp.flags = mp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
             } else {
                 mp.width = 0
@@ -3510,9 +3575,10 @@ class BottomBarService : LifecycleService() {
                                                     .SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
                                             android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION)
 
-                            // START (not CENTER_HORIZONTAL) so pinToPhysicalDisplay can cancel the
-                            // left navigation pane inset via a negative x.
-                            gravity = Gravity.BOTTOM or Gravity.START
+                            // RIGHT, not START: the left navigation pane moves the frame's left edge
+                            // but never its right edge, so anchoring right makes the window's position
+                            // independent of the pane - no resize when it shows or hides.
+                            gravity = Gravity.BOTTOM or Gravity.RIGHT
                             // On show, we derive y from the currently applied overscan value if
                             // possible,
                             // but setting it to -defaultOverscan below in show logic.
@@ -3530,9 +3596,11 @@ class BottomBarService : LifecycleService() {
                                 WindowManager.LayoutParams.MATCH_PARENT,
                                 WindowManager.LayoutParams.MATCH_PARENT,
                                 layoutType,
+                                // No FLAG_FULLSCREEN: it changes which frame MATCH_PARENT resolves
+                                // against, and the bar proves NO_LIMITS alone is enough to bleed past
+                                // the bottom overscan.
                                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                                        WindowManager.LayoutParams.FLAG_FULLSCREEN or
                                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                                         WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
                                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -3550,8 +3618,13 @@ class BottomBarService : LifecycleService() {
                                                     .SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
                                             android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION)
 
-                            gravity = Gravity.BOTTOM or Gravity.START
+                            gravity = Gravity.BOTTOM or Gravity.RIGHT
                             y = 0
+                            // No system animation: this window is resized from 0x0 to full screen to
+                            // show a menu, and any enter/resize animation on a bottom-anchored window
+                            // reads as the content sweeping up from the bottom edge. The fade lives in
+                            // BottomBarMenus instead.
+                            windowAnimations = 0
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                                 layoutInDisplayCutoutMode =
                                         WindowManager.LayoutParams
@@ -3559,9 +3632,18 @@ class BottomBarService : LifecycleService() {
                             }
                         }
 
-        // Pin before the first addView so the bar never renders at the inset width, not even for a
-        // frame.
-        params?.let { pinToPhysicalDisplay(it) }
+        // Seed the pane width and the full-display width so the very first layout is already right,
+        // even if the service starts while a fullscreen app has the pane hidden.
+        run {
+            val realWidth = realDisplayWidth()
+            val seeded = realWidth - resources.displayMetrics.widthPixels
+            if (seeded > cachedLeftGutterPx) {
+                cachedLeftGutterPx = seeded
+            }
+            if (realWidth > 0) {
+                params?.width = realWidth
+            }
+        }
 
         if (android.provider.Settings.canDrawOverlays(this)) {
             try {
@@ -3632,10 +3714,19 @@ class BottomBarService : LifecycleService() {
                             val density = resources.displayMetrics.density
                             val displayMetrics = android.util.DisplayMetrics()
                             mWindowManager?.defaultDisplay?.getRealMetrics(displayMetrics)
-                            // Regions are window-local, so measure the window itself rather than the
-                            // display; they only agree because the window is pinned to physical size.
+                            // Regions are window-local, so measure the window, not the display.
                             val windowWidth =
                                     composeView.width.takeIf { it > 0 } ?: displayMetrics.widthPixels
+
+                            // Fires on every layout, which is exactly when the frame may have moved
+                            // under us. Both windows are held at physical 0 so they share one
+                            // coordinate space - the menus and the sliders depend on that.
+                            if (isMenuWindow) {
+                                menuParams?.let { holdWindowAtPhysicalLeft(composeView, it) }
+                            } else {
+                                params?.let { holdWindowAtPhysicalLeft(composeView, it) }
+                                syncOverlayMetrics(composeView)
+                            }
 
                             if (isMenuWindow) {
                                 // Menu window covers the full pinned display

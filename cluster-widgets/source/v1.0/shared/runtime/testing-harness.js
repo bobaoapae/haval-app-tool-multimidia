@@ -1269,6 +1269,21 @@ export function initTestHarness(stateManager, menuItems) {
                 });
             }
 
+            const navSwitch = document.getElementById('sim-control-carPlayInDash');
+            if (navSwitch) {
+                navSwitch.addEventListener('change', (e) => {
+                    const checked = e.target.checked;
+                    stateManager.set('carPlayInDash', checked);
+                    stateManager.set('projectionMirrorInDash', checked);
+                });
+                stateManager.subscribe('carPlayInDash', (val) => {
+                    navSwitch.checked = val === true || val === 'true';
+                });
+                stateManager.subscribe('projectionMirrorInDash', (val) => {
+                    navSwitch.checked = val === true || val === 'true' || stateManager.get('carPlayInDash') === true;
+                });
+            }
+
             // Toggle Simulation loop button
             const simToggleBtn = document.getElementById('harness-sim-toggle');
             if (simToggleBtn) {
@@ -1441,16 +1456,29 @@ export function initTestHarness(stateManager, menuItems) {
                     </div>
                 </div>
 
-                <!-- Section 3: Map in Dash Toggle -->
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; margin-top: 4px; padding: 8px; border-radius: 8px; background: rgba(14, 165, 233, 0.05); border: 1px solid rgba(14, 165, 233, 0.15);">
-                    <div style="display: flex; flex-direction: column;">
-                        <span style="font-weight: bold; color: #38bdf8;">Projeção do Mapa (appInDash)</span>
-                        <span style="font-size: 9px; color: #94a3b8;">Habilitar ou ocultar projeção do mapa central</span>
+                <!-- Section 3: App in Dash & Navigation Toggles -->
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; padding: 8px; border-radius: 8px; background: rgba(14, 165, 233, 0.05); border: 1px solid rgba(14, 165, 233, 0.15);">
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="font-weight: bold; color: #38bdf8;">App no Painel (appInDash)</span>
+                            <span style="font-size: 9px; color: #94a3b8;">Simular outro app (ex: YouTube, Spotify) no cluster</span>
+                        </div>
+                        <label class="harness-switch">
+                            <input type="checkbox" id="sim-control-appInDash">
+                            <span class="harness-slider" style="accent-color: #0ea5e9;"></span>
+                        </label>
                     </div>
-                    <label class="harness-switch">
-                        <input type="checkbox" id="sim-control-appInDash">
-                        <span class="harness-slider" style="accent-color: #0ea5e9;"></span>
-                    </label>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; padding: 8px; border-radius: 8px; background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.15);">
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="font-weight: bold; color: #34d399;">Navegação no Painel (carPlayInDash)</span>
+                            <span style="font-size: 9px; color: #94a3b8;">Simular mapa/navegação (CarPlay / AA) no cluster</span>
+                        </div>
+                        <label class="harness-switch">
+                            <input type="checkbox" id="sim-control-carPlayInDash">
+                            <span class="harness-slider" style="accent-color: #10b981;"></span>
+                        </label>
+                    </div>
                 </div>
             </div>
         `;
@@ -1541,16 +1569,29 @@ export function initTestHarness(stateManager, menuItems) {
                     row.appendChild(label);
                     controlNode = input;
                     
-                    input.addEventListener('change', (e) => {
-                        const nextVal = e.target.checked;
-                        console.log(`[Simulator Setting] Toggled ${config.stateVariable} -> ${nextVal}`);
+                    const saveConfigVal = (val) => {
+                        console.log(`[Simulator Setting] Saved ${config.stateVariable} (${config.id}) -> ${val}`);
+                        const strVal = String(val);
                         if (window.Android && typeof window.Android.savePreference === 'function') {
-                            window.Android.savePreference(config.stateVariable, String(nextVal));
-                            window.Android.savePreference(`app.preferences.${config.stateVariable}`, String(nextVal));
+                            window.Android.savePreference(config.stateVariable, strVal);
+                            window.Android.savePreference(`app.preferences.${config.stateVariable}`, strVal);
+                            window.Android.savePreference(config.id, strVal);
+                            window.Android.savePreference(`app.preferences.${config.id}`, strVal);
                         }
                         if (window.onDataChanged) {
-                            window.onDataChanged(`app.preferences.${config.stateVariable}`, String(nextVal));
+                            window.onDataChanged(`app.preferences.${config.stateVariable}`, strVal);
+                            window.onDataChanged(`app.preferences.${config.id}`, strVal);
+                            window.onDataChanged(config.stateVariable, strVal);
+                            window.onDataChanged(config.id, strVal);
                         }
+                        if (stateManager && typeof stateManager.setState === 'function') {
+                            stateManager.setState(config.stateVariable, val);
+                            stateManager.setState(config.id, val);
+                        }
+                    };
+
+                    input.addEventListener('change', (e) => {
+                        saveConfigVal(e.target.checked);
                     });
                 } else if (config.type === 'combo') {
                     if (config.options.length === 2) {
@@ -1595,20 +1636,11 @@ export function initTestHarness(stateManager, menuItems) {
                         
                         // Ensure state is initialized with resolved default so pill is visually active on first load
                         if (initialVal === undefined && currentVal) {
-                            if (window.onDataChanged) {
-                                window.onDataChanged(`app.preferences.${config.stateVariable}`, currentVal);
-                            }
+                            saveConfigVal(currentVal);
                         }
                         
                         const saveVal = (val) => {
-                            console.log(`[Simulator Setting] Segmented changed ${config.stateVariable} -> ${val}`);
-                            if (window.Android && typeof window.Android.savePreference === 'function') {
-                                window.Android.savePreference(config.stateVariable, val);
-                                window.Android.savePreference(`app.preferences.${config.stateVariable}`, val);
-                            }
-                            if (window.onDataChanged) {
-                                window.onDataChanged(`app.preferences.${config.stateVariable}`, val);
-                            }
+                            saveConfigVal(val);
                             updatePills(val);
                         };
                         
@@ -1640,15 +1672,7 @@ export function initTestHarness(stateManager, menuItems) {
                         controlNode = select;
                         
                         select.addEventListener('change', (e) => {
-                            const nextVal = e.target.value;
-                            console.log(`[Simulator Setting] Changed ${config.stateVariable} -> ${nextVal}`);
-                            if (window.Android && typeof window.Android.savePreference === 'function') {
-                                window.Android.savePreference(config.stateVariable, nextVal);
-                                window.Android.savePreference(`app.preferences.${config.stateVariable}`, nextVal);
-                            }
-                            if (window.onDataChanged) {
-                                window.onDataChanged(`app.preferences.${config.stateVariable}`, nextVal);
-                            }
+                            saveConfigVal(e.target.value);
                         });
                     }
                 } else {

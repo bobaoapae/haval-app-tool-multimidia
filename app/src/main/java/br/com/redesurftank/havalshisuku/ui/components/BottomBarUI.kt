@@ -10,6 +10,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -797,7 +798,7 @@ fun BottomBarContent() {
                                                                                                 true
                                                                                         BottomBarState
                                                                                                 .isDashboardExpanded =
-                                                                                                true
+                                                                                                false
                                                                                         break
                                                                                 }
                                                                         } while (event.changes.any {
@@ -1771,9 +1772,27 @@ fun BottomBarMenus() {
 
         val dashboardExpanded = BottomBarState.isDashboardExpanded
 
+        // The window hosting these menus is resized from 0x0 to full screen when one opens, and it is
+        // anchored to the bottom, so the scrim and the menu would otherwise appear to sweep up from the
+        // bottom edge as the window grows. Fade in instead. (Closing stays instant - the window is
+        // collapsed straight away, so there is nothing left to animate out.)
+        val anyExpanded =
+                dashboardExpanded ||
+                        BottomBarState.isMenuExpanded ||
+                        BottomBarState.isSettingsMenuExpanded ||
+                        BottomBarState.isOverrideMenuExpanded ||
+                        BottomBarState.activeSliderType != null
+        val contentAlpha by
+                animateFloatAsState(
+                        targetValue = if (anyExpanded) 1f else 0f,
+                        animationSpec = tween(durationMillis = 120),
+                        label = "menuFade"
+                )
+
         Box(
                 modifier =
                         Modifier.fillMaxSize()
+                                .alpha(contentAlpha)
                                 .background(
                                         if (dashboardExpanded) Color(0xFF05070A)
                                         else Color.Black.copy(alpha = 0.4f)

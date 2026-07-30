@@ -84,6 +84,24 @@ let menuWrapper = null;
 let dashboardCleanup = null;
 const screenCache = {};
 
+function isProjectionMapDisplayActive() {
+    return get('projectionMirrorInDash') === true ||
+        get('carPlayInDash') === true ||
+        get('projectionPreparingD3') === true;
+}
+
+function isHideBottomBar() {
+    const val = get('hideBottomBar') ?? get('hide_bottom_bar');
+    return val === true || val === 'true' || val === 1 || val === '1';
+}
+
+function getEffectiveMaskMode() {
+    if (isProjectionMapDisplayActive()) {
+        return get('navigationMaskMode') || get('navigation_mask_mode') || 'Clean';
+    }
+    return get('appMaskMode') || get('app_mask_mode') || 'Padrão';
+}
+
 // Initial state from URL parameters
 const urlParams = new URLSearchParams(window.location.search);
 const nativeMockEnabled =
@@ -107,7 +125,14 @@ function initializeLayout() {
         logger.leave('initializeLayout');
         return;
     }
-    appContainer.innerHTML = '';
+    if (nativeMockEnabled) {
+        try {
+            const devBg = div({ className: 'dev-background' });
+            appContainer.appendChild(devBg);
+        } catch (e) {
+            console.error('[Error] Failed to create dev-background:', e);
+        }
+    }
 
     // Add mask background first (z-index: 50)
     try {
@@ -156,7 +181,7 @@ function initializeLayout() {
                         screenCache[screen] = result;
                     }
                 } catch (e) {
-                    console.error(`[Error] Failed to pre-load screen ${screen}:`, e);
+                    console.error('[Error] Failed to pre-load screen ' + screen + ':', e);
                 }
             });
         }
@@ -171,6 +196,7 @@ function initializeLayout() {
 
 function render() {
     logger.enter('render', { screen: get('screen'), display: get('display') });
+    updateAppDimensions();
     const screen = get('screen');
     const displayMode = get('display') || 'Normal';
 
@@ -188,7 +214,13 @@ function render() {
             c !== 'card-0-active' &&
             c !== 'hide-bottom-bar' &&
             c !== 'hide-regen-icon' &&
-            c !== 'hide-rpm-icon'
+            c !== 'hide-rpm-icon' &&
+            c !== 'nav-mask-reduced' &&
+            c !== 'nav-mask-clean' &&
+            c !== 'nav-mask-default' &&
+            c !== 'projection-map-display-active' &&
+            c !== 'carplay-in-dash' &&
+            c !== 'app-in-dash-active'
         );
         classes.push('display-' + displayMode.toLowerCase());
 
@@ -211,7 +243,7 @@ function render() {
         // theme.xml settings. Only the "off" side gets a class, so the boot frame
         // that renders before bindThemeSetting resolves already matches the defaults
         // (bottom bar shown, regen and RPM indicators shown).
-        if (get('hideBottomBar') === true) {
+        if (isHideBottomBar()) {
             classes.push('hide-bottom-bar');
         }
         if (get('showRegenIcon') === false) {
@@ -220,9 +252,35 @@ function render() {
         if (get('showRpmIcon') === false) {
             classes.push('hide-rpm-icon');
         }
+        const isProjActive = isProjectionMapDisplayActive();
+        const appInDashVal = get('appInDash');
+        const isAppActive = appInDashVal === true || appInDashVal === 'left' || appInDashVal === 'right';
+
+        if (isProjActive) {
+            classes.push('projection-map-display-active');
+            classes.push('carplay-in-dash');
+        }
+        if (isAppActive) {
+            classes.push('app-in-dash-active');
+        }
+
+        const maskMode = getEffectiveMaskMode();
+        if (maskMode === 'Reduzido') {
+            classes.push('nav-mask-reduced');
+        } else if (maskMode === 'Clean') {
+            classes.push('nav-mask-clean');
+        } else {
+            classes.push('nav-mask-default');
+        }
 
         appContainer.className = classes.join(' ').trim();
         document.body.classList.toggle('card-0-active', isCard0);
+        document.body.classList.toggle('projection-map-display-active', isProjActive);
+        document.body.classList.toggle('carplay-in-dash', isProjActive);
+        document.body.classList.toggle('app-in-dash-active', isAppActive);
+        document.body.classList.toggle('nav-mask-reduced', maskMode === 'Reduzido');
+        document.body.classList.toggle('nav-mask-clean', maskMode === 'Clean');
+        document.body.classList.toggle('nav-mask-default', maskMode === 'Padrão');
         logger.log('App classes:', appContainer.className);
     }
 
@@ -278,6 +336,61 @@ function render() {
         }
     }
     logger.leave('render');
+}
+
+function updateAppDimensions() {
+    const hideBottomBar = isHideBottomBar();
+    const effectiveMaskMode = getEffectiveMaskMode();
+
+    let x = 0;
+    let y = 62;
+    let width = 1920;
+    let height = hideBottomBar ? 658 : 596;
+
+    if (effectiveMaskMode === 'Padrão') {
+        x = 400;
+        width = 1120;
+    } else if (effectiveMaskMode === 'Reduzido') {
+        x = 280;
+        width = 1360;
+    } else {
+        x = 0;
+        width = 1920;
+    }
+
+    if (window.Android && typeof window.Android.setAppDefaultDimensions === 'function') {
+        window.Android.setAppDefaultDimensions(x, y, width, height);
+    } else {
+        console.log(`[AppDimensions] Minimalist theme setAppDefaultDimensions(x: ${x}, y: ${y}, w: ${width}, h: ${height})`);
+    }
+
+    const isMapActive = isProjectionMapDisplayActive();
+    // TODO: Review map app resizing in future. For now, map background stays 1920x720.
+
+    const devBg = document.querySelector('.dev-background');
+    if (devBg) {
+        let badge = devBg.querySelector('.dev-bg-badge');
+        if (!badge) {
+            badge = div({ className: 'dev-bg-badge' });
+            devBg.appendChild(badge);
+        }
+
+        if (isMapActive) {
+            devBg.style.left = '0px';
+            devBg.style.top = '0px';
+            devBg.style.width = '1920px';
+            devBg.style.height = '720px';
+            devBg.style.backgroundSize = '100% 100%';
+            badge.textContent = 'Map In Dash (Fixed 1920x720)';
+        } else {
+            devBg.style.left = `${x}px`;
+            devBg.style.top = `${y}px`;
+            devBg.style.width = `${width}px`;
+            devBg.style.height = `${height}px`;
+            devBg.style.backgroundSize = '100% 100%';
+            badge.textContent = `App In Dash: x=${x}, y=${y}, w=${width}, h=${height} (${effectiveMaskMode})`;
+        }
+    }
 }
 
 subscribe('warningActive', () => render());
@@ -763,10 +876,23 @@ async function initMinimalistBridge() {
     await bridge.init();
 
     // theme.xml <configurations>
-    bridge.bindThemeSetting('hideBottomBar', false, setState);
-    bridge.bindThemeSetting('showRegenIcon', true, setState);
-    bridge.bindThemeSetting('showRpmIcon', true, setState);
+    const bindDual = (camel, snake, defVal) => {
+        bridge.bindThemeSetting(camel, defVal, setState);
+        bridge.bindThemeSetting(snake, defVal, (k, v) => { setState(camel, v); setState(snake, v); render(); });
+        subscribe(camel, render);
+        subscribe(snake, render);
+    };
 
+    bindDual('hideBottomBar', 'hide_bottom_bar', false);
+    bindDual('showRegenIcon', 'show_regen_icon', true);
+    bindDual('showRpmIcon', 'show_rpm_icon', true);
+    bindDual('navigationMaskMode', 'navigation_mask_mode', 'Clean');
+    bindDual('appMaskMode', 'app_mask_mode', 'Padrão');
+
+    subscribe('carPlayInDash', render);
+    subscribe('projectionMirrorInDash', render);
+    subscribe('projectionPreparingD3', render);
+    subscribe('appInDash', render);
     bridge.subscribeKeys(handleSteeringWheelKey);
     bridge.subscribe(
         [...SETTINGS_KEYS_TO_SUBSCRIBE, ...GRAPH_KEYS_TO_SUBSCRIBE, ...GAUGE_KEYS_TO_SUBSCRIBE],

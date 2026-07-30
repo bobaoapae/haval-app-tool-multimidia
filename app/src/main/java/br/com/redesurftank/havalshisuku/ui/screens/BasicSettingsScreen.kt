@@ -33,6 +33,39 @@ import br.com.redesurftank.havalshisuku.ui.components.AppColors
 import br.com.redesurftank.havalshisuku.ui.components.SettingItem
 import br.com.redesurftank.havalshisuku.ui.components.TwoColumnSettingsLayout
 
+/**
+ * Shows or hides the left navigation pane (the system NAVIGATION_BAR window, 128px on the left edge).
+ *
+ * Uses `policy_control`, the AOSP PolicyControl override, which exists on this head unit's Android 9
+ * (it was removed in Android 11). It is a persistent global setting, so it survives reboots and needs
+ * no service-side reapplication.
+ *
+ * Whether GWM's SystemUI honours the hide flag is not verified - if the pane stays put, this is the
+ * lever that failed, not the bar layout, which is correct in both pane states either way.
+ */
+private fun applyLeftNavPaneVisibility(hidden: Boolean) {
+        Thread {
+                        val command =
+                                if (hidden)
+                                        arrayOf(
+                                                "settings",
+                                                "put",
+                                                "global",
+                                                "policy_control",
+                                                "immersive.navigation=*"
+                                        )
+                                else arrayOf("settings", "delete", "global", "policy_control")
+                        val result =
+                                br.com.redesurftank.havalshisuku.utils.ShizukuUtils
+                                        .runCommandAndGetOutput(command)
+                        android.util.Log.w(
+                                "BasicSettingsScreen",
+                                "[NAV_PANE] hidden=$hidden result=$result"
+                        )
+                }
+                .start()
+}
+
 // Seletor reutilizavel de acao do volante (usado p/ toque curto / duplo / longo de cada botao).
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -633,6 +666,11 @@ fun BasicSettingsTab() {
         var autoHideEnabled by remember {
                 mutableStateOf(
                         prefs.getBoolean(SharedPreferencesKeys.BOTTOM_BAR_AUTO_HIDE.key, false)
+                )
+        }
+        var hideLeftNavPane by remember {
+                mutableStateOf(
+                        prefs.getBoolean(SharedPreferencesKeys.HIDE_LEFT_NAV_PANE.key, false)
                 )
         }
         var showStartPicker by remember { mutableStateOf(false) }
@@ -1677,6 +1715,92 @@ fun BasicSettingsTab() {
                                                                                                                         .ui
                                                                                                                         .components
                                                                                                                         .AppColors
+                                                                                                                        .ButtonSecondary,
+                                                                                                        uncheckedBorderColor =
+                                                                                                                Color.Transparent,
+                                                                                                        checkedBorderColor =
+                                                                                                                Color.Transparent
+                                                                                                )
+                                                                        )
+                                                                }
+
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        12.dp
+                                                                                )
+                                                                )
+
+                                                                Row(
+                                                                        modifier =
+                                                                                Modifier.fillMaxWidth(),
+                                                                        horizontalArrangement =
+                                                                                Arrangement
+                                                                                        .SpaceBetween,
+                                                                        verticalAlignment =
+                                                                                Alignment
+                                                                                        .CenterVertically
+                                                                ) {
+                                                                        Column(
+                                                                                modifier =
+                                                                                        Modifier.weight(
+                                                                                                1f
+                                                                                        )
+                                                                        ) {
+                                                                                Text(
+                                                                                        "Ocultar painel lateral",
+                                                                                        color =
+                                                                                                Color.White,
+                                                                                        fontSize =
+                                                                                                16.sp
+                                                                                )
+                                                                                Text(
+                                                                                        "Libera os 128px da esquerda para a barra",
+                                                                                        color =
+                                                                                                Color.Gray,
+                                                                                        fontSize =
+                                                                                                12.sp
+                                                                                )
+                                                                        }
+                                                                        Switch(
+                                                                                checked =
+                                                                                        hideLeftNavPane,
+                                                                                onCheckedChange = {
+                                                                                        hideLeftNavPane =
+                                                                                                it
+                                                                                        prefs.edit()
+                                                                                                .putBoolean(
+                                                                                                        SharedPreferencesKeys
+                                                                                                                .HIDE_LEFT_NAV_PANE
+                                                                                                                .key,
+                                                                                                        it
+                                                                                                )
+                                                                                                .apply()
+                                                                                        BottomBarState
+                                                                                                .leftNavPaneHidden =
+                                                                                                it
+                                                                                        applyLeftNavPaneVisibility(
+                                                                                                it
+                                                                                        )
+                                                                                },
+                                                                                modifier =
+                                                                                        Modifier.scale(
+                                                                                                0.9f
+                                                                                        ),
+                                                                                colors =
+                                                                                        SwitchDefaults
+                                                                                                .colors(
+                                                                                                        checkedThumbColor =
+                                                                                                                AppColors
+                                                                                                                        .TextPrimary,
+                                                                                                        checkedTrackColor =
+                                                                                                                AppColors
+                                                                                                                        .Primary,
+                                                                                                        uncheckedThumbColor =
+                                                                                                                AppColors
+                                                                                                                        .TextSecondary,
+                                                                                                        uncheckedTrackColor =
+                                                                                                                AppColors
                                                                                                                         .ButtonSecondary,
                                                                                                         uncheckedBorderColor =
                                                                                                                 Color.Transparent,

@@ -4162,27 +4162,51 @@ canvas.graph-chart {
 }
 
 /*
- * App In Dash:
- *  - items keep their normal positions (no transforms)
- *  - left/right mask panels soft-fade (~75% opacity)
+ * Mask Modes (Clean, Reduzido, Padrão):
  */
-body.app-in-dash-active .mask-panel.left {
-  background: linear-gradient(
-    to right,
-    rgba(0, 0, 0, 0.5) 0%,
-    rgba(0, 0, 0, 0.3) 70%,
-    transparent 100%
-  );
+
+/* Clean Mode: soft gradient fade, items keep normal positions */
+body.nav-mask-clean .mask-panel.left,
+#app.nav-mask-clean .mask-panel.left {
+  width: 800px !important;
+  left: 0 !important;
+  background: linear-gradient(90deg, #000000a3 0%, #00000088 30%, #0000 100%) !important;
 }
 
-body.app-in-dash-active .mask-panel.right {
-  background: linear-gradient(
-    to left,
-    rgba(0, 0, 0, 0.5) 0%,
-    rgba(0, 0, 0, 0.3) 70%,
-    transparent 100%
-  );
+body.nav-mask-clean .mask-panel.right,
+#app.nav-mask-clean .mask-panel.right {
+  width: 800px !important;
+  right: 0 !important;
+  background: linear-gradient(270deg, #000000a3 0%, #00000088 30%, #0000 100%) !important;
 }
+
+/* Reduced Black Mode (nav-mask-reduced): 30% narrower masks (560px) + elements shifted outwards */
+body.nav-mask-reduced .mask-panel.left,
+#app.nav-mask-reduced .mask-panel.left {
+  width: 560px !important;
+  left: 0 !important;
+  background: linear-gradient(to right, var(--mask-circle-bg) 50%, transparent 100%) !important;
+}
+
+body.nav-mask-reduced .mask-panel.right,
+#app.nav-mask-reduced .mask-panel.right {
+  width: 560px !important;
+  right: 0 !important;
+  background: linear-gradient(to left, var(--mask-circle-bg) 50%, transparent 100%) !important;
+}
+
+body.nav-mask-reduced .dashboard-speed-container,
+#app.nav-mask-reduced .dashboard-speed-container {
+  left: calc(var(--mask-left-x) + var(--display-left-offset) - 120px) !important;
+}
+
+body.nav-mask-reduced .trip-analysis-indicator,
+#app.nav-mask-reduced .trip-analysis-indicator {
+  left: 10px !important;
+}
+
+
+
 
 /*
  * Card 0: hide right mask + any right-side menu/content, same as card 3 (AC).
@@ -4237,19 +4261,36 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 }
 
 /* Simulator Background Mocks */
-.native-mock-enabled .cluster-mask-bg:not(.app-in-dash-active) {
-  background-image: url('../assets/car-bg.png');
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+#app.native-mock-enabled {
+  background-image: url('../assets/car-bg.png') !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
 }
 
-.native-mock-enabled.display-mapa .cluster-mask-bg,
-.native-mock-enabled .cluster-mask-bg.app-in-dash-active {
-  background-image: url('../assets/dev-bg.png');
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+#app.native-mock-enabled.carplay-in-dash,
+#app.native-mock-enabled.projection-map-display-active {
+  background-image: url('../assets/mapa.jpeg') !important;
+}
+
+#app.native-mock-enabled.app-in-dash-active:not(.carplay-in-dash):not(.projection-map-display-active) {
+  background-image: url('../assets/app-bg.jpg') !important;
+}
+
+.native-mock-enabled .cluster-mask-bg {
+  background-image: url('../assets/car-bg.png') !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
+
+.native-mock-enabled.carplay-in-dash .cluster-mask-bg,
+.native-mock-enabled.projection-map-display-active .cluster-mask-bg {
+  background-image: url('../assets/mapa.jpeg') !important;
+}
+
+.native-mock-enabled .cluster-mask-bg.app-in-dash-active:not(.carplay-in-dash):not(.projection-map-display-active) {
+  background-image: url('../assets/app-bg.jpg') !important;
 }
 
 /* Sub-Menu Layout & Right Side Positioning */
@@ -4282,8 +4323,8 @@ body.native-mock-enabled .dashboard-fixed-overlay {
  */
 .graph-screen {
     position: absolute !important;
-    /* 320×260 → half-diagonal ~206 < mask-radius 228 */
-    left: calc(var(--mask-right-x) + var(--display-right-offset) - 160px) !important;
+    /* 452px width centered at var(--mask-right-x) -> offset -226px stays inside 1920px */
+    left: calc(var(--mask-right-x) + var(--display-right-offset) - 226px) !important;
     top: calc(var(--mask-center-y) - 260px) !important;
     right: auto !important;
     bottom: auto !important;
@@ -4295,6 +4336,12 @@ body.native-mock-enabled .dashboard-fixed-overlay {
     border-radius: 0 !important;
     overflow: hidden !important;
     pointer-events: none !important;
+}
+
+body.nav-mask-reduced .graph-screen,
+#app.nav-mask-reduced .graph-screen {
+    left: calc(var(--mask-right-x) + var(--display-right-offset) - 130px) !important;
+    width: 400px !important;
 }
 
 /* Ajustes Sub-Menu Styles — minimalist list (aligned with regen) */
@@ -5037,6 +5084,51 @@ body.native-mock-enabled .dashboard-fixed-overlay {
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
+}
+
+.dev-background {
+  position: absolute;
+  top: 62px;
+  left: 0;
+  width: 1920px;
+  height: 596px;
+  background-image: url('../assets/dev-bg.png');
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  border: 1.5px dashed rgba(56, 189, 248, 0.6);
+  box-sizing: border-box;
+  transition: opacity 0.3s ease, left 0.4s ease, top 0.4s ease, width 0.4s ease, height 0.4s ease;
+}
+
+.dev-bg-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(15, 23, 42, 0.85);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: monospace;
+  font-weight: bold;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+body.native-mock-enabled .dev-background,
+#app.native-mock-enabled .dev-background {
+  opacity: 1;
+}
+
+#app.native-mock-enabled.app-in-dash-disabled .dev-background {
+  background-image: none !important;
+  background-color: #292c31 !important;
 }
 
 /* showRegenIcon = false */

@@ -16,19 +16,27 @@ object BottomBarState {
     }
 
     /**
-     * Width of the overlay windows, in px. The bar and menu windows are both pinned to the physical
-     * display, so this is the real display width and does not shrink when the left navigation pane
-     * appears. 0 until the service has pinned the windows.
+     * Measured width of the bar overlay window, in px. 0 until the first layout. Both overlay windows
+     * share this frame, so it is also the coordinate space [sliderPositionX] is expressed in.
      */
     var overlayWindowWidthPx by mutableStateOf(0)
 
     /**
-     * Width of the left navigation pane, in px. The pane is a NAVIGATION_BAR window that always
-     * draws above our APPLICATION_OVERLAY windows, so overlay content is inset by this much to stay
-     * clear of it. Cached rather than measured live, so it stays constant when a fullscreen app
-     * hides the pane and the bar never reflows.
+     * Left inset to apply to overlay *content*, in px, so it stays at a fixed physical position no
+     * matter where the window itself was placed.
+     *
+     * The left navigation pane is a NAVIGATION_BAR window that draws above our APPLICATION_OVERLAY
+     * windows and insets the frame they are laid out in. It is `paneWidth - windowLeft`: 0 while the
+     * pane is up (the window already starts past it) and the pane's width once a fullscreen app hides
+     * it. Either way content lands in the same place, so nothing reflows.
      */
     var overlayLeftGutterPx by mutableStateOf(0)
+
+    /**
+     * True when the user has asked to keep the left navigation pane hidden. The content gutter drops
+     * to 0 so the bar and the menus get the full display width.
+     */
+    var leftNavPaneHidden by mutableStateOf(false)
 
     var activeSliderType by mutableStateOf<SliderType?>(null)
     var sliderPositionX by mutableStateOf(0f)
