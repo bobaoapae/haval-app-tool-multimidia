@@ -261,6 +261,15 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ACTIVE_CUSTOM_THEME("activeCustomTheme", "Tema Dinâmico Ativo"),
     BOTTOM_BAR_AUTO_HIDE("bottomBarAutoHide", "Esconder barra automaticamente após 30s"),
     HIDE_LEFT_NAV_PANE("hideLeftNavPane", "Manter o painel lateral esquerdo oculto"),
+    BOTTOM_BAR_SWIPE_UP_ACTION("bottomBarSwipeUpAction", "Ação ao deslizar a barra para cima"),
+    BOTTOM_BAR_SWIPE_UP_PACKAGE(
+            "bottomBarSwipeUpPackage",
+            "Pacote do app aberto ao deslizar a barra para cima"
+    ),
+    CLUSTER_PROJECTION_OPENS_DASHBOARD(
+            "clusterProjectionOpensDashboard",
+            "Abrir o Impulse Drive quando a projeção inicia no cluster"
+    ),
     BOTTOM_BAR_OVERRIDES("bottomBarOverrides", "Overrides de aplicativos salvos (JSON)"),
     DASHBOARD_CARD_ORDER("dashboardCardOrder", "Ordem dos cards do dashboard"),
     ENABLE_SPEED_ADJUSTMENT("enableSpeedAdjustment", "Habilitar ajuste de velocidade no painel"),

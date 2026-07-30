@@ -215,6 +215,7 @@ class BottomBarService : LifecycleService() {
     private val REFERENCE_OVERSCAN = 20
     private val MAX_HOLD_CORRECTIONS = 4
     private val HOLD_SETTLE_MS = 250L
+    private val LEFT_NAV_PANE_REHIDE_DELAY_MS = 5_000L
 
     /**
      * Physical width of the left navigation pane, in px: the largest on-screen offset our bar window
@@ -235,6 +236,49 @@ class BottomBarService : LifecycleService() {
      * and corrects again on top of a correction already applied, which made x oscillate -128/-256.
      */
     private val holdPending = java.util.WeakHashMap<android.view.View, Boolean>()
+
+    /**
+     * Whether starting a projection on the cluster (display 1/3) should bring the Impulse Drive
+     * dashboard up on the main display. Read live rather than cached, so toggling it in settings takes
+     * effect without restarting the service.
+     */
+    private fun isClusterProjectionDashboardEnabled(): Boolean =
+            br.com.redesurftank.App.getDeviceProtectedContext()
+                    .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+                    .getBoolean(SharedPreferencesKeys.CLUSTER_PROJECTION_OPENS_DASHBOARD.key, true)
+
+    private var leftNavPaneRehideJob: Job? = null
+
+    /**
+     * Re-hides the left navigation pane [LEFT_NAV_PANE_REHIDE_DELAY_MS] after it is swiped back in,
+     * while the user preference asks for it to stay hidden.
+     *
+     * `policy_control` is already set to the hiding value at this point, and re-writing the same
+     * value is a no-op that SettingsProvider will not broadcast - so clear it first to force
+     * PolicyControl to re-read and re-apply the flags.
+     */
+    private fun scheduleLeftNavPaneRehide() {
+        if (leftNavPaneRehideJob?.isActive == true) return
+
+        leftNavPaneRehideJob =
+                lifecycleScope.launch(Dispatchers.IO) {
+                    delay(LEFT_NAV_PANE_REHIDE_DELAY_MS)
+                    if (!BottomBarState.leftNavPaneHidden) return@launch
+                    Log.w("BottomBarService", "[NAV_PANE] re-hiding after swipe reveal")
+                    ShizukuUtils.runCommandAndGetOutput(
+                            arrayOf("settings", "delete", "global", "policy_control")
+                    )
+                    ShizukuUtils.runCommandAndGetOutput(
+                            arrayOf(
+                                    "settings",
+                                    "put",
+                                    "global",
+                                    "policy_control",
+                                    "immersive.navigation=*"
+                            )
+                    )
+                }
+    }
 
     /** Real display width in px (1920 here) - the width both overlay windows are held at. */
     private fun realDisplayWidth(): Int {
@@ -314,6 +358,13 @@ class BottomBarService : LifecycleService() {
             cachedLeftGutterPx = observedPaneWidth
         }
 
+        // The pane can be swiped back in from the left edge even while the user has asked for it to
+        // stay hidden. Its frame inset reappearing is the only signal we get, so use that to re-arm
+        // the hide.
+        if (BottomBarState.leftNavPaneHidden && observedPaneWidth > 0) {
+            scheduleLeftNavPaneRehide()
+        }
+
         // With the pane hidden on purpose there is nothing to stay clear of, so hand the content the
         // full width instead of leaving a permanent empty gutter.
         val gutter = if (BottomBarState.leftNavPaneHidden) 0 else cachedLeftGutterPx
@@ -367,6 +418,11 @@ class BottomBarService : LifecycleService() {
                 prefs.getBoolean(SharedPreferencesKeys.BOTTOM_BAR_AUTO_HIDE.key, false)
         BottomBarState.leftNavPaneHidden =
                 prefs.getBoolean(SharedPreferencesKeys.HIDE_LEFT_NAV_PANE.key, false)
+        BottomBarState.swipeUpAction =
+                prefs.getString(SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_ACTION.key, null)
+                        ?: BottomBarState.SwipeUpAction.DASHBOARD.key
+        BottomBarState.swipeUpPackage =
+                prefs.getString(SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_PACKAGE.key, null) ?: ""
 
         BottomBarState.isVisible = true
 
@@ -3348,6 +3404,13 @@ class BottomBarService : LifecycleService() {
     }
 
     private fun restoreDashboardAfterProjectionHandoff(reason: String) {
+        if (!isClusterProjectionDashboardEnabled()) {
+            Log.w(
+                    "BottomBarService",
+                    "[$reason] Skipping dashboard reopen - disabled by preference"
+            )
+            return
+        }
         if (!shouldAutoOpenDashboardAfterProjectionHandoffForTest(
                         isVisible = BottomBarState.isVisible,
                         isDashboardExpanded = BottomBarState.isDashboardExpanded

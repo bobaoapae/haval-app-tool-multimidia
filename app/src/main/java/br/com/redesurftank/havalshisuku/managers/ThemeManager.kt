@@ -94,6 +94,46 @@ class ThemeManager private constructor(val context: Context) {
         } else null
     }
 
+    /**
+     * Reads and parses theme.xml for the embedded Default theme directly from assets/Default/theme.xml.
+     */
+    fun getEmbeddedDefaultTheme(): ThemeMetadata {
+        return try {
+            val inputStream = context.assets.open("Default/theme.xml")
+            parseThemeXml(inputStream, "Default", true)?.copy(
+                isLocal = true,
+                isDownloaded = true,
+                hasUpdate = false
+            ) ?: fallbackDefaultTheme()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing embedded assets/Default/theme.xml resource, falling back", e)
+            fallbackDefaultTheme()
+        }
+    }
+
+    private fun fallbackDefaultTheme(): ThemeMetadata {
+        return ThemeMetadata(
+            name = "Default",
+            description = "Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.",
+            version = "1.4.27",
+            thumbnailUrl = "",
+            mainFile = "index.html",
+            folderName = "Default",
+            isLocal = true,
+            isDownloaded = true,
+            hasUpdate = false,
+            contractVersion = "v1.0",
+            configurations = listOf(
+                ThemeConfig("hidden_bars", "Ocultar Barras", "combo", "Nenhuma", "hiddenBars", listOf("Nenhuma", "Superior", "Inferior", "Ambas")),
+                ThemeConfig("theme_mode", "Modo Visual", "combo", "Dark", "mode", listOf("Dark", "Light")),
+                ThemeConfig("bar_images", "Imagens das Barras", "boolean", "true", "barImages"),
+                ThemeConfig("gauge_style", "Estilo dos Marcadores", "combo", "Esportivo", "gaugeStyle", listOf("Esportivo", "Clássico")),
+                ThemeConfig("navigation_display_mode", "Modo de Exibição na Navegação", "combo", "Mapa", "navigationDisplayMode", listOf("Mapa", "Normal", "Reduzido", "Clean")),
+                ThemeConfig("app_display_mode", "Modo de Exibição de Outros Apps", "combo", "Normal", "appDisplayMode", listOf("Mapa", "Normal", "Reduzido", "Clean"))
+            )
+        )
+    }
+
     fun isContractCompatible(contractVersion: String?): Boolean {
         if (contractVersion.isNullOrBlank() || contractVersion.equals("legacy", ignoreCase = true)) return false
         val normalized = contractVersion.trim().lowercase().let {

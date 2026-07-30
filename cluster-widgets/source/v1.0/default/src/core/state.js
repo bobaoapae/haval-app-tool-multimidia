@@ -53,6 +53,10 @@ var stateManager = new StateManager({
     projectionPreparingD3: false,
     projectionCardOverlayAllowed: false,
     clusterEnabled: true,
+    // Whether a wallpaper is actually painted behind the cluster webview.
+    // Defaults to false so a boot frame (or an app build that never pushes it)
+    // keeps the no-app masks full size instead of exposing the native dash.
+    clusterBackground: false,
     brightness: 100,
     fuelRange: 0,
     fuelPercent: 0,

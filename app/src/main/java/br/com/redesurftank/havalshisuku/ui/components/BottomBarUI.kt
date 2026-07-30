@@ -177,6 +177,45 @@ private fun String?.toComposeColor(): Color {
         }
 }
 
+/**
+ * Runs whatever the user configured for a swipe up on the bar. Defaults to opening Impulse Drive,
+ * which was the only behaviour before this became configurable.
+ */
+private fun performSwipeUpAction(context: Context) {
+        val action = BottomBarState.SwipeUpAction.fromKey(BottomBarState.swipeUpAction)
+
+        // Any action first collapses whatever the bar had open.
+        BottomBarState.isVisible = true
+        BottomBarState.isMenuExpanded = false
+        BottomBarState.isSettingsMenuExpanded = false
+        BottomBarState.isOverrideMenuExpanded = false
+
+        val packageToLaunch =
+                when (action) {
+                        BottomBarState.SwipeUpAction.DASHBOARD -> null
+                        BottomBarState.SwipeUpAction.HAVAL_HOME ->
+                                BottomBarState.SwipeUpAction.HAVAL_HOME_PACKAGE
+                        BottomBarState.SwipeUpAction.APP_LAUNCHER ->
+                                BottomBarState.SwipeUpAction.APP_LAUNCHER_PACKAGE
+                        BottomBarState.SwipeUpAction.CUSTOM_APP ->
+                                BottomBarState.swipeUpPackage.takeIf { it.isNotBlank() }
+                }
+
+        if (packageToLaunch == null) {
+                // Either the dashboard was chosen, or "specific app" was chosen without ever picking
+                // one - fall back to the dashboard rather than swallowing the gesture.
+                BottomBarState.isDashboardExpanded = true
+                return
+        }
+
+        BottomBarState.isDashboardExpanded = false
+        BottomBarState.selectedPackage = packageToLaunch
+        br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyAppDetached(
+                context,
+                packageToLaunch
+        )
+}
+
 @Composable
 fun BottomBarContent() {
         val serviceManager = ServiceManager.getInstance()
@@ -306,6 +345,7 @@ fun BottomBarContent() {
         // (which draws above us). Constant at runtime, so the bar never reflows when a fullscreen app
         // hides the pane.
         val leftGutter = with(LocalDensity.current) { BottomBarState.overlayLeftGutterPx.toDp() }
+        val barContext = LocalContext.current
 
         // Note the gutter is applied to the content Row below, NOT here: the black Surface has to span
         // the whole window so the bar reads as one continuous strip. Padding it here leaves the left
@@ -375,21 +415,9 @@ fun BottomBarContent() {
                                                                                                         it.pressed
                                                                                                 })
                                                                                         if (shouldExpand) {
-                                                                                                BottomBarState
-                                                                                                        .isDashboardExpanded =
-                                                                                                        true
-                                                                                                BottomBarState
-                                                                                                        .isVisible =
-                                                                                                        true
-                                                                                                BottomBarState
-                                                                                                        .isMenuExpanded =
-                                                                                                        false
-                                                                                                BottomBarState
-                                                                                                        .isSettingsMenuExpanded =
-                                                                                                        false
-                                                                                                BottomBarState
-                                                                                                        .isOverrideMenuExpanded =
-                                                                                                        false
+                                                                                                performSwipeUpAction(
+                                                                                                        barContext
+                                                                                                )
                                                                                         } else {
                                                                                                 BottomBarState
                                                                                                         .isDashboardExpanded =

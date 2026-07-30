@@ -38,6 +38,27 @@ object BottomBarState {
      */
     var leftNavPaneHidden by mutableStateOf(false)
 
+    /** What a swipe up on the bar does. Values are [SwipeUpAction.key]. */
+    var swipeUpAction by mutableStateOf(SwipeUpAction.DASHBOARD.key)
+
+    /** Package opened when [swipeUpAction] is [SwipeUpAction.CUSTOM_APP]. */
+    var swipeUpPackage by mutableStateOf("")
+
+    enum class SwipeUpAction(val key: String, val label: String) {
+        DASHBOARD("dashboard", "Abrir Impulse Drive"),
+        HAVAL_HOME("haval_home", "Ir para a Home Haval"),
+        APP_LAUNCHER("app_launcher", "Ir para a lista de apps Haval"),
+        CUSTOM_APP("custom_app", "Abrir um app específico");
+
+        companion object {
+            fun fromKey(key: String?): SwipeUpAction =
+                    entries.firstOrNull { it.key == key } ?: DASHBOARD
+
+            const val HAVAL_HOME_PACKAGE = "com.beantechs.mediacenter"
+            const val APP_LAUNCHER_PACKAGE = "com.beantechs.applist"
+        }
+    }
+
     var activeSliderType by mutableStateOf<SliderType?>(null)
     var sliderPositionX by mutableStateOf(0f)
     var sliderInteractionTrigger by mutableStateOf(0)

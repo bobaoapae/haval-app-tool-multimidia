@@ -129,6 +129,12 @@
   --display-right-offset: 0px;
   --display-opacity: 1;
 
+  /* The no-app masks only follow --display-scale when a cluster wallpaper is
+     painted behind the webview. With no wallpaper the layer is transparent and
+     the car's native dash shows through, so the masks stay full size to cover
+     it — see .cluster-bg-applied. */
+  --noapp-mask-scale: 1;
+
   /* Default Sport Display Variables */
   --sport-speed-scale: 1.03;
   --sport-speed-x-offset: 0.8px;
@@ -2179,6 +2185,14 @@ canvas.graph-chart {
   --display-left-offset: 0px;
   --display-right-offset: 0px;
   --display-opacity: 1;
+  --noapp-mask-scale: 1;
+}
+
+/* A cluster wallpaper is painted behind the webview, so the no-app masks can
+   shrink with the dials. Without this class they stay 456px and keep the car's
+   native dash covered. */
+.cluster-bg-applied {
+  --noapp-mask-scale: var(--display-scale);
 }
 
 /* Reduzido Mode */
@@ -2475,7 +2489,7 @@ body.display-mapa .mask-panel.right {
   position: absolute;
   top: var(--mask-center-y);
   left: calc(var(--mask-left-x) + var(--display-left-offset));
-  transform: translate(-50%, -50%) scale(var(--display-scale));
+  transform: translate(-50%, -50%) scale(var(--noapp-mask-scale));
   width: 456px;
   height: 456px;
   pointer-events: none;
@@ -2492,7 +2506,7 @@ body.display-mapa .mask-panel.right {
   position: absolute;
   top: var(--mask-center-y);
   left: calc(var(--mask-right-x) + var(--display-right-offset));
-  transform: translate(-50%, -50%) scale(var(--display-scale));
+  transform: translate(-50%, -50%) scale(var(--noapp-mask-scale));
   width: 456px;
   height: 456px;
   pointer-events: none;

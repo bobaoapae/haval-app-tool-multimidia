@@ -6686,6 +6686,9 @@ object DisplayAppLauncher {
         Log.w(TAG, "CMD: $cmd")
         val out = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "$cmd 2>&1"))
         Log.w(TAG, "OUT: [$out]")
+        // Everything that moves, resizes or starts a task goes through here, so any
+        // cached `am stack list` snapshot is stale the moment this returns.
+        invalidateStackListCache()
         return out
     }
 
@@ -7570,8 +7573,56 @@ object DisplayAppLauncher {
         }
     }
 
+    /**
+     * `am stack list` costs ~150-200ms over Shizuku, and a single high-level
+     * operation fans out into several independent readers (findTaskForPackage,
+     * findTaskMatching, getTopPackageOnDisplay, findFirstTasksForPackages...),
+     * each of which used to spawn its own shell. On the cluster projector that
+     * whole burst runs on the UI thread inside ensureUi{}, so it stalled the
+     * theme WebView for seconds whenever an app entered or left display 1/3.
+     *
+     * A short TTL collapses one burst into a single shell call while staying
+     * far below the interval at which the system stack state realistically
+     * changes on its own. Anything that *mutates* stack state goes through
+     * sh(), which drops the cache, so a read after a move/resize is never
+     * served a stale snapshot.
+     */
+    private const val STACK_LIST_CACHE_TTL_MS = 250L
+
+    @Volatile private var cachedStackList: String? = null
+    @Volatile private var cachedStackListAtMs = 0L
+    private val stackListCacheLock = Any()
+
+    private fun invalidateStackListCache() {
+        synchronized(stackListCacheLock) {
+            cachedStackList = null
+            cachedStackListAtMs = 0L
+        }
+    }
+
     private fun getStackList(): String {
-        return ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "am stack list 2>&1"))
+        val cached = cachedStackList
+        if (cached != null &&
+            SystemClock.elapsedRealtime() - cachedStackListAtMs < STACK_LIST_CACHE_TTL_MS
+        ) {
+            return cached
+        }
+
+        synchronized(stackListCacheLock) {
+            // Re-check inside the lock: a concurrent caller may have just refreshed it,
+            // which is the common case when a burst of readers arrives together.
+            val fresh = cachedStackList
+            if (fresh != null &&
+                SystemClock.elapsedRealtime() - cachedStackListAtMs < STACK_LIST_CACHE_TTL_MS
+            ) {
+                return fresh
+            }
+
+            val out = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "am stack list 2>&1"))
+            cachedStackList = out
+            cachedStackListAtMs = SystemClock.elapsedRealtime()
+            return out
+        }
     }
 
     private data class StackInfo(val stackId: Int, val windowingMode: String, val isFreeform: Boolean)

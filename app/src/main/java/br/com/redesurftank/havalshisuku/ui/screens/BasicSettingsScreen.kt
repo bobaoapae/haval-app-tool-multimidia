@@ -740,6 +740,33 @@ fun BasicSettingsTab() {
                         prefs.getBoolean(SharedPreferencesKeys.HIDE_LEFT_NAV_PANE.key, false)
                 )
         }
+        var swipeUpAction by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_ACTION.key,
+                                null
+                        )
+                                ?: BottomBarState.SwipeUpAction.DASHBOARD.key
+                )
+        }
+        var swipeUpPackage by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_PACKAGE.key,
+                                null
+                        )
+                                ?: ""
+                )
+        }
+        var showSwipeUpAppPicker by remember { mutableStateOf(false) }
+        var clusterProjectionOpensDashboard by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.CLUSTER_PROJECTION_OPENS_DASHBOARD.key,
+                                true
+                        )
+                )
+        }
         var showStartPicker by remember { mutableStateOf(false) }
         var showEndPicker by remember { mutableStateOf(false) }
         var enableSpeedAdjustment by remember {
@@ -1822,7 +1849,7 @@ fun BasicSettingsTab() {
                                                                                                 16.sp
                                                                                 )
                                                                                 Text(
-                                                                                        "Libera os 128px da esquerda para a barra",
+                                                                                        "O painel fica oculto e libera os 128px da esquerda para a barra. Deslize da borda esquerda para trazê-lo de volta; ele se esconde de novo após 5s.",
                                                                                         color =
                                                                                                 Color.Gray,
                                                                                         fontSize =
@@ -1883,6 +1910,226 @@ fun BasicSettingsTab() {
                                                                                         12.dp
                                                                                 )
                                                                 )
+
+                                                                // Swipe-up action
+                                                                Text(
+                                                                        "Ao deslizar a barra para cima",
+                                                                        color = Color.White,
+                                                                        fontSize = 16.sp
+                                                                )
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        6.dp
+                                                                                )
+                                                                )
+                                                                BottomBarState.SwipeUpAction.entries
+                                                                        .forEach { option ->
+                                                                                val selected =
+                                                                                        swipeUpAction ==
+                                                                                                option.key
+                                                                                Row(
+                                                                                        modifier =
+                                                                                                Modifier.fillMaxWidth()
+                                                                                                        .clickable {
+                                                                                                                swipeUpAction =
+                                                                                                                        option.key
+                                                                                                                prefs.edit()
+                                                                                                                        .putString(
+                                                                                                                                SharedPreferencesKeys
+                                                                                                                                        .BOTTOM_BAR_SWIPE_UP_ACTION
+                                                                                                                                        .key,
+                                                                                                                                option.key
+                                                                                                                        )
+                                                                                                                        .apply()
+                                                                                                                BottomBarState
+                                                                                                                        .swipeUpAction =
+                                                                                                                        option.key
+                                                                                                                if (option ==
+                                                                                                                                BottomBarState
+                                                                                                                                        .SwipeUpAction
+                                                                                                                                        .CUSTOM_APP
+                                                                                                                ) {
+                                                                                                                        showSwipeUpAppPicker =
+                                                                                                                                true
+                                                                                                                }
+                                                                                                        }
+                                                                                                        .padding(
+                                                                                                                vertical =
+                                                                                                                        6.dp
+                                                                                                        ),
+                                                                                        verticalAlignment =
+                                                                                                Alignment
+                                                                                                        .CenterVertically
+                                                                                ) {
+                                                                                        RadioButton(
+                                                                                                selected =
+                                                                                                        selected,
+                                                                                                onClick =
+                                                                                                        null,
+                                                                                                colors =
+                                                                                                        RadioButtonDefaults
+                                                                                                                .colors(
+                                                                                                                        selectedColor =
+                                                                                                                                AppColors
+                                                                                                                                        .Primary,
+                                                                                                                        unselectedColor =
+                                                                                                                                AppColors
+                                                                                                                                        .TextSecondary
+                                                                                                                )
+                                                                                        )
+                                                                                        Spacer(
+                                                                                                modifier =
+                                                                                                        Modifier.width(
+                                                                                                                8.dp
+                                                                                                        )
+                                                                                        )
+                                                                                        Column {
+                                                                                                Text(
+                                                                                                        option.label,
+                                                                                                        color =
+                                                                                                                Color.White,
+                                                                                                        fontSize =
+                                                                                                                14.sp
+                                                                                                )
+                                                                                                if (option ==
+                                                                                                                BottomBarState
+                                                                                                                        .SwipeUpAction
+                                                                                                                        .CUSTOM_APP &&
+                                                                                                                selected
+                                                                                                ) {
+                                                                                                        Text(
+                                                                                                                if (swipeUpPackage
+                                                                                                                                .isBlank()
+                                                                                                                )
+                                                                                                                        "Toque para escolher um app"
+                                                                                                                else
+                                                                                                                        swipeUpPackage,
+                                                                                                                color =
+                                                                                                                        AppColors
+                                                                                                                                .Primary,
+                                                                                                                fontSize =
+                                                                                                                        12.sp
+                                                                                                        )
+                                                                                                }
+                                                                                        }
+                                                                                }
+                                                                        }
+
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        12.dp
+                                                                                )
+                                                                )
+
+                                                                // Cluster projection -> Impulse Drive
+                                                                Row(
+                                                                        modifier =
+                                                                                Modifier.fillMaxWidth(),
+                                                                        horizontalArrangement =
+                                                                                Arrangement
+                                                                                        .SpaceBetween,
+                                                                        verticalAlignment =
+                                                                                Alignment
+                                                                                        .CenterVertically
+                                                                ) {
+                                                                        Column(
+                                                                                modifier =
+                                                                                        Modifier.weight(
+                                                                                                1f
+                                                                                        )
+                                                                        ) {
+                                                                                Text(
+                                                                                        "Abrir Impulse Drive na projeção do cluster",
+                                                                                        color =
+                                                                                                Color.White,
+                                                                                        fontSize =
+                                                                                                16.sp
+                                                                                )
+                                                                                Text(
+                                                                                        "Ao iniciar Android Auto ou CarPlay no cluster (display 1/3)",
+                                                                                        color =
+                                                                                                Color.Gray,
+                                                                                        fontSize =
+                                                                                                12.sp
+                                                                                )
+                                                                        }
+                                                                        Switch(
+                                                                                checked =
+                                                                                        clusterProjectionOpensDashboard,
+                                                                                onCheckedChange = {
+                                                                                        clusterProjectionOpensDashboard =
+                                                                                                it
+                                                                                        prefs.edit()
+                                                                                                .putBoolean(
+                                                                                                        SharedPreferencesKeys
+                                                                                                                .CLUSTER_PROJECTION_OPENS_DASHBOARD
+                                                                                                                .key,
+                                                                                                        it
+                                                                                                )
+                                                                                                .apply()
+                                                                                },
+                                                                                modifier =
+                                                                                        Modifier.scale(
+                                                                                                0.9f
+                                                                                        ),
+                                                                                colors =
+                                                                                        SwitchDefaults
+                                                                                                .colors(
+                                                                                                        checkedThumbColor =
+                                                                                                                AppColors
+                                                                                                                        .TextPrimary,
+                                                                                                        checkedTrackColor =
+                                                                                                                AppColors
+                                                                                                                        .Primary,
+                                                                                                        uncheckedThumbColor =
+                                                                                                                AppColors
+                                                                                                                        .TextSecondary,
+                                                                                                        uncheckedTrackColor =
+                                                                                                                AppColors
+                                                                                                                        .ButtonSecondary,
+                                                                                                        uncheckedBorderColor =
+                                                                                                                Color.Transparent,
+                                                                                                        checkedBorderColor =
+                                                                                                                Color.Transparent
+                                                                                                )
+                                                                        )
+                                                                }
+
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        12.dp
+                                                                                )
+                                                                )
+
+                                                                if (showSwipeUpAppPicker) {
+                                                                        AppPickerDialog(
+                                                                                onDismiss = {
+                                                                                        showSwipeUpAppPicker =
+                                                                                                false
+                                                                                },
+                                                                                onAppSelected = {
+                                                                                        app ->
+                                                                                        swipeUpPackage =
+                                                                                                app.packageName
+                                                                                        prefs.edit()
+                                                                                                .putString(
+                                                                                                        SharedPreferencesKeys
+                                                                                                                .BOTTOM_BAR_SWIPE_UP_PACKAGE
+                                                                                                                .key,
+                                                                                                        app.packageName
+                                                                                                )
+                                                                                                .apply()
+                                                                                        BottomBarState
+                                                                                                .swipeUpPackage =
+                                                                                                app.packageName
+                                                                                        showSwipeUpAppPicker =
+                                                                                                false
+                                                                                }
+                                                                        )
+                                                                }
                                                         }
                                                 }
                                         } else null

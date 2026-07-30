@@ -205,6 +205,13 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                         SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key,
                                         SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key,
                                         SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key,
+                                        // Background keys: the theme needs to know
+                                        // whether anything opaque is painted behind
+                                        // it, so re-push clusterBackground via the
+                                        // PREFS_CHANGED visibility pass below.
+                                        SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key,
+                                        SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key,
+                                        SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key,
                                         SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_ACTIVE.key,
                                         SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_SCORE.key,
                                         SharedPreferencesKeys
@@ -306,6 +313,49 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.key,
                         false
                 )
+    }
+
+    /**
+     * Whether InstrumentProjector actually paints something opaque behind this
+     * WebView. Mirrors the branches of InstrumentProjector.applyCustomBackground:
+     * PRESET/FILE/IMAGE_URL/COLOR always end up covering (black at worst), while
+     * THEME only covers when the active theme package declares a wallpaper — the
+     * Default theme never does, so it stays transparent and the car's native dash
+     * shows through.
+     *
+     * The theme uses this to decide whether the no-app masks may shrink with the
+     * dials in reduzido, or must stay full size to keep the native dash hidden.
+     */
+    private fun isClusterBackgroundApplied(): Boolean {
+        val enabled =
+                preferences.getBoolean(
+                        SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key,
+                        true
+                )
+        if (!enabled) return false
+
+        val type =
+                preferences.getString(
+                        SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key,
+                        "THEME"
+                )
+                        ?: "THEME"
+        val value =
+                preferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "")
+                        ?: ""
+
+        return when (type) {
+            "THEME" ->
+                    br.com.redesurftank.havalshisuku.managers.ThemeManager
+                            .getInstance(outerContext)
+                            .getActiveThemeBackgroundFile(value.ifBlank { null }) != null
+            "PRESET",
+            "FILE",
+            "IMAGE_URL",
+            br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec.TYPE -> true
+            "WEB_URL" -> value.isNotEmpty()
+            else -> false
+        }
     }
 
     private fun isCarPlayInDash(): Boolean {
@@ -1524,31 +1574,17 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 preferences.getBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key, true)
         val projectorVisible =
                 shouldShowProjector() && ServiceManager.getInstance().isMainScreenOn
-        val androidAutoInDash =
-                br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-                        .isAndroidAutoOnDisplay(3)
-        val overlayBypassActive =
-                isProjectionOverlayBypassActive(carPlayInDash, androidAutoInDash)
         var isLeftCovered = false
         var isRightCovered = false
 
-        logProjectionVisibility(
-                reason,
-                carPlayInDash,
-                projectionMirrorInDash,
-                projectionPreparingD3,
-                clusterEnabled,
-                projectorVisible,
-                overlayBypassActive
-        )
-
-        applyProjectionOverlayBypass(overlayBypassActive)
-        applyProjectorViewVisibility(
-                projectorVisible,
-                overlayBypassActive,
-                carPlayInDash || projectionMirrorInDash || projectionPreparingD3
-        )
-
+        // NOTE ON ORDERING: everything down to the appInDash push below is cheap
+        // (prefs + one cached `am stack list`). The Android Auto probe further
+        // down is not — it fans out into several stack queries and only feeds the
+        // overlay-bypass decision, never appInDash. This whole method runs on the
+        // UI thread via ensureUi{}, which is the same thread that paints the theme
+        // WebView, so doing the expensive probe first made the theme wait seconds
+        // to learn that an app had left the cluster. Compute coverage and tell the
+        // theme first; do the projection/overlay bookkeeping afterwards.
         if (projectionMirrorInDash || projectionPreparingD3) {
             isLeftCovered = true
             isRightCovered = true
@@ -1617,10 +1653,38 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     else -> "false"
                 }
 
+        val clusterBackground = isClusterBackgroundApplied()
+
         evaluateJsIfReady(
                 webView,
-                "(function(){control('clusterEnabled', $clusterEnabled);control('appInDash', $appInDashValue);})()"
+                "(function(){control('clusterEnabled', $clusterEnabled);control('clusterBackground', $clusterBackground);control('appInDash', $appInDashValue);})()"
         )
+
+        // Deferred until after the theme has been told: the AA probe is the
+        // expensive part of this method and nothing above depends on it.
+        val androidAutoInDash =
+                br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                        .isAndroidAutoOnDisplay(3)
+        val overlayBypassActive =
+                isProjectionOverlayBypassActive(carPlayInDash, androidAutoInDash)
+
+        logProjectionVisibility(
+                reason,
+                carPlayInDash,
+                projectionMirrorInDash,
+                projectionPreparingD3,
+                clusterEnabled,
+                projectorVisible,
+                overlayBypassActive
+        )
+
+        applyProjectionOverlayBypass(overlayBypassActive)
+        applyProjectorViewVisibility(
+                projectorVisible,
+                overlayBypassActive,
+                carPlayInDash || projectionMirrorInDash || projectionPreparingD3
+        )
+
         pushProjectionStateToWebView(carPlayInDash, projectionMirrorInDash, projectionPreparingD3)
     }
 

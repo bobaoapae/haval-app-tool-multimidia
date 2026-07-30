@@ -1,7 +1,7 @@
 <theme>
     <name>Default</name>
     <description>Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.</description>
-    <version>1.4.27</version>
+    <version>1.4.28</version>
     <thumbnail>thumbnail.png</thumbnail>
     <mainFile>index.html</mainFile>
     <decentralized>true</decentralized>
@@ -69,7 +69,7 @@
             <id>navigation_display_mode</id>
             <label>Modo de Exibição na Navegação</label>
             <type>combo</type>
-            <options>Mapa, Normal, Reduzido, Clean</options>
+            <options>Normal, Reduzido, Clean, Mapa</options>
             <default>Mapa</default>
             <stateVariable>navigationDisplayMode</stateVariable>
         </configuration>
@@ -77,7 +77,7 @@
             <id>app_display_mode</id>
             <label>Modo de Exibição de Outros Apps</label>
             <type>combo</type>
-            <options>Mapa, Normal, Reduzido, Clean</options>
+            <options>Normal, Reduzido, Clean, Mapa</options>
             <default>Normal</default>
             <stateVariable>appDisplayMode</stateVariable>
         </configuration>

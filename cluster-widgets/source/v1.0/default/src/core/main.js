@@ -163,7 +163,7 @@ function render() {
     // Update app class based on display mode
     if (appContainer) {
         logger.log('Rendering screen:', screen);
-        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'hide-bottom' && c !== 'bar-images-hidden' && c !== 'app-in-dash-disabled' && c !== 'menu-minimized' && c !== 'carplay-in-dash' && c !== 'projection-mirror-in-dash' && c !== 'projection-preparing-d3' && c !== 'projection-map-display-active' && c !== 'projection-card-overlay-active');
+        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'hide-bottom' && c !== 'bar-images-hidden' && c !== 'app-in-dash-disabled' && c !== 'cluster-bg-applied' && c !== 'menu-minimized' && c !== 'carplay-in-dash' && c !== 'projection-mirror-in-dash' && c !== 'projection-preparing-d3' && c !== 'projection-map-display-active' && c !== 'projection-card-overlay-active');
         classes.push('display-' + displayMode.toLowerCase());
 
         if (get('clusterEnabled') === false) {
@@ -173,6 +173,10 @@ function render() {
         const appInDash = get('appInDash');
         if (appInDash === false || appInDash === 'false') {
             classes.push('app-in-dash-disabled');
+        }
+
+        if (get('clusterBackground') === true) {
+            classes.push('cluster-bg-applied');
         }
 
         if (get('cardId') == 0 || get('warningActive') === true) {
@@ -372,6 +376,7 @@ subscribe('navigationDisplayMode', render);
 subscribe('appDisplayMode', render);
 
 subscribe('clusterEnabled', render);
+subscribe('clusterBackground', render);
 subscribe('appInDash', render);
 subscribe('carPlayInDash', render);
 subscribe('projectionMirrorInDash', render);

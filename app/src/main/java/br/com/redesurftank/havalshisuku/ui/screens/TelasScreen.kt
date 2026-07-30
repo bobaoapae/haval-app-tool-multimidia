@@ -327,71 +327,7 @@ fun CompactThemeCard(
     }
 }
 
-// Default ships embedded in the APK (res/raw/app.html), built from
-// cluster-widgets/source/v1.0/default. It is intentionally NOT part of the
-// GitHub-hosted downloadable Themes/v1.0 tree, so this metadata (kept in sync
-// with that theme's theme.xml <configurations> block) is the sole source for
-// its Telas card — no GitHub/local-folder fetch involved.
-private val EMBEDDED_DEFAULT_THEME = ThemeMetadata(
-        name = "Default",
-        description = "Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.",
-        version = "1.4.22",
-        thumbnailUrl = "",
-        mainFile = "index.html",
-        folderName = "Default",
-        isLocal = true,
-        isDownloaded = true,
-        hasUpdate = false,
-        configurations = listOf(
-                ThemeConfig(
-                        id = "hidden_bars",
-                        label = "Ocultar Barras",
-                        type = "combo",
-                        defaultValue = "Nenhuma",
-                        stateVariable = "hiddenBars",
-                        options = listOf("Nenhuma", "Superior", "Inferior", "Ambas")
-                ),
-                ThemeConfig(
-                        id = "theme_mode",
-                        label = "Modo Visual",
-                        type = "combo",
-                        defaultValue = "Dark",
-                        stateVariable = "mode",
-                        options = listOf("Dark", "Light")
-                ),
-                ThemeConfig(
-                        id = "bar_images",
-                        label = "Imagens das Barras",
-                        type = "boolean",
-                        defaultValue = "true",
-                        stateVariable = "barImages"
-                ),
-                ThemeConfig(
-                        id = "gauge_style",
-                        label = "Estilo dos Marcadores",
-                        type = "combo",
-                        defaultValue = "Esportivo",
-                        stateVariable = "gaugeStyle",
-                        options = listOf("Esportivo", "Clássico")
-                ),
-                ThemeConfig(
-                        id = "navigation_display_mode",
-                        label = "Modo de Exibição na Navegação",
-                        type = "combo",
-                        defaultValue = "Mapa",
-                        stateVariable = "navigationDisplayMode",
-                        options = listOf("Mapa", "Normal", "Reduzido", "Clean")
-                ),
-                ThemeConfig(
-                        id = "app_display_mode",
-                        label = "Modo de Exibição de Outros Apps",
-                        type = "combo",
-                        defaultValue = "Normal",
-                        stateVariable = "appDisplayMode",
-                        options = listOf("Mapa", "Normal", "Reduzido", "Clean")
-                )
-        )
-)
+
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -796,14 +732,9 @@ fun TelasTab() {
                                 remember(githubThemes, localThemes) {
                                     val merged = mutableListOf<ThemeMetadata>()
 
-                                    // Default ships embedded in the APK (res/raw/app.html) — it is
-                                    // NOT a downloadable/GitHub-hosted theme, so its metadata (incl.
-                                    // the settings gear's configurations list) must not depend on a
-                                    // network fetch. Previously this fell back to remoteDefault's
-                                    // GitHub-fetched configurations, which came back empty whenever
-                                    // the fetch failed (or once Default is removed from the repo),
-                                    // silently hiding the settings gear.
-                                    merged.add(EMBEDDED_DEFAULT_THEME)
+                                    // Default ships embedded in the APK (res/raw/app.html) and its
+                                    // metadata (theme.xml <configurations>) is dynamically parsed from res/raw/theme_default.xml.
+                                    merged.add(ThemeManager.getInstance(context).getEmbeddedDefaultTheme())
 
                                     // Now add rest of remote themes (excluding Default)
                                     githubThemes.forEach { remote ->
@@ -858,6 +789,38 @@ fun TelasTab() {
                                     }
                                 }
 
+                        val applyThemeWithBgCheck: (ThemeMetadata) -> Unit = { themeToApply ->
+                            selectedTheme = themeToApply.name
+                            val folderName = if (themeToApply.folderName == "Default" || themeToApply.name == "Default") "" else themeToApply.folderName
+                            val hasThemeBg = themeToApply.background.isNotBlank() || themeToApply.backgroundAbsolutePath.isNotBlank()
+                            val bgDisabled = !prefs.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+                            val relativeBg = themeToApply.background.ifBlank {
+                                if (themeToApply.backgroundAbsolutePath.isNotBlank()) java.io.File(themeToApply.backgroundAbsolutePath).name else ""
+                            }
+
+                            prefs.edit {
+                                putString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, themeToApply.name)
+                                putString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, folderName)
+
+                                if (hasThemeBg) {
+                                    val currentType = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME"
+                                    if (bgDisabled) {
+                                        putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+                                        putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME")
+                                        if (relativeBg.isNotBlank()) {
+                                            putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, relativeBg)
+                                        }
+                                    } else if (currentType.equals("THEME", ignoreCase = true) && relativeBg.isNotBlank()) {
+                                        putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, relativeBg)
+                                    }
+                                }
+                            }
+
+                            if (hasThemeBg && bgDisabled) {
+                                enableCustomBg = true
+                            }
+                        }
+
                         Row(
                                 modifier =
                                         Modifier.fillMaxWidth()
@@ -883,26 +846,7 @@ fun TelasTab() {
                                         onAction = {
                                             if (allClusterFunctionsEnabled) {
                                                 if (theme.isDownloaded) {
-                                                    selectedTheme = theme.name
-                                                    prefs.edit {
-                                                        putString(
-                                                                SharedPreferencesKeys
-                                                                        .VIRTUAL_CLUSTER_THEME
-                                                                        .key,
-                                                                theme.name
-                                                        )
-                                                        putString(
-                                                                SharedPreferencesKeys
-                                                                        .ACTIVE_CUSTOM_THEME
-                                                                        .key,
-                                                                if (theme.folderName == "Default" ||
-                                                                                theme.name ==
-                                                                                        "Default"
-                                                                )
-                                                                        ""
-                                                                else theme.folderName
-                                                        )
-                                                    }
+                                                    applyThemeWithBgCheck(theme)
                                                 } else {
                                                     downloadingThemeName = theme.folderName
                                                     scope.launch {
@@ -916,22 +860,11 @@ fun TelasTab() {
                                                                                     context
                                                                             )
                                                                             .getLocalThemes()
-                                                            if (selectedTheme == theme.name) {
-                                                                prefs.edit {
-                                                                    putString(
-                                                                            SharedPreferencesKeys
-                                                                                    .ACTIVE_CUSTOM_THEME
-                                                                                    .key,
-                                                                            if (theme.folderName ==
-                                                                                            "Default" ||
-                                                                                            theme.name ==
-                                                                                                    "Default"
-                                                                            )
-                                                                                    ""
-                                                                            else theme.folderName
-                                                                    )
-                                                                }
-                                                            }
+                                                            val downloadedMeta =
+                                                                    localThemes.firstOrNull {
+                                                                        it.folderName == theme.folderName || it.name == theme.name
+                                                                    } ?: theme
+                                                            applyThemeWithBgCheck(downloadedMeta)
                                                         }
                                                     }
                                                 }
@@ -950,20 +883,11 @@ fun TelasTab() {
                                                                 ThemeManager.getInstance(context)
                                                                         .getLocalThemes()
                                                         if (selectedTheme == theme.name) {
-                                                            prefs.edit {
-                                                                putString(
-                                                                        SharedPreferencesKeys
-                                                                                .ACTIVE_CUSTOM_THEME
-                                                                                .key,
-                                                                        if (theme.folderName ==
-                                                                                        "Default" ||
-                                                                                        theme.name ==
-                                                                                                "Default"
-                                                                        )
-                                                                                ""
-                                                                        else theme.folderName
-                                                                )
-                                                            }
+                                                            val downloadedMeta =
+                                                                    localThemes.firstOrNull {
+                                                                        it.folderName == theme.folderName || it.name == theme.name
+                                                                    } ?: theme
+                                                            applyThemeWithBgCheck(downloadedMeta)
                                                         }
                                                     }
                                                 }

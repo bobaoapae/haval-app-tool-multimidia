@@ -146,13 +146,20 @@ processHtml(indexHtmlPath, appOutputPath);
 // Inline dynamic assets (css referenced in JS)
 inlineDynamicAssets(appOutputPath);
 
-// Copy to Android resources (default theme only)
+// Copy to Android assets (default theme only)
 var androidRawPath = path.join(__dirname, '..', '..', '..', '..', 'app', 'src', 'main', 'res', 'raw', 'app.html');
+var androidAssetsThemeXmlPath = path.join(__dirname, '..', '..', '..', '..', 'app', 'src', 'main', 'assets', 'Default', 'theme.xml');
+var themeXmlSourcePath = path.join(__dirname, 'theme.xml');
 try {
   fs.copyFileSync(appOutputPath, androidRawPath);
-  console.log(`\u2705 Copiado para Android: ${androidRawPath}`);
+  console.log(`✅ Copiado app.html para Android res/raw: ${androidRawPath}`);
+  if (fs.existsSync(themeXmlSourcePath)) {
+    fs.mkdirSync(path.dirname(androidAssetsThemeXmlPath), { recursive: true });
+    fs.copyFileSync(themeXmlSourcePath, androidAssetsThemeXmlPath);
+    console.log(`✅ Copiado theme.xml para Android assets: ${androidAssetsThemeXmlPath}`);
+  }
 } catch (err) {
-  console.error(`❌ Erro ao copiar para Android: ${err.message}`);
+  console.error(`❌ Erro ao copiar para Android assets/res: ${err.message}`);
 }
 
 // Copy to Themes/v1.0/Default folder
