@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -24,6 +25,7 @@ import androidx.compose.ui.*
 import androidx.compose.ui.draw.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -371,6 +373,22 @@ private val EMBEDDED_DEFAULT_THEME = ThemeMetadata(
                         defaultValue = "Esportivo",
                         stateVariable = "gaugeStyle",
                         options = listOf("Esportivo", "Clássico")
+                ),
+                ThemeConfig(
+                        id = "navigation_display_mode",
+                        label = "Modo de Exibição na Navegação",
+                        type = "combo",
+                        defaultValue = "Mapa",
+                        stateVariable = "navigationDisplayMode",
+                        options = listOf("Mapa", "Normal", "Reduzido", "Clean")
+                ),
+                ThemeConfig(
+                        id = "app_display_mode",
+                        label = "Modo de Exibição de Outros Apps",
+                        type = "combo",
+                        defaultValue = "Normal",
+                        stateVariable = "appDisplayMode",
+                        options = listOf("Mapa", "Normal", "Reduzido", "Clean")
                 )
         )
 )
@@ -531,9 +549,9 @@ fun TelasTab() {
                         ThemeManager.getInstance(context)
                                 .fetchThemesFromGithub(ThemeManager.THEME_REPO_URL)
             } catch (e: Exception) {
-                if (BuildConfig.DEBUG) {
-                    Log.e("TelasTab", "Error fetching themes", e)
-                }
+                // Startup fetch stays silent (no toast on screen entry), but always logs:
+                // this used to be DEBUG-gated, which is why the car showed nothing at all.
+                Log.e("TelasTab", "Error fetching themes on start", e)
             } finally {
                 isFetchingThemes = false
             }
@@ -697,35 +715,80 @@ fun TelasTab() {
                                     fontSize = 12.sp
                             )
                             if (isFetchingThemes) {
-                                CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        color = Color(0xFF4A9EFF),
-                                        strokeWidth = 2.dp
-                                )
+                                Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            color = Color(0xFF4A9EFF),
+                                            strokeWidth = 2.dp
+                                    )
+                                    Text(
+                                            text = "Buscando...",
+                                            color = Color(0xFF4A9EFF),
+                                            fontSize = 12.sp
+                                    )
+                                }
                             } else {
-                                Icon(
-                                        imageVector = Icons.Default.Refresh,
-                                        contentDescription = "Buscar atualizações",
-                                        tint = Color(0xFF4A9EFF),
+                                // Labelled, full-height tap target: the bare 20.dp icon gave no
+                                // hint of its purpose and was hard to hit while driving.
+                                Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         modifier = Modifier
-                                                .size(20.dp)
+                                                .clip(RoundedCornerShape(6.dp))
                                                 .clickable {
                                                     isFetchingThemes = true
                                                     scope.launch {
                                                         try {
                                                             localThemes = ThemeManager.getInstance(context).getLocalThemes()
-                                                            githubThemes = ThemeManager.getInstance(context)
+                                                            val fetched = ThemeManager.getInstance(context)
                                                                     .fetchThemesFromGithub(ThemeManager.THEME_REPO_URL)
-                                                        } catch (e: Exception) {
-                                                            if (BuildConfig.DEBUG) {
-                                                                Log.e("TelasTab", "Error refreshing themes", e)
+                                                            githubThemes = fetched
+                                                            val updates = fetched.count { remote ->
+                                                                localThemes.any { local ->
+                                                                    local.folderName == remote.folderName &&
+                                                                            local.version != remote.version
+                                                                }
                                                             }
+                                                            Toast.makeText(
+                                                                    context,
+                                                                    if (updates > 0) "$updates tema(s) com atualização disponível"
+                                                                    else "Todos os temas estão atualizados",
+                                                                    Toast.LENGTH_SHORT
+                                                            ).show()
+                                                        } catch (e: ThemeManager.ThemeFetchException) {
+                                                            Log.e("TelasTab", "Error refreshing themes", e)
+                                                            Toast.makeText(context, e.userMessage, Toast.LENGTH_LONG).show()
+                                                        } catch (e: Exception) {
+                                                            Log.e("TelasTab", "Error refreshing themes", e)
+                                                            Toast.makeText(
+                                                                    context,
+                                                                    "Falha ao buscar atualizações.",
+                                                                    Toast.LENGTH_LONG
+                                                            ).show()
                                                         } finally {
                                                             isFetchingThemes = false
                                                         }
                                                     }
                                                 }
-                                )
+                                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            tint = Color(0xFF4A9EFF),
+                                            modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                            text = "Buscar atualizações",
+                                            color = Color(0xFF4A9EFF),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                         Spacer(Modifier.height(8.dp))
@@ -5011,13 +5074,14 @@ fun ThemeSettingsDialog(
 ) {
     val context = LocalContext.current
     val prefs = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+    val listState = rememberLazyListState()
     
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Card(
-            modifier = Modifier.width(420.dp).padding(16.dp),
+            modifier = Modifier.width(420.dp).heightIn(max = 560.dp).padding(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2228)),
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(1.5.dp, Color(0xFF4A9EFF))
@@ -5035,122 +5099,178 @@ fun ThemeSettingsDialog(
                 
                 HorizontalDivider(color = Color(0xFF2C3139))
                 
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.weight(1f, fill = false)
-                ) {
-                    items(theme.configurations) { config ->
-                        val scopedKey = "theme_config_${theme.folderName}_${config.stateVariable}"
-                        
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(config.label, color = Color(0xFFB0B8C4), fontSize = 13.sp)
+                Box(modifier = Modifier.weight(1f, fill = false).fillMaxWidth()) {
+                    LazyColumn(
+                        state = listState,
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.fillMaxWidth().padding(end = 6.dp)
+                    ) {
+                        items(theme.configurations) { config ->
+                            val scopedKey = "theme_config_${theme.folderName}_${config.stateVariable}"
                             
-                            when (config.type) {
-                                "boolean" -> {
-                                    var checked by remember {
-                                        mutableStateOf(prefs.getString(scopedKey, config.defaultValue) == "true")
-                                    }
-                                    
-                                    val options = listOf("Ativado", "Desativado")
-                                    val selectedOption = if (checked) "Ativado" else "Desativado"
-                                    
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(Color(0xFF13151A), RoundedCornerShape(50.dp))
-                                            .padding(4.dp),
-                                        horizontalArrangement = Arrangement.SpaceEvenly
-                                    ) {
-                                        options.forEach { option ->
-                                            val isSelected = selectedOption == option
-                                            val backgroundColor = if (isSelected) Color(0xFF4A9EFF) else Color.Transparent
-                                            val textColor = if (isSelected) Color.White else Color(0xFFB0B8C4)
-                                            
-                                            Box(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .clip(RoundedCornerShape(50.dp))
-                                                    .background(backgroundColor)
-                                                    .clickable {
-                                                        val newVal = option == "Ativado"
-                                                        checked = newVal
-                                                        prefs.edit().putString(scopedKey, newVal.toString()).apply()
-                                                    }
-                                                    .padding(vertical = 10.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = option,
-                                                    color = textColor,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                                )
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(config.label, color = Color(0xFFB0B8C4), fontSize = 13.sp)
+                                
+                                when (config.type) {
+                                    "boolean" -> {
+                                        var checked by remember {
+                                            mutableStateOf(prefs.getString(scopedKey, config.defaultValue) == "true")
+                                        }
+                                        
+                                        val options = listOf("Ativado", "Desativado")
+                                        val selectedOption = if (checked) "Ativado" else "Desativado"
+                                        
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(Color(0xFF13151A), RoundedCornerShape(50.dp))
+                                                .padding(4.dp),
+                                            horizontalArrangement = Arrangement.SpaceEvenly
+                                        ) {
+                                            options.forEach { option ->
+                                                val isSelected = selectedOption == option
+                                                val backgroundColor = if (isSelected) Color(0xFF4A9EFF) else Color.Transparent
+                                                val textColor = if (isSelected) Color.White else Color(0xFFB0B8C4)
+                                                
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clip(RoundedCornerShape(50.dp))
+                                                        .background(backgroundColor)
+                                                        .clickable {
+                                                            val newVal = option == "Ativado"
+                                                            checked = newVal
+                                                            prefs.edit().putString(scopedKey, newVal.toString()).apply()
+                                                        }
+                                                        .padding(vertical = 10.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = option,
+                                                        color = textColor,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                    )
+                                                }
                                             }
                                         }
                                     }
-                                }
-                                "text", "number" -> {
-                                    var textVal by remember {
-                                        mutableStateOf(prefs.getString(scopedKey, config.defaultValue) ?: "")
+                                    "text", "number" -> {
+                                        var textVal by remember {
+                                            mutableStateOf(prefs.getString(scopedKey, config.defaultValue) ?: "")
+                                        }
+                                        OutlinedTextField(
+                                            value = textVal,
+                                            onValueChange = { newVal ->
+                                                textVal = newVal
+                                                prefs.edit().putString(scopedKey, newVal).apply()
+                                            },
+                                            keyboardOptions = KeyboardOptions(
+                                                keyboardType = if (config.type == "number") KeyboardType.Number else KeyboardType.Text
+                                            ),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedTextColor = Color.White,
+                                                unfocusedTextColor = Color.White,
+                                                focusedBorderColor = Color(0xFF4A9EFF),
+                                                unfocusedBorderColor = Color(0xFF2C3139)
+                                            ),
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
                                     }
-                                    OutlinedTextField(
-                                        value = textVal,
-                                        onValueChange = { newVal ->
-                                            textVal = newVal
-                                            prefs.edit().putString(scopedKey, newVal).apply()
-                                        },
-                                        keyboardOptions = KeyboardOptions(
-                                            keyboardType = if (config.type == "number") KeyboardType.Number else KeyboardType.Text
-                                        ),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedTextColor = Color.White,
-                                            unfocusedTextColor = Color.White,
-                                            focusedBorderColor = Color(0xFF4A9EFF),
-                                            unfocusedBorderColor = Color(0xFF2C3139)
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                                "combo" -> {
-                                    var selectedOption by remember {
-                                        mutableStateOf(prefs.getString(scopedKey, config.defaultValue) ?: config.options.firstOrNull() ?: "")
-                                    }
-                                    
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(Color(0xFF13151A), RoundedCornerShape(50.dp))
-                                            .padding(4.dp),
-                                        horizontalArrangement = Arrangement.SpaceEvenly
-                                    ) {
-                                        config.options.forEach { option ->
-                                            val isSelected = selectedOption == option
-                                            val backgroundColor = if (isSelected) Color(0xFF4A9EFF) else Color.Transparent
-                                            val textColor = if (isSelected) Color.White else Color(0xFFB0B8C4)
-                                            
-                                            Box(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .clip(RoundedCornerShape(50.dp))
-                                                    .background(backgroundColor)
-                                                    .clickable {
-                                                        selectedOption = option
-                                                        prefs.edit().putString(scopedKey, option).apply()
-                                                    }
-                                                    .padding(vertical = 10.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = option,
-                                                    color = textColor,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                                )
+                                    "combo" -> {
+                                        var selectedOption by remember {
+                                            mutableStateOf(prefs.getString(scopedKey, config.defaultValue) ?: config.options.firstOrNull() ?: "")
+                                        }
+                                        
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(Color(0xFF13151A), RoundedCornerShape(50.dp))
+                                                .padding(4.dp),
+                                            horizontalArrangement = Arrangement.SpaceEvenly
+                                        ) {
+                                            config.options.forEach { option ->
+                                                val isSelected = selectedOption == option
+                                                val backgroundColor = if (isSelected) Color(0xFF4A9EFF) else Color.Transparent
+                                                val textColor = if (isSelected) Color.White else Color(0xFFB0B8C4)
+                                                
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clip(RoundedCornerShape(50.dp))
+                                                        .background(backgroundColor)
+                                                        .clickable {
+                                                            selectedOption = option
+                                                            prefs.edit().putString(scopedKey, option).apply()
+                                                        }
+                                                        .padding(vertical = 10.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = option,
+                                                        color = textColor,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    if (listState.canScrollForward) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color.Transparent, Color(0xEC1E2228))
+                                    )
+                                )
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Role para ver mais",
+                                tint = Color(0xFF4A9EFF),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Role para ver mais",
+                                color = Color(0xFF4A9EFF),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    if (listState.canScrollBackward) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color(0xEC1E2228), Color.Transparent)
+                                    )
+                                )
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Mais opções acima",
+                                tint = Color(0xFF4A9EFF),
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }
