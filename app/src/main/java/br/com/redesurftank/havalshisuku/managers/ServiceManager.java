@@ -701,13 +701,19 @@ public class ServiceManager {
                                 "cluster_media_command",
                                 "msgId=135 value=" + val
                         );
-                        if (DisplayAppLauncher.INSTANCE.handleAndroidAutoClusterMediaCommand(val)) {
-                            Log.w(TAG, "Android Auto handled cluster media command msgId=135 value=" + val);
-                            return;
-                        }
+                        // Answer the car FIRST, exactly as v6 does. Captured v6 trace shows a
+                        // setMsg(135, val) reply within 1-9ms of every card change; v7 returned
+                        // early whenever Android Auto was considered active and never replied.
+                        // The reply is the car-facing protocol obligation, so it must not be
+                        // conditional on Android Auto state.
                         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
                             if (val == 1) sendClusterIntMsg(135, 1);
                             else if (val == 2) sendClusterIntMsg(135, 2);
+                        }
+                        // Android Auto media handling is a separate concern layered on top, and
+                        // must not suppress the reply above.
+                        if (DisplayAppLauncher.INSTANCE.handleAndroidAutoClusterMediaCommand(val)) {
+                            Log.w(TAG, "Android Auto handled cluster media command msgId=135 value=" + val);
                         }
                     }
                 }
@@ -730,9 +736,6 @@ public class ServiceManager {
             inputListener = new IInputListener.Stub() {
                 @Override
                 public void dispatchKeyEvent(KeyEvent keyEvent) {
-                    // How long we hold com.beantechs.inputservice's dispatch thread. Our
-                    // app logs every press while the car acts on roughly one in five, so
-                    // the question is whether we are starving its delivery path.
                     final long dispatchStartedAt = SystemClock.uptimeMillis();
                     final int dispatchKeyCode = keyEvent.getKeyCode();
                     try {
@@ -840,18 +843,9 @@ public class ServiceManager {
                             if (!duplicateClusterInput && isPhysicalClusterAction) {
                                 lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
                                 lastHandledClusterInputAtMs = now;
-                                // Any cluster key means the user is driving the cluster, so the
-                                // car should be reporting card changes. If it has gone quiet our
-                                // callback registration is likely no longer live; recover it.
-                                refreshClusterCallbackIfStale();
+                                // refreshClusterCallbackIfStale(); // Disabled: unregistering/re-registering callback drops native 133 events
                                 if (ClusterCardNavigationPolicy.isCardNavigationKey(key)) {
-                                    // Card navigation belongs to the car. We deliberately do not
-                                    // predict the next card locally: the predicted sequence does
-                                    // not always match what the car actually does, and once the
-                                    // two disagree the app renders one card while the cluster
-                                    // shows another. The car cycles its own cards and reports the
-                                    // result via msgId=133, which is the single source of truth.
-                                    // Themes never receive LEFT/RIGHT.
+                                    handleClusterCardNavigationKey(key);
                                 } else {
                                     if (key == ClusterKey.BACK) {
                                         dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
@@ -1273,6 +1267,18 @@ public class ServiceManager {
         }
     }
 
+    private void handleClusterCardNavigationKey(ClusterKey key) {
+        if (key == ClusterKey.HOME) {
+            int previousCard = clusterCardView;
+            clusterCardView = 0;
+            Log.w(TAG, "[SYNTHETIC_CARD_NAV] " + previousCard + " -> 0 (key=" + key + ")");
+            dispatchClusterEventOffBinderThread(
+                    ServiceManagerEventType.CLUSTER_CARD_CHANGED,
+                    clusterCardView
+            );
+        }
+    }
+
     private void handleSteeringWheelClimateCommand(int button) {
         long now = SystemClock.uptimeMillis();
         boolean duplicateCommand =
@@ -1505,6 +1511,9 @@ public class ServiceManager {
 
     private void sendAndroidReadyToCluster() {
         try {
+            // Required: this is what registers our Android-owned cards (1 and 3) with the
+            // car. With it disabled the cluster falls back to card 0 plus a single
+            // "loading" card and never reports 133 for our cards at all.
             ClusterMsgData msg = new ClusterMsgData();
             msg.setIntValue(1);
             clusterService.setMsg(75, msg);
@@ -1925,9 +1934,9 @@ public class ServiceManager {
                     DisplayAppLauncher.INSTANCE.preserveAndroidAutoNativePanelContract("HVAC_PANEL_DISPLAY_" + value);
                 }
             }
-            if (key.equals(CarConstants.BEAN_PUI_SCENE_NOTIFY.getValue())) {
-                maybeCounterPulseSceneNotify(value);
-            }
+            // if (key.equals(CarConstants.BEAN_PUI_SCENE_NOTIFY.getValue())) {
+            //     maybeCounterPulseSceneNotify(value);
+            // }
             if (key.equals(CarConstants.CAR_FRS_SETTING_DISTRACTION_DETECTION_ENABLE.getValue()) && value.equals("1")) {
                 boolean isForceDisableMonitoring = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_MONITORING.getKey(), false);
                 if (isForceDisableMonitoring) {
