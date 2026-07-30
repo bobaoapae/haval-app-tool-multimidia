@@ -689,14 +689,20 @@ function handleAirconKey(keyName) {
     }
     if (keyName === 'BACK_LONG') {
         const currentRecycle = Number(get('recycle')) || 0;
-        const nextRecycle = currentRecycle === 1 ? '0' : '1';
-        androidUpdateCarData('car.hvac.cycle_mode', nextRecycle);
+        const nextRecycle = currentRecycle === 1 ? 0 : 1;
+        setState('recycle', nextRecycle);
+        androidUpdateCarData('car.hvac.cycle_mode', String(nextRecycle));
         return;
     }
     if (keyName === 'ENTER_LONG') {
         const currentAuto = Number(get('auto')) || 0;
-        const nextAuto = currentAuto === 1 ? '0' : '1';
-        androidUpdateCarData('car.hvac.auto_enable', nextAuto);
+        const nextAuto = currentAuto === 1 ? 0 : 1;
+        setState('auto', nextAuto);
+        androidUpdateCarData('car.hvac.auto_enable', String(nextAuto));
+        if (nextAuto === 0) {
+            const currentFan = parseInt(get('fan'), 10) || 1;
+            androidUpdateCarData('car.hvac.fan_speed', String(currentFan));
+        }
         try {
             if (window.Android && typeof window.Android.triggerSystemAction === 'function') {
                 window.Android.triggerSystemAction('CANCEL_MAX_AC');

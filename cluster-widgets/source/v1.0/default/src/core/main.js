@@ -62,7 +62,7 @@ function getEffectiveDisplayMode() {
     }
     const appInDash = get('appInDash');
     if (appInDash === true || appInDash === 'left' || appInDash === 'right') {
-        return get('appDisplayMode') || 'Normal';
+        return get('appDisplayMode') || get('display') || 'Normal';
     }
     return get('display') || 'Normal';
 }
@@ -361,7 +361,10 @@ subscribe('screen', (screenName) => {
     themeEngine.navigateTo(screenName);
     render();
 });
-subscribe('display', render);
+subscribe('display', (val) => {
+    if (val) setState('appDisplayMode', val);
+    render();
+});
 subscribe('hiddenBars', (val) => {
     console.log(`[STATE TRACE] hiddenBars changed to: ${val}`);
     render();
@@ -471,27 +474,25 @@ function handleSteeringWheelKey(keyName) {
                 bridge.updateCarData('car.hvac.fan_speed', String(nextFan));
             } else {
                 const currentTemp = Number(get('temp')) || 22;
-                let nextTemp = currentTemp;
-                if (keyName === 'UP') {
-                    if (currentTemp === 16) nextTemp = 17;
-                    else if (currentTemp >= 25) nextTemp = 32;
-                    else nextTemp = currentTemp + 1;
-                } else {
-                    if (currentTemp === 32) nextTemp = 25;
-                    else if (currentTemp <= 17) nextTemp = 16;
-                    else nextTemp = currentTemp - 1;
-                }
-                bridge.updateCarData('car.hvac.driver_temperature', String(nextTemp));
+                const delta = keyName === 'UP' ? 0.5 : -0.5;
+                const nextTemp = Math.min(32, Math.max(16, Math.round((currentTemp + delta) * 2) / 2));
+                bridge.updateCarData('car.hvac.driver_temperature', nextTemp.toFixed(1));
             }
         } else if (keyName === 'ENTER_LONG') {
             const currentAuto = Number(get('auto')) || 0;
-            const nextAuto = currentAuto === 1 ? '0' : '1';
-            bridge.updateCarData('car.hvac.auto_enable', nextAuto);
+            const nextAuto = currentAuto === 1 ? 0 : 1;
+            setState('auto', nextAuto);
+            bridge.updateCarData('car.hvac.auto_enable', String(nextAuto));
+            if (nextAuto === 0) {
+                const currentFan = Number(get('fan')) || 1;
+                bridge.updateCarData('car.hvac.fan_speed', String(currentFan));
+            }
             bridge.triggerSystemAction('CANCEL_MAX_AC');
         } else if (keyName === 'BACK_LONG') {
             const currentRecycle = Number(get('recycle')) || 0;
-            const nextRecycle = currentRecycle === 1 ? '0' : '1';
-            bridge.updateCarData('car.hvac.cycle_mode', nextRecycle);
+            const nextRecycle = currentRecycle === 1 ? 0 : 1;
+            setState('recycle', nextRecycle);
+            bridge.updateCarData('car.hvac.cycle_mode', String(nextRecycle));
         }
         // No BACK handling: aircon is card 3's root screen, not somewhere the theme
         // navigated to, so there is nothing to go back to. Leaving on BACK stranded the
@@ -642,6 +643,7 @@ async function initDecentralizedBridge() {
         "car.hvac.fan_speed",
         "car.hvac.driver_temperature",
         "car.hvac.cycle_mode",
+        "car.hvac.auto_enable",
         "car.basic.inside_temp",
         "car.basic.outside_temp",
         "car.configure.default_temp_unit",
@@ -738,6 +740,9 @@ async function initDecentralizedBridge() {
                 break;
             case "car.hvac.cycle_mode":
                 setState('recycle', val);
+                break;
+            case "car.hvac.auto_enable":
+                setState('auto', val);
                 break;
             case "car.basic.inside_temp":
                 setState('inside_temp', value);

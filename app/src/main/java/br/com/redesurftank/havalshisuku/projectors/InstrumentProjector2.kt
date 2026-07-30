@@ -1464,14 +1464,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         if (isWarningDismissed) {
             evaluateJsIfReady(webView, "clearWarnings()")
-        }
-
-        for (key in monitoredWarningKeys) {
-            val value = sm.getData(key) ?: "0"
-            if (dismissedWarnings[key] == value) {
-                continue
+        } else {
+            for (key in monitoredWarningKeys) {
+                val value = sm.getData(key) ?: "0"
+                if (dismissedWarnings[key] == value) {
+                    continue
+                }
+                evaluateJsIfReady(webView, "updateWarning('$key', '$value')")
             }
-            evaluateJsIfReady(webView, "updateWarning('$key', '$value')")
         }
     }
 
@@ -2113,7 +2113,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 val sm = ServiceManager.getInstance()
                 for (key in monitoredWarningKeys) {
                     val value = sm.getData(key)
-                    if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, value)) {
+                    if (ClusterWarningPolicy.isWarningValueActive(value)) {
                         dismissedWarnings[key] = value!!
                     }
                 }

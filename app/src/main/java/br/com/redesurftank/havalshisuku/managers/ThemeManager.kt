@@ -16,6 +16,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 
 class ThemeManager private constructor(val context: Context) {
@@ -33,7 +34,12 @@ class ThemeManager private constructor(val context: Context) {
         /** GitHub tree where packaged themes are listed (Telas → fetch/download). Path stays Themes/v1.0; branch is feature/new-screen-enhancements-v7. */
         const val THEME_REPO_URL = "https://github.com/netseek/haval-app-tool-multimidia/tree/feature/new-screen-enhancements-v7/cluster-widgets/Themes/v1.0"
         const val CURRENT_CONTRACT_VERSION = "v1.0"
-        
+
+        /** HttpURLConnection defaults to no timeout at all, so a stalled car connection
+         *  would spin the refresh indicator forever with nothing shown to the user. */
+        private const val CONNECT_TIMEOUT_MS = 10_000
+        private const val READ_TIMEOUT_MS = 15_000
+
         @Volatile
         private var instance: ThemeManager? = null
 
@@ -257,23 +263,42 @@ class ThemeManager private constructor(val context: Context) {
         }
     }
 
+    /**
+     * Raised when the theme catalogue cannot be read. Carries a message meant for the
+     * user: previously every failure here collapsed into an empty list, so a rate-limited
+     * or timed-out refresh looked identical to "no themes available".
+     */
+    class ThemeFetchException(val userMessage: String, cause: Throwable? = null) :
+            Exception(userMessage, cause)
+
     suspend fun fetchThemesFromGithub(repoUrl: String): List<ThemeMetadata> {
         return withContext(Dispatchers.IO) {
             try {
                 val apiUrl = convertToGithubApiUrl(repoUrl)
-                Log.d(TAG, "Fetching themes from API: $apiUrl")
-                
+                Log.i(TAG, "Fetching themes from API: $apiUrl")
+
                 val url = URL(apiUrl)
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "GET"
                 conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
-                
+                conn.connectTimeout = CONNECT_TIMEOUT_MS
+                conn.readTimeout = READ_TIMEOUT_MS
+
                 if (conn.responseCode != 200) {
                     val errorBody = conn.errorStream?.bufferedReader()?.use { it.readText() }
                     Log.e(TAG, "Failed to fetch themes: ${conn.responseCode} - $errorBody")
-                    return@withContext emptyList<ThemeMetadata>()
+                    throw ThemeFetchException(
+                            when (conn.responseCode) {
+                                // The API is called unauthenticated: 60 req/h per IP, and one
+                                // refresh costs 1 + one request per theme folder.
+                                403, 429 -> "Limite de consultas do GitHub atingido. Aguarde alguns minutos e tente de novo."
+                                404 -> "Repositório de temas não encontrado."
+                                in 500..599 -> "GitHub indisponível no momento (${conn.responseCode})."
+                                else -> "GitHub respondeu ${conn.responseCode}."
+                            }
+                    )
                 }
-                
+
                 val jsonString = conn.inputStream.bufferedReader().use { it.readText() }
                 val array = JSONArray(jsonString)
                 val results = mutableListOf<ThemeMetadata>()
@@ -292,9 +317,16 @@ class ThemeManager private constructor(val context: Context) {
                     }
                 }
                 results
+            } catch (e: ThemeFetchException) {
+                throw e
+            } catch (e: SocketTimeoutException) {
+                Log.e(TAG, "Timeout fetching themes from GitHub", e)
+                throw ThemeFetchException(
+                        "Tempo esgotado ao consultar o GitHub. Verifique a conexão do carro.", e)
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching themes from GitHub", e)
-                emptyList<ThemeMetadata>()
+                throw ThemeFetchException(
+                        "Falha ao consultar atualizações: ${e.message ?: e.javaClass.simpleName}", e)
             }
         }
     }
@@ -306,7 +338,9 @@ class ThemeManager private constructor(val context: Context) {
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "GET"
                 conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
-                
+                conn.connectTimeout = CONNECT_TIMEOUT_MS
+                conn.readTimeout = READ_TIMEOUT_MS
+
                 if (conn.responseCode != 200) return@withContext null
                 
                 val jsonString = conn.inputStream.bufferedReader().use { it.readText() }
@@ -326,6 +360,8 @@ class ThemeManager private constructor(val context: Context) {
                 // Fetch the theme.xml content
                 val xmlUrl = URL(themeXmlDownloadUrl)
                 val xmlConn = xmlUrl.openConnection() as HttpURLConnection
+                xmlConn.connectTimeout = CONNECT_TIMEOUT_MS
+                xmlConn.readTimeout = READ_TIMEOUT_MS
                 val metadata = parseThemeXml(xmlConn.inputStream, folderName, false)
                 
                 if (metadata != null) {
@@ -460,7 +496,9 @@ class ThemeManager private constructor(val context: Context) {
                 val url = URL(apiUrl)
                 val conn = url.openConnection() as HttpURLConnection
                 conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
-                
+                conn.connectTimeout = CONNECT_TIMEOUT_MS
+                conn.readTimeout = READ_TIMEOUT_MS
+
                 if (conn.responseCode != 200) {
                     Log.e(TAG, "Download failed with status: ${conn.responseCode}")
                     return@withContext false
@@ -478,6 +516,8 @@ class ThemeManager private constructor(val context: Context) {
                     val destFile = File(destDir, fileName)
                     val fileUrl = URL(downloadUrl)
                     val fileConn = fileUrl.openConnection() as HttpURLConnection
+                    fileConn.connectTimeout = CONNECT_TIMEOUT_MS
+                    fileConn.readTimeout = READ_TIMEOUT_MS
                     BufferedInputStream(fileConn.inputStream).use { input ->
                         FileOutputStream(destFile).use { output ->
                             input.copyTo(output)

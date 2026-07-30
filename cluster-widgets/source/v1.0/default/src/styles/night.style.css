@@ -4132,3 +4132,777 @@ body.display-mapa .mask-panel.right {
 .display-mapa .internal-temp-container {
   top: 600px !important;
 }
+
+/* MAPA_PREVIEW_SYNC_BLOCK_START */
+/* ==========================================================================
+   DISPLAY MAPA: EXACT BOBAOAPAE PREVIEW IMPLEMENTATION
+   ========================================================================== */
+
+
+.display-mapa .dashboard-info-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--map-sidebar-width);
+  height: 720px;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(27, 97, 156, 0.22), transparent 34%),
+    linear-gradient(180deg, rgba(7, 12, 20, 0.98) 0%, rgba(2, 5, 10, 0.94) 52%, rgba(0, 0, 0, 0.98) 100%);
+  border-right: 1px solid rgba(88, 151, 224, 0.20);
+  box-shadow:
+    18px 0 34px rgba(0, 0, 0, 0.48),
+    inset -1px 0 0 rgba(255, 255, 255, 0.04);
+  pointer-events: none;
+  z-index: 230;
+}
+
+
+.dashboard-fuel-container,
+.dashboard-battery-container {
+  margin-right: -40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0px;
+  position: relative;
+  margin-left: -30px;
+  
+}
+.display-mapa .dashboard-fuel-container,
+.display-mapa .dashboard-battery-container {
+  position: absolute;
+  left: 6px;
+  width: 133px;
+  min-height: 134px;
+  margin: 0;
+  padding: 11px 8px 9px;
+  gap: 7px;
+  background:
+    radial-gradient(circle at 18% 14%, rgba(64, 164, 255, 0.25), transparent 48%),
+    linear-gradient(155deg, rgba(10, 28, 48, 0.90), rgba(2, 8, 17, 0.82) 54%, rgba(0, 0, 0, 0.72));
+  border: 1px solid rgba(93, 173, 255, 0.36);
+  border-radius: 10px;
+  box-shadow:
+    inset 3px 0 0 rgba(67, 153, 255, 0.82),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 10px 24px rgba(0, 0, 0, 0.42);
+  box-sizing: border-box;
+  overflow: hidden;
+  z-index: 246;
+}
+
+.display-mapa .dashboard-fuel-container {
+  top: -550px;
+}
+
+.display-mapa .dashboard-battery-container {
+  top: -380px;
+  background:
+    radial-gradient(circle at 18% 14%, rgba(61, 213, 152, 0.25), transparent 48%),
+    linear-gradient(155deg, rgba(6, 32, 29, 0.90), rgba(2, 11, 16, 0.82) 54%, rgba(0, 0, 0, 0.72));
+  border-color: rgba(76, 224, 166, 0.34);
+  box-shadow:
+    inset 3px 0 0 rgba(61, 213, 152, 0.82),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 10px 24px rgba(0, 0, 0, 0.42);
+}
+
+.dashboard-warning-label {
+  position: absolute;
+  bottom: 75px;
+  right: 20px;
+  background-color: #ff3b30;
+  color: #ffffff;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 22px;
+  font-weight: 700;
+  text-transform: uppercase;
+  box-shadow: 0 0 15px rgba(255, 59, 48, 0.6);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+
+.gauge-top-info {
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 250px;
+  height: 48px;
+  position: relative;
+  margin-bottom: 4px;
+}
+
+.fuel-range,
+.battery-range {
+  font-size: 32px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.fuel-percent,
+.fuel-liters,
+.battery-percent {
+  position: absolute;
+  right: 40px;
+  font-size: 26px;
+  font-weight: 300;
+  color: var(--menu-text);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.fuel-liters {
+  right: 23px;
+  top: 5px;
+  font-size: 26px;
+  font-weight: 300;
+  color: var(--menu-text);
+  min-width: 96px;
+  text-align: right;
+  letter-spacing: -1px;
+}
+
+.fuel-liters .dashboard-unit {
+  font-size: 26px;
+  margin-left: 0px;
+}
+
+.dashboard-unit {
+  font-size: 26px;
+  font-weight: 300;
+  color: var(--menu-text);
+  margin-left: 4px;
+}
+
+.fuel-icon,
+.battery-icon {
+  position: absolute;
+  left: 40px;
+  width: 32px;
+  height: 32px;
+  vertical-align: middle;
+  object-fit: contain;
+}
+
+.segmented-bar-container {
+  display: flex;
+  gap: 8px;
+  width: 250px;
+  position: relative;
+  margin-top: -5px;
+}
+
+.segment-track {
+  flex: 1;
+  height: 8px;
+  /* Slightly taller */
+  background-color: var(--color-white-15);
+  position: relative;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bar-segment {
+  height: 100%;
+  width: 0%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+
+}
+
+.fuel .bar-segment {
+  background-color: var(--primary-blue);
+}
+
+.battery .bar-segment {
+  background-color: var(--color-emerald);
+}
+
+.gauge-labels-container {
+  position: absolute;
+  bottom: 20px;
+  width: 250px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--menu-text);
+  pointer-events: none;
+}
+
+.display-mapa .gauge-top-info {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-rows: 46px 28px;
+  column-gap: 5px;
+  align-items: center;
+  justify-items: start;
+  width: 100%;
+  height: auto;
+  min-height: 74px;
+  margin-bottom: 0;
+}
+
+.display-mapa .fuel-icon,
+.display-mapa .battery-icon {
+  position: static;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  justify-self: center;
+  width: 31px;
+  height: 31px;
+  opacity: 0.98;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.20));
+}
+
+.display-mapa .fuel-range,
+.display-mapa .battery-range {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: baseline;
+  width: auto;
+  padding-left: 0;
+  font-size: 39px;
+  font-weight: 600;
+  line-height: 40px;
+  text-align: left;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.98);
+  text-shadow: 0 0 14px rgba(255, 255, 255, 0.12);
+}
+
+.display-mapa .fuel-liters,
+.display-mapa .battery-percent {
+  position: static;
+  grid-column: 2;
+  grid-row: 2;
+  width: auto;
+  min-width: 0;
+  font-size: 24px;
+  line-height: 26px;
+  letter-spacing: 0;
+  text-align: left;
+  color: rgba(213, 228, 247, 0.86);
+}
+
+.display-mapa .fuel-range .dashboard-unit,
+.display-mapa .battery-range .dashboard-unit {
+  font-size: 19px;
+  margin-left: 2px;
+  opacity: 0.92;
+}
+
+.display-mapa .fuel-liters .dashboard-unit,
+.display-mapa .battery-percent .dashboard-unit {
+  font-size: 18px;
+  margin-left: 2px;
+}
+
+.display-mapa .segmented-bar-container {
+  width: 116px;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.display-mapa .segment-track {
+  height: 10px;
+  background-color: rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.display-mapa .gauge-labels-container {
+  position: relative;
+  bottom: auto;
+  width: 116px;
+  margin-top: 1px;
+  font-size: 16px;
+  line-height: 16px;
+  color: rgba(213, 228, 247, 0.74);
+}
+
+.dashboard-ev-power-card {
+  display: none;
+}
+
+.display-mapa .dashboard-ev-power-card {
+  position: absolute;
+  left: 6px;
+  top: 480px;
+  width: 133px;
+  height: 70px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 6px 6px;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(82, 184, 255, 0.18), transparent 48%),
+    linear-gradient(145deg, rgba(10, 22, 34, 0.86), rgba(2, 6, 12, 0.66));
+  border: 1px solid rgba(112, 204, 255, 0.26);
+  border-radius: 10px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 20px rgba(0, 0, 0, 0.30);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 246;
+  font-weight: bolder;
+}
+
+.cluster-disabled .dashboard-ev-power-card {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.display-mapa .ev-power-label {
+  width: 100%;
+  font-size: 12px;
+  line-height: 13px;
+  font-weight: 300;
+  letter-spacing: 0;
+  text-align: center;
+  color: rgba(213, 228, 247, 0.72);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.display-mapa .ev-power-value {
+  width: 100%;
+  font-family: 'Eurostile', sans-serif;
+  font-size: 36px;
+  line-height: 36px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 3px 10px rgba(0, 0, 0, 0.78);
+  white-space: nowrap;
+}
+
+.display-mapa .ev-power-unit {
+  width: 100%;
+  font-size: 12px;
+  line-height: 12px;
+  font-weight: 300;
+  letter-spacing: 0;
+  text-align: center;
+  color: rgba(213, 228, 247, 0.60);
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.display-mapa .dashboard-ev-power-card[data-ev-power-state="drive"] .ev-power-value {
+  color: rgba(112, 204, 255, 0.98);
+}
+
+.display-mapa .dashboard-ev-power-card[data-ev-power-state="drive"] .ev-power-unit {
+  color: rgba(112, 204, 255, 0.62);
+}
+
+.display-mapa .dashboard-ev-power-card[data-ev-power-state="regen"] {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(80, 235, 170, 0.17), transparent 48%),
+    linear-gradient(145deg, rgba(6, 30, 27, 0.86), rgba(2, 8, 13, 0.66));
+  border-color: rgba(80, 235, 170, 0.24);
+}
+
+.display-mapa .dashboard-ev-power-card[data-ev-power-state="regen"] .ev-power-value {
+  color: rgba(80, 235, 170, 0.98);
+}
+
+.display-mapa .dashboard-ev-power-card[data-ev-power-state="regen"] .ev-power-unit {
+  color: rgba(80, 235, 170, 0.62);
+}
+
+.display-mapa .dashboard-ev-power-card[data-ev-power-state="idle"] .ev-power-value {
+  color: rgba(213, 228, 247, 0.78);
+}
+
+.ev-label {
+  color: var(--text-glow-blue);
+  font-weight: 600;
+  font-size: 24px;
+  margin-left: 10px;
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+
+}
+
+.display-normal .dashboard-bottom-ev-mode,
+.display-reduzido .dashboard-bottom-ev-mode,
+.display-clean .dashboard-bottom-ev-mode,
+.display-mapa .dashboard-bottom-ev-mode {
+  margin-right: -70px;
+  position: absolute;
+  height: 80px;
+  width: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  bottom: -10px;
+  right: 220px;
+}
+
+.display-mapa .dashboard-bottom-ev-mode {
+  left: 6px;
+  margin-top:40px;
+  right: auto;
+  top: 520px;
+  bottom: auto;
+  width: 133px;
+  height: 60px;
+  margin-right: 0;
+  background:
+    linear-gradient(145deg, rgba(12, 18, 28, 0.84), rgba(2, 5, 10, 0.62));
+  border: 1px solid rgba(229, 239, 255, 0.18);
+  border-radius: 10px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 20px rgba(0, 0, 0, 0.30);
+  z-index: 245;
+}
+
+.dashboard-bottom-ev-mode {
+  position: absolute;
+  height: 72px;
+  width: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  bottom: 0px;
+  right: 220px;
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.bottom-ev-label {
+  font-size: 40px;
+  font-weight: 300;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px var(--bg-black-50);
+}
+
+.display-normal .bottom-ev-label,
+.display-reduzido .bottom-ev-label,
+.display-clean .bottom-ev-label,
+.display-mapa .bottom-ev-label {
+  font-size: 32px;
+  font-weight: 300;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px var(--bg-black-50);
+}
+
+.display-mapa .bottom-ev-label {
+  font-size: 34px;
+  line-height: 38px;
+}
+
+.external-temp-container,
+.internal-temp-container {
+  position: absolute;
+  bottom: 65px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.external-temp-container {
+  left: 30px;
+}
+
+.internal-temp-container {
+  right: 30px;
+}
+
+.display-mapa .external-temp-container,
+.display-mapa .internal-temp-container {
+  bottom: 0;
+  width: 133px;
+  height: 54px;
+  background:
+    linear-gradient(145deg, rgba(12, 18, 28, 0.62), rgba(2, 5, 10, 0.38));
+  border: 1px solid rgba(229, 239, 255, 0.09);
+  border-radius: 10px;
+  z-index: 245;
+}
+
+.display-mapa .external-temp-container {
+  left: 6px;
+  right: auto;
+  top: auto;
+}
+
+
+
+#app.display-mapa .external-temp-container {
+  bottom: 0;
+}
+
+#app.display-mapa .internal-temp-container {
+  left: 6px;
+  right: auto;
+  top: 2px;
+  bottom: auto;
+}
+
+
+.temp-value {
+  position: absolute;
+  top: 8px;
+  font-size: 28px;
+  font-weight: 500;
+  font-family: 'Eurostile', sans-serif;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.external-temp-container .temp-value {
+  left: 35px;
+}
+
+.internal-temp-container .temp-value {
+  right: 35px;
+}
+
+.display-mapa .external-temp-container .temp-value,
+.display-mapa .internal-temp-container .temp-value {
+  position: static;
+  top: auto;
+  left: auto;
+  right: auto;
+  font-size: 25px;
+  line-height: 27px;
+}
+
+.temp-sub-label {
+  position: absolute;
+  top: 36px;
+  font-size: 16px;
+  font-weight: 300;
+  color: var(--menu-text);
+  text-transform: uppercase;
+}
+
+.external-temp-container .temp-sub-label {
+  left: 35px;
+}
+
+.internal-temp-container .temp-sub-label {
+  right: 35px;
+}
+
+.display-mapa .external-temp-container .temp-sub-label,
+.display-mapa .internal-temp-container .temp-sub-label {
+  position: static;
+  top: auto;
+  left: auto;
+  right: auto;
+  font-size: 14px;
+  line-height: 16px;
+  letter-spacing: 0.3px;
+}
+
+/* Clean Mode Elements */
+
+/* Dynamic Color Styles */
+.dashboard-gear[data-gear="P"] {
+  color: var(--color-red-alt);
+  /* Red */
+}
+
+.dashboard-gear[data-gear="R"] {
+  color: var(--color-orange-alt);
+  /* Orange */
+}
+
+.dashboard-gear {
+  color: var(--text-main);
+  /* Default theme color */
+}
+
+.dashboard-ev-mode[data-ev-mode="eco"] {
+  color: var(--color-green-main);
+}
+
+.dashboard-ev-mode[data-ev-mode="sport"] {
+  color: var(--color-red-light);
+}
+
+.dashboard-ev-mode,
+.dashboard-ev-mode[data-ev-mode="normal"] {
+  color: var(--text-main);
+}
+
+.bottom-ev-label[data-bottom-ev="EV"] {
+  color: var(--text-glow-blue);
+  /* Blue */
+}
+
+.bottom-ev-label[data-bottom-ev="EVP"] {
+  color: var(--color-green-main);
+  /* Green */
+}
+
+.bottom-ev-label[data-bottom-ev="HEV"],
+.bottom-ev-label {
+  color: var(--text-main);
+  /* Default theme color */
+}
+
+/* ==========================================================================
+   ODOMETER & REVISION INFO
+   ========================================================================== */
+.odometer-info-container {
+  margin-bottom: -12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex: 1;
+}
+
+.display-mapa .odometer-info-container {
+  width: auto;
+  min-height: 0;
+  margin-bottom: -12px;
+  padding: 0;
+  flex: 1;
+  border-radius: 0;
+  background-color: transparent;
+  box-sizing: content-box;
+  z-index: 246;
+}
+
+.odometer-text-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0px;
+  transition: all 0.5s ease;
+  transform: translateY(8px);
+}
+
+.display-mapa .odometer-text-wrapper {
+  width: 100%;
+  transform: translateY(8px);
+}
+
+.display-mapa .odometer-text-wrapper.single-line {
+  transform: translateY(6px);
+}
+
+.display-mapa .odometer-text-wrapper.double-line {
+  transform: translateY(8px);
+}
+
+.odometer-line {
+
+  font-size: 26px;
+  font-weight: 300;
+  color: var(--text-main);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  text-shadow: 0 4px 8px var(--bg-black-100);
+}
+
+.display-mapa .odometer-line {
+  justify-content: center;
+  gap: 6px;
+  font-size: 26px;
+  line-height: normal;
+  margin-bottom: 10px;
+  text-align: center;
+  flex-wrap: nowrap;
+}
+
+.display-normal .odometer-line,
+.display-reduzido .odometer-line {
+  margin-bottom: 10px;
+}
+
+.odometer-label {
+
+  font-size: 18px;
+  color: var(--menu-text);
+}
+
+.display-mapa .odometer-label {
+  width: auto;
+  font-size: 18px;
+  line-height: normal;
+}
+
+.odometer-value {
+  font-family: 'Eurostile', sans-serif;
+  font-size: 28px;
+  letter-spacing: 1px;
+  transition: all 0.5s ease;
+
+}
+
+.display-mapa .odometer-value {
+  font-size: 28px;
+  letter-spacing: 0;
+}
+
+.display-mapa .odometer-text-wrapper.single-line .odometer-value {
+  font-size: 30px;
+}
+
+.odometer-unit {
+  font-size: 20px;
+  color: var(--menu-text);
+  transition: all 0.5s ease;
+
+}
+
+.display-mapa .odometer-unit {
+  font-size: 20px;
+}
+
+.display-mapa .odometer-text-wrapper.single-line .odometer-unit,
+.display-mapa .odometer-text-wrapper.single-line .odometer-label {
+  font-size: 22px;
+}
+
+.revision-line {
+  font-size: 22px;
+  font-weight: 300;
+  color: var(--menu-text);
+  text-shadow: 0 4px 8px var(--bg-black-100);
+  transition: opacity 0.5s ease;
+  transform: translateY(-2px);
+}
+
+.display-mapa .revision-line {
+  width: 100%;
+  max-width: 100%;
+  font-size: 22px;
+  line-height: normal;
+  text-align: center;
+  white-space: nowrap;
+  transform: translateY(-2px);
+}
+
+.display-normal .revision-line,
+.display-reduzido .revision-line {
+  top: -20px !important;
+  position: relative;
+}
+
+/* MAPA_PREVIEW_SYNC_BLOCK_END */

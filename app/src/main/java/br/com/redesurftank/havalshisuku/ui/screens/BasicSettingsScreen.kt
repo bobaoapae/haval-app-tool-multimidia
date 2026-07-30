@@ -7,24 +7,32 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightService
 import br.com.redesurftank.havalshisuku.managers.AutoBrightnessManager
+import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
+import coil.compose.AsyncImage
 import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.SteeringWheelClimateCommandType
@@ -78,8 +86,10 @@ private fun SteeringActionPicker(
         onPackageChanged: (String) -> Unit,
         onClimateCommandSelected: (SteeringWheelClimateCommandType) -> Unit,
 ) {
+        val context = LocalContext.current
         var expanded by remember { mutableStateOf(false) }
         var climateCommandExpanded by remember { mutableStateOf(false) }
+        var showAppPicker by remember { mutableStateOf(false) }
         Text(label, color = Color(0xFFB0B8C4), fontSize = 14.sp)
         ExposedDropdownMenuBox(
                 expanded = expanded,
@@ -113,19 +123,76 @@ private fun SteeringActionPicker(
                 }
         }
         if (actionKey == SteeringWheelCustomActionType.OPEN_APP.key) {
-                TextField(
-                        value = packageName,
-                        onValueChange = { onPackageChanged(it) },
-                        label = { Text("Pacote do App") },
-                        colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color(0xFF2A2F37),
-                                unfocusedContainerColor = Color(0xFF2A2F37),
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color(0xFFB0B8C4),
-                                focusedIndicatorColor = Color(0xFF4A9EFF),
-                                unfocusedIndicatorColor = Color(0xFF3A3F47)
+                // Reaproveita o mesmo seletor de apps da tela "Telas" no lugar de digitar o pacote.
+                val resolved =
+                        remember(packageName) {
+                                if (packageName.isBlank()) null
+                                else DisplayAppLauncher.resolveAppInfo(context, packageName)
+                        }
+                Row(
+                        modifier =
+                                Modifier.fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF2A2F37))
+                                        .border(
+                                                1.dp,
+                                                Color(0xFF3A3F47),
+                                                RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { showAppPicker = true }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                ) {
+                        if (resolved?.icon != null) {
+                                AsyncImage(
+                                        model = resolved.icon,
+                                        contentDescription = resolved.label,
+                                        modifier = Modifier.size(32.dp),
+                                        contentScale = ContentScale.Fit
+                                )
+                        } else {
+                                Icon(
+                                        imageVector = Icons.Default.Apps,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(32.dp),
+                                        tint = Color(0xFFB0B8C4)
+                                )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                        text = resolved?.label ?: "Selecionar aplicativo",
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                        text =
+                                                if (packageName.isBlank()) "Nenhum app escolhido"
+                                                else packageName,
+                                        color = Color(0xFFB0B8C4),
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                )
+                        }
+                        Text(
+                                "ESCOLHER",
+                                color = Color(0xFF4A9EFF),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
                         )
-                )
+                }
+                if (showAppPicker) {
+                        AppPickerDialog(
+                                onDismiss = { showAppPicker = false },
+                                onAppSelected = { app ->
+                                        onPackageChanged(app.packageName)
+                                        showAppPicker = false
+                                }
+                        )
+                }
         }
         if (actionKey == SteeringWheelCustomActionType.CLIMATE_COMMAND.key) {
                 SteeringWheelClimateCommandDropdown(

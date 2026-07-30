@@ -6705,7 +6705,13 @@ object DisplayAppLauncher {
         var width = config.width
         var height = config.height
 
-        if (!config.overrideThemeDimensions && virtualClusterEnabled && config.displayId == 3) {
+        // Displays 1 and 3 are both the instrument cluster: 1 renders behind the
+        // ADAS/theme layer, 3 above it (see the display picker in TelasScreen).
+        // Both need the theme's mask insets — an app on display 1 sits *under*
+        // the masks, so it needs them most. overrideThemeDimensions stays the
+        // opt-out for users who want their raw configured bounds.
+        val onClusterDisplay = config.displayId == 1 || config.displayId == 3
+        if (!config.overrideThemeDimensions && virtualClusterEnabled && onClusterDisplay) {
             val dynamicBounds = dynamicThemeBounds
             if (dynamicBounds != null && dynamicBounds.size == 4) {
                 x = dynamicBounds[0]

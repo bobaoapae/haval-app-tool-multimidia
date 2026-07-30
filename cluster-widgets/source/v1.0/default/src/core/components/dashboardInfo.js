@@ -419,7 +419,8 @@ export function createDashboardInfo() {
         }),
         subscribe('warningActive', val => {
             logger.log('[DashboardInfo Light] warningActive changed to:', val);
-            warningLabel.style.display = val ? 'block' : 'none';
+            const isWarnActive = val === true || val === 'true';
+            warningLabel.style.display = isWarnActive ? 'block' : 'none';
         }),
         subscribe('bsdLeft', val => bsdLeftIndicator.style.display = val ? 'block' : 'none'),
         subscribe('bsdRight', val => bsdRightIndicator.style.display = val ? 'block' : 'none'),

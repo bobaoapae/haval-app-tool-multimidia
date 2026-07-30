@@ -14,9 +14,9 @@ export function createStatusElement() {
     const secondaryActiveColor = style.getPropertyValue('--text-glow-blue').trim() || '#00beff';
     const inactiveColor = style.getPropertyValue('--text-gray').trim() || '#9ca3af';
 
-    const isAutoOn = stateManager.get('auto') === 1;
-    const isRecycleIn = stateManager.get('recycle') === 1;
-    const isMaxAuto = stateManager.get('maxauto') === 1;
+    const isAutoOn = Number(stateManager.get('auto')) === 1;
+    const isRecycleIn = Number(stateManager.get('recycle')) === 1;
+    const isMaxAuto = Number(stateManager.get('maxauto')) === 1;
 
     var autoModeIconElement = img({
         src: autoModeIcon(isAutoOn ? primaryActiveColor : inactiveColor),
@@ -62,19 +62,19 @@ export function createStatusElement() {
     })
 
     var unsubscribeAuto = subscribe('auto', function(newAuto) {
-        const isAutoOn = newAuto === 1;
+        const isAutoOn = Number(newAuto) === 1;
         autoModeIconElement.src = autoModeIcon(isAutoOn ? secondaryActiveColor : inactiveColor);
         autoModeLabel.className = isAutoOn ? 'text-white' : 'text-gray';
     });
 
     var unsubscribeRecycle = subscribe('recycle', function(newRecycle) {
-        const isRecycleIn = newRecycle === 1;
+        const isRecycleIn = Number(newRecycle) === 1;
         recycleIconElement.src = isRecycleIn ? recycleIn : recycleOut;
     });
 
     const maxAutoContainer = statusElement.querySelector('.maxauto-icon-container');
     var unsubscribeMaxAuto = subscribe('maxauto', function(newMaxAuto) {
-        const isMaxAuto = newMaxAuto === 1;
+        const isMaxAuto = Number(newMaxAuto) === 1;
         maxAutoContainer.classList.toggle('hidden', !isMaxAuto);
     });
 
