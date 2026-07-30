@@ -6977,6 +6977,17 @@ object DisplayAppLauncher {
     suspend fun launchOnMainDisplay(config: DisplayAppConfig) = launchAnyApp(App.getContext(), config.packageName, config.activityName)
 
     /**
+     * Fire-and-forget [launchAnyApp] on this manager's own scope.
+     *
+     * The bottom bar drawer closes itself in the same tap that launches an app, which tears down its
+     * composition and cancels anything started from `rememberCoroutineScope()`. The launch has to
+     * outlive that, so it runs here instead.
+     */
+    fun launchAnyAppDetached(context: Context, packageName: String, activityName: String? = null) {
+        scope.launch { launchAnyApp(context, packageName, activityName) }
+    }
+
+    /**
      * More robust launch for the main display using package manager intents.
      */
     suspend fun launchAnyApp(context: Context, packageName: String, activityName: String? = null) = withContext(Dispatchers.IO) {

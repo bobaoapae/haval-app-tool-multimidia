@@ -307,8 +307,11 @@ fun BottomBarContent() {
         // hides the pane.
         val leftGutter = with(LocalDensity.current) { BottomBarState.overlayLeftGutterPx.toDp() }
 
+        // Note the gutter is applied to the content Row below, NOT here: the black Surface has to span
+        // the whole window so the bar reads as one continuous strip. Padding it here leaves the left
+        // 128px transparent, which shows through as a gap whenever the app behind is not dark.
         Box(
-                modifier = Modifier.fillMaxWidth().height(60.dp).padding(start = leftGutter),
+                modifier = Modifier.fillMaxWidth().height(60.dp),
                 contentAlignment = Alignment.BottomCenter
         ) {
                 if (BottomBarState.isVisible && !BottomBarState.isDashboardExpanded) {
@@ -411,43 +414,19 @@ fun BottomBarContent() {
                                 shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp),
                                 tonalElevation = 0.dp
                         ) {
-                                // Use BoxWithConstraints to get actual measured width
-                                androidx.compose.foundation.layout.BoxWithConstraints(
+                                // The window is a fixed physical width now, so the layout no longer has
+                                // to compensate for a measured width that changed with the left
+                                // navigation pane - the constant gutter below does that job.
+                                Box(
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.CenterEnd
                                 ) {
-                                        val density =
-                                                androidx.compose.ui.platform.LocalDensity.current
-                                                        .density
-                                        val actualWidthPx = constraints.maxWidth
-
-                                        // Dynamic padding: 150px when full 1920px, reduced when
-                                        // narrower
-                                        // Threshold: 1820px (= 1920 - 100). Below this, no padding.
-                                        val thresholdPx = (1820 * density).toInt()
-                                        val compensationPx =
-                                                (actualWidthPx - thresholdPx).coerceAtLeast(0)
-                                        val horizontalOffsetCompensation =
-                                                (compensationPx / density).dp
-
-                                        // Troubleshoot logging
-                                        android.util.Log.d(
-                                                "BottomBarUI",
-                                                "Width - " +
-                                                        "ActualWidthPx: $actualWidthPx, " +
-                                                        "Density: $density, " +
-                                                        "ThresholdPx: $thresholdPx, " +
-                                                        "CompensationPx: $compensationPx, " +
-                                                        "PaddingDp: $horizontalOffsetCompensation"
-                                        )
-
                                         Row(
                                                 modifier =
                                                         Modifier.fillMaxWidth()
                                                                 .fillMaxHeight()
                                                                 .padding(
-                                                                        start =
-                                                                                horizontalOffsetCompensation,
+                                                                        start = leftGutter,
                                                                         end = 8.dp
                                                                 ),
                                                 verticalAlignment = Alignment.CenterVertically
@@ -6391,12 +6370,16 @@ fun AppGridItem(
                                                         onClick()
                                                         // Update shared selection state
                                                         BottomBarState.selectedPackage = pkg
-                                                        // Launch immediately on selection
-                                                        scope.launch {
-                                                                br.com.redesurftank.havalshisuku
-                                                                        .managers.DisplayAppLauncher
-                                                                        .launchAnyApp(context, pkg)
-                                                        }
+                                                        // Launch on the manager's own scope, not this
+                                                        // composition's - closing the drawer below
+                                                        // disposes it and would cancel the launch.
+                                                        br.com.redesurftank.havalshisuku.managers
+                                                                .DisplayAppLauncher
+                                                                .launchAnyAppDetached(context, pkg)
+                                                        // Close now instead of lingering until the
+                                                        // launched app reaches the foreground and a
+                                                        // monitor collapses the menu for us.
+                                                        BottomBarState.isMenuExpanded = false
                                                 }
                                         },
                                         onLongClick = { BottomBarState.isDeleteModeEnabled = true }

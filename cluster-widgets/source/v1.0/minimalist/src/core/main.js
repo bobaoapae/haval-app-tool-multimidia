@@ -90,6 +90,17 @@ function isProjectionMapDisplayActive() {
         get('projectionPreparingD3') === true;
 }
 
+function getEffectiveDisplayMode() {
+    if (isProjectionMapDisplayActive()) {
+        return get('navigationDisplayMode') || get('navigation_display_mode') || 'Mapa';
+    }
+    const appInDash = get('appInDash');
+    if (appInDash === true || appInDash === 'left' || appInDash === 'right') {
+        return get('appDisplayMode') || get('app_display_mode') || 'Normal';
+    }
+    return get('display') || 'Normal';
+}
+
 function isHideBottomBar() {
     const val = get('hideBottomBar') ?? get('hide_bottom_bar');
     return val === true || val === 'true' || val === 1 || val === '1';
@@ -99,7 +110,12 @@ function getEffectiveMaskMode() {
     if (isProjectionMapDisplayActive()) {
         return get('navigationMaskMode') || get('navigation_mask_mode') || 'Clean';
     }
-    return get('appMaskMode') || get('app_mask_mode') || 'Padrão';
+    const appInDashVal = get('appInDash');
+    const isAppActive = appInDashVal === true || appInDashVal === 'left' || appInDashVal === 'right';
+    if (isAppActive) {
+        return get('appMaskMode') || get('app_mask_mode') || 'Padrão';
+    }
+    return 'Padrão';
 }
 
 // Initial state from URL parameters
@@ -116,7 +132,6 @@ if (nativeMockEnabled) {
     setState('odometer', get('odometer') || 11450);
     setState('nextRevisionKm', get('nextRevisionKm') || 12000);
     setState('nextRevisionDate', get('nextRevisionDate') || Date.now() + 15 * 24 * 60 * 60 * 1000);
-    setState('appInDash', true);
     document.body.classList.add('native-mock-enabled');
 }
 
@@ -199,7 +214,7 @@ function render() {
     logger.enter('render', { screen: get('screen'), display: get('display') });
     updateAppDimensions();
     const screen = get('screen');
-    const displayMode = get('display') || 'Normal';
+    const displayMode = getEffectiveDisplayMode();
 
     const cardId = get('cardId');
     const isCard0 = cardId == 0 || cardId === '0';
@@ -914,6 +929,9 @@ async function initMinimalistBridge() {
     bindDual('showRpmIcon', 'show_rpm_icon', true);
     bindDual('navigationMaskMode', 'navigation_mask_mode', 'Clean');
     bindDual('appMaskMode', 'app_mask_mode', 'Padrão');
+    bindDual('navigationDisplayMode', 'navigation_display_mode', 'Mapa');
+    bindDual('appDisplayMode', 'app_display_mode', 'Normal');
+    bindDual('display', 'display', 'Normal');
 
     subscribe('carPlayInDash', render);
     subscribe('projectionMirrorInDash', render);

@@ -1,0 +1,75 @@
+<theme>
+    <name>Default</name>
+    <description>Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.</description>
+    <version>1.4.27</version>
+    <thumbnail>thumbnail.png</thumbnail>
+    <mainFile>index.html</mainFile>
+    <decentralized>true</decentralized>
+    <minBridgeVersion>1.0.0</minBridgeVersion>
+    <contractVersion>v1.0</contractVersion>
+    <AppDefaultPosition>
+        <x>0</x>
+        <y>62</y>
+        <width>1920</width>
+        <height>596</height>
+    </AppDefaultPosition>
+    
+    <!-- 
+      Theme Configuration Definitions:
+      Declare dynamic customization options parsed by the native Android Settings UI.
+      Supported types: 
+        - boolean: Renders as a switch toggle.
+        - text: Renders as a standard text input field.
+        - number: Renders as a numeric-only input field.
+        - combo: Renders as a dropdown selection menu. Choices are specified via comma-separated list in <options>.
+    -->
+    <configurations>
+        <configuration>
+            <id>hidden_bars</id>
+            <label>Ocultar Barras</label>
+            <type>combo</type>
+            <options>Nenhuma, Superior, Inferior, Ambas</options>
+            <default>Nenhuma</default>
+            <stateVariable>hiddenBars</stateVariable>
+        </configuration>
+        <configuration>
+            <id>theme_mode</id>
+            <label>Modo Visual</label>
+            <type>combo</type>
+            <options>Dark, Light</options>
+            <default>Dark</default>
+            <stateVariable>mode</stateVariable>
+        </configuration>
+        <configuration>
+            <id>bar_images</id>
+            <label>Imagens das Barras</label>
+            <type>boolean</type>
+            <default>true</default>
+            <stateVariable>barImages</stateVariable>
+        </configuration>
+        <configuration>
+            <id>gauge_style</id>
+            <label>Estilo dos Marcadores</label>
+            <type>combo</type>
+            <options>Esportivo, Clássico</options>
+            <default>Esportivo</default>
+            <stateVariable>gaugeStyle</stateVariable>
+        </configuration>
+        <configuration>
+            <id>navigation_display_mode</id>
+            <label>Modo de Exibição na Navegação</label>
+            <type>combo</type>
+            <options>Mapa, Normal, Reduzido, Clean</options>
+            <default>Mapa</default>
+            <stateVariable>navigationDisplayMode</stateVariable>
+        </configuration>
+        <configuration>
+            <id>app_display_mode</id>
+            <label>Modo de Exibição de Outros Apps</label>
+            <type>combo</type>
+            <options>Mapa, Normal, Reduzido, Clean</options>
+            <default>Normal</default>
+            <stateVariable>appDisplayMode</stateVariable>
+        </configuration>
+    </configurations>
+</theme>

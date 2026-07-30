@@ -107,7 +107,20 @@ export class ThemeBridgeAdapter {
      * @returns {boolean}
      */
     hasKey(key) {
-        return this.supportedKeys.has(key) || (typeof key === "string" && key.startsWith("app.preferences."));
+        if (typeof key !== "string") return false;
+        if (this.supportedKeys.has(key)) return true;
+        if (key.startsWith("app.preferences.")) return true;
+        // Allow theme preference keys without app.preferences. prefix
+        const isPrefKey = [
+            "appDisplayMode", "navigationDisplayMode", "display", "hiddenBars", 
+            "gaugeStyle", "barImages", "mode", "hidden_bars", "gauge_style", 
+            "bar_images", "theme_mode", "navigation_display_mode", "app_display_mode",
+            "navigationMaskMode", "navigation_mask_mode", "appMaskMode", "app_mask_mode",
+            "hideBottomBar", "hide_bottom_bar", "showRegenIcon", "show_regen_icon",
+            "showRpmIcon", "show_rpm_icon", "enableOdometer", "enableRevisionWarning",
+            "nextRevisionKm", "nextRevisionDate", "fuelDisplayUnit"
+        ].includes(key);
+        return isPrefKey;
     }
 
     /**
@@ -382,11 +395,13 @@ export class ThemeBridgeAdapter {
         console.log(`[BridgeAdapter DEBUG] bindThemeSetting key=${key} defaultValue=${defaultValue} raw=${raw} val=${val}`);
         setStateFn(key, val);
         
-        // 2. Register live preference push listener
-        this.subscribe(`app.preferences.${key}`, (k, v) => {
+        // 2. Register live preference push listener for both app.preferences.key AND key
+        const updateFn = (k, v) => {
             const parsed = isBool ? (v === "true" || v === true || v === "1" || v === 1) : (isNum ? Number(v) : v);
             setStateFn(key, parsed);
-        });
+        };
+        this.subscribe(`app.preferences.${key}`, updateFn);
+        this.subscribe(key, updateFn);
     }
 }
 

@@ -2474,8 +2474,8 @@ body.display-mapa .mask-panel.right {
 
   position: absolute;
   top: var(--mask-center-y);
-  left: calc(var(--mask-left-x) - var(--display-left-offset));
-  transform: translate(-50%, -50%);
+  left: calc(var(--mask-left-x) + var(--display-left-offset));
+  transform: translate(-50%, -50%) scale(var(--display-scale));
   width: 456px;
   height: 456px;
   pointer-events: none;
@@ -2492,7 +2492,7 @@ body.display-mapa .mask-panel.right {
   position: absolute;
   top: var(--mask-center-y);
   left: calc(var(--mask-right-x) + var(--display-right-offset));
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(var(--display-scale));
   width: 456px;
   height: 456px;
   pointer-events: none;

@@ -62,7 +62,7 @@ function getEffectiveDisplayMode() {
     }
     const appInDash = get('appInDash');
     if (appInDash === true || appInDash === 'left' || appInDash === 'right') {
-        return get('appDisplayMode') || get('display') || 'Normal';
+        return get('appDisplayMode') || 'Normal';
     }
     return get('display') || 'Normal';
 }
@@ -81,7 +81,6 @@ if (nativeMockEnabled) {
     setState('odometer', get('odometer') || 11450);
     setState('nextRevisionKm', get('nextRevisionKm') || 12000);
     setState('nextRevisionDate', get('nextRevisionDate') || Date.now() + 15 * 24 * 60 * 60 * 1000);
-    setState('appInDash', true);
 }
 
 function initializeLayout() {
@@ -361,10 +360,7 @@ subscribe('screen', (screenName) => {
     themeEngine.navigateTo(screenName);
     render();
 });
-subscribe('display', (val) => {
-    if (val) setState('appDisplayMode', val);
-    render();
-});
+subscribe('display', render);
 subscribe('hiddenBars', (val) => {
     console.log(`[STATE TRACE] hiddenBars changed to: ${val}`);
     render();
@@ -591,6 +587,7 @@ async function initDecentralizedBridge() {
     bridge.bindThemeSetting('barImages', true, setState);
     bridge.bindThemeSetting('navigationDisplayMode', 'Mapa', setState);
     bridge.bindThemeSetting('appDisplayMode', 'Normal', setState);
+    bridge.bindThemeSetting('display', 'Normal', setState);
     const enableOdometer = bridge.getPreference('enableOdometer', 'true') === 'true';
     const enableRevisionWarning = bridge.getPreference('enableRevisionWarning', 'false') === 'true';
     const nextRevisionKm = Number(bridge.getPreference('nextRevisionKm', '0')) || 0;
