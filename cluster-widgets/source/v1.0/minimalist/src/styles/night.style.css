@@ -4650,7 +4650,7 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 
 /* RPM indicator + compact thin 270° ring (left of speed dial) */
 .dashboard-rpm-container {
-  display: flex !important;
+  display: flex;
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;

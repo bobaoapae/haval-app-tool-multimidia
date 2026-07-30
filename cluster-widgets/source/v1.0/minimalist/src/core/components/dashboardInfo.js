@@ -533,6 +533,9 @@ export function createDashboardInfo() {
             rpmContainer.querySelector('.rpm-value').textContent = (rpmV / 1000).toFixed(1);
             rpmContainer.style.display = 'flex';
             updateRpmRing(rpmV);
+        } else {
+            rpmContainer.style.display = 'none';
+            updateRpmRing(0);
         }
     }
 
