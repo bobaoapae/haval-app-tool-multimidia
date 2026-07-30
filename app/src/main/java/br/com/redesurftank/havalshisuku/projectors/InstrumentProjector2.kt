@@ -78,7 +78,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var batteryCurrent = 0f
     private var isAnyAppOnDisplay3 = false
     private var isAnyAppOnDisplay1 = false
-    private var currentCard = 0
+    // Seeded from the host-side cache rather than assumed to be 0. ServiceManager tracks
+    // the card the car last reported and outlives this projector, so a restart or a
+    // projector re-creation while the cluster sits on card 1/3 starts from the real card
+    // instead of believing card 0 until the next msgId=133 happens to arrive.
+    private var currentCard = ServiceManager.getInstance().clusterCardView
     private var isWarningActive = false
     private var testDefaultDisplayOverrideActive = FORCE_MAP_DISPLAY_AS_DEFAULT_FOR_TESTS
     private val dismissedWarnings = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -1293,7 +1297,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         updates["carPlayInDash"] = carPlayInDash.toString()
         updates["projectionMirrorInDash"] = projectionMirrorInDash.toString()
         updates["projectionPreparingD3"] = projectionPreparingD3.toString()
-        updates["cardId"] = currentCard.toString()
+        // cardId is deliberately NOT in this map: batchEvaluateJs would emit it as
+        // control('cardId', ...), the legacy channel. The card goes out via
+        // window.onCardChanged below so the contract has exactly one channel on both the
+        // per-change and the page-load path.
         updates["display"] = getSavedClusterDisplay()
         Log.w(
                 TAG,
@@ -1407,6 +1414,13 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         lastSentValues.clear()
 
         batchEvaluateJs(webView, updates)
+
+        // The active card, on the canonical channel. Must come after the batch above so
+        // projection state is already in place — otherwise a card such as AC can paint an
+        // opaque menu over a native CarPlay surface for a frame. pushActiveCardToTheme
+        // reports "missing" if the theme has not defined onCardChanged yet, which makes an
+        // ordering problem on this path visible instead of silent.
+        pushActiveCardToTheme(currentCard)
     }
 
     private fun updateCardEntryValuesWebView(cardId: Int) {
