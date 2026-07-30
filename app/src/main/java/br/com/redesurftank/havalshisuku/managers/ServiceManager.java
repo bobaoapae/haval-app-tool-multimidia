@@ -845,8 +845,15 @@ public class ServiceManager {
                                 lastHandledClusterInputAtMs = now;
                                 // refreshClusterCallbackIfStale(); // Disabled: unregistering/re-registering callback drops native 133 events
                                 if (ClusterCardNavigationPolicy.isCardNavigationKey(key)) {
-                                    handleClusterCardNavigationKey(key);
+                                    // LEFT/RIGHT belong to the car's card navigation. We neither
+                                    // act on them nor forward them: the car switches its own card
+                                    // and reports the result via msgId=133.
                                 } else {
+                                    // Everything else goes to the theme unconditionally. The theme
+                                    // owns its navigation logic and knows the active card from
+                                    // onCardChanged, so it is responsible for ignoring input while
+                                    // card 0 (the car's own card) is showing. Filtering by card
+                                    // here would put card semantics in two places.
                                     if (key == ClusterKey.BACK) {
                                         dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
                                     }
@@ -1264,18 +1271,6 @@ public class ServiceManager {
                     Log.w(TAG, "Error to launch AVM camera");
                 }
                 break;
-        }
-    }
-
-    private void handleClusterCardNavigationKey(ClusterKey key) {
-        if (key == ClusterKey.HOME) {
-            int previousCard = clusterCardView;
-            clusterCardView = 0;
-            Log.w(TAG, "[SYNTHETIC_CARD_NAV] " + previousCard + " -> 0 (key=" + key + ")");
-            dispatchClusterEventOffBinderThread(
-                    ServiceManagerEventType.CLUSTER_CARD_CHANGED,
-                    clusterCardView
-            );
         }
     }
 

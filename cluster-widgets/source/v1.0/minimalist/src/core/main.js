@@ -605,6 +605,16 @@ function handleSteeringWheelKey(keyName) {
         }
         lastKeyTimeMs = now;
 
+        // Card 0 is the vehicle's own card: this theme is not what the driver is looking
+        // at, so ignore wheel input entirely. The host forwards keys unconditionally by
+        // design. Acting on them here changed vehicle state behind the driver's back —
+        // UP/DOWN on card 0 raised the AC fan because this handler was still on the
+        // aircon screen.
+        if (get('cardId') == 0) {
+            logger.log('[onKeyEvent] ignoring', keyName, ': native card (0) is active');
+            return;
+        }
+
         const screen = get('screen');
         logger.log('[onKeyEvent]', keyName, 'screen:', screen);
 

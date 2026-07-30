@@ -348,6 +348,15 @@ function handleSteeringWheelKey(keyName) {
     }
     lastKeyTime = now;
 
+    // Card 0 is the vehicle's own card: this theme is not what the driver is looking at,
+    // so ignore wheel input entirely. The host forwards keys unconditionally by design.
+    // Acting on them here changed vehicle state behind the driver's back — UP/DOWN on
+    // card 0 raised the AC fan because this handler was still on the aircon screen.
+    if (get('cardId') == 0) {
+        logger.log(`[Steering Wheel] Ignoring ${keyName}: native card (0) is active`);
+        return;
+    }
+
     // Wake up from Clean mode to Normal display mode on any key event
     if (get('display') === 'Clean' && get('screen') !== 'display_selection') {
         setState('display', 'Normal');

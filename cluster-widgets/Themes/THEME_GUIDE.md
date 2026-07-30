@@ -211,6 +211,14 @@ Exposed globally in the window scope:
   of them reports `cardId` 0. A theme must therefore not infer a card ordering, assume a
   fixed rotation, or treat "same `cardId` as before" as "nothing changed on the cluster".
 
+  **A theme must ignore wheel input while `cardId` is 0.** Card 0 is the vehicle's own
+  card; your theme is not what the driver is looking at. `onKeyEvent` still fires — the
+  host forwards wheel input unconditionally, because the theme owns its navigation logic
+  and gating it host-side would put card semantics in two places. Acting on those presses
+  is therefore a theme bug, and not a harmless one: several theme controls write to the
+  CAN bus, so a theme that keeps handling `UP`/`DOWN` on card 0 will change vehicle state
+  (this was observed raising the AC fan while the driver was on the native card).
+
 ---
 
 ## Development Workflow & Local Simulation
