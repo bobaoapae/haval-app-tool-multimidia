@@ -206,6 +206,45 @@ Exposed globally in the window scope:
   the card is owned by the vehicle and flows car → host → theme. There is deliberately no
   reverse channel; a theme must never report a card back to the host.
 
+  **`onCardChanged` must be the only writer of the card in your theme's state.** A static
+  initial value is fine, but nothing else may assign it — in particular, never re-seed the
+  card from the host during an async init:
+
+  ```javascript
+  // WRONG. Do not do this, in any form.
+  const initialCardId = Number(bridge.getCarData('cardId')) || 1;
+  setState('cardId', initialCardId);
+  ```
+
+  The host pushes `onCardChanged` on page load as well as on every change, so there is
+  nothing to seed. Any second writer is a race you will lose: async init resolves *after*
+  the page-load push, so it silently overwrites the real card. (The reader above is also
+  the legacy `control('cardId', …)` channel, which the host no longer feeds — and `|| 1`
+  maps card 0 to 1, because `Number('0')` is falsy.)
+
+  Pick your static initial `cardId` and initial `screen` as a **matched pair** — the
+  initial screen must be that card's root screen (currently `cardId: 1` ↔
+  `screen: 'main_menu'`). State setters are change-gated, so when the car is already on
+  the initial card the push is a no-op and no subscriber fires; if the pair disagreed,
+  nothing would ever correct it.
+
+  **Do not navigate away from a card's root screen.** Whatever screen you show for a card
+  is that card's root, not somewhere the theme navigated to, so there is nothing for
+  `BACK` to go back to — and leaving strands the theme on an unrelated screen while the
+  car is still on that card. Exclude those screens explicitly:
+
+  ```javascript
+  // 'aircon' is card 3's root screen: BACK must not force it away.
+  if (keyName === 'BACK' && screen !== 'main_menu' && screen !== 'aircon') {
+      setState('screen', 'main_menu');
+  }
+  ```
+
+  This matters more than it looks, because `BACK` is also how the driver dismisses a
+  cluster warning. Those presses arrive at your key handler with no navigation intent
+  behind them, so an unguarded `BACK` handler fires on any warning raised while the card
+  is active — not just when the driver means to go back.
+
   Note that `cardId` is **not** a 1:1 map of what the cluster is displaying. Card 0 has
   vehicle-state-dependent sub-pages (two of them while the car is charging), and every one
   of them reports `cardId` 0. A theme must therefore not infer a card ordering, assume a
@@ -319,6 +358,10 @@ Add a key handler block inside the steering wheel listener in `main.js`:
     }
 }
 ```
+
+> `BACK → main_menu` is correct here only because `tire_pressure` is a screen the theme
+> navigated *to*, from card 1's menu. Never write this for a screen a card owns — see
+> "Do not navigate away from a card's root screen" above.
 
 #### Step D: Link from the Declarative Menu
 1. **Visual Declaration** in `mainMenu.js`:
