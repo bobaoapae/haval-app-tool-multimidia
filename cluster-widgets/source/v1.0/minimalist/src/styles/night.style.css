@@ -2656,14 +2656,27 @@ canvas.graph-chart {
   z-index: 50;
 }
 
+/* Alpha ramps are eased (smoothstep 3t^2-2t^3, sampled at 12 points) instead of
+   linear: a plain 2-stop gradient has an instant slope change at each stop, which
+   reads as a visible crease over the map. Zero slope at both ends removes it. */
 .mask-panel.left {
   left: 0;
-  background: linear-gradient(to right, var(--mask-circle-bg) 50%, transparent 100%);
+  background: linear-gradient(to right,
+    rgba(0,0,0,1)    50%,   rgba(0,0,0,.980) 54.2%, rgba(0,0,0,.926) 58.3%,
+    rgba(0,0,0,.844) 62.5%, rgba(0,0,0,.741) 66.7%, rgba(0,0,0,.624) 70.8%,
+    rgba(0,0,0,.500) 75%,   rgba(0,0,0,.376) 79.2%, rgba(0,0,0,.259) 83.3%,
+    rgba(0,0,0,.156) 87.5%, rgba(0,0,0,.074) 91.7%, rgba(0,0,0,.020) 95.8%,
+    rgba(0,0,0,0)    100%);
 }
 
 .mask-panel.right {
   right: 0;
-  background: linear-gradient(to left, var(--mask-circle-bg) 50%, transparent 100%);
+  background: linear-gradient(to left,
+    rgba(0,0,0,1)    50%,   rgba(0,0,0,.980) 54.2%, rgba(0,0,0,.926) 58.3%,
+    rgba(0,0,0,.844) 62.5%, rgba(0,0,0,.741) 66.7%, rgba(0,0,0,.624) 70.8%,
+    rgba(0,0,0,.500) 75%,   rgba(0,0,0,.376) 79.2%, rgba(0,0,0,.259) 83.3%,
+    rgba(0,0,0,.156) 87.5%, rgba(0,0,0,.074) 91.7%, rgba(0,0,0,.020) 95.8%,
+    rgba(0,0,0,0)    100%);
 }
 
 /* ==========================================================================
@@ -4170,14 +4183,24 @@ body.nav-mask-clean .mask-panel.left,
 #app.nav-mask-clean .mask-panel.left {
   width: 800px !important;
   left: 0 !important;
-  background: linear-gradient(90deg, #000000a3 0%, #00000088 30%, #0000 100%) !important;
+  background: linear-gradient(90deg,
+    rgba(0,0,0,.640) 0%,    rgba(0,0,0,.627) 8.3%,  rgba(0,0,0,.593) 16.7%,
+    rgba(0,0,0,.540) 25%,   rgba(0,0,0,.474) 33.3%, rgba(0,0,0,.399) 41.7%,
+    rgba(0,0,0,.320) 50%,   rgba(0,0,0,.241) 58.3%, rgba(0,0,0,.166) 66.7%,
+    rgba(0,0,0,.100) 75%,   rgba(0,0,0,.047) 83.3%, rgba(0,0,0,.013) 91.7%,
+    rgba(0,0,0,0)    100%) !important;
 }
 
 body.nav-mask-clean .mask-panel.right,
 #app.nav-mask-clean .mask-panel.right {
   width: 800px !important;
   right: 0 !important;
-  background: linear-gradient(270deg, #000000a3 0%, #00000088 30%, #0000 100%) !important;
+  background: linear-gradient(270deg,
+    rgba(0,0,0,.640) 0%,    rgba(0,0,0,.627) 8.3%,  rgba(0,0,0,.593) 16.7%,
+    rgba(0,0,0,.540) 25%,   rgba(0,0,0,.474) 33.3%, rgba(0,0,0,.399) 41.7%,
+    rgba(0,0,0,.320) 50%,   rgba(0,0,0,.241) 58.3%, rgba(0,0,0,.166) 66.7%,
+    rgba(0,0,0,.100) 75%,   rgba(0,0,0,.047) 83.3%, rgba(0,0,0,.013) 91.7%,
+    rgba(0,0,0,0)    100%) !important;
 }
 
 /* Reduced Black Mode (nav-mask-reduced): 30% narrower masks (560px) + elements shifted outwards */
@@ -4185,14 +4208,24 @@ body.nav-mask-reduced .mask-panel.left,
 #app.nav-mask-reduced .mask-panel.left {
   width: 560px !important;
   left: 0 !important;
-  background: linear-gradient(to right, var(--mask-circle-bg) 50%, transparent 100%) !important;
+  background: linear-gradient(to right,
+    rgba(0,0,0,1)    50%,   rgba(0,0,0,.980) 54.2%, rgba(0,0,0,.926) 58.3%,
+    rgba(0,0,0,.844) 62.5%, rgba(0,0,0,.741) 66.7%, rgba(0,0,0,.624) 70.8%,
+    rgba(0,0,0,.500) 75%,   rgba(0,0,0,.376) 79.2%, rgba(0,0,0,.259) 83.3%,
+    rgba(0,0,0,.156) 87.5%, rgba(0,0,0,.074) 91.7%, rgba(0,0,0,.020) 95.8%,
+    rgba(0,0,0,0)    100%) !important;
 }
 
 body.nav-mask-reduced .mask-panel.right,
 #app.nav-mask-reduced .mask-panel.right {
   width: 560px !important;
   right: 0 !important;
-  background: linear-gradient(to left, var(--mask-circle-bg) 50%, transparent 100%) !important;
+  background: linear-gradient(to left,
+    rgba(0,0,0,1)    50%,   rgba(0,0,0,.980) 54.2%, rgba(0,0,0,.926) 58.3%,
+    rgba(0,0,0,.844) 62.5%, rgba(0,0,0,.741) 66.7%, rgba(0,0,0,.624) 70.8%,
+    rgba(0,0,0,.500) 75%,   rgba(0,0,0,.376) 79.2%, rgba(0,0,0,.259) 83.3%,
+    rgba(0,0,0,.156) 87.5%, rgba(0,0,0,.074) 91.7%, rgba(0,0,0,.020) 95.8%,
+    rgba(0,0,0,0)    100%) !important;
 }
 
 body.nav-mask-reduced .dashboard-speed-container,

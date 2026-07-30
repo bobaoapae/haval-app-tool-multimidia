@@ -58,7 +58,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
                 )
             }
             "DISMISS_WARNINGS" -> {
-                context.updateWarningUI(false)
+                context.dismissWarnings()
             }
             "BRING_ALL_TO_MAIN" -> {
                 GlobalScope.launch(Dispatchers.IO) {
@@ -176,7 +176,11 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
                 
                 val canonicalKey = BridgeContractTranslator.translateThemeKeyToCanonical(rawKey)
 
-                if (canonicalKey.startsWith("app.preferences.")) {
+                if (canonicalKey == "warningActive") {
+                    pushValueToTheme(rawKey, context.isWarningActive.toString())
+                } else if (canonicalKey == "warningDismissed") {
+                    pushValueToTheme(rawKey, context.isWarningDismissed.toString())
+                } else if (canonicalKey.startsWith("app.preferences.")) {
                     // Initial value already delivered via getPreference() at theme init
                     // (see ThemeBridgeAdapter.bindThemeSetting). VirtualTelemetryManager has
                     // no notion of scoped preferences, so pushing its value here (always "")
@@ -219,6 +223,12 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
     @JavascriptInterface
     fun getCarData(key: String): String {
         val canonicalKey = BridgeContractTranslator.translateThemeKeyToCanonical(key)
+        if (canonicalKey == "warningActive") {
+            return context.isWarningActive.toString()
+        }
+        if (canonicalKey == "warningDismissed") {
+            return context.isWarningDismissed.toString()
+        }
         if (canonicalKey.startsWith("app.")) {
             return VirtualTelemetryManager.getVirtualValue(App.getContext(), canonicalKey)
         }
@@ -314,7 +324,9 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "carPlayInDash",
             "projectionMirrorInDash",
             "projectionPreparingD3",
-            "projectionCardOverlayAllowed"
+            "projectionCardOverlayAllowed",
+            "warningActive",
+            "warningDismissed"
         )
         return JSONArray(keys).toString()
     }

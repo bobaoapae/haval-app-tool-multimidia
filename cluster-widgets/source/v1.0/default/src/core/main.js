@@ -81,6 +81,7 @@ if (nativeMockEnabled) {
     setState('odometer', get('odometer') || 11450);
     setState('nextRevisionKm', get('nextRevisionKm') || 12000);
     setState('nextRevisionDate', get('nextRevisionDate') || Date.now() + 15 * 24 * 60 * 60 * 1000);
+    setState('appInDash', true);
 }
 
 function initializeLayout() {
@@ -483,7 +484,14 @@ function handleSteeringWheelKey(keyName) {
                 bridge.updateCarData('car.hvac.driver_temperature', String(nextTemp));
             }
         } else if (keyName === 'ENTER_LONG') {
+            const currentAuto = Number(get('auto')) || 0;
+            const nextAuto = currentAuto === 1 ? '0' : '1';
+            bridge.updateCarData('car.hvac.auto_enable', nextAuto);
             bridge.triggerSystemAction('CANCEL_MAX_AC');
+        } else if (keyName === 'BACK_LONG') {
+            const currentRecycle = Number(get('recycle')) || 0;
+            const nextRecycle = currentRecycle === 1 ? '0' : '1';
+            bridge.updateCarData('car.hvac.cycle_mode', nextRecycle);
         }
         // No BACK handling: aircon is card 3's root screen, not somewhere the theme
         // navigated to, so there is nothing to go back to. Leaving on BACK stranded the

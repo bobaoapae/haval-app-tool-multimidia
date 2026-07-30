@@ -3479,16 +3479,36 @@ class BottomBarService : LifecycleService() {
         val displayMetrics = android.util.DisplayMetrics()
         wm.defaultDisplay?.getRealMetrics(displayMetrics)
 
+        // The window keeps a constant full-screen size for its whole life. It used to be collapsed to
+        // 0x0 while hidden, but growing it back from the bottom edge is what made the scrim and the
+        // menus appear to sweep up from the bottom - the content is drawn while the window is still
+        // expanding, so no amount of fading hides it. Toggle transparency and touchability instead:
+        // geometry never changes, so there is nothing to animate.
+        // Explicit real width anchored right - same as the bar, so the two share one coordinate space
+        // (the menus and the sliders rely on that). Height is explicit too, so the dashboard bleeds
+        // past the bottom overscan.
+        mp.width = realDisplayWidth().takeIf { it > 0 } ?: WindowManager.LayoutParams.MATCH_PARENT
+        mp.height =
+                displayMetrics.heightPixels.takeIf { it > 0 }
+                        ?: WindowManager.LayoutParams.MATCH_PARENT
+        mp.y = 0
+        mp.gravity = Gravity.BOTTOM or Gravity.RIGHT
+
+        if (show) {
+            mp.alpha = 1f
+            mp.flags = mp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        } else {
+            // alpha 0 lets the compositor skip the layer entirely, so an always-present full-screen
+            // overlay costs nothing while no menu is open.
+            mp.alpha = 0f
+            mp.flags = mp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        }
+
         if (!isMenuWindowAdded) {
             try {
-                // Initialize as hidden if first added
-                if (!show) {
-                    mp.width = 0
-                    mp.height = 0
-                    mp.flags = mp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                }
                 wm.addView(mv, mp)
                 isMenuWindowAdded = true
+                return
             } catch (e: Exception) {
                 Log.e("BottomBarService", "Error adding menu window", e)
                 return
@@ -3496,25 +3516,6 @@ class BottomBarService : LifecycleService() {
         }
 
         try {
-            if (show) {
-                // Explicit real width, anchored right - same as the bar, so the two share one
-                // coordinate space (the menus and sliders rely on that).
-                // Height is explicit too, so the dashboard bleeds past the bottom overscan.
-                mp.width = realDisplayWidth().takeIf { it > 0 }
-                        ?: WindowManager.LayoutParams.MATCH_PARENT
-                mp.height =
-                        displayMetrics.heightPixels.takeIf { it > 0 }
-                                ?: WindowManager.LayoutParams.MATCH_PARENT
-                // Keep whatever x the hold already converged on; resetting it to 0 would misplace the
-                // window for a frame on every open. If it is stale, the next layout corrects it.
-                mp.y = 0
-                mp.gravity = Gravity.BOTTOM or Gravity.RIGHT
-                mp.flags = mp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-            } else {
-                mp.width = 0
-                mp.height = 0
-                mp.flags = mp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-            }
             wm.updateViewLayout(mv, mp)
         } catch (e: Exception) {
             Log.e("BottomBarService", "Error updating menu window layout", e)

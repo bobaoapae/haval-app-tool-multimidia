@@ -83,10 +83,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     // projector re-creation while the cluster sits on card 1/3 starts from the real card
     // instead of believing card 0 until the next msgId=133 happens to arrive.
     private var currentCard = ServiceManager.getInstance().clusterCardView
-    private var isWarningActive = false
+    override var isWarningActive = false
     private var testDefaultDisplayOverrideActive = FORCE_MAP_DISPLAY_AS_DEFAULT_FOR_TESTS
     private val dismissedWarnings = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private var isWarningDismissed = false
+    override var isWarningDismissed = false
     private var lastWarningActiveTime = 0L
     private var projectionOverlayBypassActive: Boolean? = null
     private var hvacNativePanelActive = false
@@ -964,27 +964,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             pushVirtualDisplayState(1)
                         }
                         ServiceManagerEventType.DISMISS_WARNING -> {
-                            val timeSinceWarning = System.currentTimeMillis() - lastWarningActiveTime
-                            Log.d(TAG, "Received DISMISS_WARNING event. timeSinceWarning=${timeSinceWarning}ms (onset=${lastWarningActiveTime})")
-                            logClusterPerfEvent(
-                                    "dismiss_warning",
-                                    mapOf("timeSinceWarningMs" to timeSinceWarning)
-                            )
-                            if (timeSinceWarning >= 2500) {
-                                evaluateJsIfReady(webView, "clearWarnings()")
-                                updateWarningUI(false)
-                                isWarningDismissed = true
-
-                                val sm = ServiceManager.getInstance()
-                                for (key in monitoredWarningKeys) {
-                                    val value = sm.getData(key)
-                                    if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, value)) {
-                                        dismissedWarnings[key] = value!!
-                                    }
-                                }
-                            } else {
-                                Log.w(TAG, "DISMISS_WARNING ignored: timeSinceWarning=${timeSinceWarning}ms < 2500ms lockout")
-                            }
+                            dismissWarnings()
                         }
                         ServiceManagerEventType.APP_GEOMETRY_CHANGED -> {
                             logClusterPerfEvent("app_geometry_changed")
@@ -1297,6 +1277,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         updates["carPlayInDash"] = carPlayInDash.toString()
         updates["projectionMirrorInDash"] = projectionMirrorInDash.toString()
         updates["projectionPreparingD3"] = projectionPreparingD3.toString()
+        updates["warningActive"] = isWarningActive.toString()
+        updates["warningDismissed"] = isWarningDismissed.toString()
         // cardId is deliberately NOT in this map: batchEvaluateJs would emit it as
         // control('cardId', ...), the legacy channel. The card goes out via
         // window.onCardChanged below so the contract has exactly one channel on both the
@@ -1474,6 +1456,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private fun syncInitialWarnings() {
         val sm = ServiceManager.getInstance()
         val webView = this.webView ?: return
+
+        evaluateJsIfReady(webView, "control('warningActive', $isWarningActive)")
+        evaluateJsIfReady(webView, "control('warningDismissed', $isWarningDismissed)")
+        themeBridge?.pushOnDataChanged("warningActive", isWarningActive.toString())
+        themeBridge?.pushOnDataChanged("warningDismissed", isWarningDismissed.toString())
+
+        if (isWarningDismissed) {
+            evaluateJsIfReady(webView, "clearWarnings()")
+        }
+
         for (key in monitoredWarningKeys) {
             val value = sm.getData(key) ?: "0"
             if (dismissedWarnings[key] == value) {
@@ -2080,6 +2072,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             if (isActive && !isWarningActive) {
                 lastWarningActiveTime = System.currentTimeMillis()
                 Log.w(TAG, "updateWarningUI: warning transition to active, setting onset time")
+                isWarningDismissed = false
             }
 
             isWarningActive = isActive
@@ -2091,7 +2084,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             }
             logClusterPerfEvent(
                     "warning_state_changed",
-                    mapOf("active" to isActive)
+                    mapOf("active" to isActive, "dismissed" to isWarningDismissed)
             )
 
             updateVirtualClusterVisibility(reason = "WARNING_STATE_CHANGED")
@@ -2099,7 +2092,37 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
             // Propagate current warning state
             evaluateJsIfReady(webView, "control('warningActive', $isActive)")
+            evaluateJsIfReady(webView, "control('warningDismissed', $isWarningDismissed)")
             themeBridge?.pushOnDataChanged("warningActive", isActive.toString())
+            themeBridge?.pushOnDataChanged("warningDismissed", isWarningDismissed.toString())
+        }
+    }
+
+    override fun dismissWarnings() {
+        ensureUi {
+            val timeSinceWarning = System.currentTimeMillis() - lastWarningActiveTime
+            Log.d(TAG, "dismissWarnings called. timeSinceWarning=${timeSinceWarning}ms (onset=${lastWarningActiveTime})")
+            logClusterPerfEvent(
+                    "dismiss_warning",
+                    mapOf("timeSinceWarningMs" to timeSinceWarning)
+            )
+            if (timeSinceWarning >= 2500) {
+                evaluateJsIfReady(webView, "clearWarnings()")
+                isWarningDismissed = true
+
+                val sm = ServiceManager.getInstance()
+                for (key in monitoredWarningKeys) {
+                    val value = sm.getData(key)
+                    if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, value)) {
+                        dismissedWarnings[key] = value!!
+                    }
+                }
+                updateWarningUI(false)
+                evaluateJsIfReady(webView, "control('warningDismissed', true)")
+                themeBridge?.pushOnDataChanged("warningDismissed", "true")
+            } else {
+                Log.w(TAG, "DISMISS_WARNING ignored: timeSinceWarning=${timeSinceWarning}ms < 2500ms lockout")
+            }
         }
     }
 

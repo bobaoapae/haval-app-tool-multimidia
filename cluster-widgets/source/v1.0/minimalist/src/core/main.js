@@ -116,6 +116,7 @@ if (nativeMockEnabled) {
     setState('odometer', get('odometer') || 11450);
     setState('nextRevisionKm', get('nextRevisionKm') || 12000);
     setState('nextRevisionDate', get('nextRevisionDate') || Date.now() + 15 * 24 * 60 * 60 * 1000);
+    setState('appInDash', true);
     document.body.classList.add('native-mock-enabled');
 }
 
@@ -342,10 +343,16 @@ function updateAppDimensions() {
     const hideBottomBar = isHideBottomBar();
     const effectiveMaskMode = getEffectiveMaskMode();
 
+    // Vertical insets must match the real mask geometry in night.style.css:
+    // .mask-top-bar is 95px and .mask-bottom-bar is 60px. The old flat 62/62
+    // left the app 33px under the top bar and 2px past the bottom one.
+    const TOP_MASK = 95;
+    const BOTTOM_MASK = 60;
+
     let x = 0;
-    let y = 62;
+    let y = TOP_MASK;
     let width = 1920;
-    let height = hideBottomBar ? 658 : 596;
+    let height = hideBottomBar ? 720 - TOP_MASK : 720 - TOP_MASK - BOTTOM_MASK;
 
     if (effectiveMaskMode === 'Padrão') {
         x = 400;
@@ -680,7 +687,16 @@ function handleAirconKey(keyName) {
         setState('focusArea', focusArea === 'fan' ? 'temp' : 'fan');
         return;
     }
+    if (keyName === 'BACK_LONG') {
+        const currentRecycle = Number(get('recycle')) || 0;
+        const nextRecycle = currentRecycle === 1 ? '0' : '1';
+        androidUpdateCarData('car.hvac.cycle_mode', nextRecycle);
+        return;
+    }
     if (keyName === 'ENTER_LONG') {
+        const currentAuto = Number(get('auto')) || 0;
+        const nextAuto = currentAuto === 1 ? '0' : '1';
+        androidUpdateCarData('car.hvac.auto_enable', nextAuto);
         try {
             if (window.Android && typeof window.Android.triggerSystemAction === 'function') {
                 window.Android.triggerSystemAction('CANCEL_MAX_AC');
@@ -741,6 +757,10 @@ function handleSteeringWheelKey(keyName) {
         // BACK: leave sub-focus first, then return dynamic screens to the main menu.
         // aircon is tied to card 3 (backend-driven), so BACK does not force it away.
         if (keyName === 'BACK' || keyName === 'BACK_LONG') {
+            if (screen === 'aircon' && keyName === 'BACK_LONG') {
+                handleAirconKey(keyName);
+                return;
+            }
             if (screen === 'main_menu' && get('menuFocusArea') === 'sub') {
                 setState('menuFocusArea', 'main');
             } else if (screen !== 'main_menu' && screen !== 'aircon') {
