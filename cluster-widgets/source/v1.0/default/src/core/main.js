@@ -60,6 +60,10 @@ function getEffectiveDisplayMode() {
     if (isProjectionMapDisplayActive()) {
         return get('navigationDisplayMode') || 'Mapa';
     }
+    const appInDash = get('appInDash');
+    if (appInDash === true || appInDash === 'left' || appInDash === 'right') {
+        return get('appDisplayMode') || 'Normal';
+    }
     return get('display') || 'Normal';
 }
 
@@ -314,6 +318,7 @@ subscribe('mode', render);
 subscribe('gaugeStyle', render);
 subscribe('barImages', render);
 subscribe('navigationDisplayMode', render);
+subscribe('appDisplayMode', render);
 
 subscribe('clusterEnabled', render);
 subscribe('appInDash', render);
@@ -428,9 +433,11 @@ function handleSteeringWheelKey(keyName) {
             }
         } else if (keyName === 'ENTER_LONG') {
             bridge.triggerSystemAction('CANCEL_MAX_AC');
-        } else if (keyName === 'BACK') {
-            setState('screen', 'main_menu');
         }
+        // No BACK handling: aircon is card 3's root screen, not somewhere the theme
+        // navigated to, so there is nothing to go back to. Leaving on BACK stranded the
+        // theme on the main menu while the car was still on card 3 — and BACK is also how
+        // a warning gets dismissed, so any warning while on card 3 triggered it.
     } else if (screen === 'regen') {
         if (keyName === 'UP' || keyName === 'DOWN') {
             const currentRegen = get('regenMode');
@@ -523,6 +530,7 @@ async function initDecentralizedBridge() {
     bridge.bindThemeSetting('gaugeStyle', 'Esportivo', setState);
     bridge.bindThemeSetting('barImages', true, setState);
     bridge.bindThemeSetting('navigationDisplayMode', 'Mapa', setState);
+    bridge.bindThemeSetting('appDisplayMode', 'Normal', setState);
     const enableOdometer = bridge.getPreference('enableOdometer', 'true') === 'true';
     const enableRevisionWarning = bridge.getPreference('enableRevisionWarning', 'false') === 'true';
     const nextRevisionKm = Number(bridge.getPreference('nextRevisionKm', '0')) || 0;
