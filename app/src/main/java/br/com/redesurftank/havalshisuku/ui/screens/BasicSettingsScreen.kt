@@ -1099,7 +1099,7 @@ fun BasicSettingsTab() {
 
                                                         Column(
                                                                 verticalArrangement =
-                                                                        Arrangement.spacedBy(16.dp)
+                                                                        Arrangement.spacedBy(12.dp)
                                                         ) {
                                                                 Column {
                                                                         Text(
@@ -1629,11 +1629,6 @@ fun BasicSettingsTab() {
                                                 verticalArrangement =
                                                         Arrangement.spacedBy(12.dp)
                                         ) {
-                                                HorizontalDivider(
-                                                        color = Color(0xFF3A3F47),
-                                                        thickness = 1.dp
-                                                )
-
                                                 Row(
                                                         modifier =
                                                                 Modifier.fillMaxWidth(),
