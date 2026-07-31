@@ -90,14 +90,12 @@ function isProjectionMapDisplayActive() {
         get('projectionPreparingD3') === true;
 }
 
+// The theme's own visual mode (Normal / Esportivo / Reduzido / Clean), picked in the
+// in-cluster "Modos do Tema" menu. It drives the .display-* classes.
+// It is NOT the navigation/app mask setting: those only reshape the side masks and the
+// app viewport, and feeding them in here made "Clean" fall through to .display-clean,
+// the imported Default-theme mode that hides the dial entirely.
 function getEffectiveDisplayMode() {
-    if (isProjectionMapDisplayActive()) {
-        return get('navigationDisplayMode') || get('navigation_display_mode') || 'Mapa';
-    }
-    const appInDash = get('appInDash');
-    if (appInDash === true || appInDash === 'left' || appInDash === 'right') {
-        return get('appDisplayMode') || get('app_display_mode') || 'Normal';
-    }
     return get('display') || 'Normal';
 }
 
@@ -106,14 +104,30 @@ function isHideBottomBar() {
     return val === true || val === 'true' || val === 1 || val === '1';
 }
 
+// theme.xml ships these as combos of "Padrão, Reduzido, Clean". Values cross the bridge
+// as raw strings, so normalize the accent before comparing — an unaccented "Padrao"
+// would otherwise be treated as Clean and blow the viewport out to the full 1920.
+const MASK_MODES = ['Padrão', 'Reduzido', 'Clean'];
+const COMBINING_MARKS = /[̀-ͯ]/g;
+
+function foldAccents(s) {
+    return s.trim().normalize('NFD').replace(COMBINING_MARKS, '').toLowerCase();
+}
+
+function normalizeMaskMode(value, fallback) {
+    if (typeof value !== 'string' || value.trim() === '') return fallback;
+    const needle = foldAccents(value);
+    return MASK_MODES.find((m) => foldAccents(m) === needle) || fallback;
+}
+
 function getEffectiveMaskMode() {
     if (isProjectionMapDisplayActive()) {
-        return get('navigationMaskMode') || get('navigation_mask_mode') || 'Clean';
+        return normalizeMaskMode(get('navigationDisplayMode') ?? get('navigation_display_mode'), 'Clean');
     }
     const appInDashVal = get('appInDash');
     const isAppActive = appInDashVal === true || appInDashVal === 'left' || appInDashVal === 'right';
     if (isAppActive) {
-        return get('appMaskMode') || get('app_mask_mode') || 'Padrão';
+        return normalizeMaskMode(get('appDisplayMode') ?? get('app_display_mode'), 'Padrão');
     }
     return 'Padrão';
 }
@@ -927,10 +941,10 @@ async function initMinimalistBridge() {
     bindDual('hideBottomBar', 'hide_bottom_bar', false);
     bindDual('showRegenIcon', 'show_regen_icon', true);
     bindDual('showRpmIcon', 'show_rpm_icon', true);
-    bindDual('navigationMaskMode', 'navigation_mask_mode', 'Clean');
-    bindDual('appMaskMode', 'app_mask_mode', 'Padrão');
-    bindDual('navigationDisplayMode', 'navigation_display_mode', 'Mapa');
-    bindDual('appDisplayMode', 'app_display_mode', 'Normal');
+    // Defaults must mirror theme.xml, otherwise the boot frame renders the wrong mask
+    // until the host delivers the stored value.
+    bindDual('navigationDisplayMode', 'navigation_display_mode', 'Clean');
+    bindDual('appDisplayMode', 'app_display_mode', 'Padrão');
     bindDual('display', 'display', 'Normal');
 
     subscribe('carPlayInDash', render);

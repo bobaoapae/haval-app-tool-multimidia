@@ -4234,9 +4234,28 @@ body.nav-mask-reduced .mask-panel.right,
     rgba(0,0,0,0)    100%) !important;
 }
 
-body.nav-mask-reduced .dashboard-speed-container,
-#app.nav-mask-reduced .dashboard-speed-container {
-  left: calc(var(--mask-left-x) + var(--display-left-offset) - 120px) !important;
+/* Shift the anchored content outwards through the offset variables that every
+   mask-anchored rule already reads, instead of overriding elements one by one.
+   The old per-element -120px/-130px pushes were tuned back when this mode also
+   applied --display-scale: .75; without that shrink they drive the dial off the
+   left edge (RPM badge landed at -77..-5, fully off screen) and crush the graph
+   against the right one.
+
+   40px is the outward budget: the dial is 456 wide and centred on --mask-left-x
+   (290), and the RPM badge sits flush with its left edge, so 290-40-228 = 22px
+   of clearance. The right side mirrors it: 1630+40+226 = 1896, 24px clear. */
+body.nav-mask-reduced,
+#app.nav-mask-reduced {
+  --display-left-offset: -40px;
+  --display-right-offset: 40px;
+}
+
+/* The badge normally overhangs the dial's left edge by 19px, which is fine at the
+   Padrão anchor but is exactly what pushes it off screen once shifted outwards.
+   Pull it flush so the dial's own edge is the leftmost pixel. */
+body.nav-mask-reduced .dashboard-rpm-container,
+#app.nav-mask-reduced .dashboard-rpm-container {
+  right: calc(50% + 156px) !important;
 }
 
 body.nav-mask-reduced .trip-analysis-indicator,
@@ -4313,7 +4332,7 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 }
 
 #app.native-mock-enabled.app-in-dash-active:not(.carplay-in-dash):not(.projection-map-display-active) {
-  background-image: url('../assets/app-bg.jpg') !important;
+  background-image: url('../assets/app-bg.png') !important;
 }
 
 .native-mock-enabled .cluster-mask-bg {
@@ -4329,7 +4348,7 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 }
 
 .native-mock-enabled .cluster-mask-bg.app-in-dash-active:not(.carplay-in-dash):not(.projection-map-display-active) {
-  background-image: url('../assets/app-bg.jpg') !important;
+  background-image: url('../assets/app-bg.png') !important;
 }
 
 /* Sub-Menu Layout & Right Side Positioning */
@@ -4377,11 +4396,10 @@ body.native-mock-enabled .dashboard-fixed-overlay {
     pointer-events: none !important;
 }
 
-body.nav-mask-reduced .graph-screen,
-#app.nav-mask-reduced .graph-screen {
-    left: calc(var(--mask-right-x) + var(--display-right-offset) - 130px) !important;
-    width: 400px !important;
-}
+/* Reduzido keeps the graph at its full 452px: the panel is overflow:hidden and the
+   chart canvas is laid out for that width, so narrowing it to 400px clipped the
+   plot rather than scaling it. The outward shift now comes from
+   --display-right-offset, which the base rule above already applies. */
 
 /* Ajustes Sub-Menu Styles — minimalist list (aligned with regen) */
 .ajustes-screen {

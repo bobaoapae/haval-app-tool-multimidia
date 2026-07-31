@@ -11,6 +11,9 @@ class MockCarState {
         this.subscriptions = new Set();
         this.listeners = new Set();
         this.preferences = new Map();
+        // <default> of every <configuration> in theme.xml, keyed by stateVariable.
+        // Populated asynchronously by loadThemeDefaults().
+        this.themeDefaults = new Map();
 
         // Populate initial realistic mocks (both capitalized legacy and lowercase canonical V1 keys)
         this.cache.set('CAR_BASIC_VEHICLE_SPEED', '0.0');
@@ -65,16 +68,41 @@ class MockCarState {
         this.cache.set('app.phone.call_duration', '0');
     }
 
+    /** Strip the optional `app.preferences.` prefix so both spellings hit one store. */
+    static preferenceName(key) {
+        if (typeof key !== "string") return null;
+        return key.startsWith("app.preferences.")
+            ? key.substring("app.preferences.".length)
+            : key;
+    }
+
+    /** Resolved preference value, or null when nothing (stored or declared) is known. */
+    storedPreference(key) {
+        const stateVar = MockCarState.preferenceName(key);
+        if (!stateVar) return null;
+        const cached = localStorage.getItem(`pref_${stateVar}`);
+        if (cached !== null) return cached;
+        if (this.themeDefaults.has(stateVar)) return this.themeDefaults.get(stateVar);
+        if (stateVar === "headerVisible" || stateVar === "enableOdometer") return "true";
+        return null;
+    }
+
+    /**
+     * True only when we can answer for this key. The mock pushes an initial value
+     * on subscribe, so answering '0' for keys we know nothing about would overwrite
+     * whatever default the theme just bound - that is how every theme.xml setting
+     * used to collapse to "0" a moment after boot.
+     */
+    has(key) {
+        return this.cache.has(key) || this.storedPreference(key) !== null;
+    }
+
     get(key) {
         if (this.cache.has(key)) {
             return this.cache.get(key);
         }
-        if (typeof key === "string" && key.startsWith("app.preferences.")) {
-            const stateVar = key.substring("app.preferences.".length);
-            const cached = localStorage.getItem(`pref_${stateVar}`);
-            if (cached !== null) return cached;
-            if (stateVar === "headerVisible" || stateVar === "enableOdometer") return "true";
-        }
+        const preference = this.storedPreference(key);
+        if (preference !== null) return preference;
         return '0';
     }
 
@@ -88,6 +116,37 @@ class MockCarState {
             }
         }
     }
+
+    /**
+     * Read the <configurations> declared in theme.xml so local runs start on the
+     * same defaults the native Settings UI would apply on the car. Stored
+     * preferences still win; this only fills in what the user has never set.
+     */
+    async loadThemeDefaults(url = './theme.xml') {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const xml = new DOMParser().parseFromString(await response.text(), 'text/xml');
+            const configs = xml.getElementsByTagName('configuration');
+            for (let i = 0; i < configs.length; i++) {
+                const tag = (name) => {
+                    const nodes = configs[i].getElementsByTagName(name);
+                    return nodes.length ? nodes[0].textContent.trim() : '';
+                };
+                const stateVariable = tag('stateVariable');
+                const defaultValue = tag('default');
+                if (!stateVariable || defaultValue === '') continue;
+                this.themeDefaults.set(stateVariable, defaultValue);
+                const id = tag('id');
+                if (id) this.themeDefaults.set(id, defaultValue);
+            }
+            console.log('[Mock Bridge] theme.xml defaults loaded:',
+                Object.fromEntries(this.themeDefaults));
+        } catch (e) {
+            console.warn('[Mock Bridge] could not load theme.xml defaults:', e.message);
+        }
+        return this.themeDefaults;
+    }
 }
 
 const mockState = new MockCarState();
@@ -97,7 +156,11 @@ const isBrowser = typeof window !== 'undefined' && (!window.Android || !window.A
 
 if (isBrowser) {
     console.warn('[Theme Engine] Running in local Browser; attaching telemetry mock harness.');
-    
+
+    // Kick off before anything binds settings; ThemeBridgeAdapter.init() awaits it.
+    window.__MOCK_THEME_DEFAULTS_READY__ = mockState.loadThemeDefaults();
+    window.__MOCK_CAR_STATE__ = mockState;
+
     window.Android = {
         getAvailableKeys: () => {
             return JSON.stringify([
@@ -142,9 +205,12 @@ if (isBrowser) {
                 console.log('[Mock Bridge] subscribed to keys:', keys);
                 keys.forEach(key => {
                     mockState.subscriptions.add(key);
-                    // Instantly trigger initial data change push
+                    // Instantly trigger initial data change push, but only for keys we
+                    // actually have a value for. Pushing the '0' fallback here would
+                    // land after bindThemeSetting() and silently replace the theme's
+                    // own default for every setting declared in theme.xml.
                     setTimeout(() => {
-                        if (window.onDataChanged) {
+                        if (window.onDataChanged && mockState.has(key)) {
                             window.onDataChanged(key, mockState.get(key));
                         }
                     }, 50);
@@ -223,8 +289,10 @@ if (isBrowser) {
         },
 
         getPreference: (key, defaultValue) => {
-            const cached = localStorage.getItem(`pref_${key}`);
-            return cached !== null ? cached : defaultValue;
+            // Stored value first, then the <default> declared in theme.xml, then the
+            // caller's fallback - the same precedence the native settings store uses.
+            const resolved = mockState.storedPreference(key);
+            return resolved !== null ? resolved : defaultValue;
         },
 
         saveSetting: (key, value) => {

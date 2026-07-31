@@ -21,11 +21,17 @@ export class ThemeBridgeAdapter {
      */
     async init() {
         if (this.initialized) return;
-        
+
         if (!this.rawBridge && typeof window !== "undefined") {
             this.rawBridge = window.Android;
         }
-        
+
+        // Local browser runs only: let the mock bridge finish reading theme.xml so
+        // bindThemeSetting() below sees the declared <default>s instead of racing them.
+        if (typeof window !== "undefined" && window.__MOCK_THEME_DEFAULTS_READY__) {
+            try { await window.__MOCK_THEME_DEFAULTS_READY__; } catch (e) { /* mock only */ }
+        }
+
         if (this.rawBridge && typeof this.rawBridge.getAvailableKeys === "function") {
             try {
                 const keysJson = this.rawBridge.getAvailableKeys();

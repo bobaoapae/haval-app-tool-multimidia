@@ -7,22 +7,37 @@ const VISUAL_ONLY_KEYS = [
     "car.ipk_info.warning_tts_notify"
 ];
 
+function isWarningValueActive(value) {
+    return value !== "0" &&
+        value !== "{0,0,0,0}" &&
+        value !== "{0,0,0,0,0}" &&
+        value !== "" &&
+        value !== "false";
+}
+
 export function initWarningHandler() {
-    window.updateWarning = function(key, value) {
-        const state = stateManager.getState();
-        const warnings = state.warnings || {};
-        const newWarnings = Object.assign({}, warnings, { [key]: value });
-        stateManager.set('warnings', newWarnings);
-        
+    // Warnings the user acknowledged, as key -> the exact value that was acknowledged.
+    //
+    // A dismissal must never delete entries from `warnings`: warningActive is a fold
+    // over that whole map, so dropping a still-active key (an unbuckled seat belt) makes
+    // the *next* update of an unrelated key (a door closing) recompute the fold without
+    // it and clear the badge even though the car is still reporting the warning.
+    // Masking keeps `warnings` a truthful picture of the car and keeps the dismissal
+    // per-warning: when the car changes a key's value the acknowledgement for that key
+    // no longer applies and the warning comes back on its own.
+    let dismissedWarnings = {};
+
+    function recomputeWarningState() {
+        const warnings = stateManager.getState().warnings || {};
         let hasCriticalWarning = false;
-        
-        for (const [k, v] of Object.entries(newWarnings)) {
-            const isThisActive = v !== "0" && v !== "{0,0,0,0}" && v !== "{0,0,0,0,0}" && v !== "" && v !== "false";
-            
-            if (isThisActive && !VISUAL_ONLY_KEYS.includes(k)) {
+
+        for (const [k, v] of Object.entries(warnings)) {
+            const isThisActive = isWarningValueActive(v);
+
+            if (isThisActive && !VISUAL_ONLY_KEYS.includes(k) && dismissedWarnings[k] !== v) {
                 hasCriticalWarning = true;
             }
-            
+
             if (k === "car.ipk_info.bsd_lca_warning_reqleft") {
                 stateManager.set('bsdLeft', isThisActive);
             }
@@ -37,28 +52,53 @@ export function initWarningHandler() {
             // 22: Failed to activate inteligent cruise control
             // 1083: ACC activated
         }
-        
-        const currentActive = stateManager.get('warningActive');
-        const cardId = stateManager.get('cardId');
-        const shouldBeWarnActive = hasCriticalWarning;
 
-        if (currentActive !== hasCriticalWarning) {
+        if (stateManager.get('warningActive') !== hasCriticalWarning) {
             stateManager.set('warningActive', hasCriticalWarning);
         }
 
         // Android size handling
         if (window.Android && window.Android.setWarningActive) {
-            window.Android.setWarningActive(shouldBeWarnActive);
+            window.Android.setWarningActive(hasCriticalWarning);
         }
+
+        return hasCriticalWarning;
+    }
+
+    window.updateWarning = function(key, value) {
+        // A value that moved away from what was acknowledged is a new event, so the
+        // acknowledgement stops covering it. The backend drops the key from its own
+        // dismissed map on exactly the same condition, so the two stay in step.
+        if (Object.prototype.hasOwnProperty.call(dismissedWarnings, key) &&
+                dismissedWarnings[key] !== value) {
+            delete dismissedWarnings[key];
+        }
+
+        const warnings = stateManager.getState().warnings || {};
+        stateManager.set('warnings', Object.assign({}, warnings, { [key]: value }));
+
+        recomputeWarningState();
+    };
+
+    /**
+     * Backend -> theme replay of the acknowledged set, as key -> acknowledged value.
+     * Sent on theme load (so a warning the user already dismissed does not pop up
+     * again) and whenever a fresh critical warning resets the acknowledgements.
+     */
+    window.setDismissedWarnings = function(map) {
+        dismissedWarnings = Object.assign({}, map || {});
+        recomputeWarningState();
     };
 
     window.clearWarnings = function() {
         logger.log('Clearing all warnings via DISMISS_WARNING');
-        stateManager.set('warnings', {});
-        stateManager.set('warningActive', false);
-
-        if (window.Android && window.Android.setWarningActive) {
-            window.Android.setWarningActive(false);
+        const warnings = stateManager.getState().warnings || {};
+        dismissedWarnings = {};
+        for (const [k, v] of Object.entries(warnings)) {
+            if (isWarningValueActive(v)) {
+                dismissedWarnings[k] = v;
+            }
         }
+        recomputeWarningState();
     };
 }

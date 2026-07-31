@@ -34,6 +34,29 @@ function formatFuelDisplay(percent, unit) {
     return { value: formatFuelLiters(percent), unit: 'L' };
 }
 
+function formatEvPowerKw(value) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+        return { label: 'EV', value: '--', unit: 'kW', state: 'idle' };
+    }
+
+    if (Math.abs(numericValue) < 0.2) {
+        return { label: 'EV', value: '0', unit: 'kW', state: 'idle' };
+    }
+
+    const absValue = Math.abs(numericValue);
+    const precision = absValue < 10 ? 1 : 0;
+    const formattedValue = absValue.toFixed(precision);
+    const isRegen = numericValue < 0;
+
+    return {
+        label: isRegen ? 'REGEN' : 'EV',
+        value: `${isRegen ? '-' : '+'}${formattedValue}`,
+        unit: 'kW',
+        state: isRegen ? 'regen' : 'drive'
+    };
+}
+
 export function createDashboardInfo() {
     logger.enter('createDashboardInfo');
 
@@ -267,6 +290,26 @@ export function createDashboardInfo() {
 
     bottomEvMode.appendChild(bottomEvLabel);
 
+    // Instant EV power draw / regen. Only laid out in Mapa mode, where it sits in
+    // the left sidebar between the battery gauge and the EV mode badge.
+    const evPowerCard = div({ className: 'dashboard-ev-power-card' });
+    const evPowerLabel = span({ className: 'ev-power-label' });
+    const evPowerValue = span({ className: 'ev-power-value' });
+    const evPowerUnit = span({ className: 'ev-power-unit' });
+
+    const updateEvPower = (value) => {
+        const formatted = formatEvPowerKw(value);
+        evPowerLabel.textContent = formatted.label;
+        evPowerValue.textContent = formatted.value;
+        evPowerUnit.textContent = formatted.unit;
+        evPowerCard.setAttribute('data-ev-power-state', formatted.state);
+    };
+    updateEvPower(getState('evPowerKw'));
+
+    evPowerCard.appendChild(evPowerLabel);
+    evPowerCard.appendChild(evPowerValue);
+    evPowerCard.appendChild(evPowerUnit);
+
     // Warning Label (Red label below right circle)
     const warningLabel = div({
         className: 'dashboard-warning-label',
@@ -327,6 +370,7 @@ export function createDashboardInfo() {
     container.appendChild(externalTempContainer);
     container.appendChild(internalTempContainer);
     container.appendChild(bottomEvMode);
+    container.appendChild(evPowerCard);
     container.appendChild(menuWrapper);
     container.appendChild(alertIndicatorsContainer);
     container.appendChild(tripAnalysisIndicator);
@@ -390,6 +434,7 @@ export function createDashboardInfo() {
             updateEvModeColor(val);
         }),
         subscribe('evMode', val => updateBottomEv(val)),
+        subscribe('evPowerKw', updateEvPower),
         subscribe('carSpeed', val => {
             speedValue.textContent = val;
             updateSpeedRotation(val);

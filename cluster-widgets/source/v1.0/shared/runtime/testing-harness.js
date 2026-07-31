@@ -1551,44 +1551,47 @@ export function initTestHarness(stateManager, menuItems) {
                 let controlNode = null;
                 const initialVal = getState(config.stateVariable);
                 const currentVal = initialVal !== undefined ? initialVal : config.defaultValue;
-                
+
+                // Shared by every control type below. This used to be declared inside the
+                // boolean branch, so the combo pills and the select referenced a name that
+                // was not in scope and threw on change - every dropdown setting was dead.
+                const saveConfigVal = (val) => {
+                    console.log(`[Simulator Setting] Saved ${config.stateVariable} (${config.id}) -> ${val}`);
+                    const strVal = String(val);
+                    if (window.Android && typeof window.Android.savePreference === 'function') {
+                        window.Android.savePreference(config.stateVariable, strVal);
+                        window.Android.savePreference(`app.preferences.${config.stateVariable}`, strVal);
+                        window.Android.savePreference(config.id, strVal);
+                        window.Android.savePreference(`app.preferences.${config.id}`, strVal);
+                    }
+                    if (window.onDataChanged) {
+                        window.onDataChanged(`app.preferences.${config.stateVariable}`, strVal);
+                        window.onDataChanged(`app.preferences.${config.id}`, strVal);
+                        window.onDataChanged(config.stateVariable, strVal);
+                        window.onDataChanged(config.id, strVal);
+                    }
+                    if (stateManager && typeof stateManager.setState === 'function') {
+                        stateManager.setState(config.stateVariable, val);
+                        stateManager.setState(config.id, val);
+                    }
+                };
+
                 if (config.type === 'boolean') {
                     const label = document.createElement('label');
                     label.className = 'harness-switch';
-                    
+
                     const input = document.createElement('input');
                     input.type = 'checkbox';
                     input.id = `sim-control-${config.id}`;
                     input.checked = currentVal === true || currentVal === 'true';
-                    
+
                     const slider = document.createElement('span');
                     slider.className = 'harness-slider';
-                    
+
                     label.appendChild(input);
                     label.appendChild(slider);
                     row.appendChild(label);
                     controlNode = input;
-                    
-                    const saveConfigVal = (val) => {
-                        console.log(`[Simulator Setting] Saved ${config.stateVariable} (${config.id}) -> ${val}`);
-                        const strVal = String(val);
-                        if (window.Android && typeof window.Android.savePreference === 'function') {
-                            window.Android.savePreference(config.stateVariable, strVal);
-                            window.Android.savePreference(`app.preferences.${config.stateVariable}`, strVal);
-                            window.Android.savePreference(config.id, strVal);
-                            window.Android.savePreference(`app.preferences.${config.id}`, strVal);
-                        }
-                        if (window.onDataChanged) {
-                            window.onDataChanged(`app.preferences.${config.stateVariable}`, strVal);
-                            window.onDataChanged(`app.preferences.${config.id}`, strVal);
-                            window.onDataChanged(config.stateVariable, strVal);
-                            window.onDataChanged(config.id, strVal);
-                        }
-                        if (stateManager && typeof stateManager.setState === 'function') {
-                            stateManager.setState(config.stateVariable, val);
-                            stateManager.setState(config.id, val);
-                        }
-                    };
 
                     input.addEventListener('change', (e) => {
                         saveConfigVal(e.target.checked);

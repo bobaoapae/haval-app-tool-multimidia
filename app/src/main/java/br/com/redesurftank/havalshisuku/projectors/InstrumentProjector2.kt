@@ -29,6 +29,7 @@ import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType
 import br.com.redesurftank.havalshisuku.models.SteeringWheelAcControlType
 import br.com.redesurftank.havalshisuku.bridge.IBridgeContext
+import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -48,6 +49,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private val PROJECTION_PROJECTOR_WARMUP_BYPASS_MS = 1600L
     private val PROJECTION_D3_FALSE_NEGATIVE_HOLD_MS = 12_000L
     private val PERF_HEARTBEAT_INTERVAL_MS = 60_000L
+    /** How long a warning must have been standing before BACK is allowed to dismiss it, so
+     *  a BACK press already in flight cannot swallow a warning the driver never saw. */
+    private val WARNING_DISMISS_LOCKOUT_MS = 2500L
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val clockRunnable =
             object : Runnable {
@@ -88,6 +92,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private val dismissedWarnings = java.util.concurrent.ConcurrentHashMap<String, String>()
     override var isWarningDismissed = false
     private var lastWarningActiveTime = 0L
+    /** Last value seen per monitored warning key, so a re-emission of an unchanged value
+     *  can be told apart from a genuinely new warning. */
+    private val lastWarningValues = java.util.concurrent.ConcurrentHashMap<String, String>()
+    /** When each currently-active warning started. BACK dismisses the newest one and the
+     *  lockout is measured against that warning, not against whichever fired first. */
+    private val warningOnsetTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private var projectionOverlayBypassActive: Boolean? = null
     private var hvacNativePanelActive = false
     private var avmNativePreviewActive = false
@@ -1148,7 +1158,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 // --- Warning Management Logic ---
                 if (key in monitoredWarningKeys) {
                     val currentValue = value?.toString() ?: "0"
+                    trackWarningOnset(key, currentValue)
                     if (dismissedWarnings[key] != currentValue) {
+                        // Only this key's acknowledgement lapses. Clearing the whole map
+                        // here would resurrect warnings the driver already dismissed just
+                        // because an unrelated one arrived.
                         dismissedWarnings.remove(key)
                         if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, currentValue)) {
                             isWarningDismissed = false
@@ -1158,7 +1172,6 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             } else {
                                 Log.d(TAG, "Telemetry warning update for key=$key value=$currentValue (already active, preserving onset)")
                             }
-                            dismissedWarnings.clear()
                             syncInitialWarnings()
                         }
                         evaluateJsIfReady(webView, "updateWarning('$key', '$currentValue')")
@@ -1512,17 +1525,72 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         themeBridge?.pushOnDataChanged("warningActive", isWarningActive.toString())
         themeBridge?.pushOnDataChanged("warningDismissed", isWarningDismissed.toString())
 
-        if (isWarningDismissed) {
-            evaluateJsIfReady(webView, "clearWarnings()")
-        } else {
-            for (key in monitoredWarningKeys) {
-                val value = sm.getData(key) ?: "0"
-                if (dismissedWarnings[key] == value) {
-                    continue
-                }
-                evaluateJsIfReady(webView, "updateWarning('$key', '$value')")
-            }
+        // Hand the theme the acknowledged (key -> acknowledged value) pairs first, then
+        // the real current value of *every* monitored key. The theme masks the pairs that
+        // still match, so a dismissed warning stays out of sight without being erased from
+        // the theme's warning map.
+        //
+        // Withholding the push instead (or wiping the theme map via clearWarnings) left the
+        // theme blind to a warning the car still reports, so the next unrelated key that
+        // changed — a door warning clearing when the door is closed — recomputed the badge
+        // over an incomplete map and cleared it while the seat belt warning was still on.
+        pushDismissedWarningsToTheme(webView)
+        for (key in monitoredWarningKeys) {
+            val value = sm.getData(key) ?: "0"
+            trackWarningOnset(key, value)
+            evaluateJsIfReady(webView, "updateWarning('$key', '$value')")
         }
+    }
+
+    /**
+     * Per-key onset bookkeeping, feeding both the dismissal lockout and the "newest
+     * warning wins" pick in [dismissWarnings]. Must see every telemetry event, including
+     * a warning re-arriving at a value the driver already acknowledged.
+     */
+    private fun trackWarningOnset(key: String, value: String) {
+        val previous = lastWarningValues.put(key, value)
+        if (!ClusterWarningPolicy.isWarningValueActive(value)) {
+            warningOnsetTimes.remove(key)
+            return
+        }
+        // A repeat of the same value is the same warning still standing, not a new one.
+        // The car re-emits these while they are active, so re-arming the lockout on every
+        // emission would keep pushing it into the future and make BACK permanently inert.
+        if (previous != value || !warningOnsetTimes.containsKey(key)) {
+            warningOnsetTimes[key] = System.currentTimeMillis()
+        }
+    }
+
+    /** Warnings the driver can currently see and has not acknowledged, newest first. */
+    private fun unacknowledgedBadgeWarnings(): List<Pair<String, String>> {
+        val sm = ServiceManager.getInstance()
+        return monitoredWarningKeys
+                .mapNotNull { key -> sm.getData(key)?.let { key to it } }
+                .filter { (key, value) ->
+                    ClusterWarningPolicy.raisesWarningBadge(key, value) &&
+                            dismissedWarnings[key] != value
+                }
+                .sortedByDescending { (key, _) -> warningOnsetTimes[key] ?: 0L }
+    }
+
+    /**
+     * Replay [dismissedWarnings] into the theme.
+     *
+     * Guarded on the JS side: themes built before per-warning dismissal only know
+     * `clearWarnings()`, which wipes the lot. Those fall back to it, but only once nothing
+     * un-acknowledged is left — otherwise an older theme would blank its badge on the first
+     * BACK press and lose the warnings the driver has not dealt with yet.
+     */
+    private fun pushDismissedWarningsToTheme(webView: WebView?) {
+        val json = JSONObject(dismissedWarnings.toMap() as Map<*, *>).toString()
+        val legacyFallback =
+                if (unacknowledgedBadgeWarnings().isEmpty())
+                        " else if (window.clearWarnings) window.clearWarnings();"
+                else ""
+        evaluateJsIfReady(
+                webView,
+                "if (window.setDismissedWarnings) window.setDismissedWarnings($json);$legacyFallback"
+        )
     }
 
     private fun hasCriticalTelemetryWarning(): Boolean {
@@ -2162,31 +2230,51 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         }
     }
 
+    /**
+     * Acknowledge one warning per BACK press, newest first.
+     *
+     * ServiceManager fires DISMISS_WARNING on *every* BACK press, so this used to
+     * acknowledge the entire active set at once: a BACK aimed at a door warning also
+     * swallowed a seat belt warning the driver had not dealt with. The lockout was
+     * measured from the first warning of a burst too, so a warning arriving while another
+     * was already standing got no protection at all.
+     */
     override fun dismissWarnings() {
         ensureUi {
-            val timeSinceWarning = System.currentTimeMillis() - lastWarningActiveTime
-            Log.d(TAG, "dismissWarnings called. timeSinceWarning=${timeSinceWarning}ms (onset=${lastWarningActiveTime})")
+            val target = unacknowledgedBadgeWarnings().firstOrNull()
+            if (target == null) {
+                Log.d(TAG, "dismissWarnings: nothing un-acknowledged to dismiss")
+                return@ensureUi
+            }
+
+            val (key, value) = target
+            val onset = warningOnsetTimes[key] ?: lastWarningActiveTime
+            val timeSinceWarning = System.currentTimeMillis() - onset
+            Log.d(TAG, "dismissWarnings called. key=$key timeSinceWarning=${timeSinceWarning}ms (onset=$onset)")
             logClusterPerfEvent(
                     "dismiss_warning",
-                    mapOf("timeSinceWarningMs" to timeSinceWarning)
+                    mapOf("key" to key, "timeSinceWarningMs" to timeSinceWarning)
             )
-            if (timeSinceWarning >= 2500) {
-                evaluateJsIfReady(webView, "clearWarnings()")
-                isWarningDismissed = true
-
-                val sm = ServiceManager.getInstance()
-                for (key in monitoredWarningKeys) {
-                    val value = sm.getData(key)
-                    if (ClusterWarningPolicy.isWarningValueActive(value)) {
-                        dismissedWarnings[key] = value!!
-                    }
-                }
-                updateWarningUI(false)
-                evaluateJsIfReady(webView, "control('warningDismissed', true)")
-                themeBridge?.pushOnDataChanged("warningDismissed", "true")
-            } else {
-                Log.w(TAG, "DISMISS_WARNING ignored: timeSinceWarning=${timeSinceWarning}ms < 2500ms lockout")
+            if (timeSinceWarning < WARNING_DISMISS_LOCKOUT_MS) {
+                Log.w(TAG, "DISMISS_WARNING ignored: key=$key timeSinceWarning=${timeSinceWarning}ms < ${WARNING_DISMISS_LOCKOUT_MS}ms lockout")
+                return@ensureUi
             }
+
+            dismissedWarnings[key] = value
+            Log.d(TAG, "dismissWarnings: acknowledged key=$key value=$value")
+            pushDismissedWarningsToTheme(webView)
+
+            // Only once every visible warning has been acknowledged is the cluster clear;
+            // until then the badge stays up for whatever is left.
+            val remaining = unacknowledgedBadgeWarnings()
+            isWarningDismissed = remaining.isEmpty()
+            if (remaining.isEmpty()) {
+                updateWarningUI(false)
+            } else {
+                Log.d(TAG, "dismissWarnings: ${remaining.size} warning(s) still un-acknowledged: ${remaining.map { it.first }}")
+            }
+            evaluateJsIfReady(webView, "control('warningDismissed', $isWarningDismissed)")
+            themeBridge?.pushOnDataChanged("warningDismissed", isWarningDismissed.toString())
         }
     }
 

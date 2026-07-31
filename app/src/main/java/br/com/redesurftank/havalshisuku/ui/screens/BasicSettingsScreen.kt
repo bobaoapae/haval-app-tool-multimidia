@@ -767,6 +767,14 @@ fun BasicSettingsTab() {
                         )
                 )
         }
+        var autoMoveProjectionToCluster by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.AUTO_MOVE_PROJECTION_TO_CLUSTER.key,
+                                true
+                        )
+                )
+        }
         var showStartPicker by remember { mutableStateOf(false) }
         var showEndPicker by remember { mutableStateOf(false) }
         var enableSpeedAdjustment by remember {
@@ -1366,6 +1374,162 @@ fun BasicSettingsTab() {
                                                                         color = Color(0xFF3A3F47),
                                                                         thickness = 1.dp
                                                                 )
+
+                                                                // Auto move projection to cluster
+                                                                Row(
+                                                                        modifier =
+                                                                                Modifier.fillMaxWidth(),
+                                                                        horizontalArrangement =
+                                                                                Arrangement
+                                                                                        .SpaceBetween,
+                                                                        verticalAlignment =
+                                                                                Alignment
+                                                                                        .CenterVertically
+                                                                ) {
+                                                                        Column(
+                                                                                modifier =
+                                                                                        Modifier.weight(
+                                                                                                1f
+                                                                                        )
+                                                                        ) {
+                                                                                Text(
+                                                                                        "Mover navegação para o cluster ao iniciar",
+                                                                                        color =
+                                                                                                Color.White,
+                                                                                        fontSize =
+                                                                                                16.sp
+                                                                                )
+                                                                                Text(
+                                                                                        "Enviar Android Auto ou CarPlay automaticamente para o painel (Display 3)",
+                                                                                        color =
+                                                                                                Color.Gray,
+                                                                                        fontSize =
+                                                                                        12.sp
+                                                                                )
+                                                                        }
+                                                                        Switch(
+                                                                                checked =
+                                                                                        autoMoveProjectionToCluster,
+                                                                                onCheckedChange = {
+                                                                                        autoMoveProjectionToCluster =
+                                                                                                it
+                                                                                        prefs.edit()
+                                                                                                .putBoolean(
+                                                                                                        SharedPreferencesKeys
+                                                                                                                .AUTO_MOVE_PROJECTION_TO_CLUSTER
+                                                                                                                .key,
+                                                                                                        it
+                                                                                                )
+                                                                                                .apply()
+                                                                                },
+                                                                                modifier =
+                                                                                        Modifier.scale(
+                                                                                                0.9f
+                                                                                        ),
+                                                                                colors =
+                                                                                        SwitchDefaults
+                                                                                                .colors(
+                                                                                                        checkedThumbColor =
+                                                                                                                AppColors
+                                                                                                                        .TextPrimary,
+                                                                                                        checkedTrackColor =
+                                                                                                                AppColors
+                                                                                                                        .Primary,
+                                                                                                        uncheckedThumbColor =
+                                                                                                                AppColors
+                                                                                                                        .TextSecondary,
+                                                                                                        uncheckedTrackColor =
+                                                                                                                AppColors
+                                                                                                                        .ButtonSecondary,
+                                                                                                        uncheckedBorderColor =
+                                                                                                                Color.Transparent,
+                                                                                                        checkedBorderColor =
+                                                                                                                Color.Transparent
+                                                                                                )
+                                                                        )
+                                                                }
+
+                                                                // Cluster projection -> Impulse Drive
+                                                                Row(
+                                                                        modifier =
+                                                                                Modifier.fillMaxWidth(),
+                                                                        horizontalArrangement =
+                                                                                Arrangement
+                                                                                        .SpaceBetween,
+                                                                        verticalAlignment =
+                                                                                Alignment
+                                                                                        .CenterVertically
+                                                                ) {
+                                                                        Column(
+                                                                                modifier =
+                                                                                        Modifier.weight(
+                                                                                                1f
+                                                                                        )
+                                                                        ) {
+                                                                                Text(
+                                                                                        "Abrir Impulse Drive na projeção do cluster",
+                                                                                        color =
+                                                                                                Color.White,
+                                                                                        fontSize =
+                                                                                                16.sp
+                                                                                )
+                                                                                Text(
+                                                                                        "Ao iniciar Android Auto ou CarPlay no cluster (display 1/3)",
+                                                                                        color =
+                                                                                                Color.Gray,
+                                                                                        fontSize =
+                                                                                                12.sp
+                                                                                )
+                                                                        }
+                                                                        Switch(
+                                                                                checked =
+                                                                                        clusterProjectionOpensDashboard,
+                                                                                onCheckedChange = {
+                                                                                        clusterProjectionOpensDashboard =
+                                                                                                it
+                                                                                        prefs.edit()
+                                                                                                .putBoolean(
+                                                                                                        SharedPreferencesKeys
+                                                                                                                .CLUSTER_PROJECTION_OPENS_DASHBOARD
+                                                                                                                .key,
+                                                                                                        it
+                                                                                                )
+                                                                                                .apply()
+                                                                                },
+                                                                                modifier =
+                                                                                        Modifier.scale(
+                                                                                                0.9f
+                                                                                        ),
+                                                                                colors =
+                                                                                        SwitchDefaults
+                                                                                                .colors(
+                                                                                                        checkedThumbColor =
+                                                                                                                AppColors
+                                                                                                                        .TextPrimary,
+                                                                                                        checkedTrackColor =
+                                                                                                                AppColors
+                                                                                                                        .Primary,
+                                                                                                        uncheckedThumbColor =
+                                                                                                                AppColors
+                                                                                                                        .TextSecondary,
+                                                                                                        uncheckedTrackColor =
+                                                                                                                AppColors
+                                                                                                                        .ButtonSecondary,
+                                                                                                        uncheckedBorderColor =
+                                                                                                                Color.Transparent,
+                                                                                                        checkedBorderColor =
+                                                                                                                Color.Transparent
+                                                                                                )
+                                                                        )
+                                                                }
+
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        12.dp
+                                                                                )
+                                                                )
+
                                                                 Row(
                                                                         modifier =
                                                                                 Modifier.fillMaxWidth(),

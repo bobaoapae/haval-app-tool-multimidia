@@ -801,12 +801,27 @@ object DisplayAppLauncher {
         Log.w(TAG, "[$reason] Desired Android Auto display set to $displayId")
     }
 
+    fun isAutoMoveProjectionToClusterEnabled(): Boolean {
+        return getPrefs().getBoolean(
+            br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.AUTO_MOVE_PROJECTION_TO_CLUSTER.key,
+            true
+        )
+    }
+
     fun isAndroidAutoDesiredOnCluster(): Boolean {
-        return getPrefs().getInt(PREF_DESIRED_ANDROID_AUTO_DISPLAY_ID, -1) == 3
+        val desired = getPrefs().getInt(PREF_DESIRED_ANDROID_AUTO_DISPLAY_ID, -1)
+        if (desired != -1) {
+            return desired == 3
+        }
+        return isAutoMoveProjectionToClusterEnabled()
     }
 
     fun isCarPlayDesiredOnCluster(): Boolean {
-        return getPrefs().getInt(PREF_DESIRED_CARPLAY_DISPLAY_ID, -1) == 3
+        val desired = getPrefs().getInt(PREF_DESIRED_CARPLAY_DISPLAY_ID, -1)
+        if (desired != -1) {
+            return desired == 3
+        }
+        return isAutoMoveProjectionToClusterEnabled()
     }
 
     fun isCarPlayOnDisplay(displayId: Int): Boolean {
