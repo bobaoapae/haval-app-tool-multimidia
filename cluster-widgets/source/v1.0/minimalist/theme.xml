@@ -30,7 +30,7 @@
             <id>do_not_hide_bars_on</id>
             <label>Não Ocultar Barras Se Houver</label>
             <type>combo</type>
-            <options>Navegação, Aplicativo, Ambos, Nunca</options>
+            <options>Navegação, Aplicativo, Ambos, Ignorar</options>
             <default>Ambos</default>
             <stateVariable>doNotHideBarsOn</stateVariable>
         </configuration>

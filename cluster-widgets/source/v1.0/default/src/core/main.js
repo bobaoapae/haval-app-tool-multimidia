@@ -306,7 +306,7 @@ function render() {
 
 function isDoNotHideOverrideActive() {
     const doNotHide = get('doNotHideBarsOn') || 'Ambos';
-    if (doNotHide === 'Nunca') return false;
+    if (doNotHide === 'Ignorar' || doNotHide === 'Nunca') return false;
 
     const isNavActive = isProjectionMapDisplayActive() || get('mapInDash') === true;
     const appInDashVal = get('appInDash');

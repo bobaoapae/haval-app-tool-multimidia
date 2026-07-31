@@ -106,7 +106,7 @@ function isHideBottomBar() {
 
 function isDoNotHideOverrideActive() {
     const doNotHide = get('doNotHideBarsOn') ?? get('do_not_hide_bars_on') ?? 'Ambos';
-    if (doNotHide === 'Nunca') return false;
+    if (doNotHide === 'Ignorar' || doNotHide === 'Nunca') return false;
 
     const isNavActive = isProjectionMapDisplayActive() || get('mapInDash') === true;
     const appInDashVal = get('appInDash');
