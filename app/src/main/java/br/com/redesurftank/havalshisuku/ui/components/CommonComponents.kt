@@ -35,7 +35,8 @@ data class SettingItem(
     val onSliderChange: ((Int) -> Unit)? = null,
     val sliderLabel: String? = null,
     val hideSwitch: Boolean = false,
-    val customContent: (@Composable () -> Unit)? = null
+    val customContent: (@Composable () -> Unit)? = null,
+    val alwaysShowCustomContent: Boolean = false
 )
 
 // Cores do tema
@@ -83,7 +84,8 @@ fun SettingCard(
     onSliderChange: ((Int) -> Unit)? = null,
     sliderLabel: String? = null,
     hideSwitch: Boolean = false,
-    customContent: (@Composable () -> Unit)? = null
+    customContent: (@Composable () -> Unit)? = null,
+    alwaysShowCustomContent: Boolean = false
 ) {
     Card(
         modifier = modifier
@@ -197,8 +199,8 @@ fun SettingCard(
                 }
             }
             
-            // Mostrar conteúdo customizado se estiver ativado
-            if (checked && customContent != null) {
+            // Mostrar conteúdo customizado se estiver ativado ou se alwaysShowCustomContent for true
+            if ((checked || alwaysShowCustomContent) && customContent != null) {
                 Spacer(modifier = Modifier.height(16.dp))
                 customContent()
             }
@@ -253,7 +255,8 @@ fun TwoColumnSettingsLayout(
                                 sliderStep = setting.sliderStep,
                                 onSliderChange = setting.onSliderChange,
                                 sliderLabel = setting.sliderLabel,
-                                customContent = setting.customContent
+                                customContent = setting.customContent,
+                                alwaysShowCustomContent = setting.alwaysShowCustomContent
                             )
                         }
                     }
@@ -277,7 +280,8 @@ fun TwoColumnSettingsLayout(
                                 sliderStep = setting.sliderStep,
                                 onSliderChange = setting.onSliderChange,
                                 sliderLabel = setting.sliderLabel,
-                                customContent = setting.customContent
+                                customContent = setting.customContent,
+                                alwaysShowCustomContent = setting.alwaysShowCustomContent
                             )
                         }
                     }
@@ -311,7 +315,8 @@ fun TwoColumnSettingsLayout(
                             sliderStep = setting.sliderStep,
                             onSliderChange = setting.onSliderChange,
                             sliderLabel = setting.sliderLabel,
-                            customContent = setting.customContent
+                            customContent = setting.customContent,
+                            alwaysShowCustomContent = setting.alwaysShowCustomContent
                         )
                     }
                 }
@@ -335,7 +340,8 @@ fun TwoColumnSettingsLayout(
                             sliderStep = setting.sliderStep,
                             onSliderChange = setting.onSliderChange,
                             sliderLabel = setting.sliderLabel,
-                            customContent = setting.customContent
+                            customContent = setting.customContent,
+                            alwaysShowCustomContent = setting.alwaysShowCustomContent
                         )
                     }
                 }

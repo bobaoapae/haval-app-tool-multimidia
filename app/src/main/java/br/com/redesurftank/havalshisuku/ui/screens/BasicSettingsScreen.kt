@@ -1608,102 +1608,7 @@ fun BasicSettingsTab() {
                                                  }
                                          } else null
                          ),
-                        SettingItem(
-                                title = "Mover navegação para o cluster ao iniciar",
-                                description =
-                                        "Enviar Android Auto ou CarPlay automaticamente para o painel (Display 3)",
-                                checked = autoMoveProjectionToCluster,
-                                onCheckedChange = { checked ->
-                                        autoMoveProjectionToCluster = checked
-                                        prefs.edit()
-                                                .putBoolean(
-                                                        SharedPreferencesKeys
-                                                                .AUTO_MOVE_PROJECTION_TO_CLUSTER
-                                                                .key,
-                                                        checked
-                                                )
-                                                .apply()
-                                },
-                                customContent = {
-                                        Column(
-                                                verticalArrangement =
-                                                        Arrangement.spacedBy(12.dp)
-                                        ) {
-                                                Row(
-                                                        modifier =
-                                                                Modifier.fillMaxWidth(),
-                                                        horizontalArrangement =
-                                                                Arrangement
-                                                                        .SpaceBetween,
-                                                        verticalAlignment =
-                                                                Alignment
-                                                                        .CenterVertically
-                                                ) {
-                                                        Column(
-                                                                modifier =
-                                                                        Modifier.weight(
-                                                                                1f
-                                                                        )
-                                                        ) {
-                                                                Text(
-                                                                        "Abrir Impulse Drive na projeção do cluster",
-                                                                        color =
-                                                                                Color.White,
-                                                                        fontSize =
-                                                                                16.sp
-                                                                )
-                                                                Text(
-                                                                        "Ao iniciar Android Auto ou CarPlay no cluster (display 1/3)",
-                                                                        color =
-                                                                                Color.Gray,
-                                                                        fontSize =
-                                                                                12.sp
-                                                                )
-                                                        }
-                                                        Switch(
-                                                                checked =
-                                                                        clusterProjectionOpensDashboard,
-                                                                onCheckedChange = { checked ->
-                                                                        clusterProjectionOpensDashboard =
-                                                                                checked
-                                                                        prefs.edit()
-                                                                                .putBoolean(
-                                                                                        SharedPreferencesKeys
-                                                                                                .CLUSTER_PROJECTION_OPENS_DASHBOARD
-                                                                                                .key,
-                                                                                        checked
-                                                                                )
-                                                                                .apply()
-                                                                },
-                                                                modifier =
-                                                                        Modifier.scale(
-                                                                                0.9f
-                                                                        ),
-                                                                colors =
-                                                                        SwitchDefaults
-                                                                                .colors(
-                                                                                        checkedThumbColor =
-                                                                                                AppColors
-                                                                                                        .TextPrimary,
-                                                                                        checkedTrackColor =
-                                                                                                AppColors
-                                                                                                        .Primary,
-                                                                                        uncheckedThumbColor =
-                                                                                                AppColors
-                                                                                                        .TextSecondary,
-                                                                                        uncheckedTrackColor =
-                                                                                                AppColors
-                                                                                                        .ButtonSecondary,
-                                                                                        uncheckedBorderColor =
-                                                                                                Color.Transparent,
-                                                                                        checkedBorderColor =
-                                                                                                Color.Transparent
-                                                                                )
-                                                        )
-                                                }
-                                        }
-                                }
-                        ),
+
                         SettingItem(
                                 title = "Manter desativado monitoramento de distrações",
                                 description = "Desabilita alertas de distração durante a condução",
@@ -2128,94 +2033,6 @@ fun BasicSettingsTab() {
                                                                                 }
                                                                         }
 
-                                                                Spacer(
-                                                                        modifier =
-                                                                                Modifier.height(
-                                                                                        12.dp
-                                                                                )
-                                                                )
-
-                                                                // Cluster projection -> Impulse Drive
-                                                                Row(
-                                                                        modifier =
-                                                                                Modifier.fillMaxWidth(),
-                                                                        horizontalArrangement =
-                                                                                Arrangement
-                                                                                        .SpaceBetween,
-                                                                        verticalAlignment =
-                                                                                Alignment
-                                                                                        .CenterVertically
-                                                                ) {
-                                                                        Column(
-                                                                                modifier =
-                                                                                        Modifier.weight(
-                                                                                                1f
-                                                                                        )
-                                                                        ) {
-                                                                                Text(
-                                                                                        "Abrir Impulse Drive na projeção do cluster",
-                                                                                        color =
-                                                                                                Color.White,
-                                                                                        fontSize =
-                                                                                                16.sp
-                                                                                )
-                                                                                Text(
-                                                                                        "Ao iniciar Android Auto ou CarPlay no cluster (display 1/3)",
-                                                                                        color =
-                                                                                                Color.Gray,
-                                                                                        fontSize =
-                                                                                                12.sp
-                                                                                )
-                                                                        }
-                                                                        Switch(
-                                                                                checked =
-                                                                                        clusterProjectionOpensDashboard,
-                                                                                onCheckedChange = {
-                                                                                        clusterProjectionOpensDashboard =
-                                                                                                it
-                                                                                        prefs.edit()
-                                                                                                .putBoolean(
-                                                                                                        SharedPreferencesKeys
-                                                                                                                .CLUSTER_PROJECTION_OPENS_DASHBOARD
-                                                                                                                .key,
-                                                                                                        it
-                                                                                                )
-                                                                                                .apply()
-                                                                                },
-                                                                                modifier =
-                                                                                        Modifier.scale(
-                                                                                                0.9f
-                                                                                        ),
-                                                                                colors =
-                                                                                        SwitchDefaults
-                                                                                                .colors(
-                                                                                                        checkedThumbColor =
-                                                                                                                AppColors
-                                                                                                                        .TextPrimary,
-                                                                                                        checkedTrackColor =
-                                                                                                                AppColors
-                                                                                                                        .Primary,
-                                                                                                        uncheckedThumbColor =
-                                                                                                                AppColors
-                                                                                                                        .TextSecondary,
-                                                                                                        uncheckedTrackColor =
-                                                                                                                AppColors
-                                                                                                                        .ButtonSecondary,
-                                                                                                        uncheckedBorderColor =
-                                                                                                                Color.Transparent,
-                                                                                                        checkedBorderColor =
-                                                                                                                Color.Transparent
-                                                                                                )
-                                                                        )
-                                                                }
-
-                                                                Spacer(
-                                                                        modifier =
-                                                                                Modifier.height(
-                                                                                        12.dp
-                                                                                )
-                                                                )
-
                                                                 if (showSwipeUpAppPicker) {
                                                                         AppPickerDialog(
                                                                                 onDismiss = {
@@ -2245,6 +2062,103 @@ fun BasicSettingsTab() {
                                                         }
                                                 }
                                         } else null
+                        ),
+                        SettingItem(
+                                title = "Mover navegação para o cluster ao iniciar",
+                                description =
+                                        "Enviar Android Auto ou CarPlay automaticamente para o painel (Display 3)",
+                                checked = autoMoveProjectionToCluster,
+                                onCheckedChange = { checked ->
+                                        autoMoveProjectionToCluster = checked
+                                        prefs.edit()
+                                                .putBoolean(
+                                                        SharedPreferencesKeys
+                                                                .AUTO_MOVE_PROJECTION_TO_CLUSTER
+                                                                .key,
+                                                        checked
+                                                )
+                                                .apply()
+                                },
+                                alwaysShowCustomContent = true,
+                                customContent = {
+                                        Column(
+                                                verticalArrangement =
+                                                        Arrangement.spacedBy(12.dp)
+                                        ) {
+                                                Row(
+                                                        modifier =
+                                                                Modifier.fillMaxWidth(),
+                                                        horizontalArrangement =
+                                                                Arrangement
+                                                                        .SpaceBetween,
+                                                        verticalAlignment =
+                                                                Alignment
+                                                                        .CenterVertically
+                                                ) {
+                                                        Column(
+                                                                modifier =
+                                                                        Modifier.weight(
+                                                                                1f
+                                                                        )
+                                                        ) {
+                                                                Text(
+                                                                        "Abrir Impulse Drive na projeção do cluster",
+                                                                        color =
+                                                                                Color.White,
+                                                                        fontSize =
+                                                                                16.sp
+                                                                )
+                                                                Text(
+                                                                        "Ao iniciar Android Auto ou CarPlay no cluster (display 1/3)",
+                                                                        color =
+                                                                                Color.Gray,
+                                                                        fontSize =
+                                                                                12.sp
+                                                                )
+                                                        }
+                                                        Switch(
+                                                                checked =
+                                                                        clusterProjectionOpensDashboard,
+                                                                onCheckedChange = { checked ->
+                                                                        clusterProjectionOpensDashboard =
+                                                                                checked
+                                                                        prefs.edit()
+                                                                                .putBoolean(
+                                                                                        SharedPreferencesKeys
+                                                                                                .CLUSTER_PROJECTION_OPENS_DASHBOARD
+                                                                                                .key,
+                                                                                        checked
+                                                                                )
+                                                                                .apply()
+                                                                },
+                                                                modifier =
+                                                                        Modifier.scale(
+                                                                                0.9f
+                                                                        ),
+                                                                colors =
+                                                                        SwitchDefaults
+                                                                                .colors(
+                                                                                        checkedThumbColor =
+                                                                                                AppColors
+                                                                                                        .TextPrimary,
+                                                                                        checkedTrackColor =
+                                                                                                AppColors
+                                                                                                        .Primary,
+                                                                                        uncheckedThumbColor =
+                                                                                                AppColors
+                                                                                                        .TextSecondary,
+                                                                                        uncheckedTrackColor =
+                                                                                                AppColors
+                                                                                                        .ButtonSecondary,
+                                                                                        uncheckedBorderColor =
+                                                                                                Color.Transparent,
+                                                                                        checkedBorderColor =
+                                                                                                Color.Transparent
+                                                                                )
+                                                        )
+                                                }
+                                        }
+                                }
                         ),
                         SettingItem(
                                 title = "Desativar AVAS",
