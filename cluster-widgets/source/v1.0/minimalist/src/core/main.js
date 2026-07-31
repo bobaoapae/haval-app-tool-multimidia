@@ -307,6 +307,10 @@ function render() {
         const appInDashVal = get('appInDash');
         const isAppActive = appInDashVal === true || appInDashVal === 'left' || appInDashVal === 'right';
 
+        const isMapInDash = isProjActive || get('mapInDash') === true;
+        if (isMapInDash) {
+            classes.push('map-in-dash-active');
+        }
         if (isProjActive) {
             classes.push('projection-map-display-active');
             classes.push('carplay-in-dash');

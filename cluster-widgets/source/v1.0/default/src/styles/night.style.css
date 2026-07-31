@@ -3674,6 +3674,7 @@ body.display-mapa .mask-panel.right {
 }
 
 /* When map or app is shown and bottom bar is hidden in Default, keep fuel and battery gauges visible */
+.map-in-dash-active.hide-bottom .dashboard-bottom-gauges,
 .projection-map-display-active.hide-bottom .dashboard-bottom-gauges,
 .projection-mirror-in-dash.hide-bottom .dashboard-bottom-gauges,
 .carplay-in-dash.hide-bottom .dashboard-bottom-gauges,
@@ -3685,6 +3686,7 @@ body.display-mapa .mask-panel.right {
 }
 
 /* When map or app is shown and top bar is hidden in Default, keep top header data (time, gear, mode) visible */
+.map-in-dash-active.hide-header .dashboard-top-center,
 .projection-map-display-active.hide-header .dashboard-top-center,
 .projection-mirror-in-dash.hide-header .dashboard-top-center,
 .carplay-in-dash.hide-header .dashboard-top-center,

@@ -2078,6 +2078,12 @@ fun BasicSettingsTab() {
                                                         checked
                                                 )
                                                 .apply()
+                                        if (!checked) {
+                                                prefs.edit()
+                                                        .remove("desiredAndroidAutoDisplayId")
+                                                        .remove("desiredCarPlayDisplayId")
+                                                        .apply()
+                                        }
                                 },
                                 alwaysShowCustomContent = true,
                                 customContent = {

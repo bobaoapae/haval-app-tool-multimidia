@@ -202,6 +202,10 @@ function render() {
             classes.push('bar-images-hidden');
         }
 
+        const isMapInDash = projectionMapDisplayActive || get('mapInDash') === true;
+        if (isMapInDash) {
+            classes.push('map-in-dash-active');
+        }
         if (projectionMapDisplayActive) {
             classes.push('theme-mirror-cluster');
             classes.push('projection-mirror-in-dash');
