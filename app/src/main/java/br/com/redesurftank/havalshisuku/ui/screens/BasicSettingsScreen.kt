@@ -2066,7 +2066,7 @@ fun BasicSettingsTab() {
                         SettingItem(
                                 title = "Mover navegação para o cluster ao iniciar",
                                 description =
-                                        "Enviar Android Auto ou CarPlay automaticamente para o painel (Display 3)",
+                                        "Enviar Android Auto ou CarPlay automaticamente para o cluster",
                                 checked = autoMoveProjectionToCluster,
                                 onCheckedChange = { checked ->
                                         autoMoveProjectionToCluster = checked
@@ -2109,7 +2109,7 @@ fun BasicSettingsTab() {
                                                                                 16.sp
                                                                 )
                                                                 Text(
-                                                                        "Ao iniciar Android Auto ou CarPlay no cluster (display 1/3)",
+                                                                        "Ao iniciar Android Auto ou CarPlay no cluster",
                                                                         color =
                                                                                 Color.Gray,
                                                                         fontSize =
