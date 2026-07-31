@@ -419,11 +419,13 @@ function handleSteeringWheelKey(keyName) {
         return;
     }
 
-    // Wake up from Clean mode to Normal display mode on any key event
-    if (get('display') === 'Clean' && get('screen') !== 'display_selection') {
+    // Wake up from Clean or Mapa mode to Normal display mode on any key event and show display menu
+    const currentDisplay = get('display');
+    if ((currentDisplay === 'Clean' || currentDisplay === 'Mapa') && get('screen') !== 'display_selection') {
         setState('display', 'Normal');
         bridge.updateCarData('display', 'Normal');
-        logger.log(`[Steering Wheel] Clean display mode active. Returning to Normal display mode on key event: ${keyName}`);
+        setState('screen', 'display_selection');
+        logger.log(`[Steering Wheel] ${currentDisplay} display mode active. Returning to Normal display mode and opening display menu on key event: ${keyName}`);
         return; // Consume the key event as a wake-up trigger
     }
 
