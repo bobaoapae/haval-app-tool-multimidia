@@ -104,6 +104,27 @@ function isHideBottomBar() {
     return val === true || val === 'true' || val === 1 || val === '1';
 }
 
+function isDoNotHideOverrideActive() {
+    const doNotHide = get('doNotHideBarsOn') ?? get('do_not_hide_bars_on') ?? 'Ambos';
+    if (doNotHide === 'Nunca') return false;
+
+    const isNavActive = isProjectionMapDisplayActive() || get('mapInDash') === true;
+    const appInDashVal = get('appInDash');
+    const isAppActive = appInDashVal === true || appInDashVal === 'left' || appInDashVal === 'right';
+
+    if (doNotHide === 'Ambos' && (isNavActive || isAppActive)) return true;
+    if (doNotHide === 'Navegação' && isNavActive) return true;
+    if (doNotHide === 'Aplicativo' && isAppActive) return true;
+
+    return false;
+}
+
+function isHideBottomBarEffective() {
+    if (!isHideBottomBar()) return false;
+    if (isDoNotHideOverrideActive()) return false;
+    return true;
+}
+
 // theme.xml ships these as combos of "Padrão, Reduzido, Clean". Values cross the bridge
 // as raw strings, so normalize the accent before comparing — an unaccented "Padrao"
 // would otherwise be treated as Clean and blow the viewport out to the full 1920.
@@ -273,7 +294,7 @@ function render() {
         // theme.xml settings. Only the "off" side gets a class, so the boot frame
         // that renders before bindThemeSetting resolves already matches the defaults
         // (bottom bar shown, regen and RPM indicators shown).
-        if (isHideBottomBar()) {
+        if (isHideBottomBarEffective()) {
             classes.push('hide-bottom-bar');
         }
         if (get('showRegenIcon') === false) {
@@ -369,7 +390,7 @@ function render() {
 }
 
 function updateAppDimensions() {
-    const hideBottomBar = isHideBottomBar();
+    const hideBottomBar = isHideBottomBarEffective();
     const effectiveMaskMode = getEffectiveMaskMode();
 
     // Vertical insets must match the real mask geometry in night.style.css:
@@ -939,6 +960,7 @@ async function initMinimalistBridge() {
     };
 
     bindDual('hideBottomBar', 'hide_bottom_bar', false);
+    bindDual('doNotHideBarsOn', 'do_not_hide_bars_on', 'Ambos');
     bindDual('showRegenIcon', 'show_regen_icon', true);
     bindDual('showRpmIcon', 'show_rpm_icon', true);
     // Defaults must mirror theme.xml, otherwise the boot frame renders the wrong mask

@@ -27,6 +27,14 @@
             <stateVariable>hideBottomBar</stateVariable>
         </configuration>
         <configuration>
+            <id>do_not_hide_bars_on</id>
+            <label>Não Ocultar Barras Se Houver</label>
+            <type>combo</type>
+            <options>Navegação, Aplicativo, Ambos, Nunca</options>
+            <default>Ambos</default>
+            <stateVariable>doNotHideBarsOn</stateVariable>
+        </configuration>
+        <configuration>
             <id>show_regen_icon</id>
             <label>Exibir Indicador de Regen</label>
             <type>boolean</type>

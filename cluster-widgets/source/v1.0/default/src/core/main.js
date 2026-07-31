@@ -188,11 +188,10 @@ function render() {
         if (nativeMockEnabled) {
             classes.push('native-mock-enabled');
         }
-        const hiddenBars = get('hiddenBars') || 'Nenhuma';
-        if (hiddenBars === 'Superior' || hiddenBars === 'Ambas') {
+        if (shouldHideBar('Superior')) {
             classes.push('hide-header');
         }
-        if (hiddenBars === 'Inferior' || hiddenBars === 'Ambas') {
+        if (shouldHideBar('Inferior')) {
             classes.push('hide-bottom');
         }
         // Decorative top/bottom bar artwork is on unless explicitly turned off,
@@ -305,18 +304,44 @@ function render() {
     logger.leave('render');
 }
 
-function updateAppDimensions() {
+function isDoNotHideOverrideActive() {
+    const doNotHide = get('doNotHideBarsOn') || 'Ambos';
+    if (doNotHide === 'Nunca') return false;
+
+    const isNavActive = isProjectionMapDisplayActive() || get('mapInDash') === true;
+    const appInDashVal = get('appInDash');
+    const isAppActive = appInDashVal === true || appInDashVal === 'left' || appInDashVal === 'right';
+
+    if (doNotHide === 'Ambos' && (isNavActive || isAppActive)) return true;
+    if (doNotHide === 'Navegação' && isNavActive) return true;
+    if (doNotHide === 'Aplicativo' && isAppActive) return true;
+
+    return false;
+}
+
+function shouldHideBar(barType) {
     const hiddenBars = get('hiddenBars') || 'Nenhuma';
+    const configuredToHide = barType === 'Superior'
+        ? (hiddenBars === 'Superior' || hiddenBars === 'Ambas')
+        : (hiddenBars === 'Inferior' || hiddenBars === 'Ambas');
+
+    if (!configuredToHide) return false;
+    if (isDoNotHideOverrideActive()) return false;
+
+    return true;
+}
+
+function updateAppDimensions() {
     let x = 0;
     let y = 62;
     let width = 1920;
     let height = 596;
 
-    if (hiddenBars === 'Superior' || hiddenBars === 'Ambas') {
+    if (shouldHideBar('Superior')) {
         y = 0;
         height += 62;
     }
-    if (hiddenBars === 'Inferior' || hiddenBars === 'Ambas') {
+    if (shouldHideBar('Inferior')) {
         height += 62;
     }
 
@@ -367,6 +392,10 @@ subscribe('screen', (screenName) => {
 subscribe('display', render);
 subscribe('hiddenBars', (val) => {
     console.log(`[STATE TRACE] hiddenBars changed to: ${val}`);
+    render();
+});
+subscribe('doNotHideBarsOn', (val) => {
+    console.log(`[STATE TRACE] doNotHideBarsOn changed to: ${val}`);
     render();
 });
 subscribe('mode', render);
@@ -589,6 +618,7 @@ async function initDecentralizedBridge() {
     
     // Initialize preferences and initial states
     bridge.bindThemeSetting('hiddenBars', 'Nenhuma', setState);
+    bridge.bindThemeSetting('doNotHideBarsOn', 'Ambos', setState);
     bridge.bindThemeSetting('mode', 'Dark', setState);
     bridge.bindThemeSetting('gaugeStyle', 'Esportivo', setState);
     bridge.bindThemeSetting('barImages', true, setState);
