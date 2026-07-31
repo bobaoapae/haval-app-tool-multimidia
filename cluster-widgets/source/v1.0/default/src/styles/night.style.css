@@ -3673,6 +3673,28 @@ body.display-mapa .mask-panel.right {
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
+/* When map or app is shown and bottom bar is hidden in Default, keep fuel and battery gauges visible */
+.projection-map-display-active.hide-bottom .dashboard-bottom-gauges,
+.projection-mirror-in-dash.hide-bottom .dashboard-bottom-gauges,
+.carplay-in-dash.hide-bottom .dashboard-bottom-gauges,
+.app-in-dash-active.hide-bottom .dashboard-bottom-gauges {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transform: translateY(0) !important;
+}
+
+/* When map or app is shown and top bar is hidden in Default, keep top header data (time, gear, mode) visible */
+.projection-map-display-active.hide-header .dashboard-top-center,
+.projection-mirror-in-dash.hide-header .dashboard-top-center,
+.carplay-in-dash.hide-header .dashboard-top-center,
+.app-in-dash-active.hide-header .dashboard-top-center {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transform: translate(-50%, 0) !important;
+}
+
 /* Decorative bar artwork off (theme setting barImages = false): the top bar
    falls back to its plain gradient, the bottom gauges to no artwork at all */
 #app.bar-images-hidden {

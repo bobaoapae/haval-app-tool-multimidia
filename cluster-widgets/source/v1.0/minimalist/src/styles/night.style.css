@@ -5143,6 +5143,15 @@ body.native-mock-enabled .dashboard-fixed-overlay {
   pointer-events: none !important;
 }
 
+/* When map or app is shown and bottom bar is hidden in Minimalist, keep fuel and battery gauges visible */
+.projection-map-display-active.hide-bottom-bar .dashboard-bottom-gauges,
+.carplay-in-dash.hide-bottom-bar .dashboard-bottom-gauges,
+.app-in-dash-active.hide-bottom-bar .dashboard-bottom-gauges {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+
 .dev-background {
   position: absolute;
   top: 62px;

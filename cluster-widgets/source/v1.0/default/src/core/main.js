@@ -173,6 +173,8 @@ function render() {
         const appInDash = get('appInDash');
         if (appInDash === false || appInDash === 'false') {
             classes.push('app-in-dash-disabled');
+        } else if (appInDash === true || appInDash === 'left' || appInDash === 'right') {
+            classes.push('app-in-dash-active');
         }
 
         if (get('clusterBackground') === true) {
