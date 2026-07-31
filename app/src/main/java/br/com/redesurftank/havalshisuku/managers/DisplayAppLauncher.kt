@@ -809,25 +809,11 @@ object DisplayAppLauncher {
     }
 
     fun isAndroidAutoDesiredOnCluster(): Boolean {
-        if (!isAutoMoveProjectionToClusterEnabled()) {
-            return false
-        }
-        val desired = getPrefs().getInt(PREF_DESIRED_ANDROID_AUTO_DISPLAY_ID, -1)
-        if (desired != -1) {
-            return desired == 3
-        }
-        return true
+        return isAutoMoveProjectionToClusterEnabled()
     }
 
     fun isCarPlayDesiredOnCluster(): Boolean {
-        if (!isAutoMoveProjectionToClusterEnabled()) {
-            return false
-        }
-        val desired = getPrefs().getInt(PREF_DESIRED_CARPLAY_DISPLAY_ID, -1)
-        if (desired != -1) {
-            return desired == 3
-        }
-        return true
+        return isAutoMoveProjectionToClusterEnabled()
     }
 
     fun isCarPlayOnDisplay(displayId: Int): Boolean {
