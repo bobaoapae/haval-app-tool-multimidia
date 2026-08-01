@@ -36,7 +36,9 @@ fun buildConnChip(
     hotspotActive: Boolean,   // ServiceManager.getInstance().isHotspotOnAir()
     headUnitOnWifi: Boolean   // MobileDataManager.isWifiConnected(ctx)
 ): ConnChip {
-    val hotspotOn = mode == HotRouterManager.MODE_WLAN || hotspotActive
+    // CUIDADO: o daemon reporta WLAN/4G pelo UPLINK (pinga a wlan0), NÃO pelo AP -> mode==WLAN NÃO
+    // implica hotspot ligado. O gate do "Roteando" é SÓ o hotspot real (isHotspotOnAir).
+    val hotspotOn = hotspotActive
     val blocked = blockReason != null
     val ssid = wifiName?.takeIf { it.isNotBlank() }
     return when {
