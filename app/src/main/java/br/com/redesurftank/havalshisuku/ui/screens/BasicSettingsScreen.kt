@@ -31,6 +31,8 @@ import br.com.redesurftank.havalshisuku.models.SteeringWheelClimateCommandType
 import br.com.redesurftank.havalshisuku.models.SteeringWheelCustomActionType
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
 import br.com.redesurftank.havalshisuku.ui.components.SettingItem
+import br.com.redesurftank.havalshisuku.ui.components.GroupedSettingsLayout
+import br.com.redesurftank.havalshisuku.ui.components.SettingsGroups
 import br.com.redesurftank.havalshisuku.ui.components.TwoColumnSettingsLayout
 
 // Seletor reutilizavel de acao do volante (usado p/ toque curto / duplo / longo de cada botao).
@@ -697,6 +699,7 @@ fun BasicSettingsTab() {
         settingsList.add(
                 SettingItem(
                         title = "Manter % de bateria no HEV Prioritário",
+                        group = SettingsGroups.DRIVE,
                         description = "Se o carro alterar sozinho o % a salvar, o app reaplica o valor que você escolheu. Só vale em HEV Prioritário.",
                         checked = enablePersistHevSoc,
                         onCheckedChange = {
@@ -739,6 +742,7 @@ fun BasicSettingsTab() {
                 settingsList.add(
                         SettingItem(
                                 title = "Bypass de Verificação",
+                                group = SettingsGroups.FEATURES,
                                 description =
                                         SharedPreferencesKeys
                                                 .BYPASS_SELF_INSTALLATION_INTEGRITY_CHECK
@@ -763,6 +767,7 @@ fun BasicSettingsTab() {
                 listOfNotNull(
                         SettingItem(
                                 title = "Fechar janela ao desligar o veículo",
+                                group = SettingsGroups.SHUTDOWN,
                                 description =
                                         "Fecha automaticamente as janelas quando o motor é desligado",
                                 checked = closeWindowOnPowerOff,
@@ -780,6 +785,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Fechar janela ao recolher retrovisores",
+                                group = SettingsGroups.SHUTDOWN,
                                 description =
                                         "Sincroniza fechamento das janelas com o recolhimento dos retrovisores",
                                 checked = closeWindowOnFoldMirror,
@@ -797,6 +803,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Fechar teto solar ao desligar",
+                                group = SettingsGroups.SHUTDOWN,
                                 description =
                                         SharedPreferencesKeys.CLOSE_SUNROOF_ON_POWER_OFF
                                                 .description,
@@ -815,6 +822,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Fechar teto solar ao recolher retrovisores",
+                                group = SettingsGroups.SHUTDOWN,
                                 description =
                                         SharedPreferencesKeys.CLOSE_SUNROOF_ON_FOLD_MIRROR
                                                 .description,
@@ -833,6 +841,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Fechar cortina do teto solar",
+                                group = SettingsGroups.SHUTDOWN,
                                 description =
                                         SharedPreferencesKeys
                                                 .CLOSE_SUNROOF_SUN_SHADE_ON_CLOSE_SUNROOF
@@ -852,6 +861,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Fechar janelas com velocidade",
+                                group = SettingsGroups.SPEED,
                                 description =
                                         SharedPreferencesKeys.CLOSE_WINDOWS_ON_SPEED.description,
                                 checked = closeWindowsOnSpeed,
@@ -881,6 +891,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Fechar teto solar com velocidade",
+                                group = SettingsGroups.SPEED,
                                 description =
                                         SharedPreferencesKeys.CLOSE_SUNROOF_ON_SPEED.description,
                                 checked = closeSunroofOnSpeed,
@@ -913,6 +924,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "A/C no máximo ao ligar o carro",
+                                group = SettingsGroups.CLIMATE,
                                 description =
                                         SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.description,
                                 checked = enableMaxAcOnUnlock,
@@ -1462,6 +1474,7 @@ fun BasicSettingsTab() {
                          ),
                         SettingItem(
                                 title = "Manter desativado monitoramento de distrações",
+                                group = SettingsGroups.SAFETY,
                                 description = "Desabilita alertas de distração durante a condução",
                                 checked = disableMonitoring,
                                 onCheckedChange = {
@@ -1477,6 +1490,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Habilitar barra inferior de rápido acesso",
+                                group = SettingsGroups.FEATURES,
                                 description =
                                         "Cria uma barra inferior fixa com atalhos para ar condicionado e outras funções",
                                 checked = enablePersistentBottomBar,
@@ -1698,6 +1712,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Desativar AVAS",
+                                group = SettingsGroups.SAFETY,
                                 description = "Sistema de alerta de veículo silencioso",
                                 checked = disableAvas,
                                 onCheckedChange = {
@@ -1713,6 +1728,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Desativar câmera AVM quando parado",
+                                group = SettingsGroups.SAFETY,
                                 description =
                                         "Desliga câmera de visão 360° quando o veículo está parado",
                                 checked = disableAvmCarStopped,
@@ -1730,6 +1746,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Ligar ventilação do banco do motorisca com A/C ligado",
+                                group = SettingsGroups.CLIMATE,
                                 description =
                                         SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON
                                                 .description,
@@ -1748,6 +1765,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Desligar bluetooth ao desligar",
+                                group = SettingsGroups.SHUTDOWN,
                                 description =
                                         SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF
                                                 .description,
@@ -1766,6 +1784,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Desligar ponto de acesso ao desligar",
+                                group = SettingsGroups.SHUTDOWN,
                                 description =
                                         SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF
                                                 .description,
@@ -1784,6 +1803,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Desativar Bluetooth ao recolher retrovisores",
+                                group = SettingsGroups.SHUTDOWN,
                                 description =
                                         SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_FOLD_MIRROR
                                                 .description,
@@ -1802,6 +1822,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Desativar ponto de acesso ao recolher retrovisores",
+                                group = SettingsGroups.SHUTDOWN,
                                 description =
                                         SharedPreferencesKeys.DISABLE_HOTSPOT_ON_FOLD_MIRROR
                                                 .description,
@@ -1820,6 +1841,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Ativar Ambient Light BLE",
+                                group = SettingsGroups.FEATURES,
                                 description =
                                         "Exibe o recurso opcional para LEDs externos instalados pelo usuario",
                                 checked = ambientLightBleEnabled,
@@ -1842,6 +1864,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Habilitar botões personalizados no volante",
+                                group = SettingsGroups.FEATURES,
                                 description =
                                         SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS
                                                 .description,
@@ -2137,6 +2160,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Ajustar brilho automaticamente",
+                                group = SettingsGroups.DISPLAY,
                                 description = "Ajusta o brilho da tela automaticamente",
                                 checked = enableAutoBrightness,
                                 onCheckedChange = {
@@ -2416,6 +2440,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Definir volume inicial",
+                                group = SettingsGroups.DISPLAY,
                                 description = SharedPreferencesKeys.SET_STARTUP_VOLUME.description,
                                 checked = setStartupVolume,
                                 onCheckedChange = {
@@ -2443,6 +2468,7 @@ fun BasicSettingsTab() {
                         ),
                         SettingItem(
                                 title = "Ajuste de velocidade",
+                                group = SettingsGroups.DRIVE,
                                 description =
                                         "Ajusta a velocidade exibida no painel (Virtual Cluster)",
                                 checked = enableSpeedAdjustment,
@@ -2478,7 +2504,7 @@ fun BasicSettingsTab() {
         )
 
 
-        TwoColumnSettingsLayout(settingsList = settingsList)
+        GroupedSettingsLayout(items = settingsList)
 
         if (showStartPicker) {
                 LaunchedEffect(Unit) {
