@@ -344,6 +344,8 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     MOBILE_DATA_BLOCK_ON_PROJECTION("mobileDataBlockOnProjection", "Bloquear dados móveis quando no Android Auto/CarPlay"),
     MOBILE_DATA_CYCLE_DAY("mobileDataCycleDay", "Dia de renovação do pacote de dados (1-31)"),
     BLOCK_DATATRACK_TELEMETRY("blockDatatrackTelemetry", "Congelar telemetria OEM DataTrack (envio pra nuvem)"),
+    MOBILE_DATA_DISABLED_BY_APP("mobileDataDisabledByApp", "Controle interno: 4G desabilitado por este app"),
+    DATATRACK_DISABLED_BY_APP("datatrackDisabledByApp", "Controle interno: DataTrack desabilitado por este app"),
     MOBILE_DATA_TRAFFIC_ACCUM_BYTES("mobileDataTrafficAccumBytes", "Acumulado de bytes móveis no ciclo (fallback TrafficStats)"),
     MOBILE_DATA_TRAFFIC_LAST_READING("mobileDataTrafficLastReading", "Última leitura do TrafficStats móvel (controle interno)"),
     MOBILE_DATA_TRAFFIC_CYCLE_TAG("mobileDataTrafficCycleTag", "Ciclo atual do acumulador de bytes (controle interno)")

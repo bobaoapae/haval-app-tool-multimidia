@@ -10,6 +10,7 @@ import android.util.Log;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.security.MessageDigest;
 
 import br.com.redesurftank.App;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
@@ -24,9 +25,6 @@ public class HotRouterManager {
     private static final String PIDFILE = BASE + "/hotrouter.pid";
     private static final String STATEFILE = BASE + "/hotrouter.state";
     private static final String ASSET_NAME = "hotrouter.sh";
-
-    private static final String PID_ALIVE_CMD =
-            "kill -0 $(cat " + PIDFILE + " 2>/dev/null) 2>/dev/null && echo ALIVE || echo DEAD";
 
     private static final long WATCHDOG_INTERVAL_MS = 60000L;
     private static final long START_GRACE_MS = 20000L;
@@ -65,15 +63,22 @@ public class HotRouterManager {
     }
 
     private final SharedPreferences prefs;
-    private final Handler bgHandler;
+    private volatile HandlerThread handlerThread;
+    private volatile Handler bgHandler;
     private volatile boolean watchdogRunning = false;
     private volatile long enableTimeMs = 0L;
 
     private HotRouterManager() {
         prefs = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
-        HandlerThread thread = new HandlerThread("HotRouterThread");
-        thread.start();
-        bgHandler = new Handler(thread.getLooper());
+    }
+
+    private synchronized Handler workerHandler() {
+        if (bgHandler == null) {
+            handlerThread = new HandlerThread("HotRouterThread");
+            handlerThread.start();
+            bgHandler = new Handler(handlerThread.getLooper());
+        }
+        return bgHandler;
     }
 
     private boolean isEnabled() {
@@ -82,15 +87,19 @@ public class HotRouterManager {
 
     /** Called from the settings toggle. Persistence is done by the UI before this call. */
     public void setEnabled(boolean enabled) {
+        Handler handler = workerHandler();
         if (enabled) {
             enableTimeMs = SystemClock.elapsedRealtime();
-            bgHandler.post(() -> {
-                pushScript();
-                startDaemon();
+            handler.post(() -> {
+                if (pushScript()) startDaemon();
             });
             startWatchdog();
         } else {
-            bgHandler.post(this::stopDaemon);
+            handler.post(() -> {
+                handler.removeCallbacks(watchdogRunnable);
+                watchdogRunning = false;
+                if (pushScript()) stopDaemon();
+            });
         }
     }
 
@@ -98,10 +107,10 @@ public class HotRouterManager {
     public void onServicesReady() {
         if (isEnabled()) {
             enableTimeMs = SystemClock.elapsedRealtime();
-            bgHandler.post(() -> {
-                pushScript();
-                String alive = ShizukuUtils.runCommandAndGetOutput(new String[]{"sh", "-c", PID_ALIVE_CMD});
-                if (!alive.contains("ALIVE")) {
+            workerHandler().post(() -> {
+                if (!pushScript()) return;
+                String alive = readDaemonStatus();
+                if (!isAliveStatusForTest(alive)) {
                     startDaemon();
                 }
             });
@@ -109,22 +118,42 @@ public class HotRouterManager {
         }
     }
 
-    private void pushScript() {
+    private boolean pushScript() {
         try {
-            String b64 = readAssetBase64();
-            if (b64.isEmpty()) {
+            byte[] asset = readAssetBytes();
+            if (asset.length == 0) {
                 Log.e(TAG, "Empty hotrouter.sh asset, aborting push");
-                return;
+                return false;
             }
-            String cmd = "echo " + b64 + " | base64 -d > " + SCRIPT + " && chmod 755 " + SCRIPT;
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"sh", "-c", cmd});
+            String b64 = Base64.encodeToString(asset, Base64.NO_WRAP);
+            String expectedHash = sha256Hex(asset);
+            String temporary = SCRIPT + ".tmp";
+            String writeCmd = "echo " + b64 + " | base64 -d > " + temporary
+                    + " && chmod 755 " + temporary
+                    + " && sha256sum " + temporary + " | awk '{print $1}'";
+            String temporaryHash = ShizukuUtils.runCommandAndGetOutput(
+                    new String[]{"sh", "-c", writeCmd}).trim();
+            if (!expectedHash.equalsIgnoreCase(temporaryHash)) {
+                ShizukuUtils.runCommandAndGetOutput(new String[]{"rm", "-f", temporary});
+                Log.e(TAG, "hotrouter.sh hash mismatch before install");
+                return false;
+            }
+            String installedHash = ShizukuUtils.runCommandAndGetOutput(
+                    new String[]{"sh", "-c", "mv " + temporary + " " + SCRIPT
+                            + " && sha256sum " + SCRIPT + " | awk '{print $1}'"}).trim();
+            if (!expectedHash.equalsIgnoreCase(installedHash)) {
+                Log.e(TAG, "hotrouter.sh hash mismatch after install");
+                return false;
+            }
             Log.w(TAG, "hotrouter.sh pushed to " + SCRIPT);
+            return true;
         } catch (Exception e) {
             Log.e(TAG, "Failed to push hotrouter.sh: " + e.getMessage(), e);
+            return false;
         }
     }
 
-    private String readAssetBase64() {
+    private byte[] readAssetBytes() {
         try (InputStream is = App.getContext().getAssets().open(ASSET_NAME)) {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             byte[] buf = new byte[4096];
@@ -132,10 +161,32 @@ public class HotRouterManager {
             while ((n = is.read(buf)) != -1) {
                 baos.write(buf, 0, n);
             }
-            return Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+            return baos.toByteArray();
         } catch (Exception e) {
             Log.e(TAG, "Failed to read asset " + ASSET_NAME + ": " + e.getMessage(), e);
-            return "";
+            return new byte[0];
+        }
+    }
+
+    private String sha256Hex(byte[] bytes) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(bytes);
+        StringBuilder hex = new StringBuilder(digest.length * 2);
+        for (byte value : digest) hex.append(String.format("%02x", value & 0xff));
+        return hex.toString();
+    }
+
+    private String readDaemonStatus() {
+        return ShizukuUtils.runCommandAndGetOutput(new String[]{"sh", SCRIPT, "status"}).trim();
+    }
+
+    static boolean isAliveStatusForTest(String raw) {
+        if (raw == null) return false;
+        String[] parts = raw.trim().split("\\|");
+        if (parts.length != 2 || !"ALIVE".equals(parts[0])) return false;
+        try {
+            return Long.parseLong(parts[1]) > 1L;
+        } catch (NumberFormatException ignored) {
+            return false;
         }
     }
 
@@ -155,8 +206,12 @@ public class HotRouterManager {
 
     private void stopDaemon() {
         try {
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"sh", "-c", "sh " + SCRIPT + " stop"});
-            Log.w(TAG, "hotrouter daemon stop requested");
+            String output = ShizukuUtils.runCommandAndGetOutput(new String[]{"sh", SCRIPT, "stop"}).trim();
+            if ("STOPPED".equals(output)) {
+                Log.w(TAG, "hotrouter daemon stopped with verified teardown");
+            } else {
+                Log.e(TAG, "hotrouter daemon teardown was not confirmed: " + output);
+            }
         } catch (Exception e) {
             Log.e(TAG, "Failed to stop hotrouter daemon: " + e.getMessage(), e);
         }
@@ -168,12 +223,12 @@ public class HotRouterManager {
      * loop self-terminates the next time it finds the feature disabled.
      */
     private void startWatchdog() {
-        bgHandler.post(() -> {
+        workerHandler().post(() -> {
             if (watchdogRunning) {
                 return;
             }
             watchdogRunning = true;
-            bgHandler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS);
+            workerHandler().postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS);
         });
     }
 
@@ -185,17 +240,17 @@ public class HotRouterManager {
                 return;
             }
             try {
-                String alive = ShizukuUtils.runCommandAndGetOutput(new String[]{"sh", "-c", PID_ALIVE_CMD});
-                if (!alive.contains("ALIVE")) {
+                String alive = readDaemonStatus();
+                if (!isAliveStatusForTest(alive)) {
                     Log.w(TAG, "Watchdog: daemon dead while enabled, relaunching");
                     enableTimeMs = SystemClock.elapsedRealtime();
-                    pushScript();
-                    startDaemon();
+                    if (pushScript()) startDaemon();
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Watchdog error: " + e.getMessage(), e);
             }
-            bgHandler.postDelayed(this, WATCHDOG_INTERVAL_MS);
+            Handler handler = bgHandler;
+            if (handler != null && isEnabled()) handler.postDelayed(this, WATCHDOG_INTERVAL_MS);
         }
     };
 
@@ -206,8 +261,8 @@ public class HotRouterManager {
         if (!isEnabled()) {
             return new Status(MODE_OFF, 0L);
         }
-        String alive = ShizukuUtils.runCommandAndGetOutput(new String[]{"sh", "-c", PID_ALIVE_CMD});
-        if (alive.contains("ALIVE")) {
+        String alive = readDaemonStatus();
+        if (isAliveStatusForTest(alive)) {
             String raw = ShizukuUtils.runCommandAndGetOutput(
                     new String[]{"sh", "-c", "cat " + STATEFILE + " 2>/dev/null"}).trim();
             if (raw.isEmpty()) {

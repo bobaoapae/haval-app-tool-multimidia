@@ -1,22 +1,29 @@
 package br.com.redesurftank.havalshisuku.managers
 
+import android.Manifest
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.icu.util.Calendar
 import android.location.Geocoder
 import android.location.LocationManager
+import android.os.SystemClock
 import android.util.Log
+import androidx.core.content.ContextCompat
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.broadcastReceivers.AutoBrightnessReceiver
 import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.utils.BrightnessSchedule
+import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import br.com.redesurftank.havalshisuku.utils.SolarCalculator
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AutoBrightnessManager private constructor() {
     companion object {
@@ -24,6 +31,7 @@ class AutoBrightnessManager private constructor() {
         private const val REQ_START = 0
         private const val REQ_END = 1
         private const val REQ_SUN_TICK = 2
+        private const val GEOCODE_RETRY_INTERVAL_MS = 5 * 60_000L
 
         @Volatile
         private var INSTANCE: AutoBrightnessManager? = null
@@ -36,10 +44,21 @@ class AutoBrightnessManager private constructor() {
 
     private val prefs = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
     private val alarmManager = App.getContext().getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    private val worker by lazy {
+        Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "AutoBrightnessWorker").apply { isDaemon = true }
+        }
+    }
+    private val geocodeInFlight = AtomicBoolean(false)
+    @Volatile private var lastGeocodeCoordinateKey: String? = null
+    @Volatile private var lastGeocodeAttemptAtMs = 0L
 
     fun setEnabled(enabled: Boolean) {
-        if (enabled) updateSchedule() else cancelSchedules()
+        if (enabled) updateSchedule() else worker.execute { cancelSchedules() }
     }
+
+    fun isEnabled(): Boolean =
+        prefs.getBoolean(SharedPreferencesKeys.ENABLE_AUTO_BRIGHTNESS.key, false)
 
     private fun useSun(): Boolean =
         prefs.getBoolean(SharedPreferencesKeys.AUTO_BRIGHTNESS_USE_SUN.key, false)
@@ -51,7 +70,13 @@ class AutoBrightnessManager private constructor() {
             .coerceIn(BrightnessSchedule.MIN_STEP_MIN, BrightnessSchedule.MAX_STEP_MIN) * 60_000L
 
     fun updateSchedule() {
+        worker.execute { updateScheduleBlocking() }
+    }
+
+    private fun updateScheduleBlocking() {
         cancelSchedules()
+        if (!isEnabled()) return
+        ensureLocationPermissionIfNeeded()
         if (useSun() && applySunSchedule()) {
             return // modo sol aplicou e agendou o próximo tick
         }
@@ -101,19 +126,25 @@ class AutoBrightnessManager private constructor() {
     /** Localização atual: tenta os providers (GPS/passive/network/fused), cacheia; senão usa o cache. */
     private fun resolveLatLon(): Pair<Double, Double>? {
         try {
-            val lm = App.getContext().getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            val providers = listOf(
-                LocationManager.GPS_PROVIDER,
-                LocationManager.PASSIVE_PROVIDER,
-                LocationManager.NETWORK_PROVIDER,
-                "fused"
-            )
-            val best = providers
-                .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
-                .maxByOrNull { it.time }
-            if (best != null) {
-                cacheLatLon(best.latitude, best.longitude)
-                return best.latitude to best.longitude
+            val context = App.getContext()
+            if (
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                    PackageManager.PERMISSION_GRANTED
+            ) {
+                val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                val providers = listOf(
+                    LocationManager.GPS_PROVIDER,
+                    LocationManager.PASSIVE_PROVIDER,
+                    LocationManager.NETWORK_PROVIDER,
+                    "fused"
+                )
+                val best = providers
+                    .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+                    .maxByOrNull { it.time }
+                if (best != null) {
+                    cacheLatLon(best.latitude, best.longitude)
+                    return best.latitude to best.longitude
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "sem localização ao vivo: ${e.message}")
@@ -132,7 +163,17 @@ class AutoBrightnessManager private constructor() {
         // Geocode best-effort EM BACKGROUND (getFromLocation usa rede e pode bloquear vários segundos;
         // roda em main thread do receiver/UI daria ANR). Atualiza a cidade cacheada quando resolver.
         if (!Geocoder.isPresent()) return
-        Thread {
+        val coordinateKey = String.format(Locale.US, "%.3f,%.3f", lat, lon)
+        val now = SystemClock.elapsedRealtime()
+        if (
+            geocodeInFlight.get() ||
+                (coordinateKey == lastGeocodeCoordinateKey &&
+                    now - lastGeocodeAttemptAtMs < GEOCODE_RETRY_INTERVAL_MS)
+        ) return
+        if (!geocodeInFlight.compareAndSet(false, true)) return
+        lastGeocodeCoordinateKey = coordinateKey
+        lastGeocodeAttemptAtMs = now
+        worker.execute {
             runCatching {
                 @Suppress("DEPRECATION")
                 val results = Geocoder(App.getContext(), Locale("pt", "BR")).getFromLocation(lat, lon, 1)
@@ -141,8 +182,24 @@ class AutoBrightnessManager private constructor() {
                 if (!city.isNullOrBlank()) {
                     prefs.edit().putString(SharedPreferencesKeys.AUTO_BRIGHTNESS_CITY.key, city).apply()
                 }
+            }.onFailure {
+                Log.w(TAG, "geocode falhou: ${it.message}")
+            }.also {
+                geocodeInFlight.set(false)
             }
-        }.also { it.isDaemon = true }.start()
+        }
+    }
+
+    private fun ensureLocationPermissionIfNeeded() {
+        if (!isEnabled() || !useSun()) return
+        val context = App.getContext()
+        if (
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        ) return
+        ShizukuUtils.runCommandAndGetOutput(
+            arrayOf("pm", "grant", context.packageName, Manifest.permission.ACCESS_FINE_LOCATION)
+        )
     }
 
     private fun scheduleSunTick(at: Long) {

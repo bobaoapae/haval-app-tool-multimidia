@@ -9,18 +9,8 @@ import br.com.redesurftank.havalshisuku.managers.AutoBrightnessManager
 class AutoBrightnessReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Log.w("AutoBrightnessReceiver", "onReceive: ${intent.action}")
-        // Fora da main thread: updateSchedule() pode fazer getLastKnownLocation (binder síncrono).
-        // goAsync mantém o receiver vivo enquanto a thread roda. Também trata TIME_SET/TIMEZONE_CHANGED
-        // (registrados no manifesto) pra re-armar quando o relógio do carro é corrigido.
-        val pending = goAsync()
-        Thread {
-            try {
-                AutoBrightnessManager.getInstance().updateSchedule()
-            } catch (e: Exception) {
-                Log.e("AutoBrightnessReceiver", "updateSchedule falhou", e)
-            } finally {
-                pending.finish()
-            }
-        }.also { it.isDaemon = true }.start()
+        // O manager serializa localização, geocode, alarmes e bridge veicular no worker próprio.
+        // Se a função estiver desligada, updateSchedule apenas cancela alarmes e não altera brilho.
+        AutoBrightnessManager.getInstance().updateSchedule()
     }
 }

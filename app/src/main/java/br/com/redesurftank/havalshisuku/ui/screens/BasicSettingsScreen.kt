@@ -805,7 +805,7 @@ fun BasicSettingsTab() {
                         title = "Controle de dados móveis",
                         group = SettingsGroups.FEATURES,
                         description =
-                                "Liga o gerenciamento do 4G da multimídia. Com ele ligado, escolha abaixo QUANDO cortar o 4G. Desligado = 4G livre (nada é bloqueado).",
+                                "Liga o gerenciamento do 4G da multimídia. Desligado, o app não altera o estado definido pelo carro; se ele próprio havia bloqueado, libera uma vez.",
                         checked = mobileControlEnabled,
                         onCheckedChange = {
                                 mobileControlEnabled = it
@@ -815,7 +815,11 @@ fun BasicSettingsTab() {
                                 Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                                         val reason = mobileBlockReason
                                         Text(
-                                                if (reason != null) "4G agora: BLOQUEADO ($reason)" else "4G agora: LIBERADO",
+                                                when {
+                                                        reason != null -> "4G agora: BLOQUEADO ($reason)"
+                                                        !mobileControlEnabled -> "4G agora: NÃO GERENCIADO PELO APP"
+                                                        else -> "4G agora: LIBERADO"
+                                                },
                                                 color = if (reason != null) Color(0xFFE53935) else Color(0xFF34C759),
                                                 fontSize = 15.sp
                                         )
@@ -900,12 +904,12 @@ fun BasicSettingsTab() {
                 )
         )
 
-        // Congelar a telemetria OEM (DataTrack -> nuvem). Reversível; não afeta o comando remoto.
+        // Congelar a telemetria OEM (DataTrack -> nuvem). Reversível; impacto remoto/OTA a confirmar.
         settingsList.add(
                 SettingItem(
                         title = "Bloquear telemetria (DataTrack → nuvem)",
                         description =
-                                "Congela o serviço OEM que manda telemetria pra nuvem (com.beantechs.datatrackservice). Reversível; não mexe no comando remoto.",
+                                "Congela o serviço OEM que manda telemetria pra nuvem. Reversível. Impacto em comandos remotos/OTA: a confirmar no veículo.",
                         checked = blockDatatrack,
                         onCheckedChange = {
                                 blockDatatrack = it
@@ -2471,14 +2475,14 @@ fun BasicSettingsTab() {
                                                                         }
                                                                 }
 
-                                                                if (!autoBrightnessUseSun)
-                                                                Row(
+                                                                if (!autoBrightnessUseSun) {
+                                                                        Row(
                                                                         modifier =
                                                                                 Modifier.fillMaxWidth(),
                                                                         horizontalArrangement =
                                                                                 Arrangement
                                                                                         .SpaceEvenly
-                                                                ) {
+                                                                        ) {
                                                                         // Início da noite
                                                                         Box(
                                                                                 modifier =
@@ -2600,6 +2604,7 @@ fun BasicSettingsTab() {
                                                                                                                 .Medium
                                                                                         )
                                                                                 }
+                                                                        }
                                                                         }
                                                                 }
 

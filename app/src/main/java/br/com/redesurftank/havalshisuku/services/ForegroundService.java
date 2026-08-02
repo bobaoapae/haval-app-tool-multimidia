@@ -715,6 +715,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
 
     @Override
     public void onDestroy() {
+        ServiceManager.getInstance().stopManagedBackgroundGuards(getApplicationContext());
         if (handlerThread != null) {
             handlerThread.quitSafely();
         }

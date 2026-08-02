@@ -17,6 +17,7 @@ NAME="hotrouter"
 LOG="$BASE/$NAME.log"
 PIDFILE="$BASE/$NAME.pid"
 STATEFILE="$BASE/$NAME.state"
+IP_FORWARD_STATEFILE="$BASE/$NAME.ip_forward.original"
 HOTSPOT_IF="wlan2"
 WLAN_IF="wlan0"
 WLAN_TABLE="wlan0"
@@ -41,6 +42,34 @@ trim_log() {
   tail -n "$MAX_LOG_LINES" "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
 }
 
+is_hotrouter_pid() {
+  pid="$1"
+  case "$pid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$pid" -gt 1 ] 2>/dev/null || return 1
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  cmd="$(cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' ' ')"
+  case "$cmd" in
+    *"$SCRIPT start"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+terminate_hotrouter_pid() {
+  pid="$1"
+  is_hotrouter_pid "$pid" || return 0
+  kill -TERM "$pid" 2>/dev/null
+  attempts=0
+  while [ "$attempts" -lt 3 ] && is_hotrouter_pid "$pid"; do
+    sleep 1
+    attempts=$((attempts + 1))
+  done
+  if is_hotrouter_pid "$pid"; then
+    kill -KILL "$pid" 2>/dev/null
+  fi
+}
+
 kill_old_hotrouters() {
   self="$$"
   # Kill the recorded daemon pid first. Toybox `ps` does not print script args, so a
@@ -49,7 +78,7 @@ kill_old_hotrouters() {
   if [ -f "$PIDFILE" ]; then
     oldpid="$(cat "$PIDFILE" 2>/dev/null)"
     if [ -n "$oldpid" ] && [ "$oldpid" != "$self" ]; then
-      kill -9 "$oldpid" 2>/dev/null
+      terminate_hotrouter_pid "$oldpid"
     fi
   fi
   for p in /proc/[0-9]*; do
@@ -57,12 +86,28 @@ kill_old_hotrouters() {
     [ "$pid" = "$self" ] && continue
     # Read via cat so a process exiting mid-scan (cmdline gone) is swallowed by 2>/dev/null
     # instead of leaking a shell "can't open" error to stderr.
-    cmd="$(cat "$p/cmdline" 2>/dev/null | tr '\0' ' ')"
-    case "$cmd" in
-      *hotrouter.sh*start*) kill -9 "$pid" 2>/dev/null ;;
-    esac
+    is_hotrouter_pid "$pid" && terminate_hotrouter_pid "$pid"
   done
   rm -f "$PIDFILE"
+}
+
+save_ip_forward_state() {
+  [ -f "$IP_FORWARD_STATEFILE" ] && return 0
+  original="$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)"
+  case "$original" in
+    0|1) echo "$original" > "$IP_FORWARD_STATEFILE" ;;
+    *) log ERROR "Unable to snapshot ip_forward"; return 1 ;;
+  esac
+}
+
+restore_ip_forward_state() {
+  [ -f "$IP_FORWARD_STATEFILE" ] || return 0
+  original="$(cat "$IP_FORWARD_STATEFILE" 2>/dev/null)"
+  case "$original" in
+    0|1) echo "$original" > /proc/sys/net/ipv4/ip_forward ;;
+    *) log ERROR "Invalid saved ip_forward value: $original"; return 1 ;;
+  esac
+  rm -f "$IP_FORWARD_STATEFILE"
 }
 
 cleanup_duplicate_rules() {
@@ -178,7 +223,28 @@ do_stop() {
   kill_old_hotrouters
   cleanup_duplicate_rules
   teardown_iptables
+  restore_ip_forward_state
   ip route flush cache
+  write_state "OFF"
+  log INFO "Service stopped + teardown done"
+
+  if ip rule | grep -q "iif $HOTSPOT_IF lookup $WLAN_TABLE"; then return 1; fi
+  if iptables -t nat -C tetherctrl_nat_POSTROUTING -o "$WLAN_IF" -j MASQUERADE 2>/dev/null; then return 1; fi
+  if iptables -C tetherctrl_FORWARD -i "$WLAN_IF" -o "$HOTSPOT_IF" -m state --state RELATED,ESTABLISHED -g tetherctrl_counters 2>/dev/null; then return 1; fi
+  if iptables -C tetherctrl_FORWARD -i "$HOTSPOT_IF" -o "$WLAN_IF" -m state --state INVALID -j DROP 2>/dev/null; then return 1; fi
+  if iptables -C tetherctrl_FORWARD -i "$HOTSPOT_IF" -o "$WLAN_IF" -g tetherctrl_counters 2>/dev/null; then return 1; fi
+  [ ! -f "$IP_FORWARD_STATEFILE" ]
+}
+
+cleanup_done=0
+daemon_cleanup() {
+  [ "$cleanup_done" -eq 0 ] || return 0
+  cleanup_done=1
+  cleanup_duplicate_rules
+  teardown_iptables
+  restore_ip_forward_state
+  ip route flush cache
+  rm -f "$PIDFILE"
   write_state "OFF"
   log INFO "Service stopped + teardown done"
 }
@@ -187,8 +253,22 @@ CMD="${1:-start}"
 
 case "$CMD" in
   stop)
-    do_stop
-    exit 0
+    if do_stop; then
+      echo "STOPPED"
+      exit 0
+    fi
+    echo "STOP_FAILED"
+    exit 1
+    ;;
+  status)
+    pid="$(cat "$PIDFILE" 2>/dev/null)"
+    if is_hotrouter_pid "$pid" && kill -0 "$pid" 2>/dev/null; then
+      echo "ALIVE|$pid"
+      exit 0
+    fi
+    rm -f "$PIDFILE"
+    echo "DEAD"
+    exit 1
     ;;
   start)
     ;;
@@ -202,8 +282,10 @@ kill_old_hotrouters
 
 echo $$ > "$PIDFILE"
 
-trap 'rm -f "$PIDFILE"; write_state "OFF"; log INFO "Service stopped"; exit 0' INT TERM EXIT
+trap 'daemon_cleanup; exit 0' INT TERM
+trap 'daemon_cleanup' EXIT
 
+save_ip_forward_state || exit 1
 echo 1 > /proc/sys/net/ipv4/ip_forward
 
 last_mode="initial"

@@ -11,6 +11,8 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import java.util.Calendar
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Controle dos dados MÓVEIS (4G) do carro. O usuário roteia tudo por WiFi (Starlink/celular) e não
@@ -32,13 +34,30 @@ object MobileDataManager {
     private const val TAG = "MobileDataManager"
     private const val MB = 1024L * 1024L
 
+    internal enum class OwnedBlockAction { NONE, DISABLE, ENABLE }
+
+    private val worker by lazy {
+        Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "MobileDataGuard").apply { isDaemon = true }
+        }
+    }
+    private val recomputeScheduled = AtomicBoolean(false)
+    private val recomputeAgain = AtomicBoolean(false)
+
     private fun prefs(): SharedPreferences =
             App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
 
     // ================= Master + regras (toggles) =================
     fun isControlEnabled(): Boolean =
             prefs().getBoolean(SharedPreferencesKeys.MOBILE_DATA_CONTROL_ENABLED.key, false)
-    fun setControlEnabled(enabled: Boolean) = setRule(SharedPreferencesKeys.MOBILE_DATA_CONTROL_ENABLED.key, enabled)
+    fun setControlEnabled(enabled: Boolean) {
+        prefs().edit()
+            .putBoolean(SharedPreferencesKeys.MOBILE_DATA_CONTROL_ENABLED.key, enabled)
+            .apply()
+        ServiceManager.getInstance().onMobileDataControlChanged(enabled)
+        ensureUsageStatsPermission(App.getContext())
+        recomputeAndApply(App.getContext())
+    }
 
     /** (a) Bloqueio manual imediato. */
     fun isManualBlock(): Boolean =
@@ -62,6 +81,7 @@ object MobileDataManager {
 
     private fun setRule(key: String, value: Boolean) {
         prefs().edit().putBoolean(key, value).apply()
+        ensureUsageStatsPermission(App.getContext())
         recomputeAndApply(App.getContext())
     }
 
@@ -100,26 +120,73 @@ object MobileDataManager {
 
     @Volatile private var lastAppliedBlock: Boolean? = null
 
+    internal fun decideOwnedBlockActionForTest(
+        desiredBlocked: Boolean,
+        disabledByApp: Boolean,
+        lastApplied: Boolean?
+    ): OwnedBlockAction = when {
+        desiredBlocked && (!disabledByApp || lastApplied != true) -> OwnedBlockAction.DISABLE
+        !desiredBlocked && disabledByApp -> OwnedBlockAction.ENABLE
+        else -> OwnedBlockAction.NONE
+    }
+
     /** Reavalia todas as regras e aplica `svc data` (só se o estado desejado mudou). Boot / toggles / WiFi / periódico. */
     fun recomputeAndApply(context: Context) {
-        try {
-            applyMobileData(computeDesiredBlocked(context))
-        } catch (e: Throwable) {
-            Log.w(TAG, "recomputeAndApply falhou: ${e.message}")
+        val appContext = context.applicationContext
+        recomputeAgain.set(true)
+        if (!recomputeScheduled.compareAndSet(false, true)) return
+        worker.execute {
+            try {
+                do {
+                    recomputeAgain.set(false)
+                    try {
+                        applyMobileData(computeDesiredBlocked(appContext))
+                    } catch (e: Throwable) {
+                        Log.w(TAG, "recomputeAndApply falhou: ${e.message}")
+                    }
+                } while (recomputeAgain.get())
+            } finally {
+                recomputeScheduled.set(false)
+                if (recomputeAgain.get()) recomputeAndApply(appContext)
+            }
         }
     }
 
     @Synchronized
     private fun applyMobileData(block: Boolean) {
-        if (lastAppliedBlock == block) return
+        val disabledByApp = prefs().getBoolean(
+            SharedPreferencesKeys.MOBILE_DATA_DISABLED_BY_APP.key,
+            false
+        )
+        val action = decideOwnedBlockActionForTest(block, disabledByApp, lastAppliedBlock)
+        if (action == OwnedBlockAction.NONE) return
         try {
-            ShizukuUtils.runCommandAndGetOutput(arrayOf("svc", "data", if (block) "disable" else "enable"))
+            val disabling = action == OwnedBlockAction.DISABLE
+            if (!runVerifiedMobileDataCommand(disabling)) {
+                Log.e(TAG, "Falha ao confirmar estado real do dado móvel")
+                return
+            }
+            prefs().edit()
+                .putBoolean(SharedPreferencesKeys.MOBILE_DATA_DISABLED_BY_APP.key, disabling)
+                .apply()
             lastAppliedBlock = block
-            Log.w(TAG, "Dado movel do carro -> ${if (block) "BLOQUEADO" else "liberado"}")
-
+            Log.w(TAG, "Dado movel do carro -> ${if (disabling) "BLOQUEADO" else "liberado"}")
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao aplicar dado movel", e)
         }
+    }
+
+    private fun runVerifiedMobileDataCommand(block: Boolean): Boolean {
+        val verb = if (block) "disable" else "enable"
+        val expected = if (block) "0" else "1"
+        val command =
+            "svc data $verb || exit 1; attempts=0; " +
+                "while [ \"\$attempts\" -lt 5 ]; do " +
+                "state=\$(settings get global mobile_data); " +
+                "if [ \"\$state\" = \"$expected\" ]; then echo MOBILE_DATA_APPLIED; exit 0; fi; " +
+                "attempts=\$((attempts + 1)); sleep 1; done; exit 1"
+        val output = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", command))
+        return output.lineSequence().any { it.trim() == "MOBILE_DATA_APPLIED" }
     }
 
     // ================= Telemetria OEM (DataTrack -> nuvem) =================
@@ -135,21 +202,52 @@ object MobileDataManager {
 
     /**
      * Congela/reativa o servico OEM de telemetria (com.beantechs.datatrackservice -> nuvem) via Shizuku.
-     * Reversivel (pm enable). NAO toca no remoto/OTA (operatorcenter/tbox). Reaplicado no boot.
+     * Reversivel (pm enable). O impacto sobre remoto/OTA e outros consumidores OEM ainda precisa
+     * de validacao fisica; por isso o estado default permanece totalmente inerte.
      */
     fun applyDatatrackState() {
+        worker.execute { applyDatatrackStateBlocking() }
+    }
+
+    @Volatile private var lastAppliedDatatrackBlock: Boolean? = null
+
+    @Synchronized
+    private fun applyDatatrackStateBlocking() {
         val block = isDatatrackBlocked()
+        val disabledByApp = prefs().getBoolean(
+            SharedPreferencesKeys.DATATRACK_DISABLED_BY_APP.key,
+            false
+        )
+        val action = decideOwnedBlockActionForTest(block, disabledByApp, lastAppliedDatatrackBlock)
+        if (action == OwnedBlockAction.NONE) return
         try {
-            if (block) {
-                ShizukuUtils.runCommandAndGetOutput(arrayOf("am", "force-stop", DATATRACK_PKG))
-                ShizukuUtils.runCommandAndGetOutput(arrayOf("pm", "disable-user", "--user", "0", DATATRACK_PKG))
-            } else {
-                ShizukuUtils.runCommandAndGetOutput(arrayOf("pm", "enable", DATATRACK_PKG))
+            val disabling = action == OwnedBlockAction.DISABLE
+            if (!runVerifiedDatatrackCommand(disabling)) {
+                Log.e(TAG, "Falha ao confirmar estado real do DataTrack")
+                return
             }
-            Log.w(TAG, "Telemetria DataTrack -> ${if (block) "CONGELADA" else "reativada"}")
+            prefs().edit()
+                .putBoolean(SharedPreferencesKeys.DATATRACK_DISABLED_BY_APP.key, disabling)
+                .apply()
+            lastAppliedDatatrackBlock = block
+            Log.w(TAG, "Telemetria DataTrack -> ${if (disabling) "CONGELADA" else "reativada"}")
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao aplicar estado do DataTrack", e)
         }
+    }
+
+    private fun runVerifiedDatatrackCommand(block: Boolean): Boolean {
+        val packageLine = "package:$DATATRACK_PKG"
+        val command = if (block) {
+            "pm disable-user --user 0 $DATATRACK_PKG >/dev/null && " +
+                "am force-stop $DATATRACK_PKG && " +
+                "pm list packages -d | grep -qx '$packageLine' && echo DATATRACK_APPLIED"
+        } else {
+            "pm enable $DATATRACK_PKG >/dev/null && " +
+                "! pm list packages -d | grep -qx '$packageLine' && echo DATATRACK_APPLIED"
+        }
+        val output = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", command))
+        return output.lineSequence().any { it.trim() == "DATATRACK_APPLIED" }
     }
 
     // ================= Config (teto / ciclo) =================
@@ -241,13 +339,16 @@ object MobileDataManager {
 
     /** Concede a permissao de uso de rede via Shizuku (pro NetworkStatsManager). Best-effort. */
     fun ensureUsageStatsPermission(context: Context) {
-        try {
-            val pkg = context.packageName
-            ShizukuUtils.runCommandAndGetOutput(arrayOf("appops", "set", pkg, "GET_USAGE_STATS", "allow"))
-            ShizukuUtils.runCommandAndGetOutput(arrayOf("pm", "grant", pkg, "android.permission.PACKAGE_USAGE_STATS"))
-            ShizukuUtils.runCommandAndGetOutput(arrayOf("pm", "grant", pkg, "android.permission.READ_NETWORK_USAGE_HISTORY"))
-        } catch (e: Exception) {
-            Log.w(TAG, "ensureUsageStatsPermission: ${e.message}")
+        if (!isControlEnabled() || !isAutoblockEnabled()) return
+        val pkg = context.packageName
+        worker.execute {
+            try {
+                ShizukuUtils.runCommandAndGetOutput(arrayOf("appops", "set", pkg, "GET_USAGE_STATS", "allow"))
+                ShizukuUtils.runCommandAndGetOutput(arrayOf("pm", "grant", pkg, "android.permission.PACKAGE_USAGE_STATS"))
+                ShizukuUtils.runCommandAndGetOutput(arrayOf("pm", "grant", pkg, "android.permission.READ_NETWORK_USAGE_HISTORY"))
+            } catch (e: Exception) {
+                Log.w(TAG, "ensureUsageStatsPermission: ${e.message}")
+            }
         }
     }
 }

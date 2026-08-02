@@ -245,7 +245,7 @@ public class ServiceManager {
     // O loop para assim que o rádio liga, então tentativas extras são de graça p/ o BT (rápido).
     private static final int RADIO_RESTORE_MAX_ATTEMPTS = 8;
     private CarInfo carInfo;
-    private IIntelligentVehicleControlService controlService;
+    private volatile IIntelligentVehicleControlService controlService;
     // ===== Canal de controle resiliente =====
     // Sem isto, se o processo de controle do carro morre (reinicio do app OEM / OOM do
     // system_server), o app simplesmente PARA de falar com o carro - nada reconecta. Isto adiciona:
@@ -255,8 +255,10 @@ public class ServiceManager {
     private static final boolean CONTROL_CHANNEL_RESILIENCE_ENABLED = true;
     private static final long CONTROL_CHANNEL_WATCHDOG_MS = 10000L;
     private volatile boolean recoveringControlChannel = false;
+    private final ControlChannelRecoveryGate controlChannelRecoveryGate = new ControlChannelRecoveryGate();
     private volatile int controlChannelRecoveryCount = 0;
-    private IBinder.DeathRecipient controlDeathRecipient;
+    private volatile IBinder.DeathRecipient controlDeathRecipient;
+    private volatile IBinder controlDeathBinder;
     private volatile Runnable controlChannelWatchdogRunnable;
     private IVehicle vehicle;
     private IDvr dvr;
@@ -368,6 +370,8 @@ public class ServiceManager {
         }
 
         try {
+            stopMobileDataGuard(context);
+            stopControlChannelRuntime();
             if (controlService != null) {
                 if (controlService.asBinder().isBinderAlive()) {
                     try {
@@ -775,8 +779,6 @@ public class ServiceManager {
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "enabled_accessibility_services", "br.com.redesurftank.havalshisuku/.services.AccessibilityService"});
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "accessibility_enabled", "1"});
             ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "grant", context.getPackageName(), "android.permission.WRITE_SECURE_SETTINGS"});
-            // Localização: usada pelo brilho automático por nascer/pôr do sol (getLastKnownLocation).
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "grant", context.getPackageName(), "android.permission.ACCESS_FINE_LOCATION"});
             controlService.registerDataChangedListener(context.getPackageName(), listener);
             controlService.addListenerKey(App.getContext().getPackageName(), getCombinedKeys());
             startControlChannelWatchdog(); // #111: canal resiliente (ping 10s + recupera se o binder morre)
@@ -1431,10 +1433,11 @@ public class ServiceManager {
     }
 
     public void dispatchAllData() {
-        if (!isControlServiceAlive()) return;
+        IIntelligentVehicleControlService svc = controlService;
+        if (!isControlServiceAlive(svc)) return;
         try {
             String[] allKeys = getCombinedKeys();
-            String[] currentValues = controlService.fetchDatas(allKeys);
+            String[] currentValues = svc.fetchDatas(allKeys);
             for (int i = 0; i < currentValues.length; i++) {
                 OnDataChanged(allKeys[i], currentValues[i]);
             }
@@ -1444,7 +1447,10 @@ public class ServiceManager {
     }
 
     private boolean isControlServiceAlive() {
-        IIntelligentVehicleControlService svc = controlService;
+        return isControlServiceAlive(controlService);
+    }
+
+    private boolean isControlServiceAlive(IIntelligentVehicleControlService svc) {
         if (svc == null) return false;
         try {
             if (!Shizuku.pingBinder()) return false;
@@ -1467,34 +1473,56 @@ public class ServiceManager {
             if (svc == null) return;
             final IBinder binder = svc.asBinder();
             if (binder == null) return;
-            if (controlDeathRecipient != null) {
-                try { binder.unlinkToDeath(controlDeathRecipient, 0); } catch (Throwable ignored) {}
-            }
-            controlDeathRecipient = new IBinder.DeathRecipient() {
+            unlinkControlDeathRecipient();
+            IBinder.DeathRecipient recipient = new IBinder.DeathRecipient() {
                 @Override public void binderDied() {
+                    if (controlDeathBinder != binder) return;
                     logPersistentClusterEvent("control_channel_binder_died", persistentEventDetails("trigger", "binderDied"));
-                    if (backgroundHandler != null) {
-                        backgroundHandler.post(() -> recoverControlChannel("BINDER_DIED"));
-                    } else {
-                        recoverControlChannel("BINDER_DIED");
-                    }
+                    Handler handler = backgroundHandler;
+                    if (handler != null) handler.post(() -> recoverControlChannel("BINDER_DIED"));
                 }
             };
-            binder.linkToDeath(controlDeathRecipient, 0);
+            controlDeathBinder = binder;
+            controlDeathRecipient = recipient;
+            binder.linkToDeath(recipient, 0);
         } catch (Throwable t) {
+            unlinkControlDeathRecipient();
             Log.w(TAG, "registerControlDeathRecipient falhou: " + t.getMessage());
         }
     }
 
+    private void unlinkControlDeathRecipient() {
+        IBinder binder = controlDeathBinder;
+        IBinder.DeathRecipient recipient = controlDeathRecipient;
+        controlDeathBinder = null;
+        controlDeathRecipient = null;
+        if (binder != null && recipient != null) {
+            try { binder.unlinkToDeath(recipient, 0); } catch (Throwable ignored) {}
+        }
+    }
+
+    private void stopControlChannelRuntime() {
+        Handler handler = backgroundHandler;
+        Runnable watchdog = controlChannelWatchdogRunnable;
+        controlChannelWatchdogRunnable = null;
+        if (handler != null && watchdog != null) handler.removeCallbacks(watchdog);
+        unlinkControlDeathRecipient();
+    }
+
+    public synchronized void stopManagedBackgroundGuards(android.content.Context context) {
+        stopMobileDataGuard(context);
+        stopControlChannelRuntime();
+    }
+
     /**
      * Re-adquire o binder do servico de controle do zero e re-registra listener + chaves + re-dispatch.
-     * synchronized + guarda de reentrancia (recoveringControlChannel) pra nao rodar duas recuperacoes
-     * ao mesmo tempo (watchdog + binderDied podem coincidir). Desregistra o listener antigo antes de
+     * Gate atomico pra nao rodar duas recuperacoes ao mesmo tempo (watchdog + binderDied podem
+     * coincidir). Desregistra o listener antigo antes de
      * registrar o novo, pra nao duplicar. Cada etapa vai pro log persistente (sobrevive ao R8).
      */
-    public synchronized void recoverControlChannel(String reason) {
+    public void recoverControlChannel(String reason) {
         if (!CONTROL_CHANNEL_RESILIENCE_ENABLED) return;
-        if (recoveringControlChannel) return;
+        if (!controlChannelRecoveryGate.tryAcquire()) return;
         recoveringControlChannel = true;
         long t0 = SystemClock.uptimeMillis();
         try {
@@ -1544,6 +1572,7 @@ public class ServiceManager {
                     persistentEventDetails("reason", reason, "error", String.valueOf(e.getMessage())));
         } finally {
             recoveringControlChannel = false;
+            controlChannelRecoveryGate.release();
         }
     }
 
@@ -2932,11 +2961,15 @@ public class ServiceManager {
     }
 
     private void initMobileDataGuard() {
+        stopMobileDataGuard(App.getContext());
         try {
             android.content.Context ctx = App.getContext();
-            MobileDataManager.INSTANCE.ensureUsageStatsPermission(ctx); // pro NetworkStatsManager (best-effort)
-            MobileDataManager.INSTANCE.recomputeAndApply(ctx); // aplica as regras salvas no boot
-            MobileDataManager.INSTANCE.applyDatatrackState(); // reaplica o congelamento do datatrack salvo no boot
+            // As duas reconciliações são serializadas no worker do MobileDataManager. Com os
+            // toggles OFF e sem estado pertencente ao app, ambas retornam sem executar shell.
+            MobileDataManager.INSTANCE.recomputeAndApply(ctx);
+            MobileDataManager.INSTANCE.applyDatatrackState();
+            if (!MobileDataManager.INSTANCE.isControlEnabled()) return;
+            MobileDataManager.INSTANCE.ensureUsageStatsPermission(ctx);
             registerMobileDataWifiCallback(ctx); // reavalia na hora quando o WiFi conecta/cai
         } catch (Throwable t) {
             Log.w(TAG, "initMobileDataGuard: " + t.getMessage());
@@ -2955,6 +2988,38 @@ public class ServiceManager {
             }
         };
         backgroundHandler.postDelayed(mobileDataAutoblockRunnable, MOBILE_DATA_CHECK_MS);
+    }
+
+    public void onMobileDataControlChanged(boolean enabled) {
+        Handler handler = backgroundHandler;
+        if (handler == null) return;
+        handler.post(() -> {
+            if (enabled) {
+                initMobileDataGuard();
+            } else {
+                stopMobileDataGuard(App.getContext());
+            }
+        });
+    }
+
+    private void stopMobileDataGuard(android.content.Context ctx) {
+        Handler handler = backgroundHandler;
+        Runnable runnable = mobileDataAutoblockRunnable;
+        mobileDataAutoblockRunnable = null;
+        if (handler != null && runnable != null) handler.removeCallbacks(runnable);
+
+        android.net.ConnectivityManager.NetworkCallback callback = mobileDataWifiCallback;
+        mobileDataWifiCallback = null;
+        if (callback == null) return;
+        try {
+            android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) cm.unregisterNetworkCallback(callback);
+        } catch (IllegalArgumentException ignored) {
+            // Callback já removido pelo framework/reinit.
+        } catch (Throwable t) {
+            Log.w(TAG, "stopMobileDataGuard: " + t.getMessage());
+        }
     }
 
     // Callback de WiFi: quando conecta/cai, reavalia as regras na hora (a regra "bloquear no WiFi"
