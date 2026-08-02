@@ -741,7 +741,7 @@ fun BasicSettingsTab() {
         if (isAdvancedUse && !selfInstallationCheck) {
                 settingsList.add(
                         SettingItem(
-                                title = "Bypass de Verificação",
+                                title = "Ignorar verificação de integridade",
                                 group = SettingsGroups.FEATURES,
                                 description =
                                         SharedPreferencesKeys
@@ -1745,7 +1745,7 @@ fun BasicSettingsTab() {
                                 }
                         ),
                         SettingItem(
-                                title = "Ligar ventilação do banco do motorisca com A/C ligado",
+                                title = "Ligar ventilação do banco do motorista com A/C ligado",
                                 group = SettingsGroups.CLIMATE,
                                 description =
                                         SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON
