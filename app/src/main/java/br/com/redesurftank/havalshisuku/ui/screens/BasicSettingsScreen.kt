@@ -14,6 +14,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -246,6 +249,11 @@ fun BasicSettingsTab() {
         var enableAutoBrightness by remember {
                 mutableStateOf(
                         prefs.getBoolean(SharedPreferencesKeys.ENABLE_AUTO_BRIGHTNESS.key, false)
+                )
+        }
+        var autoBrightnessUseSun by remember {
+                mutableStateOf(
+                        prefs.getBoolean(SharedPreferencesKeys.AUTO_BRIGHTNESS_USE_SUN.key, false)
                 )
         }
         var nightStartHour by remember {
@@ -2162,6 +2170,74 @@ fun BasicSettingsTab() {
                                                                         thickness = 1.dp
                                                                 )
 
+                                                                // Toggle: transição por nascer/pôr do sol
+                                                                Row(
+                                                                        modifier = Modifier.fillMaxWidth(),
+                                                                        verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                        Column(modifier = Modifier.weight(1f)) {
+                                                                                Text(
+                                                                                        "Transição por nascer/pôr do sol",
+                                                                                        color = Color.White,
+                                                                                        fontSize = 15.sp,
+                                                                                        fontWeight = FontWeight.Medium
+                                                                                )
+                                                                                Text(
+                                                                                        "Usa o GPS pra escurecer/clarear suave (1 nível a cada 5 min) no pôr/nascer do sol. Substitui os horários fixos.",
+                                                                                        color = Color(0xFFB0B8C4),
+                                                                                        fontSize = 12.sp
+                                                                                )
+                                                                        }
+                                                                        Switch(
+                                                                                checked = autoBrightnessUseSun,
+                                                                                onCheckedChange = { on ->
+                                                                                        autoBrightnessUseSun = on
+                                                                                        prefs.edit {
+                                                                                                putBoolean(
+                                                                                                        SharedPreferencesKeys.AUTO_BRIGHTNESS_USE_SUN.key,
+                                                                                                        on
+                                                                                                )
+                                                                                        }
+                                                                                        AutoBrightnessManager.getInstance().updateSchedule()
+                                                                                }
+                                                                        )
+                                                                }
+
+                                                                if (autoBrightnessUseSun) {
+                                                                        val sunInfo by produceState<AutoBrightnessManager.SunDisplayInfo?>(
+                                                                                initialValue = null,
+                                                                                autoBrightnessUseSun
+                                                                        ) {
+                                                                                // Fora da main; tenta de novo enquanto o GPS não tem fix
+                                                                                // ou a cidade ainda é coordenada (geocode em background).
+                                                                                var tries = 0
+                                                                                while (tries < 15) {
+                                                                                        val info = withContext(Dispatchers.IO) {
+                                                                                                AutoBrightnessManager.getInstance().getSunInfoForDisplay()
+                                                                                        }
+                                                                                        value = info
+                                                                                        if (info != null && info.cityResolved) break
+                                                                                        tries++
+                                                                                        delay(2000)
+                                                                                }
+                                                                        }
+                                                                        Column {
+                                                                                Text(
+                                                                                        "Referência (GPS): ${sunInfo?.city ?: "obtendo localização..."}",
+                                                                                        color = Color.White,
+                                                                                        fontSize = 14.sp
+                                                                                )
+                                                                                sunInfo?.let {
+                                                                                        Text(
+                                                                                                "Nascer ${it.sunrise}  ·  Pôr ${it.sunset}",
+                                                                                                color = Color(0xFFB0B8C4),
+                                                                                                fontSize = 13.sp
+                                                                                        )
+                                                                                }
+                                                                        }
+                                                                }
+
+                                                                if (!autoBrightnessUseSun)
                                                                 Row(
                                                                         modifier =
                                                                                 Modifier.fillMaxWidth(),
