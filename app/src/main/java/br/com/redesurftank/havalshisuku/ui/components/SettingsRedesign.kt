@@ -332,9 +332,10 @@ private fun GroupBlock(header: String, items: List<SettingItem>) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = header.uppercase(),
-            fontFamily = Michroma,
-            fontSize = 15.sp,
-            letterSpacing = 1.8.sp,
+            fontFamily = IbmPlexSans,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            letterSpacing = 1.sp,
             color = ImpTokens.TextSecondary,
             modifier = Modifier.padding(start = 4.dp, bottom = 14.dp)
         )
