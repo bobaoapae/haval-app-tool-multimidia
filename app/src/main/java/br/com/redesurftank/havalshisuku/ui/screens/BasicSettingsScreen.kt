@@ -38,9 +38,6 @@ import br.com.redesurftank.havalshisuku.ui.components.GroupedSettingsLayout
 import br.com.redesurftank.havalshisuku.ui.components.SettingsGroups
 import br.com.redesurftank.havalshisuku.ui.components.TwoColumnSettingsLayout
 import br.com.redesurftank.havalshisuku.managers.HotRouterManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -749,6 +746,7 @@ fun BasicSettingsTab() {
         settingsList.add(
                 SettingItem(
                         title = "HotRouter",
+                        group = SettingsGroups.FEATURES,
                         description = SharedPreferencesKeys.ENABLE_HOT_ROUTER.description,
                         checked = enableHotRouter,
                         onCheckedChange = {
@@ -805,6 +803,7 @@ fun BasicSettingsTab() {
         settingsList.add(
                 SettingItem(
                         title = "Controle de dados móveis",
+                        group = SettingsGroups.FEATURES,
                         description =
                                 "Liga o gerenciamento do 4G da multimídia. Com ele ligado, escolha abaixo QUANDO cortar o 4G. Desligado = 4G livre (nada é bloqueado).",
                         checked = mobileControlEnabled,
