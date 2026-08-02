@@ -14,6 +14,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -34,6 +37,15 @@ import br.com.redesurftank.havalshisuku.ui.components.SettingItem
 import br.com.redesurftank.havalshisuku.ui.components.GroupedSettingsLayout
 import br.com.redesurftank.havalshisuku.ui.components.SettingsGroups
 import br.com.redesurftank.havalshisuku.ui.components.TwoColumnSettingsLayout
+import br.com.redesurftank.havalshisuku.managers.HotRouterManager
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+// HotRouter: formata o epoch do statefile em HH:mm:ss.
+private fun formatHms(epochSeconds: Long): String {
+        return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(epochSeconds * 1000L))
+}
 
 // Seletor reutilizavel de acao do volante (usado p/ toque curto / duplo / longo de cada botao).
 @OptIn(ExperimentalMaterial3Api::class)
@@ -248,6 +260,11 @@ fun BasicSettingsTab() {
         var enableAutoBrightness by remember {
                 mutableStateOf(
                         prefs.getBoolean(SharedPreferencesKeys.ENABLE_AUTO_BRIGHTNESS.key, false)
+                )
+        }
+        var autoBrightnessUseSun by remember {
+                mutableStateOf(
+                        prefs.getBoolean(SharedPreferencesKeys.AUTO_BRIGHTNESS_USE_SUN.key, false)
                 )
         }
         var nightStartHour by remember {
@@ -693,8 +710,209 @@ fun BasicSettingsTab() {
                         prefs.getInt(SharedPreferencesKeys.HEV_SOC_TARGET_VALUE.key, 50)
                 )
         }
+        var enableHotRouter by remember {
+                mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_HOT_ROUTER.key, false))
+        }
+        // ===== Controle de dados móveis do carro (master + regras) =====
+        val mdm = br.com.redesurftank.havalshisuku.managers.MobileDataManager
+        var mobileControlEnabled by remember { mutableStateOf(mdm.isControlEnabled()) }
+        var mobileManualBlock by remember { mutableStateOf(mdm.isManualBlock()) }
+        var mobileAutoblock by remember { mutableStateOf(mdm.isAutoblockEnabled()) }
+        var mobileBlockOnWifi by remember { mutableStateOf(mdm.isBlockOnWifi()) }
+        var mobileBlockOnProjection by remember { mutableStateOf(mdm.isBlockOnProjection()) }
+        var mobileDataCycleDay by remember {
+                mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.MOBILE_DATA_CYCLE_DAY.key, 1).coerceIn(1, 31))
+        }
+        var mobileDataAutoblockCapMb by remember {
+                mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.MOBILE_DATA_AUTOBLOCK_CAP_MB.key, 2048).coerceIn(512, 8192))
+        }
+        var blockDatatrack by remember { mutableStateOf(mdm.isDatatrackBlocked()) }
+        var mobileDataUsedMb by remember { mutableStateOf(0L) }
+        var mobileBlockReason by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(mobileControlEnabled, mobileDataCycleDay) {
+                while (true) {
+                        val ctx = br.com.redesurftank.App.getContext()
+                        mobileDataUsedMb = withContext(Dispatchers.IO) {
+                                mdm.getMobileUsedMbThisCycle(ctx, System.currentTimeMillis())
+                        }
+                        mobileBlockReason = withContext(Dispatchers.IO) { mdm.blockReason(ctx) }
+                        delay(10000)
+                }
+        }
 
         val settingsList = mutableListOf<SettingItem>()
+
+        // HotRouter: roteia o hotspot pela WLAN externa (Starlink) com fallback pro 4G.
+        settingsList.add(
+                SettingItem(
+                        title = "HotRouter",
+                        group = SettingsGroups.FEATURES,
+                        description = SharedPreferencesKeys.ENABLE_HOT_ROUTER.description,
+                        checked = enableHotRouter,
+                        onCheckedChange = {
+                                enableHotRouter = it
+                                prefs.edit {
+                                        putBoolean(SharedPreferencesKeys.ENABLE_HOT_ROUTER.key, it)
+                                }
+                                HotRouterManager.getInstance().setEnabled(it)
+                        },
+                        customContent =
+                                if (enableHotRouter) {
+                                        {
+                                                var statusMode by remember { mutableStateOf(HotRouterManager.MODE_STARTING) }
+                                                var statusEpoch by remember { mutableStateOf(0L) }
+                                                // Hotspot do carro REALMENTE no ar: o daemon reporta WLAN/4G mesmo com o
+                                                // hotspot desligado; sem isto o status mostrava "Ativo" à toa.
+                                                var hotspotOnAir by remember { mutableStateOf(true) }
+                                                LaunchedEffect(Unit) {
+                                                        while (true) {
+                                                                val s = withContext(Dispatchers.IO) {
+                                                                        HotRouterManager.getInstance().readStatusBlocking()
+                                                                }
+                                                                statusMode = s.mode
+                                                                statusEpoch = s.epochSeconds
+                                                                hotspotOnAir = withContext(Dispatchers.IO) {
+                                                                        try { ServiceManager.getInstance().isHotspotOnAir() } catch (t: Throwable) { true }
+                                                                }
+                                                                delay(3000)
+                                                        }
+                                                }
+                                                val label = when {
+                                                        statusMode == HotRouterManager.MODE_OFF -> "Desligado"
+                                                        statusMode == HotRouterManager.MODE_STARTING -> "Iniciando…"
+                                                        statusMode == HotRouterManager.MODE_ERROR -> "Erro"
+                                                        // Daemon rodando (WLAN/4G) mas hotspot fora do ar: não há o que rotear.
+                                                        !hotspotOnAir -> "Ligado (sem hotspot)"
+                                                        statusMode == HotRouterManager.MODE_WLAN -> "Ativo (WLAN)"
+                                                        statusMode == HotRouterManager.MODE_4G -> "Ativo (4G)"
+                                                        else -> "—"
+                                                }
+                                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                        HorizontalDivider(color = Color(0xFF3A3F47), thickness = 1.dp)
+                                                        Text(text = "Status: $label", color = Color.White, fontSize = 16.sp)
+                                                        if (statusEpoch > 0L) {
+                                                                Text(text = "atualizado ${formatHms(statusEpoch)}", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+                                                        }
+                                                }
+                                        }
+                                } else null
+                )
+        )
+
+        // Controle de dados móveis do carro (master + 4 regras). Roteia por WiFi/Starlink e corta o 4G.
+        settingsList.add(
+                SettingItem(
+                        title = "Controle de dados móveis",
+                        group = SettingsGroups.FEATURES,
+                        description =
+                                "Liga o gerenciamento do 4G da multimídia. Com ele ligado, escolha abaixo QUANDO cortar o 4G. Desligado = 4G livre (nada é bloqueado).",
+                        checked = mobileControlEnabled,
+                        onCheckedChange = {
+                                mobileControlEnabled = it
+                                mdm.setControlEnabled(it)
+                        },
+                        customContent = {
+                                Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                                        val reason = mobileBlockReason
+                                        Text(
+                                                if (reason != null) "4G agora: BLOQUEADO ($reason)" else "4G agora: LIBERADO",
+                                                color = if (reason != null) Color(0xFFE53935) else Color(0xFF34C759),
+                                                fontSize = 15.sp
+                                        )
+                                        Text(
+                                                String.format("Multimídia (esta tela): %.2f GB neste ciclo", mobileDataUsedMb / 1024f),
+                                                color = AppColors.TextSecondary,
+                                                fontSize = 13.sp,
+                                                modifier = Modifier.padding(top = 4.dp)
+                                        )
+                                        Row(
+                                                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                                Text("Bloquear manualmente agora", color = AppColors.TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                                Switch(checked = mobileManualBlock, onCheckedChange = { mobileManualBlock = it; mdm.setManualBlock(it) })
+                                        }
+                                        Text("Corta o 4G na hora, independente do resto.", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                        Row(
+                                                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                                Text("Bloquear conforme o gasto", color = AppColors.TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                                Switch(checked = mobileAutoblock, onCheckedChange = { mobileAutoblock = it; mdm.setAutoblockEnabled(it) })
+                                        }
+                                        if (mobileAutoblock) {
+                                                val usedGb = mobileDataUsedMb / 1024f
+                                                val capGb = mobileDataAutoblockCapMb / 1024f
+                                                val remainingGb = (capGb - usedGb).coerceAtLeast(0f)
+                                                Text(
+                                                        String.format("Bloquear ao passar de %.1f GB — faltam %.2f GB", capGb, remainingGb),
+                                                        color = AppColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
+                                                )
+                                                Slider(
+                                                        value = (mobileDataAutoblockCapMb / 1024f).coerceIn(0.5f, 8f),
+                                                        onValueChange = {
+                                                                val gb = Math.round(it * 2f) / 2f
+                                                                mobileDataAutoblockCapMb = (gb * 1024).toInt().coerceIn(512, 8192)
+                                                        },
+                                                        onValueChangeFinished = {
+                                                                prefs.edit { putInt(SharedPreferencesKeys.MOBILE_DATA_AUTOBLOCK_CAP_MB.key, mobileDataAutoblockCapMb) }
+                                                        },
+                                                        valueRange = 0.5f..8f,
+                                                        steps = 14
+                                                )
+                                                Text("Zera a contagem no dia $mobileDataCycleDay do mês", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                                Slider(
+                                                        value = mobileDataCycleDay.toFloat(),
+                                                        onValueChange = { mobileDataCycleDay = it.toInt().coerceIn(1, 31) },
+                                                        onValueChangeFinished = {
+                                                                prefs.edit { putInt(SharedPreferencesKeys.MOBILE_DATA_CYCLE_DAY.key, mobileDataCycleDay) }
+                                                        },
+                                                        valueRange = 1f..31f,
+                                                        steps = 29
+                                                )
+                                        } else {
+                                                Text("Bloqueia sozinho só quando a tela atinge o teto (GB) no ciclo.", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                        }
+                                        Row(
+                                                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                                Text("Bloquear quando conectado ao WiFi", color = AppColors.TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                                Switch(checked = mobileBlockOnWifi, onCheckedChange = { mobileBlockOnWifi = it; mdm.setBlockOnWifi(it) })
+                                        }
+                                        Text("Com WiFi/Starlink no ar, desliga o 4G; volta quando o WiFi cai.", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                        Row(
+                                                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                                Text("Bloquear no Android Auto/CarPlay", color = AppColors.TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                                Switch(checked = mobileBlockOnProjection, onCheckedChange = { mobileBlockOnProjection = it; mdm.setBlockOnProjection(it) })
+                                        }
+                                        Text("Enquanto o celular estiver projetando, o 4G do carro fica desligado.", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                        Text(
+                                                "A fatura da linha é maior: inclui o TBOX (não passa pela tela e não é medido aqui).",
+                                                color = AppColors.TextSecondary,
+                                                fontSize = 12.sp,
+                                                modifier = Modifier.padding(top = 12.dp)
+                                        )
+                                }
+                        }
+                )
+        )
+
+        // Congelar a telemetria OEM (DataTrack -> nuvem). Reversível; não afeta o comando remoto.
+        settingsList.add(
+                SettingItem(
+                        title = "Bloquear telemetria (DataTrack → nuvem)",
+                        description =
+                                "Congela o serviço OEM que manda telemetria pra nuvem (com.beantechs.datatrackservice). Reversível; não mexe no comando remoto.",
+                        checked = blockDatatrack,
+                        onCheckedChange = {
+                                blockDatatrack = it
+                                mdm.setDatatrackBlocked(it)
+                        }
+                )
+        )
 
         settingsList.add(
                 SettingItem(
@@ -741,7 +959,7 @@ fun BasicSettingsTab() {
         if (isAdvancedUse && !selfInstallationCheck) {
                 settingsList.add(
                         SettingItem(
-                                title = "Bypass de Verificação",
+                                title = "Ignorar verificação de integridade",
                                 group = SettingsGroups.FEATURES,
                                 description =
                                         SharedPreferencesKeys
@@ -1745,7 +1963,7 @@ fun BasicSettingsTab() {
                                 }
                         ),
                         SettingItem(
-                                title = "Ligar ventilação do banco do motorisca com A/C ligado",
+                                title = "Ligar ventilação do banco do motorista com A/C ligado",
                                 group = SettingsGroups.CLIMATE,
                                 description =
                                         SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON
@@ -2186,6 +2404,74 @@ fun BasicSettingsTab() {
                                                                         thickness = 1.dp
                                                                 )
 
+                                                                // Toggle: transição por nascer/pôr do sol
+                                                                Row(
+                                                                        modifier = Modifier.fillMaxWidth(),
+                                                                        verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                        Column(modifier = Modifier.weight(1f)) {
+                                                                                Text(
+                                                                                        "Transição por nascer/pôr do sol",
+                                                                                        color = Color.White,
+                                                                                        fontSize = 15.sp,
+                                                                                        fontWeight = FontWeight.Medium
+                                                                                )
+                                                                                Text(
+                                                                                        "Usa o GPS pra escurecer/clarear suave (1 nível a cada 5 min) no pôr/nascer do sol. Substitui os horários fixos.",
+                                                                                        color = Color(0xFFB0B8C4),
+                                                                                        fontSize = 12.sp
+                                                                                )
+                                                                        }
+                                                                        Switch(
+                                                                                checked = autoBrightnessUseSun,
+                                                                                onCheckedChange = { on ->
+                                                                                        autoBrightnessUseSun = on
+                                                                                        prefs.edit {
+                                                                                                putBoolean(
+                                                                                                        SharedPreferencesKeys.AUTO_BRIGHTNESS_USE_SUN.key,
+                                                                                                        on
+                                                                                                )
+                                                                                        }
+                                                                                        AutoBrightnessManager.getInstance().updateSchedule()
+                                                                                }
+                                                                        )
+                                                                }
+
+                                                                if (autoBrightnessUseSun) {
+                                                                        val sunInfo by produceState<AutoBrightnessManager.SunDisplayInfo?>(
+                                                                                initialValue = null,
+                                                                                autoBrightnessUseSun
+                                                                        ) {
+                                                                                // Fora da main; tenta de novo enquanto o GPS não tem fix
+                                                                                // ou a cidade ainda é coordenada (geocode em background).
+                                                                                var tries = 0
+                                                                                while (tries < 15) {
+                                                                                        val info = withContext(Dispatchers.IO) {
+                                                                                                AutoBrightnessManager.getInstance().getSunInfoForDisplay()
+                                                                                        }
+                                                                                        value = info
+                                                                                        if (info != null && info.cityResolved) break
+                                                                                        tries++
+                                                                                        delay(2000)
+                                                                                }
+                                                                        }
+                                                                        Column {
+                                                                                Text(
+                                                                                        "Referência (GPS): ${sunInfo?.city ?: "obtendo localização..."}",
+                                                                                        color = Color.White,
+                                                                                        fontSize = 14.sp
+                                                                                )
+                                                                                sunInfo?.let {
+                                                                                        Text(
+                                                                                                "Nascer ${it.sunrise}  ·  Pôr ${it.sunset}",
+                                                                                                color = Color(0xFFB0B8C4),
+                                                                                                fontSize = 13.sp
+                                                                                        )
+                                                                                }
+                                                                        }
+                                                                }
+
+                                                                if (!autoBrightnessUseSun)
                                                                 Row(
                                                                         modifier =
                                                                                 Modifier.fillMaxWidth(),
