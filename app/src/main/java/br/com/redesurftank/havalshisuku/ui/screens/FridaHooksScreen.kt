@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,7 +25,9 @@ import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.ThemeMetadata
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
+import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
 import br.com.redesurftank.havalshisuku.ui.components.SettingCard
+import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 import br.com.redesurftank.havalshisuku.utils.FridaUtils
 import coil.compose.AsyncImage
 import com.google.gson.Gson
@@ -51,9 +54,19 @@ fun FridaHooksTab() {
         var showFridaDialog by remember { mutableStateOf(false) }
         var showManualDialog by remember { mutableStateOf(false) }
         LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().padding(top = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+                item {
+                        Text(
+                                "FRIDA HOOKS",
+                                fontFamily = Michroma,
+                                fontSize = 15.sp,
+                                letterSpacing = 1.8.sp,
+                                color = ImpTokens.TextSecondary,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+                        )
+                }
                 item {
                         SettingCard(
                                 title = "Habilitar Frida Hooks",
@@ -100,16 +113,18 @@ fun FridaHooksTab() {
                 item {
                         Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A))
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.cardColors(containerColor = ImpTokens.Container)
                         ) {
                                 Button(
                                         onClick = { showManualDialog = true },
                                         modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                        shape = RoundedCornerShape(12.dp),
                                         colors =
                                                 ButtonDefaults.buttonColors(
-                                                        containerColor = Color(0xFF4A9EFF)
+                                                        containerColor = ImpTokens.Accent
                                                 )
-                                ) { Text("Injetar Código Manual", color = Color.White) }
+                                ) { Text("Injetar Código Manual", color = ImpTokens.OnAccent, fontWeight = FontWeight.SemiBold) }
                         }
                 }
         }

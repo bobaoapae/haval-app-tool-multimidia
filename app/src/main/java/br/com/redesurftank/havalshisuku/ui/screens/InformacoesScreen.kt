@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,6 +46,8 @@ import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.UpdateCheckResult
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
 import br.com.redesurftank.havalshisuku.ui.components.AppDimensions
+import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
+import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import kotlinx.coroutines.*
 import java.io.BufferedInputStream
@@ -148,7 +151,10 @@ fun InformacoesTab() {
                                 } else {
                                         "Não inicializado"
                                 }
-                        delay(100)
+                        // Estes tempos são gravados uma vez na inicialização e não mudam mais;
+                        // para de pollar quando tudo estiver pronto (evita o loop a 10Hz eterno).
+                        if (isActive && timeBoot > 0 && timeStart > 0 && timeInit > 0) break
+                        delay(1000)
                 }
         }
 
@@ -242,8 +248,8 @@ fun InformacoesTab() {
                 // Seção de Status
                 Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A)),
-                        shape = RoundedCornerShape(12.dp)
+                        colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
+                        shape = RoundedCornerShape(20.dp)
                 ) {
                         Column(
                                 modifier = Modifier.padding(20.dp),
@@ -251,12 +257,12 @@ fun InformacoesTab() {
                         ) {
                                 Text(
                                         "Status do Sistema",
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = Michroma,
+                                        fontSize = 17.sp,
                                         color = Color.White
                                 )
 
-                                HorizontalDivider(color = Color(0xFF1D2430))
+                                HorizontalDivider(color = ImpTokens.Hairline)
 
                                 if (!bypassSelfInstallationCheck) {
                                         Row(
@@ -265,7 +271,7 @@ fun InformacoesTab() {
                                         ) {
                                                 Text(
                                                         "Instalado corretamente:",
-                                                        color = Color(0xFFB0B8C4)
+                                                        color = ImpTokens.TextSecondary
                                                 )
                                                 Text(
                                                         if (selfInstallationCheck) "Sim" else "Não",
@@ -281,7 +287,7 @@ fun InformacoesTab() {
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                        Text("Estado:", color = Color(0xFFB0B8C4))
+                                        Text("Estado:", color = ImpTokens.TextSecondary)
                                         Text(
                                                 if (isActive) "Ativo" else "Inativo",
                                                 color =
@@ -298,7 +304,7 @@ fun InformacoesTab() {
                                         ) {
                                                 Text(
                                                         "Boot Completed:",
-                                                        color = Color(0xFFB0B8C4),
+                                                        color = ImpTokens.TextSecondary,
                                                         fontSize = 14.sp
                                                 )
                                                 Text(
@@ -313,7 +319,7 @@ fun InformacoesTab() {
                                         ) {
                                                 Text(
                                                         "Início:",
-                                                        color = Color(0xFFB0B8C4),
+                                                        color = ImpTokens.TextSecondary,
                                                         fontSize = 14.sp
                                                 )
                                                 Text(
@@ -328,7 +334,7 @@ fun InformacoesTab() {
                                         ) {
                                                 Text(
                                                         "Inicialização:",
-                                                        color = Color(0xFFB0B8C4),
+                                                        color = ImpTokens.TextSecondary,
                                                         fontSize = 14.sp
                                                 )
                                                 Text(
@@ -339,7 +345,7 @@ fun InformacoesTab() {
                                         }
                                 }
 
-                                HorizontalDivider(color = Color(0xFF1D2430))
+                                HorizontalDivider(color = ImpTokens.Hairline)
 
                                 Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -349,7 +355,7 @@ fun InformacoesTab() {
                                         Column {
                                                 Text(
                                                         "Versão",
-                                                        color = Color(0xFFB0B8C4),
+                                                        color = ImpTokens.TextSecondary,
                                                         fontSize = 14.sp
                                                 )
                                                 Text(
@@ -401,7 +407,8 @@ fun InformacoesTab() {
                                         }
                                 }
 
-                                HorizontalDivider(color = Color(0xFF1D2430))
+                                HorizontalDivider(color = ImpTokens.Hairline)
+
 
                                 Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -447,8 +454,8 @@ fun InformacoesTab() {
                 // Seção de Contribuição
                 Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A)),
-                        shape = RoundedCornerShape(12.dp)
+                        colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
+                        shape = RoundedCornerShape(20.dp)
                 ) {
                         Column(
                                 modifier = Modifier.padding(20.dp),
@@ -457,18 +464,18 @@ fun InformacoesTab() {
                         ) {
                                 Text(
                                         "Contribua para o Desenvolvimento",
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = Michroma,
+                                        fontSize = 16.sp,
                                         color = Color.White,
                                         textAlign = TextAlign.Center
                                 )
 
-                                HorizontalDivider(color = Color(0xFF1D2430))
+                                HorizontalDivider(color = ImpTokens.Hairline)
 
                                 Text(
                                         "Ajude a manter este projeto ativo! Sua contribuição é muito importante para o desenvolvimento contínuo do app.",
                                         fontSize = 14.sp,
-                                        color = Color(0xFFB0B8C4),
+                                        color = ImpTokens.TextSecondary,
                                         textAlign = TextAlign.Center,
                                         lineHeight = 20.sp
                                 )
@@ -484,7 +491,7 @@ fun InformacoesTab() {
                                 Text(
                                         "Escaneie o QR Code ou use a chave PIX: joaovitorbor@gmail.com",
                                         fontSize = 16.sp,
-                                        color = Color(0xFFB0B8C4),
+                                        color = ImpTokens.TextSecondary,
                                         textAlign = TextAlign.Center
                                 )
 
@@ -836,7 +843,7 @@ fun InformacoesTab() {
                                                 }
 
                                                 // Toggle beta
-                                                HorizontalDivider(color = Color(0xFF1D2430))
+                                                HorizontalDivider(color = ImpTokens.Hairline)
                                                 Row(
                                                         modifier = Modifier.fillMaxWidth(),
                                                         horizontalArrangement =
@@ -909,7 +916,7 @@ fun InformacoesTab() {
                                                         Text(
                                                                 "Versões beta são para entusiastas e usuários com conhecimento técnico. Podem conter bugs, instabilidades e funcionalidades incompletas. Use por sua conta e risco.",
                                                                 fontSize = 11.sp,
-                                                                color = Color(0xFFFF9800),
+                                                                color = ImpTokens.Attention,
                                                                 lineHeight = 14.sp
                                                         )
                                                         Card(

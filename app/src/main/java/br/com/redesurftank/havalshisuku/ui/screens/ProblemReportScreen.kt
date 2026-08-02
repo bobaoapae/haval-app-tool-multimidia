@@ -29,6 +29,8 @@ import br.com.redesurftank.havalshisuku.diagnostics.ProblemReportSubmitResult
 import br.com.redesurftank.havalshisuku.diagnostics.ProblemReportSubmitter
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
 import br.com.redesurftank.havalshisuku.ui.components.AppDimensions
+import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
+import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -94,7 +96,7 @@ fun ProblemReportTab() {
         Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-                shape = RoundedCornerShape(AppDimensions.CardCornerRadius)
+                shape = RoundedCornerShape(20.dp)
         ) {
             Column(
                     modifier = Modifier.fillMaxWidth().padding(20.dp),
@@ -122,8 +124,8 @@ fun ProblemReportTab() {
                         Text(
                                 text = "Reportar problema",
                                 color = AppColors.TextPrimary,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold
+                                fontFamily = Michroma,
+                                fontSize = 17.sp
                         )
                         Text(
                                 text = "Inclua no relato a data, hora e minutos aproximados do incidente.",
@@ -282,7 +284,7 @@ fun ProblemReportTab() {
         Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-                shape = RoundedCornerShape(AppDimensions.CardCornerRadius)
+                shape = RoundedCornerShape(20.dp)
         ) {
             Column(
                     modifier = Modifier.fillMaxWidth().padding(20.dp),
@@ -355,7 +357,7 @@ private fun ProblemReportVersionStatus(
                                     "Não foi possível verificar a última preview agora. Se possível, confira Atualizações em Informações antes de enviar."
                             else -> "Verificando se existe preview mais recente antes do envio."
                         },
-                color = if (isOutdated == true) Color(0xFFFF9800) else AppColors.TextSecondary,
+                color = if (isOutdated == true) ImpTokens.Attention else AppColors.TextSecondary,
                 fontSize = 13.sp
         )
         OutlinedButton(
@@ -408,10 +410,10 @@ private fun LogCaptureStatusCard(
                         onCheckedChange = onEnabledChange,
                         colors =
                                 SwitchDefaults.colors(
-                                        checkedThumbColor = Color.White,
-                                        checkedTrackColor = AppColors.Primary,
-                                        uncheckedThumbColor = AppColors.TextSecondary,
-                                        uncheckedTrackColor = AppColors.SurfaceVariant
+                                        checkedThumbColor = ImpTokens.OnAccent,
+                                        checkedTrackColor = ImpTokens.Accent,
+                                        uncheckedThumbColor = ImpTokens.ThumbOff,
+                                        uncheckedTrackColor = ImpTokens.TrackOff
                                 )
                 )
             }

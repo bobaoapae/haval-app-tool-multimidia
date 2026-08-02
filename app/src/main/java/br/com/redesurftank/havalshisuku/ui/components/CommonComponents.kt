@@ -35,7 +35,9 @@ data class SettingItem(
     val onSliderChange: ((Int) -> Unit)? = null,
     val sliderLabel: String? = null,
     val hideSwitch: Boolean = false,
-    val customContent: (@Composable () -> Unit)? = null
+    val customContent: (@Composable () -> Unit)? = null,
+    /** Grupo/categoria do redesign (Rodada 15). null = cai no bucket "Outros" (nada some da tela). */
+    val group: String? = null
 )
 
 // Cores do tema
