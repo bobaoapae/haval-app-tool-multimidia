@@ -242,6 +242,18 @@ public class ServiceManager {
     private static final int RADIO_RESTORE_MAX_ATTEMPTS = 8;
     private CarInfo carInfo;
     private IIntelligentVehicleControlService controlService;
+    // ===== Canal de controle resiliente =====
+    // Sem isto, se o processo de controle do carro morre (reinicio do app OEM / OOM do
+    // system_server), o app simplesmente PARA de falar com o carro - nada reconecta. Isto adiciona:
+    // linkToDeath -> reconexao automatica; watchdog de 10s que faz ping e recupera se morto; e
+    // recuperacao via re-registro de listener/chaves. PURAMENTE ADITIVO: o caminho normal de init
+    // nao muda. Flag pra reversao de 1 linha.
+    private static final boolean CONTROL_CHANNEL_RESILIENCE_ENABLED = true;
+    private static final long CONTROL_CHANNEL_WATCHDOG_MS = 10000L;
+    private volatile boolean recoveringControlChannel = false;
+    private volatile int controlChannelRecoveryCount = 0;
+    private IBinder.DeathRecipient controlDeathRecipient;
+    private volatile Runnable controlChannelWatchdogRunnable;
     private IVehicle vehicle;
     private IDvr dvr;
     private boolean delayNextAVM = false;
@@ -426,6 +438,7 @@ public class ServiceManager {
                 return false;
             }
             controlService = IIntelligentVehicleControlService.Stub.asInterface(controlBinder);
+            registerControlDeathRecipient();
 
             IBinder rawPoolBinder = getSystemService("com.beantechs.voice.adapter.VoiceAdapterService");
             if (rawPoolBinder == null) {
@@ -760,6 +773,7 @@ public class ServiceManager {
             ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "grant", context.getPackageName(), "android.permission.WRITE_SECURE_SETTINGS"});
             controlService.registerDataChangedListener(context.getPackageName(), listener);
             controlService.addListenerKey(App.getContext().getPackageName(), getCombinedKeys());
+            startControlChannelWatchdog();
 
             IBinder rawConnectivityBinder = getSystemService(Context.CONNECTIVITY_SERVICE);
             if (rawConnectivityBinder != null) {
@@ -1432,6 +1446,127 @@ public class ServiceManager {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /**
+     * Liga o linkToDeath no binder do servico de controle. Se o processo do controle do carro morre
+     * (reinicio do app OEM / OOM do system_server), o binderDied dispara e agenda a recuperacao no
+     * backgroundHandler (fora da main). Remove um recipient anterior antes, pra nao empilhar.
+     */
+    private void registerControlDeathRecipient() {
+        if (!CONTROL_CHANNEL_RESILIENCE_ENABLED) return;
+        try {
+            IIntelligentVehicleControlService svc = controlService;
+            if (svc == null) return;
+            final IBinder binder = svc.asBinder();
+            if (binder == null) return;
+            if (controlDeathRecipient != null) {
+                try { binder.unlinkToDeath(controlDeathRecipient, 0); } catch (Throwable ignored) {}
+            }
+            controlDeathRecipient = new IBinder.DeathRecipient() {
+                @Override public void binderDied() {
+                    logPersistentClusterEvent("control_channel_binder_died", persistentEventDetails("trigger", "binderDied"));
+                    if (backgroundHandler != null) {
+                        backgroundHandler.post(() -> recoverControlChannel("BINDER_DIED"));
+                    } else {
+                        recoverControlChannel("BINDER_DIED");
+                    }
+                }
+            };
+            binder.linkToDeath(controlDeathRecipient, 0);
+        } catch (Throwable t) {
+            Log.w(TAG, "registerControlDeathRecipient falhou: " + t.getMessage());
+        }
+    }
+
+    /**
+     * Re-adquire o binder do servico de controle do zero e re-registra listener + chaves + re-dispatch.
+     * synchronized + guarda de reentrancia (recoveringControlChannel) pra nao rodar duas recuperacoes
+     * ao mesmo tempo (watchdog + binderDied podem coincidir). Desregistra o listener antigo antes de
+     * registrar o novo, pra nao duplicar. Cada etapa vai pro log persistente (sobrevive ao R8).
+     */
+    public synchronized void recoverControlChannel(String reason) {
+        if (!CONTROL_CHANNEL_RESILIENCE_ENABLED) return;
+        if (recoveringControlChannel) return;
+        recoveringControlChannel = true;
+        long t0 = SystemClock.uptimeMillis();
+        try {
+            logPersistentClusterEvent("control_channel_recover_start",
+                    persistentEventDetails("reason", reason, "attempt", String.valueOf(controlChannelRecoveryCount + 1)));
+
+            if (!Shizuku.pingBinder()) {
+                throw new IllegalStateException("Shizuku indisponivel durante recuperacao do canal de controle");
+            }
+            Context context = App.getContext();
+
+            // desregistra o listener antigo se o binder velho ainda responde (evita listener duplicado)
+            IIntelligentVehicleControlService old = controlService;
+            if (old != null && listener != null) {
+                try {
+                    IBinder oldBinder = old.asBinder();
+                    if (oldBinder != null && oldBinder.isBinderAlive()) {
+                        old.unRegisterDataChangedListener(context.getPackageName(), listener);
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            IBinder rawControlBinder = getSystemService("com.beantechs.intelligentvehiclecontrol");
+            if (rawControlBinder == null) throw new IllegalStateException("binder de controle indisponivel");
+            IBinder controlBinder = new ShizukuBinderWrapper(rawControlBinder);
+            if (!controlBinder.pingBinder()) throw new IllegalStateException("binder de controle morto");
+            controlService = IIntelligentVehicleControlService.Stub.asInterface(controlBinder);
+
+            registerControlDeathRecipient();
+
+            if (listener == null) {
+                listener = new IListener.Stub() {
+                    @Override public void onDataChanged(String key, String value) { OnDataChanged(key, value); }
+                };
+            }
+            controlService.registerDataChangedListener(context.getPackageName(), listener);
+            controlService.addListenerKey(context.getPackageName(), getCombinedKeys());
+            dispatchAllData();
+
+            controlChannelRecoveryCount++;
+            logPersistentClusterEvent("control_channel_recover_ok",
+                    persistentEventDetails("reason", reason,
+                            "totalRecoveries", String.valueOf(controlChannelRecoveryCount),
+                            "elapsedMs", String.valueOf(SystemClock.uptimeMillis() - t0)));
+        } catch (Throwable e) {
+            logPersistentClusterEvent("control_channel_recover_fail",
+                    persistentEventDetails("reason", reason, "error", String.valueOf(e.getMessage())));
+        } finally {
+            recoveringControlChannel = false;
+        }
+    }
+
+    /**
+     * Watchdog: a cada 10s faz ping no binder do controle; se estiver morto (e nenhuma recuperacao em
+     * curso), dispara recoverControlChannel. Idempotente - cancela o runnable anterior antes de reagendar,
+     * e so se reagenda enquanto ainda for o runnable ativo (evita duplicar o loop em re-init).
+     */
+    private void startControlChannelWatchdog() {
+        if (!CONTROL_CHANNEL_RESILIENCE_ENABLED) return;
+        if (backgroundHandler == null) return;
+        if (controlChannelWatchdogRunnable != null) {
+            backgroundHandler.removeCallbacks(controlChannelWatchdogRunnable);
+        }
+        controlChannelWatchdogRunnable = new Runnable() {
+            @Override public void run() {
+                try {
+                    if (!recoveringControlChannel && !isControlServiceAlive()) {
+                        logPersistentClusterEvent("control_channel_watchdog_dead", persistentEventDetails("trigger", "watchdog"));
+                        recoverControlChannel("WATCHDOG");
+                    }
+                } catch (Throwable ignored) {
+                } finally {
+                    if (backgroundHandler != null && controlChannelWatchdogRunnable == this) {
+                        backgroundHandler.postDelayed(this, CONTROL_CHANNEL_WATCHDOG_MS);
+                    }
+                }
+            }
+        };
+        backgroundHandler.postDelayed(controlChannelWatchdogRunnable, CONTROL_CHANNEL_WATCHDOG_MS);
     }
 
     public void addDataChangedListener(IDataChanged listener) {
