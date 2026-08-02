@@ -333,5 +333,18 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "Reconectar automaticamente o Ambient Light"
     ),
     ENABLE_PERSIST_HEV_SOC_TARGET("enablePersistHevSocTarget", "Manter o % de bateria escolhido no HEV Prioritário"),
-    HEV_SOC_TARGET_VALUE("hevSocTargetValue", "% de bateria a manter no HEV Prioritário (20-80)")
+    HEV_SOC_TARGET_VALUE("hevSocTargetValue", "% de bateria a manter no HEV Prioritário (20-80)"),
+    ENABLE_HOT_ROUTER("enableHotRouter", "Roteia o hotspot pelo 4G ou WLAN (Starlink) quando disponível"),
+    // ===== Controle de dados móveis do carro =====
+    MOBILE_DATA_CONTROL_ENABLED("mobileDataControlEnabled", "Master: ativa o controle de dados móveis do carro"),
+    BLOCK_CAR_MOBILE_DATA("blockCarMobileData", "Bloquear dados móveis do carro (usar só WiFi/Starlink)"),
+    MOBILE_DATA_AUTOBLOCK("mobileDataAutoblock", "Bloquear dados móveis automaticamente perto do limite"),
+    MOBILE_DATA_AUTOBLOCK_CAP_MB("mobileDataAutoblockCapMb", "Teto de dados da multimídia p/ auto-bloqueio (MB)"),
+    MOBILE_DATA_BLOCK_ON_WIFI("mobileDataBlockOnWifi", "Bloquear dados móveis quando conectado ao WiFi"),
+    MOBILE_DATA_BLOCK_ON_PROJECTION("mobileDataBlockOnProjection", "Bloquear dados móveis quando no Android Auto/CarPlay"),
+    MOBILE_DATA_CYCLE_DAY("mobileDataCycleDay", "Dia de renovação do pacote de dados (1-31)"),
+    BLOCK_DATATRACK_TELEMETRY("blockDatatrackTelemetry", "Congelar telemetria OEM DataTrack (envio pra nuvem)"),
+    MOBILE_DATA_TRAFFIC_ACCUM_BYTES("mobileDataTrafficAccumBytes", "Acumulado de bytes móveis no ciclo (fallback TrafficStats)"),
+    MOBILE_DATA_TRAFFIC_LAST_READING("mobileDataTrafficLastReading", "Última leitura do TrafficStats móvel (controle interno)"),
+    MOBILE_DATA_TRAFFIC_CYCLE_TAG("mobileDataTrafficCycleTag", "Ciclo atual do acumulador de bytes (controle interno)")
 }

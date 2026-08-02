@@ -217,6 +217,10 @@ public class ServiceManager {
     private Boolean closeSunroofDueToeSpeed = false;
     private HandlerThread handlerThread;
     private Handler backgroundHandler;
+    // ===== Dados móveis do carro (controle: master + regras) =====
+    private volatile Runnable mobileDataAutoblockRunnable;
+    private static final long MOBILE_DATA_CHECK_MS = 15 * 1000L; // 15s: pega consumo/WiFi/projeção
+    private android.net.ConnectivityManager.NetworkCallback mobileDataWifiCallback;
     // Monitor periódico do % do HEV Prioritário: reaplica o valor salvo mesmo se algum evento
     // (power-on/entrar no modo/carro resetar) tiver sido perdido — ex.: app subiu tarde no boot.
     private static final long HEV_SOC_MONITOR_INTERVAL_MS = 30000L;
@@ -775,7 +779,8 @@ public class ServiceManager {
             ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "grant", context.getPackageName(), "android.permission.ACCESS_FINE_LOCATION"});
             controlService.registerDataChangedListener(context.getPackageName(), listener);
             controlService.addListenerKey(App.getContext().getPackageName(), getCombinedKeys());
-            startControlChannelWatchdog();
+            startControlChannelWatchdog(); // #111: canal resiliente (ping 10s + recupera se o binder morre)
+            initMobileDataGuard();         // #112: dados móveis (reaplica no boot + check do auto-bloqueio)
 
             IBinder rawConnectivityBinder = getSystemService(Context.CONNECTIVITY_SERVICE);
             if (rawConnectivityBinder != null) {
@@ -2312,6 +2317,29 @@ public class ServiceManager {
         return wifiTetherEnabled;
     }
 
+    // Estado real "no ar" do SoftAP pelo sysfs (lido via Shizuku=shell, que consegue ler sysfs_net).
+    // "1"=no ar (beaconando), "0"=iface up mas sem BSS (quebrado/meio-ligado), ""=desconhecido/down.
+    private String softApCarrier() {
+        try {
+            String out = ShizukuUtils.runCommandAndGetOutput(new String[]{"sh", "-c",
+                    "i=$(getprop sys.wifi.softap_interface_name); [ -z \"$i\" ] && i=wlan2; cat /sys/class/net/$i/carrier 2>/dev/null"});
+            if (out != null) {
+                String v = out.trim();
+                if (v.equals("1") || v.equals("0")) return v;
+            }
+        } catch (Throwable ignored) {
+        }
+        return "";
+    }
+
+    // Hotspot (Wi-Fi AP) REALMENTE no ar? Prefere o carrier do sysfs (real, via wlan2); em OEMs onde o
+    // getWifiApState() retorna -1, cai pro cache do receiver WIFI_AP_STATE_CHANGED. Usado pelo status do
+    // HotRouter pra não mostrar "Ativo" com o hotspot desligado (o daemon reporta WLAN/4G de qualquer jeito).
+    public boolean isHotspotOnAir() {
+        String carrier = softApCarrier();
+        return "1".equals(carrier) || (carrier.isEmpty() && currentWifiTetherState());
+    }
+
     // Desliga o BT salvando que estava ligado (p/ religar no próximo power-on). Não sobrescreve um
     // "estava ligado" anterior com false (caso recolher-retrovisor + power-off no mesmo ciclo).
     private void shutdownBluetoothForRestore() {
@@ -2901,5 +2929,56 @@ public class ServiceManager {
 
     public SharedPreferences getSharedPreferences() {
         return sharedPreferences;
+    }
+
+    private void initMobileDataGuard() {
+        try {
+            android.content.Context ctx = App.getContext();
+            MobileDataManager.INSTANCE.ensureUsageStatsPermission(ctx); // pro NetworkStatsManager (best-effort)
+            MobileDataManager.INSTANCE.recomputeAndApply(ctx); // aplica as regras salvas no boot
+            MobileDataManager.INSTANCE.applyDatatrackState(); // reaplica o congelamento do datatrack salvo no boot
+            registerMobileDataWifiCallback(ctx); // reavalia na hora quando o WiFi conecta/cai
+        } catch (Throwable t) {
+            Log.w(TAG, "initMobileDataGuard: " + t.getMessage());
+        }
+        if (backgroundHandler == null || mobileDataAutoblockRunnable != null) return;
+        mobileDataAutoblockRunnable = new Runnable() {
+            @Override public void run() {
+                try {
+                    MobileDataManager.INSTANCE.recomputeAndApply(App.getContext());
+                } catch (Throwable ignored) {
+                } finally {
+                    if (backgroundHandler != null && mobileDataAutoblockRunnable == this) {
+                        backgroundHandler.postDelayed(this, MOBILE_DATA_CHECK_MS);
+                    }
+                }
+            }
+        };
+        backgroundHandler.postDelayed(mobileDataAutoblockRunnable, MOBILE_DATA_CHECK_MS);
+    }
+
+    // Callback de WiFi: quando conecta/cai, reavalia as regras na hora (a regra "bloquear no WiFi"
+    // precisa reagir rápido; o periódico de 15s é só a rede de segurança pra consumo/projeção).
+    private void registerMobileDataWifiCallback(android.content.Context ctx) {
+        try {
+            if (mobileDataWifiCallback != null) return;
+            android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            android.net.NetworkRequest req = new android.net.NetworkRequest.Builder()
+                    .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                    .build();
+            mobileDataWifiCallback = new android.net.ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(android.net.Network network) {
+                    MobileDataManager.INSTANCE.recomputeAndApply(App.getContext());
+                }
+                @Override public void onLost(android.net.Network network) {
+                    MobileDataManager.INSTANCE.recomputeAndApply(App.getContext());
+                }
+            };
+            cm.registerNetworkCallback(req, mobileDataWifiCallback);
+        } catch (Throwable t) {
+            Log.w(TAG, "registerMobileDataWifiCallback: " + t.getMessage());
+        }
     }
 }
