@@ -221,6 +221,7 @@ public class ServiceManager {
     private volatile Runnable mobileDataAutoblockRunnable;
     private static final long MOBILE_DATA_CHECK_MS = 15 * 1000L; // 15s: pega consumo/WiFi/projeção
     private android.net.ConnectivityManager.NetworkCallback mobileDataWifiCallback;
+    private BroadcastReceiver mobileDataTetherReceiver;
     // Monitor periódico do % do HEV Prioritário: reaplica o valor salvo mesmo se algum evento
     // (power-on/entrar no modo/carro resetar) tiver sido perdido — ex.: app subiu tarde no boot.
     private static final long HEV_SOC_MONITOR_INTERVAL_MS = 30000L;
@@ -2971,6 +2972,7 @@ public class ServiceManager {
             if (!MobileDataManager.INSTANCE.isControlEnabled()) return;
             MobileDataManager.INSTANCE.ensureUsageStatsPermission(ctx);
             registerMobileDataWifiCallback(ctx); // reavalia na hora quando o WiFi conecta/cai
+            registerMobileDataTetherReceiver(ctx); // reforça o bloqueio na hora que o hotspot liga/desliga
         } catch (Throwable t) {
             Log.w(TAG, "initMobileDataGuard: " + t.getMessage());
         }
@@ -3010,15 +3012,28 @@ public class ServiceManager {
 
         android.net.ConnectivityManager.NetworkCallback callback = mobileDataWifiCallback;
         mobileDataWifiCallback = null;
-        if (callback == null) return;
-        try {
-            android.net.ConnectivityManager cm =
-                    (android.net.ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm != null) cm.unregisterNetworkCallback(callback);
-        } catch (IllegalArgumentException ignored) {
-            // Callback já removido pelo framework/reinit.
-        } catch (Throwable t) {
-            Log.w(TAG, "stopMobileDataGuard: " + t.getMessage());
+        if (callback != null) {
+            try {
+                android.net.ConnectivityManager cm =
+                        (android.net.ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) cm.unregisterNetworkCallback(callback);
+            } catch (IllegalArgumentException ignored) {
+                // Callback já removido pelo framework/reinit.
+            } catch (Throwable t) {
+                Log.w(TAG, "stopMobileDataGuard callback: " + t.getMessage());
+            }
+        }
+
+        BroadcastReceiver tetherReceiver = mobileDataTetherReceiver;
+        mobileDataTetherReceiver = null;
+        if (tetherReceiver != null) {
+            try {
+                ctx.unregisterReceiver(tetherReceiver);
+            } catch (IllegalArgumentException ignored) {
+                // Receiver já removido pelo framework/reinit.
+            } catch (Throwable t) {
+                Log.w(TAG, "stopMobileDataGuard tether: " + t.getMessage());
+            }
         }
     }
 
@@ -3044,6 +3059,27 @@ public class ServiceManager {
             cm.registerNetworkCallback(req, mobileDataWifiCallback);
         } catch (Throwable t) {
             Log.w(TAG, "registerMobileDataWifiCallback: " + t.getMessage());
+        }
+    }
+
+    // Hotspot (tether) ligou/desligou -> reforça o bloqueio NA HORA. O hotspot religa o dado móvel pra
+    // ter uplink; sem este gatilho, o vazamento ficaria aberto até o próximo tick de 15s. O broadcast
+    // android.net.conn.TETHER_STATE_CHANGED não é protegido (qualquer app registra).
+    private void registerMobileDataTetherReceiver(android.content.Context ctx) {
+        try {
+            if (mobileDataTetherReceiver != null) return;
+            BroadcastReceiver receiver = new BroadcastReceiver() {
+                @Override public void onReceive(Context c, Intent i) {
+                    try {
+                        MobileDataManager.INSTANCE.recomputeAndApply(App.getContext());
+                    } catch (Throwable ignored) {
+                    }
+                }
+            };
+            ctx.registerReceiver(receiver, new IntentFilter("android.net.conn.TETHER_STATE_CHANGED"));
+            mobileDataTetherReceiver = receiver;
+        } catch (Throwable t) {
+            Log.w(TAG, "registerMobileDataTetherReceiver: " + t.getMessage());
         }
     }
 }

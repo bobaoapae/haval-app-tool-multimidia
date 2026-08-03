@@ -20,7 +20,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Modelo: um MASTER (isControlEnabled) liga/desliga todo o controle. Com ele ligado, um conjunto de
  * REGRAS (OR) decide se o 4G da tela fica cortado — tudo converge no avaliador central
- * [computeDesiredBlocked], que aplica `svc data disable/enable` UMA vez (só quando o estado muda):
+ * [computeDesiredBlocked], que aplica `svc data disable/enable` conforme o estado desejado. Enquanto
+ * bloqueado, o corte e reaplicado para neutralizar reativacoes de 4G feitas pelo hotspot/OEM:
  *   a) manual (corta agora, independente do resto)
  *   b) por consumo (>= teto no ciclo)
  *   c) quando conectado ao WiFi
@@ -123,14 +124,18 @@ object MobileDataManager {
     internal fun decideOwnedBlockActionForTest(
         desiredBlocked: Boolean,
         disabledByApp: Boolean,
-        lastApplied: Boolean?
+        lastApplied: Boolean?,
+        reassertBlock: Boolean = false
     ): OwnedBlockAction = when {
-        desiredBlocked && (!disabledByApp || lastApplied != true) -> OwnedBlockAction.DISABLE
+        // O hotspot/OEM pode religar o 4G sem alterar nossa memoria. Reemitir DISABLE e seguro e
+        // necessario enquanto uma regra continua bloqueando; ownership segue persistido pelo app.
+        desiredBlocked && (reassertBlock || !disabledByApp || lastApplied != true) ->
+            OwnedBlockAction.DISABLE
         !desiredBlocked && disabledByApp -> OwnedBlockAction.ENABLE
         else -> OwnedBlockAction.NONE
     }
 
-    /** Reavalia todas as regras e aplica `svc data` (só se o estado desejado mudou). Boot / toggles / WiFi / periódico. */
+    /** Reavalia regras; enquanto bloqueado, reafirma o corte no boot/toggles/WiFi/tether/periódico. */
     fun recomputeAndApply(context: Context) {
         val appContext = context.applicationContext
         recomputeAgain.set(true)
@@ -158,7 +163,12 @@ object MobileDataManager {
             SharedPreferencesKeys.MOBILE_DATA_DISABLED_BY_APP.key,
             false
         )
-        val action = decideOwnedBlockActionForTest(block, disabledByApp, lastAppliedBlock)
+        val action = decideOwnedBlockActionForTest(
+            block,
+            disabledByApp,
+            lastAppliedBlock,
+            reassertBlock = true
+        )
         if (action == OwnedBlockAction.NONE) return
         try {
             val disabling = action == OwnedBlockAction.DISABLE
@@ -169,8 +179,11 @@ object MobileDataManager {
             prefs().edit()
                 .putBoolean(SharedPreferencesKeys.MOBILE_DATA_DISABLED_BY_APP.key, disabling)
                 .apply()
+            val changed = lastAppliedBlock != block || disabledByApp != disabling
             lastAppliedBlock = block
-            Log.w(TAG, "Dado movel do carro -> ${if (disabling) "BLOQUEADO" else "liberado"}")
+            if (changed) {
+                Log.w(TAG, "Dado movel do carro -> ${if (disabling) "BLOQUEADO" else "liberado"}")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao aplicar dado movel", e)
         }

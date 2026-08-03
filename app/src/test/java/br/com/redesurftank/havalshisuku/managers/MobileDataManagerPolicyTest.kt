@@ -41,7 +41,20 @@ class MobileDataManagerPolicyTest {
     }
 
     @Test
-    fun doesNotRepeatConfirmedBlockWithinSameProcess() {
+    fun reassertsConfirmedBlockToCounterHotspotReenable() {
+        assertEquals(
+            MobileDataManager.OwnedBlockAction.DISABLE,
+            MobileDataManager.decideOwnedBlockActionForTest(
+                desiredBlocked = true,
+                disabledByApp = true,
+                lastApplied = true,
+                reassertBlock = true
+            )
+        )
+    }
+
+    @Test
+    fun doesNotRepeatOwnedBlockWithoutReassertPolicy() {
         assertEquals(
             MobileDataManager.OwnedBlockAction.NONE,
             MobileDataManager.decideOwnedBlockActionForTest(
