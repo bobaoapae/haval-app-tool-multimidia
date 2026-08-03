@@ -21,6 +21,8 @@ data class ThemeMetadata(
     val minBridgeVersion: String? = null,
     val contractVersion: String = "v1.0",
     val configurations: List<ThemeConfig> = emptyList(),
+    /** Optional per-display-mode app bounds; overrides x/y/width/height for the named modes. */
+    val displayModes: List<ThemeDisplayMode> = emptyList(),
     /** Relative path inside theme package (e.g. car-bg.png). Empty = no theme bg. */
     val background: String = "",
     /** Absolute path when theme is installed locally; empty for remote-only listings. */

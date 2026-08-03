@@ -271,7 +271,9 @@ function render() {
             c !== 'nav-mask-default' &&
             c !== 'projection-map-display-active' &&
             c !== 'carplay-in-dash' &&
-            c !== 'app-in-dash-active'
+            c !== 'app-in-dash-active' &&
+            c !== 'map-in-dash-active' &&
+            c !== 'native-mock-enabled'
         );
         classes.push('display-' + displayMode.toLowerCase());
 

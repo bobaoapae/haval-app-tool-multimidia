@@ -163,7 +163,7 @@ function render() {
     // Update app class based on display mode
     if (appContainer) {
         logger.log('Rendering screen:', screen);
-        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'hide-bottom' && c !== 'bar-images-hidden' && c !== 'app-in-dash-disabled' && c !== 'cluster-bg-applied' && c !== 'menu-minimized' && c !== 'carplay-in-dash' && c !== 'projection-mirror-in-dash' && c !== 'projection-preparing-d3' && c !== 'projection-map-display-active' && c !== 'projection-card-overlay-active' && c !== 'native-mock-enabled');
+        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'hide-bottom' && c !== 'bar-images-hidden' && c !== 'app-in-dash-disabled' && c !== 'app-in-dash-active' && c !== 'map-in-dash-active' && c !== 'cluster-bg-applied' && c !== 'menu-minimized' && c !== 'carplay-in-dash' && c !== 'projection-mirror-in-dash' && c !== 'projection-preparing-d3' && c !== 'projection-map-display-active' && c !== 'projection-card-overlay-active' && c !== 'native-mock-enabled');
         classes.push('display-' + displayMode.toLowerCase());
 
         if (get('clusterEnabled') === false) {
@@ -337,12 +337,32 @@ function shouldHideBar(barType) {
     return true;
 }
 
-function updateAppDimensions() {
-    let x = 0;
-    let y = 62;
-    let width = 1920;
-    let height = 596;
+// <AppDefaultPosition> from theme.xml, i.e. the panel minus the top and bottom bars.
+const APP_DEFAULT_BOUNDS = { x: 0, y: 62, width: 1920, height: 596 };
 
+// Display modes this theme offers. Must stay in step with the <options> of
+// navigation_display_mode / app_display_mode in theme.xml.
+const DISPLAY_MODES = ['Normal', 'Reduzido', 'Clean', 'Mapa'];
+
+// name -> {x, y, width, height} from <DisplayModes> in theme.xml, keyed lowercase.
+// Resolved once after the bridge is up (see initDecentralizedBridge) because
+// theme.xml cannot change while the theme is running.
+let themeDisplayModes = {};
+
+function declaredBoundsFor(displayMode) {
+    return themeDisplayModes[String(displayMode).toLowerCase()] || null;
+}
+
+function resolveAppBounds(displayMode) {
+    const declared = declaredBoundsFor(displayMode);
+    if (declared) {
+        // An explicit rect is absolute and hiddenBars does not stretch it further:
+        // a mode declared as the full 1920x720 plus "Ambas" would otherwise grow
+        // past the panel and need clamping rules nobody can predict.
+        return { ...declared, source: `DisplayMode "${displayMode}"` };
+    }
+
+    let { x, y, width, height } = APP_DEFAULT_BOUNDS;
     if (shouldHideBar('Superior')) {
         y = 0;
         height += 62;
@@ -350,40 +370,42 @@ function updateAppDimensions() {
     if (shouldHideBar('Inferior')) {
         height += 62;
     }
+    const hiddenBars = get('hiddenBars') || 'Nenhuma';
+    return { x, y, width, height, source: `AppDefaultPosition (${hiddenBars})` };
+}
+
+function updateAppDimensions() {
+    const displayMode = getEffectiveDisplayMode();
+    const { x, y, width, height, source } = resolveAppBounds(displayMode);
 
     if (window.Android && typeof window.Android.setAppDefaultDimensions === 'function') {
         window.Android.setAppDefaultDimensions(x, y, width, height);
     } else {
-        console.log(`[AppDimensions] Default theme setAppDefaultDimensions(x: ${x}, y: ${y}, w: ${width}, h: ${height})`);
+        console.log(`[AppDimensions] setAppDefaultDimensions(x: ${x}, y: ${y}, w: ${width}, h: ${height}) via ${source}`);
     }
-
-    const isMapActive = isProjectionMapDisplayActive();
-    // TODO: Review map app resizing in future. For now, map background stays 1920x720.
 
     const devBg = document.querySelector('.dev-background');
-    if (devBg) {
-        let badge = devBg.querySelector('.dev-bg-badge');
-        if (!badge) {
-            badge = div({ className: 'dev-bg-badge' });
-            devBg.appendChild(badge);
-        }
+    if (!devBg) return;
 
-        if (isMapActive) {
-            devBg.style.left = '0px';
-            devBg.style.top = '0px';
-            devBg.style.width = '1920px';
-            devBg.style.height = '720px';
-            devBg.style.backgroundSize = '100% 100%';
-            badge.textContent = 'Map In Dash (Fixed 1920x720)';
-        } else {
-            devBg.style.left = `${x}px`;
-            devBg.style.top = `${y}px`;
-            devBg.style.width = `${width}px`;
-            devBg.style.height = `${height}px`;
-            devBg.style.backgroundSize = '100% 100%';
-            badge.textContent = `App In Dash: x=${x}, y=${y}, w=${width}, h=${height} (${hiddenBars})`;
-        }
+    let badge = devBg.querySelector('.dev-bg-badge');
+    if (!badge) {
+        badge = div({ className: 'dev-bg-badge' });
+        devBg.appendChild(badge);
     }
+
+    // Projection still mirrors the whole panel unless the theme declares bounds
+    // for the effective mode, which keeps today's behaviour for themes that do not.
+    const mapFallback = isProjectionMapDisplayActive() && !declaredBoundsFor(displayMode);
+    const rect = mapFallback ? { x: 0, y: 0, width: 1920, height: 720 } : { x, y, width, height };
+
+    devBg.style.left = `${rect.x}px`;
+    devBg.style.top = `${rect.y}px`;
+    devBg.style.width = `${rect.width}px`;
+    devBg.style.height = `${rect.height}px`;
+    devBg.style.backgroundSize = '100% 100%';
+    badge.textContent = mapFallback
+        ? 'Map In Dash (fixed 1920x720)'
+        : `${displayMode}: x=${rect.x}, y=${rect.y}, w=${rect.width}, h=${rect.height} — ${source}`;
 }
 
 subscribe('warningActive', () => render());
@@ -559,7 +581,7 @@ function handleSteeringWheelKey(keyName) {
             setState('screen', 'main_menu');
         }
     } else if (screen === 'display_selection') {
-        const displays = ['Normal', 'Reduzido', 'Clean', 'Mapa'];
+        const displays = DISPLAY_MODES;
         let currentIdx = displays.indexOf(get('display'));
         if (currentIdx === -1) currentIdx = 0;
         
@@ -599,7 +621,23 @@ async function initDecentralizedBridge() {
     if (typeof bridge.reset === 'function') bridge.reset();
     if (typeof themeEngine.reset === 'function') themeEngine.reset();
     await bridge.init();
-    
+
+    // theme.xml is static for the life of the theme, so read the per-mode app
+    // bounds once here rather than on every render, then re-render so the very
+    // first frame is not stuck on AppDefaultPosition.
+    themeDisplayModes = bridge.getThemeDisplayModes();
+    const declaredNames = Object.keys(themeDisplayModes);
+    if (declaredNames.length > 0) {
+        // A name that matches no display mode is inert, so say so rather than
+        // letting a typo look like the feature is broken.
+        const known = DISPLAY_MODES.map(m => m.toLowerCase());
+        declaredNames.filter(n => !known.includes(n)).forEach(n => {
+            console.warn(`[AppDimensions] <DisplayMode name="${n}"> matches no display mode of this theme (${DISPLAY_MODES.join(', ')}); it will never apply.`);
+        });
+        console.log('[AppDimensions] theme.xml <DisplayModes>:', themeDisplayModes);
+        render();
+    }
+
     // Initialize focus cycle with bootstrap helper
     const bootstrapper = bootstrapThemeFromManifest(manifest);
     focusController = bootstrapper.focusController;

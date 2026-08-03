@@ -1149,6 +1149,19 @@ export function createGraphScreen() {
         requestAnimationFrame(ensureChartVisible);
     });
 
+    // Reduzido narrows .graph-screen to 400px, which resizes the canvas box but not
+    // its backing store — the plot renders at 452 and gets squashed into 400. The
+    // update loop only self-heals while telemetry is flowing, so an idle graph would
+    // stay distorted; resize as soon as anything that can change the mask mode moves.
+    const MASK_MODE_KEYS = [
+        'appDisplayMode', 'app_display_mode',
+        'navigationDisplayMode', 'navigation_display_mode',
+        'appInDash', 'carPlayInDash', 'projectionMirrorInDash', 'projectionPreparingD3'
+    ];
+    const unsubMaskMode = MASK_MODE_KEYS.map((key) =>
+        subscribe(key, () => requestAnimationFrame(ensureChartVisible))
+    );
+
     const visibilityObserver = new MutationObserver(() => {
         requestAnimationFrame(ensureChartVisible);
     });
@@ -1165,6 +1178,7 @@ export function createGraphScreen() {
         unsubFocusedItem();
         unsubScreen();
         unsubScreenVisible();
+        unsubMaskMode.forEach((unsub) => unsub());
         unsubMenuFocusArea();
         unsubFocusedForActive();
     };

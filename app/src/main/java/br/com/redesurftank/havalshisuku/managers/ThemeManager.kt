@@ -7,6 +7,7 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.models.ThemeMetadata
 import br.com.redesurftank.havalshisuku.models.ThemeVersionInfo
 import br.com.redesurftank.havalshisuku.models.ThemeConfig
+import br.com.redesurftank.havalshisuku.models.ThemeDisplayMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -193,7 +194,8 @@ class ThemeManager private constructor(val context: Context) {
             var minBridgeVersion: String? = null
             var contractVersion = ""
             val configurations = mutableListOf<ThemeConfig>()
-            
+            val displayModes = mutableListOf<ThemeDisplayMode>()
+
             var inConfigurations = false
             var inConfiguration = false
             var inAppDefaultPosition = false
@@ -218,6 +220,21 @@ class ThemeManager private constructor(val context: Context) {
                         "mainFile" -> mainFile = parser.nextText()
                         "background" -> background = parser.nextText().trim()
                         "AppDefaultPosition" -> inAppDefaultPosition = true
+                        // Attributes, not child elements, on purpose: this parser matches bare
+                        // tag names globally, so a <name> child here would overwrite the theme's
+                        // own <name> and <width>/<height> would collide with AppDefaultPosition.
+                        "DisplayMode" -> {
+                            val modeName = parser.getAttributeValue(null, "name")?.trim().orEmpty()
+                            val modeX = parser.getAttributeValue(null, "x")?.trim()?.toIntOrNull()
+                            val modeY = parser.getAttributeValue(null, "y")?.trim()?.toIntOrNull()
+                            val modeWidth = parser.getAttributeValue(null, "width")?.trim()?.toIntOrNull()
+                            val modeHeight = parser.getAttributeValue(null, "height")?.trim()?.toIntOrNull()
+                            if (modeName.isNotEmpty() && modeX != null && modeY != null && modeWidth != null && modeHeight != null) {
+                                displayModes.add(ThemeDisplayMode(modeName, modeX, modeY, modeWidth, modeHeight))
+                            } else {
+                                Log.w(TAG, "Ignoring <DisplayMode> in $folderName: needs name, x, y, width and height attributes")
+                            }
+                        }
                         "x" -> if (inAppDefaultPosition) x = parser.nextText().toIntOrNull()
                         "y" -> if (inAppDefaultPosition) y = parser.nextText().toIntOrNull()
                         "width" -> if (inAppDefaultPosition) width = parser.nextText().toIntOrNull()
@@ -292,6 +309,7 @@ class ThemeManager private constructor(val context: Context) {
                 minBridgeVersion = minBridgeVersion,
                 contractVersion = resolvedContractVersion,
                 configurations = configurations,
+                displayModes = displayModes,
                 background = background,
                 backgroundAbsolutePath = resolvedBackgroundAbs
             )

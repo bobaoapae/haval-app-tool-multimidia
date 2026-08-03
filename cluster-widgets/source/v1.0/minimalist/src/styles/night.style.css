@@ -4250,12 +4250,16 @@ body.nav-mask-reduced,
   --display-right-offset: 40px;
 }
 
-/* The badge normally overhangs the dial's left edge by 19px, which is fine at the
-   Padrão anchor but is exactly what pushes it off screen once shifted outwards.
-   Pull it flush so the dial's own edge is the leftmost pixel. */
+/* The badge keeps its normal horizontal anchor (19px past the dial's left edge) so
+   the speed value and power bar stay as close to the screen edge as they were.
+   Instead it moves up out of the bottom-left corner and sits directly on top of the
+   power bar band: the dial is 456 tall, the bar's track starts at y=395, and the
+   badge is 72 tall, so bottom:58px lands it at y 326..398. Raising it is what frees
+   the corner — with the anchor unchanged, -40px is the whole outward budget, which
+   leaves the badge 3px clear of the left edge. */
 body.nav-mask-reduced .dashboard-rpm-container,
 #app.nav-mask-reduced .dashboard-rpm-container {
-  right: calc(50% + 156px) !important;
+  bottom: 58px !important;
 }
 
 body.nav-mask-reduced .trip-analysis-indicator,
@@ -4396,10 +4400,15 @@ body.native-mock-enabled .dashboard-fixed-overlay {
     pointer-events: none !important;
 }
 
-/* Reduzido keeps the graph at its full 452px: the panel is overflow:hidden and the
-   chart canvas is laid out for that width, so narrowing it to 400px clipped the
-   plot rather than scaling it. The outward shift now comes from
-   --display-right-offset, which the base rule above already applies. */
+/* Reduzido narrows the panel to 400px. `left` stays anchored, so the 52px comes off
+   the RIGHT edge and pulls the ruler labels — which are inset from that edge
+   (.ruler-val.primary right:48px, .secondary right:12px) — away from the screen
+   boundary: the panel ends at 1844 instead of 1896. The chart is
+   responsive/maintainAspectRatio:false, so the canvas follows the container. */
+body.nav-mask-reduced .graph-screen,
+#app.nav-mask-reduced .graph-screen {
+    width: 400px !important;
+}
 
 /* Ajustes Sub-Menu Styles — minimalist list (aligned with regen) */
 .ajustes-screen {
@@ -5136,8 +5145,7 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 
 /* hideBottomBar = true: the bottom strip and every readout anchored to it */
 .hide-bottom-bar .mask-bottom-bar,
-.hide-bottom-bar .dashboard-bottom-gauges,
-.hide-bottom-bar .dashboard-bottom-ev-mode {
+.hide-bottom-bar .dashboard-bottom-gauges {
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
@@ -5145,8 +5153,6 @@ body.native-mock-enabled .dashboard-fixed-overlay {
 
 /* When map or app is shown and bottom bar is hidden in Minimalist, keep fuel and battery gauges visible */
 .map-in-dash-active.hide-bottom-bar .dashboard-bottom-gauges,
-.projection-map-display-active.hide-bottom-bar .dashboard-bottom-gauges,
-.carplay-in-dash.hide-bottom-bar .dashboard-bottom-gauges,
 .app-in-dash-active.hide-bottom-bar .dashboard-bottom-gauges {
   opacity: 1 !important;
   visibility: visible !important;

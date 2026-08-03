@@ -2205,26 +2205,33 @@ public class ServiceManager {
             isTimeInRange = currentTime >= startTime || currentTime < endTime;
         }
 
+        // maxTemp == -1 => checagem de temperatura "Desabilitada" na UI: só o horário manda.
         float maxTemp = sharedPreferences.getFloat(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_MAX_TEMP.getKey(), -1f);
+        boolean isTempInRange = true;
         if (maxTemp != -1f) {
             String outsideTempStr = getUpdatedData(CarConstants.CAR_BASIC_OUTSIDE_TEMP.getValue());
-            if (outsideTempStr != null) {
-                try {
-                    outsideTemp = Float.parseFloat(outsideTempStr);
-                } catch (NumberFormatException e) {
-                    Log.e(TAG, "Error parsing outside temp for curtain check. Aborting curtain opening. ", e);
-                    return;
-                }
+            if (outsideTempStr == null) {
+                Log.w(TAG, "Outside temp unavailable for curtain check. Aborting curtain opening.");
+                return;
             }
+            try {
+                outsideTemp = Float.parseFloat(outsideTempStr);
+            } catch (NumberFormatException e) {
+                Log.e(TAG, "Error parsing outside temp for curtain check. Aborting curtain opening. ", e);
+                return;
+            }
+            isTempInRange = outsideTemp <= maxTemp;
         }
 
-        if ((isTimeInRange) || (outsideTemp <= maxTemp)) {
+        // Ambas as condições precisam valer (horário E temperatura); temperatura desabilitada = neutra.
+        if (isTimeInRange && isTempInRange) {
             // Delay slightly to ensure services are fully ready or just triggering command
             backgroundHandler.postDelayed(this::openSunRoofShade, 2000);
         } else {
             if (!isTimeInRange) {
-                Log.d(TAG, "Current time " + currentHour + ":" + currentMinute + " not in range for opening curtain");
-            } else if (outsideTemp > maxTemp) {
+                Log.w(TAG, "Current time " + currentHour + ":" + currentMinute + " not in range (" + startHour + ":" + startMinute + " - " + endHour + ":" + endMinute + "), not opening curtain");
+            }
+            if (!isTempInRange) {
                 Log.w(TAG, "Outside temp " + outsideTemp + " > max configured " + maxTemp + ", not opening curtain");
             }
         }

@@ -301,9 +301,40 @@ export class ThemeBridgeAdapter {
     }
 
     /**
+     * Per-display-mode app bounds declared in the active theme's theme.xml.
+     * Returns a name -> {x, y, width, height} map, keyed lowercase so lookups are
+     * case-insensitive. Empty when the theme declares no <DisplayModes>, which
+     * means every mode uses AppDefaultPosition.
+     * @returns {Record<string, {x: number, y: number, width: number, height: number}>}
+     */
+    getThemeDisplayModes() {
+        if (!this.rawBridge || typeof this.rawBridge.getThemeDisplayModes !== "function") {
+            return {};
+        }
+        try {
+            const parsed = JSON.parse(this.rawBridge.getThemeDisplayModes() || "[]");
+            const modes = {};
+            parsed.forEach((entry) => {
+                if (!entry || typeof entry.name !== "string") return;
+                const bounds = ["x", "y", "width", "height"].map((k) => Number(entry[k]));
+                if (bounds.some((v) => !Number.isFinite(v))) {
+                    console.warn(`[BridgeAdapter] <DisplayMode name="${entry.name}"> has non-numeric bounds; ignoring.`);
+                    return;
+                }
+                const [x, y, width, height] = bounds;
+                modes[entry.name.trim().toLowerCase()] = { x, y, width, height };
+            });
+            return modes;
+        } catch (e) {
+            console.error("[BridgeAdapter] getThemeDisplayModes failed:", e);
+            return {};
+        }
+    }
+
+    /**
      * Persists a user preference value to Android SharedPreferences.
-     * @param {string} key 
-     * @param {string} value 
+     * @param {string} key
+     * @param {string} value
      */
     savePreference(key, value) {
         if (this.rawBridge && typeof this.rawBridge.savePreference === "function") {

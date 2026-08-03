@@ -14,6 +14,9 @@ class MockCarState {
         // <default> of every <configuration> in theme.xml, keyed by stateVariable.
         // Populated asynchronously by loadThemeDefaults().
         this.themeDefaults = new Map();
+        // <DisplayMode> entries from theme.xml, mirroring what the native
+        // getThemeDisplayModes() returns on the car.
+        this.themeDisplayModes = [];
 
         // Populate initial realistic mocks (both capitalized legacy and lowercase canonical V1 keys)
         this.cache.set('CAR_BASIC_VEHICLE_SPEED', '0.0');
@@ -140,8 +143,23 @@ class MockCarState {
                 const id = tag('id');
                 if (id) this.themeDefaults.set(id, defaultValue);
             }
+
+            const modes = xml.getElementsByTagName('DisplayMode');
+            for (let i = 0; i < modes.length; i++) {
+                const attr = (n) => (modes[i].getAttribute(n) || '').trim();
+                const name = attr('name');
+                const bounds = ['x', 'y', 'width', 'height'].map((k) => Number(attr(k)));
+                if (!name || bounds.some((v) => !Number.isFinite(v)) || attr('x') === '') {
+                    console.warn('[Mock Bridge] ignoring <DisplayMode>: needs name, x, y, width and height attributes');
+                    continue;
+                }
+                const [x, y, width, height] = bounds;
+                this.themeDisplayModes.push({ name, x, y, width, height });
+            }
+
             console.log('[Mock Bridge] theme.xml defaults loaded:',
-                Object.fromEntries(this.themeDefaults));
+                Object.fromEntries(this.themeDefaults),
+                'displayModes:', this.themeDisplayModes);
         } catch (e) {
             console.warn('[Mock Bridge] could not load theme.xml defaults:', e.message);
         }
@@ -287,6 +305,8 @@ if (isBrowser) {
             localStorage.setItem('pref_customBackgroundValueD1', String(relativePath || ''));
             localStorage.setItem('pref_enableCustomBackgroundD1', 'true');
         },
+
+        getThemeDisplayModes: () => JSON.stringify(mockState.themeDisplayModes),
 
         getPreference: (key, defaultValue) => {
             // Stored value first, then the <default> declared in theme.xml, then the

@@ -53,14 +53,13 @@ export function initSimulationHarness(stateManager, menuItems) {
                 return;
             }
 
+            // These four all stand in for the backend, which owns warningActive/bsd* and
+            // pushes them as typed booleans. Driving updateWarning() here would only record
+            // a raw value — the theme no longer derives anything from it.
             if (e.key.toLowerCase() === 'w') {
                 const currentWarn = mgr.get('warningActive');
                 console.log('[Warning Debug] Toggling warningActive to:', !currentWarn);
-                if (window.updateWarning) {
-                    window.updateWarning('fake.warning', !currentWarn ? '1' : '0');
-                } else {
-                    setState('warningActive', !currentWarn);
-                }
+                window.control('warningActive', !currentWarn);
                 // If we are activating warning, hide cards
                 if (!currentWarn) {
                     setState('cardId', 0);
@@ -73,22 +72,14 @@ export function initSimulationHarness(stateManager, menuItems) {
             if (e.key.toLowerCase() === 'l') {
                 const current = mgr.get('bsdLeft');
                 console.log('[BSD Debug] Toggling Left BSD to:', !current);
-                if (window.updateWarning) {
-                    window.updateWarning('car.ipk_info.bsd_lca_warning_reqleft', !current ? '1' : '0');
-                } else {
-                    setState('bsdLeft', !current);
-                }
+                window.control('bsdLeft', !current);
                 return;
             }
 
             if (e.key.toLowerCase() === 'r') {
                 const current = mgr.get('bsdRight');
                 console.log('[BSD Debug] Toggling Right BSD to:', !current);
-                if (window.updateWarning) {
-                    window.updateWarning('car.ipk_info.bsd_lca_warning_reqright', !current ? '1' : '0');
-                } else {
-                    setState('bsdRight', !current);
-                }
+                window.control('bsdRight', !current);
                 return;
             }
 

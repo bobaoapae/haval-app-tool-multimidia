@@ -29,7 +29,6 @@ import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType
 import br.com.redesurftank.havalshisuku.models.SteeringWheelAcControlType
 import br.com.redesurftank.havalshisuku.bridge.IBridgeContext
-import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1164,18 +1163,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         // here would resurrect warnings the driver already dismissed just
                         // because an unrelated one arrived.
                         dismissedWarnings.remove(key)
-                        if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, currentValue)) {
-                            isWarningDismissed = false
-                            if (!isWarningActive) {
-                                lastWarningActiveTime = System.currentTimeMillis()
-                                Log.d(TAG, "Warning onset detected in telemetry: key=$key value=$currentValue")
-                            } else {
-                                Log.d(TAG, "Telemetry warning update for key=$key value=$currentValue (already active, preserving onset)")
-                            }
-                            syncInitialWarnings()
-                        }
+                        // Informational only — the theme renders from the warningActive
+                        // boolean below, not from this. Kept so a theme that wants to list
+                        // individual warnings has the raw material.
                         evaluateJsIfReady(webView, "updateWarning('$key', '$currentValue')")
                     }
+                    if (key in ClusterWarningPolicy.badgeExemptWarningKeys) {
+                        pushBsdIndicatorsToTheme()
+                    }
+                    recomputeWarningState("TELEMETRY:$key")
                 }
             }
         }
@@ -1506,40 +1502,89 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     /**
-     * Fire current warning values into the WebView once, on freshly-loaded
-     * JS state only (init / page-finished). Intentionally NOT called from
-     * CLUSTER_CARD_CHANGED: card changes preserve the WebView's JS state,
-     * including the user's "dismissed" flag per warning (set when they press
-     * back). Re-pushing the same value would make the JS see "value changed
-     * from undefined -> X" again and re-show an alert the user already
-     * acknowledged. The car may still have the underlying warning active —
-     * we keep tracking it via the per-change listener — but we don't
-     * artificially re-trigger it on UI state transitions.
+     * Prime a freshly-loaded theme (init / page-finished / theme switch).
+     *
+     * This is the case the whole dismissal mechanism exists for: a theme starts with an
+     * empty warning state, so without the backend replaying what it knows, a warning the
+     * driver already dismissed would pop straight back up. [recomputeWarningState] decides
+     * the badge from the backend's own record, and a key still sitting at the value it was
+     * acknowledged at is withheld below so the theme never even hears about it.
      */
     private fun syncInitialWarnings() {
         val sm = ServiceManager.getInstance()
         val webView = this.webView ?: return
 
-        evaluateJsIfReady(webView, "control('warningActive', $isWarningActive)")
-        evaluateJsIfReady(webView, "control('warningDismissed', $isWarningDismissed)")
-        themeBridge?.pushOnDataChanged("warningActive", isWarningActive.toString())
-        themeBridge?.pushOnDataChanged("warningDismissed", isWarningDismissed.toString())
-
-        // Hand the theme the acknowledged (key -> acknowledged value) pairs first, then
-        // the real current value of *every* monitored key. The theme masks the pairs that
-        // still match, so a dismissed warning stays out of sight without being erased from
-        // the theme's warning map.
-        //
-        // Withholding the push instead (or wiping the theme map via clearWarnings) left the
-        // theme blind to a warning the car still reports, so the next unrelated key that
-        // changed — a door warning clearing when the door is closed — recomputed the badge
-        // over an incomplete map and cleared it while the seat belt warning was still on.
-        pushDismissedWarningsToTheme(webView)
         for (key in monitoredWarningKeys) {
+            // Transient signals are never replayed from cache. The BSD arrows and the TTS
+            // notification describe something happening *now*; ServiceManager still holds
+            // the last value it ever saw, so re-pushing it here would light a blind-spot
+            // arrow for an event that has long passed — and since no further telemetry is
+            // coming for it, nothing would ever turn it back off. They reach the theme
+            // from live telemetry only.
+            if (key in ClusterWarningPolicy.badgeExemptWarningKeys) continue
             val value = sm.getData(key) ?: "0"
             trackWarningOnset(key, value)
+            if (dismissedWarnings[key] == value) continue
             evaluateJsIfReady(webView, "updateWarning('$key', '$value')")
         }
+
+        recomputeWarningState("THEME_LOAD")
+    }
+
+    /**
+     * Single source of truth for the warning badge.
+     *
+     * The badge used to be computed inside each theme and pushed *back* here via
+     * `Android.setWarningActive()`, which left a downloadable theme deciding a value the
+     * backend uses for cluster visibility and app widths — and left two "which keys count"
+     * lists to drift apart. The backend owns it now; themes render what they are told.
+     */
+    private fun recomputeWarningState(reason: String) {
+        val active = unacknowledgedBadgeWarnings().isNotEmpty()
+        val dismissed = !active && dismissedWarnings.isNotEmpty()
+        val changed = active != isWarningActive || dismissed != isWarningDismissed
+
+        if (active && !isWarningActive) {
+            lastWarningActiveTime = System.currentTimeMillis()
+            Log.w(TAG, "Warning onset ($reason). currentCard=$currentCard")
+        }
+
+        isWarningActive = active
+        isWarningDismissed = dismissed
+
+        if (changed) {
+            lastAppliedConfigs.clear() // Invalidate cache on warning toggle to force re-sync
+            logClusterPerfEvent(
+                    "warning_state_changed",
+                    mapOf("active" to active, "dismissed" to dismissed, "reason" to reason)
+            )
+            updateVirtualClusterVisibility(reason = "WARNING_STATE_CHANGED")
+            syncSecondaryDisplayApps(3)
+        }
+
+        pushWarningStateToTheme()
+    }
+
+    private fun pushWarningStateToTheme() {
+        // control() delivers real booleans. pushOnDataChanged() would deliver the string
+        // "false", which is truthy in JS and would pin the badge on — see the note beside
+        // keysToSubscribe in the themes' main.js.
+        evaluateJsIfReady(
+                webView,
+                "control('warningActive', $isWarningActive); control('warningDismissed', $isWarningDismissed);"
+        )
+    }
+
+    private fun pushBsdIndicatorsToTheme() {
+        val sm = ServiceManager.getInstance()
+        val left = ClusterWarningPolicy.isWarningValueActive(
+                sm.getData(CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQLEFT.value))
+        val right = ClusterWarningPolicy.isWarningValueActive(
+                sm.getData(CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQRIGHT.value))
+        evaluateJsIfReady(
+                webView,
+                "control('bsdLeft', $left); control('bsdRight', $right);"
+        )
     }
 
     /**
@@ -1571,26 +1616,6 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             dismissedWarnings[key] != value
                 }
                 .sortedByDescending { (key, _) -> warningOnsetTimes[key] ?: 0L }
-    }
-
-    /**
-     * Replay [dismissedWarnings] into the theme.
-     *
-     * Guarded on the JS side: themes built before per-warning dismissal only know
-     * `clearWarnings()`, which wipes the lot. Those fall back to it, but only once nothing
-     * un-acknowledged is left — otherwise an older theme would blank its badge on the first
-     * BACK press and lose the warnings the driver has not dealt with yet.
-     */
-    private fun pushDismissedWarningsToTheme(webView: WebView?) {
-        val json = JSONObject(dismissedWarnings.toMap() as Map<*, *>).toString()
-        val legacyFallback =
-                if (unacknowledgedBadgeWarnings().isEmpty())
-                        " else if (window.clearWarnings) window.clearWarnings();"
-                else ""
-        evaluateJsIfReady(
-                webView,
-                "if (window.setDismissedWarnings) window.setDismissedWarnings($json);$legacyFallback"
-        )
     }
 
     private fun hasCriticalTelemetryWarning(): Boolean {
@@ -2185,48 +2210,20 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         Log.d(TAG, "Cluster display saved: $normalizedDisplay")
     }
 
+    /**
+     * Legacy bridge entry point: themes built before the backend owned the badge compute
+     * `warningActive` themselves and push it here. Advisory only now — acting on it would
+     * let a downloadable theme override cluster visibility and app widths, and would fight
+     * [recomputeWarningState]. Older themes are unaffected: they still receive the
+     * authoritative value through `control('warningActive', …)` and render that.
+     *
+     * Deliberately does no work at all. This used to fire every ~580ms while a warning was
+     * standing, and each call invalidated caches, recomputed visibility and called
+     * syncSecondaryDisplayApps(), which pegged Impulse's main thread at ~87% CPU.
+     */
     override fun updateWarningUI(isActive: Boolean) {
-        // State-change guard. The WebView's JS bridge (setWarningActive)
-        // was observed firing every ~580ms while a warning is active,
-        // producing a hot loop of cache invalidations, visibility
-        // recomputes, syncSecondaryDisplayApps() calls, and JS round-trips
-        // that pegged Impulse's main thread (~87% CPU). Doing real work
-        // only on the actual boolean flip eliminates the loop without
-        // changing semantics — the JS bridge can stay chatty; we no-op.
-        if (isActive == isWarningActive) return
-
-        // setWarningActive() is a @JavascriptInterface method invoked on the
-        // WebView's JavaBridge thread, but everything below touches the
-        // WebView (evaluateJavascript) and must run on the main thread.
-        ensureUi {
-            if (isActive == isWarningActive) return@ensureUi
-
-            if (isActive && !isWarningActive) {
-                lastWarningActiveTime = System.currentTimeMillis()
-                Log.w(TAG, "updateWarningUI: warning transition to active, setting onset time")
-                isWarningDismissed = false
-            }
-
-            isWarningActive = isActive
-            lastAppliedConfigs.clear() // Invalidate cache on warning toggle to force re-sync
-            if (isActive) {
-                Log.w(TAG, "Warning detected. currentCard=$currentCard. Triggering visibility update.")
-            } else {
-                Log.w(TAG, "Warnings cleared.")
-            }
-            logClusterPerfEvent(
-                    "warning_state_changed",
-                    mapOf("active" to isActive, "dismissed" to isWarningDismissed)
-            )
-
-            updateVirtualClusterVisibility(reason = "WARNING_STATE_CHANGED")
-            syncSecondaryDisplayApps(3)
-
-            // Propagate current warning state
-            evaluateJsIfReady(webView, "control('warningActive', $isActive)")
-            evaluateJsIfReady(webView, "control('warningDismissed', $isWarningDismissed)")
-            themeBridge?.pushOnDataChanged("warningActive", isActive.toString())
-            themeBridge?.pushOnDataChanged("warningDismissed", isWarningDismissed.toString())
+        if (isActive != isWarningActive) {
+            Log.d(TAG, "updateWarningUI($isActive) ignored; backend computed $isWarningActive")
         }
     }
 
@@ -2262,19 +2259,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
             dismissedWarnings[key] = value
             Log.d(TAG, "dismissWarnings: acknowledged key=$key value=$value")
-            pushDismissedWarningsToTheme(webView)
 
             // Only once every visible warning has been acknowledged is the cluster clear;
             // until then the badge stays up for whatever is left.
             val remaining = unacknowledgedBadgeWarnings()
-            isWarningDismissed = remaining.isEmpty()
-            if (remaining.isEmpty()) {
-                updateWarningUI(false)
-            } else {
+            if (remaining.isNotEmpty()) {
                 Log.d(TAG, "dismissWarnings: ${remaining.size} warning(s) still un-acknowledged: ${remaining.map { it.first }}")
             }
-            evaluateJsIfReady(webView, "control('warningDismissed', $isWarningDismissed)")
-            themeBridge?.pushOnDataChanged("warningDismissed", isWarningDismissed.toString())
+            recomputeWarningState("DISMISS:$key")
         }
     }
 

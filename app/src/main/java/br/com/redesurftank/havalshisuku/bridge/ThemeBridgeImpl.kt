@@ -164,6 +164,45 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
         return context.preferences.getString(key, defaultValue) ?: defaultValue
     }
 
+    /**
+     * Per-display-mode app bounds declared by the active theme's theme.xml, as
+     * `[{"name":"Mapa","x":0,"y":0,"width":1920,"height":720}, ...]`.
+     *
+     * The theme cannot read its own theme.xml at runtime: the built-in Default is
+     * served from res/raw with no sibling file to fetch. Returns `[]` when the
+     * theme declares no <DisplayModes>, which means "use AppDefaultPosition".
+     */
+    @JavascriptInterface
+    fun getThemeDisplayModes(): String {
+        return try {
+            val activeCustomTheme = context.preferences.getString(
+                br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, ""
+            ) ?: ""
+            val themeManager = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(App.getContext())
+            val metadata = if (activeCustomTheme.isBlank()) {
+                themeManager.getEmbeddedDefaultTheme()
+            } else {
+                themeManager.getThemeMetadata(activeCustomTheme) ?: themeManager.getEmbeddedDefaultTheme()
+            }
+            val array = JSONArray()
+            metadata.displayModes.forEach { mode ->
+                array.put(
+                    JSONObject()
+                        .put("name", mode.name)
+                        .put("x", mode.x)
+                        .put("y", mode.y)
+                        .put("width", mode.width)
+                        .put("height", mode.height)
+                )
+            }
+            Log.d(TAG, "getThemeDisplayModes: theme='${activeCustomTheme.ifBlank { "Default" }}' -> $array")
+            array.toString()
+        } catch (e: Exception) {
+            Log.e(TAG, "getThemeDisplayModes failed", e)
+            "[]"
+        }
+    }
+
     @JavascriptInterface
     fun subscribe(keysJson: String) {
         try {
