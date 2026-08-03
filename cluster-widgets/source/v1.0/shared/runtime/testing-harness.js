@@ -1319,28 +1319,17 @@ export function initTestHarness(stateManager, menuItems) {
                     
                     const mgr = window.__SIMULATION_STATE_MANAGER__ || stateManager;
                     
+                    // These stand in for the backend, which owns warningActive/bsd* and pushes
+                    // them as typed booleans. updateWarning() only records a raw value now —
+                    // the theme derives nothing from it.
                     if (action === 'toggle-warn') {
                         const currentVal = mgr.get('warningActive');
-                        if (window.updateWarning) {
-                            window.updateWarning('fake.warning', !currentVal ? '1' : '0');
-                        } else {
-                            mgr.set('warningActive', !currentVal);
-                            mgr.set('cardId', !currentVal ? 0 : 1);
-                        }
+                        mgr.set('warningActive', !currentVal);
+                        mgr.set('cardId', !currentVal ? 0 : 1);
                     } else if (action === 'toggle-bsd-l') {
-                        const currentVal = mgr.get('bsdLeft');
-                        if (window.updateWarning) {
-                            window.updateWarning('car.ipk_info.bsd_lca_warning_reqleft', !currentVal ? '1' : '0');
-                        } else {
-                            mgr.set('bsdLeft', !currentVal);
-                        }
+                        mgr.set('bsdLeft', !mgr.get('bsdLeft'));
                     } else if (action === 'toggle-bsd-r') {
-                        const currentVal = mgr.get('bsdRight');
-                        if (window.updateWarning) {
-                            window.updateWarning('car.ipk_info.bsd_lca_warning_reqright', !currentVal ? '1' : '0');
-                        } else {
-                            mgr.set('bsdRight', !currentVal);
-                        }
+                        mgr.set('bsdRight', !mgr.get('bsdRight'));
                     } else if (action === 'toggle-dash') {
                         const options = [false, true, 'left', 'right'];
                         const currentVal = mgr.get('appInDash');

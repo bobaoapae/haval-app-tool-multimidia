@@ -237,6 +237,11 @@ public class ServiceManager {
     // Estado atual do hotspot (Wi-Fi AP), alimentado pelo receiver WIFI_AP_STATE_CHANGED e
     // semeado no init via getWifiApState(); usado pra saber se o hotspot estava ligado ao recolher/desligar.
     private volatile boolean wifiTetherEnabled = false;
+    // No init a leitura de outside_temp ainda volta null por alguns segundos (fetchData roda logo
+    // depois do servicesInitialized). Como a temperatura é condição obrigatória p/ abrir a cortina,
+    // sem retry ela simplesmente nunca abriria. 6 tentativas x 5s = 30s cobre o boot deste OEM.
+    private static final long CURTAIN_TEMP_RETRY_MS = 5000L;
+    private static final int CURTAIN_TEMP_MAX_ATTEMPTS = 6;
     private static final long RADIO_RESTORE_RETRY_MS = 4000L;
     // 8 tentativas x 4s ≈ 28s: o tether (hotspot) pode demorar a subir no boot deste OEM.
     // O loop para assim que o rádio liga, então tentativas extras são de graça p/ o BT (rápido).
@@ -1017,7 +1022,7 @@ public class ServiceManager {
         wifiTetherEnabled = currentWifiTetherState();
         Log.w(TAG, "Services initialized successfully");
         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false)) {
-            autoOpenSunroofCurtain();
+            autoOpenSunroofCurtain(0);
         }
         // HEV Prioritário: no boot o carro costuma resetar o % (ex.: 45->80) e o app pode subir
         // depois do evento -> reaplica o valor salvo no init e depois monitora continuamente.
@@ -2182,7 +2187,7 @@ public class ServiceManager {
         }
     }
 
-    private void autoOpenSunroofCurtain() {
+    private void autoOpenSunroofCurtain(int attempt) {
         Calendar now = Calendar.getInstance();
         float outsideTemp = 99;
         int currentHour = now.get(Calendar.HOUR_OF_DAY);
@@ -2205,35 +2210,52 @@ public class ServiceManager {
             isTimeInRange = currentTime >= startTime || currentTime < endTime;
         }
 
+        // Horário fora da janela é definitivo: não adianta esperar leitura de temperatura.
+        if (!isTimeInRange) {
+            Log.w(TAG, "Current time " + currentHour + ":" + currentMinute + " not in range (" + startHour + ":" + startMinute + " - " + endHour + ":" + endMinute + "), not opening curtain");
+            return;
+        }
+
         // maxTemp == -1 => checagem de temperatura "Desabilitada" na UI: só o horário manda.
         float maxTemp = sharedPreferences.getFloat(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_MAX_TEMP.getKey(), -1f);
         boolean isTempInRange = true;
         if (maxTemp != -1f) {
-            String outsideTempStr = getUpdatedData(CarConstants.CAR_BASIC_OUTSIDE_TEMP.getValue());
-            if (outsideTempStr == null) {
-                Log.w(TAG, "Outside temp unavailable for curtain check. Aborting curtain opening.");
+            Float reading = readOutsideTempForCurtain();
+            if (reading == null) {
+                // Dado ainda não disponível: reagenda em vez de desistir (ver CURTAIN_TEMP_*).
+                if (attempt + 1 < CURTAIN_TEMP_MAX_ATTEMPTS) {
+                    backgroundHandler.postDelayed(() -> autoOpenSunroofCurtain(attempt + 1), CURTAIN_TEMP_RETRY_MS);
+                } else {
+                    Log.w(TAG, "Outside temp still unavailable after " + CURTAIN_TEMP_MAX_ATTEMPTS + " attempts, not opening curtain");
+                }
                 return;
             }
-            try {
-                outsideTemp = Float.parseFloat(outsideTempStr);
-            } catch (NumberFormatException e) {
-                Log.e(TAG, "Error parsing outside temp for curtain check. Aborting curtain opening. ", e);
-                return;
-            }
+            outsideTemp = reading;
             isTempInRange = outsideTemp <= maxTemp;
         }
 
         // Ambas as condições precisam valer (horário E temperatura); temperatura desabilitada = neutra.
-        if (isTimeInRange && isTempInRange) {
+        if (isTempInRange) {
+            Log.w(TAG, "Opening curtain: time " + currentHour + ":" + currentMinute + " in range, outside temp " + outsideTemp + " <= " + maxTemp + " (attempt " + attempt + ")");
             // Delay slightly to ensure services are fully ready or just triggering command
             backgroundHandler.postDelayed(this::openSunRoofShade, 2000);
         } else {
-            if (!isTimeInRange) {
-                Log.w(TAG, "Current time " + currentHour + ":" + currentMinute + " not in range (" + startHour + ":" + startMinute + " - " + endHour + ":" + endMinute + "), not opening curtain");
-            }
-            if (!isTempInRange) {
-                Log.w(TAG, "Outside temp " + outsideTemp + " > max configured " + maxTemp + ", not opening curtain");
-            }
+            Log.w(TAG, "Outside temp " + outsideTemp + " > max configured " + maxTemp + ", not opening curtain");
+        }
+    }
+
+    /** Leitura de outside_temp p/ a cortina; null quando o dado ainda não veio ou não parseia. */
+    private Float readOutsideTempForCurtain() {
+        String raw = getUpdatedData(CarConstants.CAR_BASIC_OUTSIDE_TEMP.getValue());
+        if (raw == null || raw.trim().isEmpty()) {
+            Log.w(TAG, "Outside temp not available yet for curtain check (raw=" + raw + ")");
+            return null;
+        }
+        try {
+            return Float.parseFloat(raw.trim());
+        } catch (NumberFormatException e) {
+            Log.w(TAG, "Outside temp unparseable for curtain check (raw=" + raw + ")");
+            return null;
         }
     }
 

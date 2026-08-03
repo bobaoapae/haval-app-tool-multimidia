@@ -1168,7 +1168,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         // individual warnings has the raw material.
                         evaluateJsIfReady(webView, "updateWarning('$key', '$currentValue')")
                     }
-                    if (key in ClusterWarningPolicy.badgeExemptWarningKeys) {
+                    if (key in ClusterWarningPolicy.bsdIndicatorKeys) {
                         pushBsdIndicatorsToTheme()
                     }
                     recomputeWarningState("TELEMETRY:$key")
@@ -1515,13 +1515,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val webView = this.webView ?: return
 
         for (key in monitoredWarningKeys) {
-            // Transient signals are never replayed from cache. The BSD arrows and the TTS
-            // notification describe something happening *now*; ServiceManager still holds
-            // the last value it ever saw, so re-pushing it here would light a blind-spot
-            // arrow for an event that has long passed — and since no further telemetry is
-            // coming for it, nothing would ever turn it back off. They reach the theme
-            // from live telemetry only.
-            if (key in ClusterWarningPolicy.badgeExemptWarningKeys) continue
+            // Momentary alerts reach the theme from live telemetry only — never replayed
+            // from ServiceManager's cache, which still holds whatever the last event left
+            // behind. See ClusterWarningPolicy.transientWarningKeys.
+            if (key in ClusterWarningPolicy.transientWarningKeys) continue
             val value = sm.getData(key) ?: "0"
             trackWarningOnset(key, value)
             if (dismissedWarnings[key] == value) continue
