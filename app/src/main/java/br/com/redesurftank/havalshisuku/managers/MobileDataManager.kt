@@ -111,12 +111,17 @@ object MobileDataManager {
 
     @Synchronized
     private fun applyMobileData(block: Boolean) {
-        if (lastAppliedBlock == block) return
+        // BLOQUEADO: reaplica SEMPRE (não pula por memória própria). O hotspot/OEM religa o dado móvel
+        // por trás pra ter uplink; o guard antigo confiava no `lastAppliedBlock` (nossa memória), não no
+        // estado real -> o 4G vazava pro hotspot e nunca era re-cortado. `svc data disable` é idempotente
+        // no sistema, então re-emitir a cada tick (15s) / evento de tether fecha o vazamento.
+        // LIBERADO: aplica só na transição (não fica religando à toa).
+        if (!block && lastAppliedBlock == false) return
         try {
             ShizukuUtils.runCommandAndGetOutput(arrayOf("svc", "data", if (block) "disable" else "enable"))
+            val changed = lastAppliedBlock != block
             lastAppliedBlock = block
-            Log.w(TAG, "Dado movel do carro -> ${if (block) "BLOQUEADO" else "liberado"}")
-
+            if (changed) Log.w(TAG, "Dado movel do carro -> ${if (block) "BLOQUEADO" else "liberado"}")
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao aplicar dado movel", e)
         }
