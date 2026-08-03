@@ -4190,10 +4190,10 @@ body.nav-mask-clean .mask-panel.left,
   width: 800px !important;
   left: 0 !important;
   background: linear-gradient(90deg,
-    rgba(0,0,0,.640) 0%,    rgba(0,0,0,.538) 8.3%,  rgba(0,0,0,.444) 16.7%,
-    rgba(0,0,0,.360) 25%,   rgba(0,0,0,.284) 33.3%, rgba(0,0,0,.218) 41.7%,
-    rgba(0,0,0,.160) 50%,   rgba(0,0,0,.111) 58.3%, rgba(0,0,0,.071) 66.7%,
-    rgba(0,0,0,.040) 75%,   rgba(0,0,0,.018) 83.3%, rgba(0,0,0,.004) 91.7%,
+    rgba(0,0,0,.851) 0%,    rgba(0,0,0,.715) 8.3%,  rgba(0,0,0,.591) 16.7%,
+    rgba(0,0,0,.479) 25%,   rgba(0,0,0,.378) 33.3%, rgba(0,0,0,.290) 41.7%,
+    rgba(0,0,0,.213) 50%,   rgba(0,0,0,.148) 58.3%, rgba(0,0,0,.095) 66.7%,
+    rgba(0,0,0,.053) 75%,   rgba(0,0,0,.024) 83.3%, rgba(0,0,0,.006) 91.7%,
     rgba(0,0,0,0)    100%) !important;
 }
 
@@ -4202,10 +4202,10 @@ body.nav-mask-clean .mask-panel.right,
   width: 800px !important;
   right: 0 !important;
   background: linear-gradient(270deg,
-    rgba(0,0,0,.640) 0%,    rgba(0,0,0,.538) 8.3%,  rgba(0,0,0,.444) 16.7%,
-    rgba(0,0,0,.360) 25%,   rgba(0,0,0,.284) 33.3%, rgba(0,0,0,.218) 41.7%,
-    rgba(0,0,0,.160) 50%,   rgba(0,0,0,.111) 58.3%, rgba(0,0,0,.071) 66.7%,
-    rgba(0,0,0,.040) 75%,   rgba(0,0,0,.018) 83.3%, rgba(0,0,0,.004) 91.7%,
+    rgba(0,0,0,.851) 0%,    rgba(0,0,0,.715) 8.3%,  rgba(0,0,0,.591) 16.7%,
+    rgba(0,0,0,.479) 25%,   rgba(0,0,0,.378) 33.3%, rgba(0,0,0,.290) 41.7%,
+    rgba(0,0,0,.213) 50%,   rgba(0,0,0,.148) 58.3%, rgba(0,0,0,.095) 66.7%,
+    rgba(0,0,0,.053) 75%,   rgba(0,0,0,.024) 83.3%, rgba(0,0,0,.006) 91.7%,
     rgba(0,0,0,0)    100%) !important;
 }
 
@@ -4687,7 +4687,7 @@ body.nav-mask-reduced .graph-screen,
 /* Speedometer Power Bar Styling (2026 Haval Style) */
 .speed-power-bar-container {
   position: absolute !important;
-  bottom: 0px !important;
+  bottom: 10px !important;
   left: 50% !important;
   transform: translateX(-50%) !important;
   margin-top: 0 !important;
