@@ -1,7 +1,7 @@
 <theme>
     <name>Minimalist</name>
     <description>Clean, square edges, flat menu, and minimalist typography.</description>
-    <version>1.3.24</version>
+    <version>1.4.0</version>
     <minBridgeVersion>1.0.0</minBridgeVersion>
     <contractVersion>v1.0</contractVersion>
     <thumbnail>thumbnail.png</thumbnail>
@@ -50,19 +50,27 @@
             <stateVariable>appDisplayMode</stateVariable>
         </configuration>
         <configuration>
-            <id>hide_bottom_bar</id>
-            <label>Ocultar Barra Inferior</label>
-            <type>boolean</type>
-            <default>false</default>
-            <stateVariable>hideBottomBar</stateVariable>
+            <id>top_bar_visibility</id>
+            <label>Exibir Barra Superior</label>
+            <type>combo</type>
+            <options>Sempre, Só com Projeção, Só sem Projeção, Nunca</options>
+            <default>Sempre</default>
+            <stateVariable>topBarVisibility</stateVariable>
         </configuration>
         <configuration>
-            <id>do_not_hide_bars_on</id>
-            <label>Não Ocultar Barras Se Houver</label>
+            <id>bottom_bar_visibility</id>
+            <label>Exibir Barra Inferior</label>
             <type>combo</type>
-            <options>Navegação, Aplicativo, Ambos, Ignorar</options>
-            <default>Ambos</default>
-            <stateVariable>doNotHideBarsOn</stateVariable>
+            <options>Sempre, Só com Projeção, Só sem Projeção, Nunca</options>
+            <default>Só com Projeção</default>
+            <stateVariable>bottomBarVisibility</stateVariable>
+        </configuration>
+        <configuration>
+            <id>bottom_bar_notch</id>
+            <label>Recorte da Barra Inferior</label>
+            <type>boolean</type>
+            <default>true</default>
+            <stateVariable>bottomBarNotch</stateVariable>
         </configuration>
     </configurations>
 </theme>

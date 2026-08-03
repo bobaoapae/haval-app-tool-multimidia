@@ -5136,7 +5136,8 @@ body.nav-mask-reduced .graph-screen,
    on the boot frame that runs before bindThemeSetting resolves the preference.
    ========================================================================== */
 
-/* hideBottomBar = true: the bottom strip and every readout anchored to it */
+/* bottom_bar_visibility resolved to hidden: the strip and every readout anchored to
+   it. The time/gear group is deliberately not in this list — the notch keeps it. */
 .hide-bottom-bar .mask-bottom-bar,
 .hide-bottom-bar .dashboard-bottom-gauges {
   opacity: 0 !important;
@@ -5144,12 +5145,61 @@ body.nav-mask-reduced .graph-screen,
   pointer-events: none !important;
 }
 
-/* When map or app is shown and bottom bar is hidden in Minimalist, keep fuel and battery gauges visible */
-.map-in-dash-active.hide-bottom-bar .dashboard-bottom-gauges,
-.app-in-dash-active.hide-bottom-bar .dashboard-bottom-gauges {
-  opacity: 1 !important;
-  visibility: visible !important;
-  pointer-events: auto !important;
+/* The old ".keep the gauges when something is projected" override is gone: which
+   contexts show a bar is now the bottom_bar_visibility setting's job, decided in
+   main.js, so leaving a CSS rule that force-shows content of a hidden bar would
+   just fight it. */
+
+.hide-top-bar .mask-top-bar {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/*
+ * Bar notches — the backdrop a hidden bar leaves behind so the menu (top) and the
+ * time/gear readout (bottom) stay readable over a map. Each notch element covers the
+ * whole 1920x720 stage and is clipped to a tab hanging off its edge, so the path
+ * coordinates below are plain stage coordinates.
+ *
+ * Each shoulder is one cubic Bézier whose control points are horizontal at both ends,
+ * so the curve leaves the screen edge flat and meets the notch floor flat — no crease
+ * at either join. Shoulder 150px, control points at half that (tension .5) for a
+ * symmetric ease-in-out.
+ *
+ *   top:    flat 640..1280 at depth 95, so the tab spans 490..1430
+ *           (menu occupies 660..1260 — 20px clear each side)
+ *   bottom: flat 790..1130 at depth 60, so the tab spans 640..1280
+ *           (time/gear occupies 812..1108 — 22px clear each side)
+ *
+ * They live inside .cluster-mask-bg (z-index 1, below content), so they sit behind the
+ * menu and time/gear rather than over them. They are drawn over the app: a hidden bar
+ * hands its strip back to the app viewport, and the notch overlaps it deliberately.
+ */
+.mask-top-notch,
+.mask-bottom-notch {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1920px;
+  height: 720px;
+  pointer-events: none;
+  display: none;
+}
+
+.mask-top-notch {
+  background-color: var(--mask-top-bar-bg);
+  clip-path: path('M 490 0 C 565 0, 565 95, 640 95 L 1280 95 C 1355 95, 1355 0, 1430 0 Z');
+}
+
+.mask-bottom-notch {
+  background-color: var(--mask-bottom-bar-bg);
+  clip-path: path('M 640 720 C 715 720, 715 660, 790 660 L 1130 660 C 1205 660, 1205 720, 1280 720 Z');
+}
+
+.show-top-notch .mask-top-notch,
+.show-bottom-notch .mask-bottom-notch {
+  display: block;
 }
 
 .dev-background {

@@ -1185,8 +1185,17 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             if (defaultPackage.isNotEmpty()) {
                 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.getAllConfigs()
                         .find { it.packageName == defaultPackage }
-                        ?.let { config ->
-                            Log.d(TAG, "Auto-launching default app: $defaultPackage")
+                        ?.let { storedConfig ->
+                            // Startup auto-launch is the one path the
+                            // "move projection to cluster" setting gates; an explicit
+                            // send-to-display from the UI stays honoured.
+                            val config =
+                                    br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                                            .resolveAutoLaunchConfig(storedConfig)
+                            Log.d(
+                                    TAG,
+                                    "Auto-launching default app: $defaultPackage on display ${config.displayId}"
+                            )
                             scope.launch {
                                 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
                                         .launchApp(config)

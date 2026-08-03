@@ -99,30 +99,85 @@ function getEffectiveDisplayMode() {
     return get('display') || 'Normal';
 }
 
-function isHideBottomBar() {
-    const val = get('hideBottomBar') ?? get('hide_bottom_bar');
-    return val === true || val === 'true' || val === 1 || val === '1';
-}
-
-function isDoNotHideOverrideActive() {
-    const doNotHide = get('doNotHideBarsOn') ?? get('do_not_hide_bars_on') ?? 'Ambos';
-    if (doNotHide === 'Ignorar' || doNotHide === 'Nunca') return false;
-
-    const isNavActive = isProjectionMapDisplayActive() || get('mapInDash') === true;
+// Is anything projected onto the cluster right now — a map/mirror, or a plain app?
+function isProjectingAnything() {
     const appInDashVal = get('appInDash');
-    const isAppActive = appInDashVal === true || appInDashVal === 'left' || appInDashVal === 'right';
-
-    if (doNotHide === 'Ambos' && (isNavActive || isAppActive)) return true;
-    if (doNotHide === 'Navegação' && isNavActive) return true;
-    if (doNotHide === 'Aplicativo' && isAppActive) return true;
-
-    return false;
+    return isProjectionMapDisplayActive() ||
+        get('mapInDash') === true ||
+        appInDashVal === true || appInDashVal === 'left' || appInDashVal === 'right';
 }
 
-function isHideBottomBarEffective() {
-    if (!isHideBottomBar()) return false;
-    if (isDoNotHideOverrideActive()) return false;
+// theme.xml ships both bars as the same four-option combo, phrased as when the bar is
+// VISIBLE. The old pair (hide_bottom_bar + do_not_hide_bars_on) was a boolean crossed
+// with a negative-logic exception list, which read as a double negative and inverted
+// what most people expect: "hide" plus the default "Ambos" actually kept the bar
+// whenever something was projected.
+const BAR_ALWAYS = 'Sempre';
+const BAR_NEVER = 'Nunca';
+const BAR_WITH_PROJECTION = 'Só com Projeção';
+const BAR_WITHOUT_PROJECTION = 'Só sem Projeção';
+const BAR_VISIBILITIES = [BAR_ALWAYS, BAR_NEVER, BAR_WITH_PROJECTION, BAR_WITHOUT_PROJECTION];
+
+// Same accent hazard as the mask modes: these cross the bridge as raw strings, and an
+// unaccented "So com Projecao" must not silently fall through to the fallback.
+function normalizeBarVisibility(value, fallback) {
+    if (typeof value !== 'string' || value.trim() === '') return fallback;
+    const needle = foldAccents(value);
+    return BAR_VISIBILITIES.find((m) => foldAccents(m) === needle) || fallback;
+}
+
+function isBarVisible(stateVar, fallback) {
+    const mode = normalizeBarVisibility(get(stateVar), fallback);
+    if (mode === BAR_ALWAYS) return true;
+    if (mode === BAR_NEVER) return false;
+    if (mode === BAR_WITH_PROJECTION) return isProjectingAnything();
+    if (mode === BAR_WITHOUT_PROJECTION) return !isProjectingAnything();
     return true;
+}
+
+function isTopBarVisible() {
+    return isBarVisible('topBarVisibility', BAR_ALWAYS);
+}
+
+function isBottomBarVisible() {
+    return isBarVisible('bottomBarVisibility', BAR_WITH_PROJECTION);
+}
+
+// The top notch is mandatory whenever the top bar is hidden — the menu needs a backdrop
+// to stay legible over a map. The bottom one is opt-out.
+function isTopNotchVisible() {
+    return !isTopBarVisible();
+}
+
+function isBottomNotchVisible() {
+    if (isBottomBarVisible()) return false;
+    const val = get('bottomBarNotch');
+    return !(val === false || val === 'false' || val === 0 || val === '0');
+}
+
+// One-shot, read-only migration off the retired hide_bottom_bar + do_not_hide_bars_on
+// pair. Nothing is written back: if the host still holds the old keys we just derive an
+// equivalent starting value, and the first time the user touches the new combo the app
+// persists it under the new stateVariable and this stops mattering.
+// Must read the host's stored preferences, not state: bindSetting has already seeded
+// bottomBarVisibility with either a stored value or the theme.xml default, and after
+// that the two are indistinguishable. An empty getPreference means the user has never
+// saved the new setting, which is the only case where the old pair still speaks for them.
+function migrateLegacyBarSettings() {
+    if (bridge.getPreference('bottomBarVisibility', '') !== '') return;
+
+    const legacyHide = bridge.getPreference('hideBottomBar', '');
+    if (legacyHide === '') return;   // nothing stored under the old pair either
+
+    if (legacyHide !== 'true' && legacyHide !== '1') {
+        setState('bottomBarVisibility', BAR_ALWAYS);
+        return;
+    }
+    // "Ignorar"/"Nunca" meant no exception, so the bar was hidden unconditionally.
+    // Every other value kept it while something was projected.
+    const legacyExcept = bridge.getPreference('doNotHideBarsOn', 'Ambos');
+    setState('bottomBarVisibility',
+        (legacyExcept === 'Ignorar' || legacyExcept === 'Nunca') ? BAR_NEVER : BAR_WITH_PROJECTION);
 }
 
 // theme.xml ships these as combos of "Padrão, Reduzido, Clean". Values cross the bridge
@@ -264,6 +319,9 @@ function render() {
             c !== 'warn-is-active' &&
             c !== 'card-0-active' &&
             c !== 'hide-bottom-bar' &&
+            c !== 'hide-top-bar' &&
+            c !== 'show-top-notch' &&
+            c !== 'show-bottom-notch' &&
             c !== 'hide-regen-icon' &&
             c !== 'hide-rpm-icon' &&
             c !== 'nav-mask-reduced' &&
@@ -295,9 +353,19 @@ function render() {
 
         // theme.xml settings. Only the "off" side gets a class, so the boot frame
         // that renders before bindThemeSetting resolves already matches the defaults
-        // (bottom bar shown, regen and RPM indicators shown).
-        if (isHideBottomBarEffective()) {
+        // (bars shown, regen and RPM indicators shown).
+        if (!isBottomBarVisible()) {
             classes.push('hide-bottom-bar');
+        }
+        if (!isTopBarVisible()) {
+            classes.push('hide-top-bar');
+        }
+        // A hidden bar leaves its notch behind to keep the menu / time-gear legible.
+        if (isTopNotchVisible()) {
+            classes.push('show-top-notch');
+        }
+        if (isBottomNotchVisible()) {
+            classes.push('show-bottom-notch');
         }
         if (get('showRegenIcon') === false) {
             classes.push('hide-regen-icon');
@@ -396,7 +464,6 @@ function render() {
 }
 
 function updateAppDimensions() {
-    const hideBottomBar = isHideBottomBarEffective();
     const effectiveMaskMode = getEffectiveMaskMode();
 
     // Vertical insets must match the real mask geometry in night.style.css:
@@ -405,10 +472,15 @@ function updateAppDimensions() {
     const TOP_MASK = 95;
     const BOTTOM_MASK = 60;
 
+    // A hidden bar hands its strip back to the app, notch or not — the notch is drawn
+    // over the app rather than reserving space, so hiding a bar actually buys room.
+    const topInset = isTopBarVisible() ? TOP_MASK : 0;
+    const bottomInset = isBottomBarVisible() ? BOTTOM_MASK : 0;
+
     let x = 0;
-    let y = TOP_MASK;
+    let y = topInset;
     let width = 1920;
-    let height = hideBottomBar ? 720 - TOP_MASK : 720 - TOP_MASK - BOTTOM_MASK;
+    let height = 720 - topInset - bottomInset;
 
     if (effectiveMaskMode === 'Padrão') {
         x = 400;
@@ -480,7 +552,9 @@ subscribe('focusedMenuItem', (item) => {
 });
 
 subscribe('clusterEnabled', render);
-subscribe('hideBottomBar', render);
+// Both bars can resolve to "visible only with/without projection", so anything that
+// changes what is on the cluster has to re-run the visibility check.
+subscribe('mapInDash', render);
 subscribe('showRegenIcon', render);
 subscribe('showRpmIcon', render);
 render();
@@ -957,23 +1031,37 @@ async function initMinimalistBridge() {
     if (typeof bridge.reset === 'function') bridge.reset();
     await bridge.init();
 
-    // theme.xml <configurations>
-    const bindDual = (camel, snake, defVal) => {
-        bridge.bindThemeSetting(camel, defVal, setState);
-        bridge.bindThemeSetting(snake, defVal, (k, v) => { setState(camel, v); setState(snake, v); render(); });
-        subscribe(camel, render);
-        subscribe(snake, render);
+    // theme.xml <configurations>.
+    //
+    // Bind the <stateVariable> name and nothing else. The app stores every config as
+    // theme_config_<folder>_<stateVariable> (TelasScreen) and pushes it as
+    // app.preferences.<stateVariable> (PreferencePushListener), so that is the only
+    // name that ever carries a value.
+    //
+    // This used to also bind the snake_case theme.xml id. That second bind re-read a
+    // key nothing writes, missed, and handed the *default* to a callback that wrote it
+    // straight over the value the first bind had just loaded — so every setting came up
+    // at its default and only took effect once the user toggled it and a live push
+    // arrived. Subscribing before the read matters too: bindThemeSetting seeds state
+    // synchronously, and a subscription registered afterwards never sees it.
+    const bindSetting = (stateVar, defVal) => {
+        subscribe(stateVar, render);
+        bridge.bindThemeSetting(stateVar, defVal, setState);
     };
 
-    bindDual('hideBottomBar', 'hide_bottom_bar', false);
-    bindDual('doNotHideBarsOn', 'do_not_hide_bars_on', 'Ambos');
-    bindDual('showRegenIcon', 'show_regen_icon', true);
-    bindDual('showRpmIcon', 'show_rpm_icon', true);
     // Defaults must mirror theme.xml, otherwise the boot frame renders the wrong mask
     // until the host delivers the stored value.
-    bindDual('navigationDisplayMode', 'navigation_display_mode', 'Clean');
-    bindDual('appDisplayMode', 'app_display_mode', 'Padrão');
-    bindDual('display', 'display', 'Normal');
+    bindSetting('topBarVisibility', 'Sempre');
+    bindSetting('bottomBarVisibility', 'Só com Projeção');
+    bindSetting('bottomBarNotch', true);
+    bindSetting('showRegenIcon', true);
+    bindSetting('showRpmIcon', true);
+    bindSetting('navigationDisplayMode', 'Clean');
+    bindSetting('appDisplayMode', 'Padrão');
+    bindSetting('display', 'Normal');
+
+    migrateLegacyBarSettings();
+    render();
 
     subscribe('carPlayInDash', render);
     subscribe('projectionMirrorInDash', render);

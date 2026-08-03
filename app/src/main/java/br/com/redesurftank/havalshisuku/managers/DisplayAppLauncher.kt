@@ -808,6 +808,34 @@ object DisplayAppLauncher {
         )
     }
 
+    /**
+     * Gate for the startup auto-launch only (InstrumentProjector2.triggerAutoLaunch).
+     *
+     * Android Auto and CarPlay are declared with displayId = 3 in PREDEFINED_APPS, and
+     * getOrCreateDefaultConfig() also defaults new configs to 3, so the config-driven
+     * launch path put projection on the cluster without ever reading the
+     * "move projection to cluster" setting - which is why turning it off changed nothing.
+     *
+     * Deliberately NOT applied inside launchApp(): an explicit send-to-display from the
+     * UI must still be able to put projection on the cluster. The setting only covers the
+     * automatic move at start.
+     *
+     * Coerces a copy instead of rewriting the stored config, so switching the setting back
+     * on restores cluster launch with no reconfiguration.
+     */
+    fun resolveAutoLaunchConfig(config: DisplayAppConfig): DisplayAppConfig {
+        if (config.displayId != 3) return config
+        if (normalizeProjectionPackage(config.packageName) == null) return config
+        if (isAutoMoveProjectionToClusterEnabled()) return config
+
+        Log.w(
+            TAG,
+            "[AUTO_LAUNCH_CLUSTER_GATE] ${config.packageName} configured for D3 but " +
+                    "autoMoveProjectionToCluster is off; auto-launching on D0 instead"
+        )
+        return config.copy(displayId = 0)
+    }
+
     fun isAndroidAutoDesiredOnCluster(): Boolean {
         return isAutoMoveProjectionToClusterEnabled()
     }

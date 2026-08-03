@@ -1021,7 +1021,9 @@ public class ServiceManager {
         // ligado antes do serviço subir, a flag ficaria falsa).
         wifiTetherEnabled = currentWifiTetherState();
         Log.w(TAG, "Services initialized successfully");
-        if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false)) {
+        boolean curtainOnStartEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
+        traceCurtain("sunroof_curtain_init", "enabled", curtainOnStartEnabled);
+        if (curtainOnStartEnabled) {
             autoOpenSunroofCurtain(0);
         }
         // HEV Prioritário: no boot o carro costuma resetar o % (ex.: 45->80) e o app pode subir
@@ -2175,15 +2177,33 @@ public class ServiceManager {
         }
     }
 
+    /**
+     * Trace durável do fluxo da cortina. O logcat deste device não serve p/ pós-mortem:
+     * não há logd persistente e o buffer compartilhado rola em ~5min, então a decisão
+     * tomada no boot já sumiu quando o problema é percebido. Vai p/ cluster-diagnostics.
+     */
+    private void traceCurtain(String event, Object... keyValues) {
+        Map<String, Object> details = new HashMap<>();
+        for (int i = 0; i + 1 < keyValues.length; i += 2) {
+            details.put(String.valueOf(keyValues[i]), keyValues[i + 1]);
+        }
+        ClusterPersistentEventLogger.log(event, details);
+    }
+
     public void openSunRoofShade() {
         try {
             int sunRoofBlockStatus = vehicle.getShadeScreensLevel(0);
             if (sunRoofBlockStatus != 100) {
                 vehicle.setShadeScreensLevel(100);
                 Log.w(TAG, "Opening sunroof curtain");
+                traceCurtain("sunroof_curtain_actuate", "levelBefore", sunRoofBlockStatus, "action", "set_100");
+            } else {
+                Log.w(TAG, "Sunroof curtain already open, nothing to do");
+                traceCurtain("sunroof_curtain_actuate", "levelBefore", sunRoofBlockStatus, "action", "already_open");
             }
         } catch (Exception e) {
             Log.e(TAG, "Error opening shade screens", e);
+            traceCurtain("sunroof_curtain_actuate_error", "error", String.valueOf(e));
         }
     }
 
@@ -2210,9 +2230,14 @@ public class ServiceManager {
             isTimeInRange = currentTime >= startTime || currentTime < endTime;
         }
 
+        String window = startHour + ":" + startMinute + "-" + endHour + ":" + endMinute;
+        traceCurtain("sunroof_curtain_check", "attempt", attempt, "now", currentHour + ":" + currentMinute,
+                "window", window, "timeInRange", isTimeInRange);
+
         // Horário fora da janela é definitivo: não adianta esperar leitura de temperatura.
         if (!isTimeInRange) {
             Log.w(TAG, "Current time " + currentHour + ":" + currentMinute + " not in range (" + startHour + ":" + startMinute + " - " + endHour + ":" + endMinute + "), not opening curtain");
+            traceCurtain("sunroof_curtain_skip", "reason", "time_out_of_range", "now", currentHour + ":" + currentMinute, "window", window);
             return;
         }
 
@@ -2223,10 +2248,13 @@ public class ServiceManager {
             Float reading = readOutsideTempForCurtain();
             if (reading == null) {
                 // Dado ainda não disponível: reagenda em vez de desistir (ver CURTAIN_TEMP_*).
-                if (attempt + 1 < CURTAIN_TEMP_MAX_ATTEMPTS) {
+                boolean willRetry = attempt + 1 < CURTAIN_TEMP_MAX_ATTEMPTS;
+                traceCurtain("sunroof_curtain_temp_unavailable", "attempt", attempt, "willRetry", willRetry);
+                if (willRetry) {
                     backgroundHandler.postDelayed(() -> autoOpenSunroofCurtain(attempt + 1), CURTAIN_TEMP_RETRY_MS);
                 } else {
                     Log.w(TAG, "Outside temp still unavailable after " + CURTAIN_TEMP_MAX_ATTEMPTS + " attempts, not opening curtain");
+                    traceCurtain("sunroof_curtain_skip", "reason", "temp_unavailable", "attempts", CURTAIN_TEMP_MAX_ATTEMPTS);
                 }
                 return;
             }
@@ -2237,10 +2265,13 @@ public class ServiceManager {
         // Ambas as condições precisam valer (horário E temperatura); temperatura desabilitada = neutra.
         if (isTempInRange) {
             Log.w(TAG, "Opening curtain: time " + currentHour + ":" + currentMinute + " in range, outside temp " + outsideTemp + " <= " + maxTemp + " (attempt " + attempt + ")");
+            traceCurtain("sunroof_curtain_open", "attempt", attempt, "now", currentHour + ":" + currentMinute,
+                    "outsideTemp", outsideTemp, "maxTemp", maxTemp);
             // Delay slightly to ensure services are fully ready or just triggering command
             backgroundHandler.postDelayed(this::openSunRoofShade, 2000);
         } else {
             Log.w(TAG, "Outside temp " + outsideTemp + " > max configured " + maxTemp + ", not opening curtain");
+            traceCurtain("sunroof_curtain_skip", "reason", "temp_above_max", "outsideTemp", outsideTemp, "maxTemp", maxTemp);
         }
     }
 
@@ -2249,12 +2280,16 @@ public class ServiceManager {
         String raw = getUpdatedData(CarConstants.CAR_BASIC_OUTSIDE_TEMP.getValue());
         if (raw == null || raw.trim().isEmpty()) {
             Log.w(TAG, "Outside temp not available yet for curtain check (raw=" + raw + ")");
+            traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "unavailable");
             return null;
         }
         try {
-            return Float.parseFloat(raw.trim());
+            float parsed = Float.parseFloat(raw.trim());
+            traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "ok", "parsed", parsed);
+            return parsed;
         } catch (NumberFormatException e) {
             Log.w(TAG, "Outside temp unparseable for curtain check (raw=" + raw + ")");
+            traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "unparseable");
             return null;
         }
     }

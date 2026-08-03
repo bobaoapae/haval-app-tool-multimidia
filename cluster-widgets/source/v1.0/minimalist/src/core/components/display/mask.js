@@ -9,8 +9,17 @@ export function createMask() {
     const leftPanel = div({ className: 'mask-panel left' });
     const rightPanel = div({ className: 'mask-panel right' });
 
+    // Notches: the backdrop a hidden bar leaves behind so the menu (top) and the
+    // time/gear readout (bottom) stay legible over a map. Always in the DOM; the
+    // show-top-notch / show-bottom-notch classes on #app decide what renders, and
+    // night.style.css clips each one to its S-shouldered shape.
+    const topNotch = div({ className: 'mask-top-notch' });
+    const bottomNotch = div({ className: 'mask-bottom-notch' });
+
     maskBg.appendChild(topBar);
     maskBg.appendChild(bottomBar);
+    maskBg.appendChild(topNotch);
+    maskBg.appendChild(bottomNotch);
     maskBg.appendChild(leftPanel);
     maskBg.appendChild(rightPanel);
 
