@@ -146,12 +146,26 @@ processHtml(indexHtmlPath, appOutputPath);
 // Inline dynamic assets (css referenced in JS)
 inlineDynamicAssets(appOutputPath);
 
-// Copy to Themes/v1.0/minimalist folder
-var themesOutputPath = path.join(__dirname, '..', '..', '..', 'Themes', 'v1.0', 'minimalist', 'app.html');
+// Copy to Themes/v1.0/minimalist folder.
+// Unlike Default, this theme is NOT bundled into the APK (no res/raw, no
+// assets/) - it is downloaded on demand, so Themes/ is its only destination.
+// theme.xml has to travel with app.html: it carries the <version> the updater
+// compares against, so shipping a new app.html beside a stale theme.xml means
+// the car never sees the update.
+var themesDir = path.join(__dirname, '..', '..', '..', 'Themes', 'v1.0', 'minimalist');
+var themesOutputPath = path.join(themesDir, 'app.html');
+var themeXmlSourcePath = path.join(__dirname, 'theme.xml');
+var themeXmlDestPath = path.join(themesDir, 'theme.xml');
 try {
-  fs.mkdirSync(path.dirname(themesOutputPath), { recursive: true });
+  fs.mkdirSync(themesDir, { recursive: true });
   fs.copyFileSync(appOutputPath, themesOutputPath);
   console.log(`✅ Copiado para Themes: ${themesOutputPath}`);
+  if (fs.existsSync(themeXmlSourcePath)) {
+    fs.copyFileSync(themeXmlSourcePath, themeXmlDestPath);
+    console.log(`✅ Copiado theme.xml para Themes: ${themeXmlDestPath}`);
+  } else {
+    console.warn(`⚠️ theme.xml não encontrado em ${themeXmlSourcePath}`);
+  }
 } catch (err) {
   console.error(`❌ Erro ao copiar para Themes: ${err.message}`);
 }
