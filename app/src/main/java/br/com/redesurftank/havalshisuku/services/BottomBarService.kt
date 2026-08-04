@@ -795,20 +795,15 @@ class BottomBarService : LifecycleService() {
                                     DisplayAppLauncher.resolveActiveProjectionPackageForDisplay(3)
                             if (currentPackage != null) {
                                 withContext(Dispatchers.Main) {
+                                    // Published for the projection logic, but deliberately not fed
+                                    // into selectedPackage: the bar's icon tracks display 0, and a
+                                    // projection sitting on the cluster is not what display 0 shows.
                                     BottomBarState.activeClusterProjectionPackage =
                                             activeClusterProjectionPackage ?: ""
-                                    if (activeClusterProjectionPackage != null &&
-                                                    BottomBarState.selectedPackage !=
-                                                            activeClusterProjectionPackage
-                                    ) {
-                                        BottomBarState.selectedPackage =
-                                                activeClusterProjectionPackage
-                                    }
                                     if (BottomBarState.currentPackage != currentPackage) {
                                         BottomBarState.currentPackage = currentPackage
                                         // Auto-select the current app if it's not a launcher or in the ignore list
-                                        if (activeClusterProjectionPackage == null &&
-                                                        !IGNORE_PACKAGES.contains(currentPackage) &&
+                                        if (!IGNORE_PACKAGES.contains(currentPackage) &&
                                                         !isLauncher(currentPackage)
                                         ) {
                                             BottomBarState.selectedPackage = currentPackage
@@ -821,10 +816,6 @@ class BottomBarService : LifecycleService() {
                                 withContext(Dispatchers.Main) {
                                     BottomBarState.activeClusterProjectionPackage =
                                             activeClusterProjectionPackage ?: ""
-                                    if (activeClusterProjectionPackage != null) {
-                                        BottomBarState.selectedPackage =
-                                                activeClusterProjectionPackage
-                                    }
                                     BottomBarState.currentPackage =
                                             this@BottomBarService.packageName
                                 }

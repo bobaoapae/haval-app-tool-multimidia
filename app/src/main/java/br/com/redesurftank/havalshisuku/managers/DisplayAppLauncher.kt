@@ -1241,6 +1241,17 @@ object DisplayAppLauncher {
         }
     }
 
+    /**
+     * Maps an already-observed package name onto the projection package the rest of the app keys
+     * configs off, or null when it is not a projection package.
+     *
+     * Unlike [resolveActiveProjectionPackageForDisplay] this never searches the task stack, so a
+     * caller that already knows what is on top of a display can classify it without a projection
+     * that is merely parked in the background winning.
+     */
+    fun resolveProjectionPackageOrNull(packageName: String?): String? =
+        normalizeProjectionPackage(packageName)
+
     internal fun resolveProjectionDisplayToggleDecisionForTest(
         mainProjectionPackage: String?,
         clusterProjectionPackage: String?

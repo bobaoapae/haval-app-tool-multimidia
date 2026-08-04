@@ -29,29 +29,43 @@ class BottomBarUIProjectionConfigTest {
     }
 
     @Test
-    fun resolveBottomBarEffectivePackage_prioritizesClusterProjectionOverStaleSelection() {
-        val effectivePackage =
-            resolveBottomBarEffectivePackage(
-                projectionPackageOnMain = null,
-                projectionPackageOnCluster = "com.ts.carplay.app",
-                selectedPackage = "com.beantechs.applist",
-                firstConfiguredPackage = "com.ts.androidauto.app"
-            )
-
-        assertEquals("com.ts.carplay.app", effectivePackage)
-    }
-
-    @Test
     fun resolveBottomBarEffectivePackage_keepsDisplayZeroProjectionFirst() {
         val effectivePackage =
             resolveBottomBarEffectivePackage(
                 projectionPackageOnMain = "com.ts.androidauto.app",
-                projectionPackageOnCluster = "com.ts.carplay.app",
                 selectedPackage = "com.beantechs.applist",
                 firstConfiguredPackage = "com.example.music"
             )
 
         assertEquals("com.ts.androidauto.app", effectivePackage)
+    }
+
+    /**
+     * The bar's icon names what display 0 is showing. While a projection runs on the cluster the
+     * user is looking at some other app on display 0, and the icon has to say so.
+     */
+    @Test
+    fun resolveBottomBarEffectivePackage_ignoresClusterProjectionAndFollowsDisplayZero() {
+        val effectivePackage =
+            resolveBottomBarEffectivePackage(
+                projectionPackageOnMain = null,
+                selectedPackage = "com.example.music",
+                firstConfiguredPackage = "com.ts.androidauto.app"
+            )
+
+        assertEquals("com.example.music", effectivePackage)
+    }
+
+    @Test
+    fun resolveBottomBarEffectivePackage_fallsBackToFirstConfigWhenNothingSelected() {
+        val effectivePackage =
+            resolveBottomBarEffectivePackage(
+                projectionPackageOnMain = null,
+                selectedPackage = "",
+                firstConfiguredPackage = "com.example.music"
+            )
+
+        assertEquals("com.example.music", effectivePackage)
     }
 
     private fun config(packageName: String, customName: String? = null): DisplayAppConfig {

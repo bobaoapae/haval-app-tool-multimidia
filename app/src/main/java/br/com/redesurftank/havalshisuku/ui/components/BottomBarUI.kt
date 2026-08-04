@@ -126,14 +126,19 @@ internal fun mergeBottomBarProjectionConfigs(
         return savedConfigs + projectionDefaults.filter { savedPackages.add(it.packageName) }
 }
 
+/**
+ * The package the bar's centre icon stands for: whatever is on display 0 right now.
+ *
+ * A projection running on the cluster deliberately does not take part. The icon answers "what am I
+ * looking at on the main screen", so claiming Android Auto while it is on display 3 - and the user
+ * is on some other app on display 0 - is exactly the confusion this avoids.
+ */
 internal fun resolveBottomBarEffectivePackage(
         projectionPackageOnMain: String?,
-        projectionPackageOnCluster: String?,
         selectedPackage: String,
         firstConfiguredPackage: String
 ): String {
         return projectionPackageOnMain
-                ?: projectionPackageOnCluster
                 ?: selectedPackage.takeIf { it.isNotEmpty() }
                 ?: firstConfiguredPackage
 }
@@ -145,9 +150,18 @@ private fun getBottomBarAppConfigs(): List<DisplayAppConfig> {
         )
 }
 
+/**
+ * The projection app on display 0, or null when display 0 is showing something else.
+ *
+ * Read off [BottomBarState.currentPackage] - the top package the service polls - instead of
+ * `resolveActiveProjectionPackageForDisplay(0)`, which also reports a projection that is only
+ * parked in display 0's task stack. That is what left the bar stuck on the Android Auto icon after
+ * AA came back from the cluster and another app was opened on top of it. Reading state also means
+ * the icon actually recomposes when display 0 changes.
+ */
 private fun getProjectionPackageOnMainForBottomBar(): String? {
         return br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-                .resolveActiveProjectionPackageForDisplay(0)
+                .resolveProjectionPackageOrNull(BottomBarState.currentPackage)
 }
 
 private val commonTextStyle =
@@ -852,14 +866,9 @@ fun AppSwitcherSection() {
         val selectedPackage = br.com.redesurftank.havalshisuku.models.BottomBarState.selectedPackage
         val showMenu = br.com.redesurftank.havalshisuku.models.BottomBarState.isMenuExpanded
         val projectionPackageOnMain = getProjectionPackageOnMainForBottomBar()
-        val projectionPackageOnCluster =
-                br.com.redesurftank.havalshisuku.models.BottomBarState
-                        .activeClusterProjectionPackage
-                        .takeIf { it.isNotEmpty() }
         val effectiveSelectedPackage =
                 resolveBottomBarEffectivePackage(
                         projectionPackageOnMain = projectionPackageOnMain,
-                        projectionPackageOnCluster = projectionPackageOnCluster,
                         selectedPackage = selectedPackage,
                         firstConfiguredPackage = configs.firstOrNull()?.packageName ?: ""
                 )
@@ -4165,51 +4174,6 @@ private fun DashboardArtworkFallback(
 }
 
 @Composable
-private fun DashboardQuickActionsPanel(
-        context: Context,
-        scope: CoroutineScope,
-        effectivePackage: String?,
-        modifier: Modifier
-) {
-        DashboardPanel(modifier = modifier) {
-                Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                        DashboardPanelTitle(Icons.Default.Apps, "Atalhos")
-                        DashboardActionButton(
-                                text = "Enviar ao cluster",
-                                icon = Icons.Default.KeyboardArrowLeft,
-                                enabled = effectivePackage != null
-                        ) {
-                                val pkg = effectivePackage ?: return@DashboardActionButton
-                                scope.launch {
-                                        DisplayAppLauncher.getOrCreateDefaultConfig(context, pkg)
-                                                ?.let { DisplayAppLauncher.sendToDisplay(it) }
-                                }
-                        }
-                        DashboardActionButton(
-                                text = "Trazer para D0",
-                                icon = Icons.Default.KeyboardArrowRight
-                        ) {
-                                scope.launch { DisplayAppLauncher.bringAllToMainDisplay() }
-                        }
-                        DashboardActionButton(
-                                text = "Menu de apps",
-                                icon = Icons.Default.GridView
-                        ) {
-                                BottomBarState.isDashboardExpanded = false
-                                BottomBarState.isMenuExpanded = true
-                        }
-                        DashboardActionButton(
-                                text = "Ocultar painel",
-                                icon = Icons.Default.KeyboardDoubleArrowDown
-                        ) {
-                                BottomBarState.isDashboardExpanded = false
-                                BottomBarState.isVisible = false
-                        }
-                }
-        }
-}
-
-@Composable
 private fun DashboardHvacPanel(
         snapshot: DashboardVehicleSnapshot,
         serviceManager: ServiceManager,
@@ -5132,53 +5096,6 @@ private fun DashboardIconButton(
                                 contentDescription = contentDescription,
                                 tint = Color.White,
                                 modifier = Modifier.size((size.value * 0.48f).dp)
-                        )
-                }
-        }
-}
-
-@Composable
-private fun DashboardActionButton(
-        text: String,
-        icon: ImageVector,
-        enabled: Boolean = true,
-        modifier: Modifier = Modifier.fillMaxWidth(),
-        height: Dp = 58.dp,
-        onClick: () -> Unit
-) {
-        Surface(
-                onClick = onClick,
-                enabled = enabled,
-                color =
-                        if (enabled) Color.White.copy(alpha = 0.07f)
-                        else Color.White.copy(alpha = 0.03f),
-                shape = RoundedCornerShape(8.dp),
-                border =
-                        BorderStroke(
-                                1.dp,
-                                if (enabled) Color.White.copy(alpha = 0.12f)
-                                else Color.White.copy(alpha = 0.05f)
-                        ),
-                modifier = modifier.height(height)
-        ) {
-                Row(
-                        modifier = Modifier.padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                        Icon(
-                                icon,
-                                contentDescription = null,
-                                tint = if (enabled) Color(0xFF66E3FF) else Color.White.copy(alpha = 0.3f),
-                                modifier = Modifier.size(24.dp)
-                        )
-                        Text(
-                                text = text,
-                                color = if (enabled) Color.White else Color.White.copy(alpha = 0.35f),
-                                fontSize = 14.sp,
-                                fontFamily = DashboardReadableFont,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
                         )
                 }
         }
