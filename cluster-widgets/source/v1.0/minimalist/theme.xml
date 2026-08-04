@@ -1,7 +1,7 @@
 <theme>
     <name>Minimalist</name>
     <description>Clean, square edges, flat menu, and minimalist typography.</description>
-    <version>1.5.6</version>
+    <version>1.5.9</version>
     <minBridgeVersion>1.0.0</minBridgeVersion>
     <contractVersion>v1.0</contractVersion>
     <thumbnail>thumbnail.png</thumbnail>
@@ -17,6 +17,15 @@
         <width>1920</width>
         <height>596</height>
     </AppDefaultPosition>
+
+    <!-- Native cluster mask overlays rendered on Display 3 by Android host -->
+    <nativeMasks>
+        <fuelMask enabled="true" x="0" y="653" width="730" height="67" />
+        <batteryMask enabled="true" x="1190" y="653" width="730" height="67" />
+        <topCenterMask enabled="true" x="710" y="0" width="500" height="67" />
+        <!-- <speedMask enabled="false" x="0" y="0" width="600" height="720" /> -->
+        <!-- <infoMask enabled="false" x="1320" y="0" width="600" height="720" /> -->
+    </nativeMasks>
 
     <configurations>
         <configuration>
@@ -71,18 +80,6 @@
             <type>boolean</type>
             <default>true</default>
             <stateVariable>bottomBarNotch</stateVariable>
-        </configuration>
-        <!-- Os medidores originais de combustível e bateria são desenhados entre o
-             display 1 e o display 3, então quem os escondia era a barra inferior opaca.
-             Com a barra oculta, esta opção repinta o papel de parede do display 1 sobre
-             cada medidor, em duas pílulas — mantendo o recorte, sem devolver a barra
-             preta, e sem cobrir o resto da faixa, que traz informação nativa útil. -->
-        <configuration>
-            <id>cover_native_gauges</id>
-            <label>Cobrir Medidores Originais</label>
-            <type>boolean</type>
-            <default>true</default>
-            <stateVariable>coverNativeGauges</stateVariable>
         </configuration>
         <!-- Multiple selection, stored as a comma separated list. On app builds that do
              not know the "multi" type the settings dialog shows the label with no

@@ -13,6 +13,13 @@ export function createMask() {
     // everything else in the mask still draws on top (including the notch they exist for).
     const fuelPatch = div({ className: 'mask-gauge-patch fuel' });
     const batteryPatch = div({ className: 'mask-gauge-patch battery' });
+    
+    // If Android host supports native masks, native overlay on Display 3 handles the gauge patches
+    if (typeof window !== 'undefined' && window.Android && typeof window.Android.setNativeMaskState === 'function') {
+        fuelPatch.style.display = 'none';
+        batteryPatch.style.display = 'none';
+    }
+    
     maskBg.appendChild(fuelPatch);
     maskBg.appendChild(batteryPatch);
 
