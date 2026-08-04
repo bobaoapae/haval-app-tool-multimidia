@@ -217,6 +217,11 @@ public class ServiceManager {
     private Boolean closeSunroofDueToeSpeed = false;
     private HandlerThread handlerThread;
     private Handler backgroundHandler;
+    // ===== Dados móveis do carro (controle: master + regras) =====
+    private volatile Runnable mobileDataAutoblockRunnable;
+    private static final long MOBILE_DATA_CHECK_MS = 15 * 1000L; // 15s: pega consumo/WiFi/projeção
+    private android.net.ConnectivityManager.NetworkCallback mobileDataWifiCallback;
+    private BroadcastReceiver mobileDataTetherReceiver;
     // Monitor periódico do % do HEV Prioritário: reaplica o valor salvo mesmo se algum evento
     // (power-on/entrar no modo/carro resetar) tiver sido perdido — ex.: app subiu tarde no boot.
     private static final long HEV_SOC_MONITOR_INTERVAL_MS = 30000L;
@@ -240,8 +245,23 @@ public class ServiceManager {
     // 8 tentativas x 4s ≈ 28s: o tether (hotspot) pode demorar a subir no boot deste OEM.
     // O loop para assim que o rádio liga, então tentativas extras são de graça p/ o BT (rápido).
     private static final int RADIO_RESTORE_MAX_ATTEMPTS = 8;
+    private static final long STARTUP_REPORT_RECONCILE_DELAY_MS = 6000L;
     private CarInfo carInfo;
-    private IIntelligentVehicleControlService controlService;
+    private volatile IIntelligentVehicleControlService controlService;
+    // ===== Canal de controle resiliente =====
+    // Sem isto, se o processo de controle do carro morre (reinicio do app OEM / OOM do
+    // system_server), o app simplesmente PARA de falar com o carro - nada reconecta. Isto adiciona:
+    // linkToDeath -> reconexao automatica; watchdog de 10s que faz ping e recupera se morto; e
+    // recuperacao via re-registro de listener/chaves. PURAMENTE ADITIVO: o caminho normal de init
+    // nao muda. Flag pra reversao de 1 linha.
+    private static final boolean CONTROL_CHANNEL_RESILIENCE_ENABLED = true;
+    private static final long CONTROL_CHANNEL_WATCHDOG_MS = 10000L;
+    private volatile boolean recoveringControlChannel = false;
+    private final ControlChannelRecoveryGate controlChannelRecoveryGate = new ControlChannelRecoveryGate();
+    private volatile int controlChannelRecoveryCount = 0;
+    private volatile IBinder.DeathRecipient controlDeathRecipient;
+    private volatile IBinder controlDeathBinder;
+    private volatile Runnable controlChannelWatchdogRunnable;
     private IVehicle vehicle;
     private IDvr dvr;
     private boolean delayNextAVM = false;
@@ -263,6 +283,7 @@ public class ServiceManager {
     private long lastHandledClusterInputAtMs = 0L;
     private long lastSyntheticClusterCardNavigationAtMs = 0L;
     private int lastSyntheticClusterCardTarget = -1;
+    private volatile boolean syntheticAirconCardOwned = false;
     private static final long STEERING_WHEEL_PROJECTION_TOGGLE_DEDUP_WINDOW_MS = 800L;
     private static final long STEERING_WHEEL_DASHBOARD_TOGGLE_DEDUP_WINDOW_MS = 800L;
     private static final long STEERING_WHEEL_CLIMATE_COMMAND_DEDUP_WINDOW_MS = 800L;
@@ -352,6 +373,8 @@ public class ServiceManager {
         }
 
         try {
+            stopMobileDataGuard(context);
+            stopControlChannelRuntime();
             if (controlService != null) {
                 if (controlService.asBinder().isBinderAlive()) {
                     try {
@@ -426,6 +449,7 @@ public class ServiceManager {
                 return false;
             }
             controlService = IIntelligentVehicleControlService.Stub.asInterface(controlBinder);
+            registerControlDeathRecipient();
 
             IBinder rawPoolBinder = getSystemService("com.beantechs.voice.adapter.VoiceAdapterService");
             if (rawPoolBinder == null) {
@@ -477,13 +501,18 @@ public class ServiceManager {
                                 lastSyntheticClusterCardNavigationAtMs == 0L
                                         ? -1L
                                         : now - lastSyntheticClusterCardNavigationAtMs;
+                        boolean protectAirconProjectionExit =
+                                DisplayAppLauncher.INSTANCE.shouldProtectAirconCardDuringCarPlayClusterTransition();
+                        boolean protectSyntheticAirconExit = syntheticAirconCardOwned;
                         if (ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
                                 previousCard,
                                 whichCard,
                                 sinceInputMs,
                                 lastClusterInputKeyCode,
                                 sinceSyntheticMs,
-                                lastSyntheticClusterCardTarget
+                                lastSyntheticClusterCardTarget,
+                                protectAirconProjectionExit,
+                                protectSyntheticAirconExit
                         )) {
                             Log.w(
                                     TAG,
@@ -501,6 +530,10 @@ public class ServiceManager {
                                             + lastSyntheticClusterCardTarget
                                             + " sinceSyntheticMs="
                                             + sinceSyntheticMs
+                                            + " protectAirconProjectionExit="
+                                            + protectAirconProjectionExit
+                                            + " protectSyntheticAirconExit="
+                                            + protectSyntheticAirconExit
                             );
                             logPersistentClusterEvent(
                                     "native_cluster_card_ignored",
@@ -511,10 +544,15 @@ public class ServiceManager {
                                             + " sinceInputMs=" + sinceInputMs
                                             + " syntheticTarget=" + lastSyntheticClusterCardTarget
                                             + " sinceSyntheticMs=" + sinceSyntheticMs
+                                            + " protectAirconProjectionExit=" + protectAirconProjectionExit
+                                            + " protectSyntheticAirconExit=" + protectSyntheticAirconExit
                             );
                             return;
                         }
                         clusterCardView = whichCard;
+                        if (previousCard == 3 && whichCard != 3) {
+                            syntheticAirconCardOwned = false;
+                        }
                         dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, clusterCardView);
                         Log.w(
                                 TAG,
@@ -528,6 +566,10 @@ public class ServiceManager {
                                         + lastClusterInputKeyCode
                                         + ") sinceInputMs="
                                         + sinceInputMs
+                                        + " protectAirconProjectionExit="
+                                        + protectAirconProjectionExit
+                                        + " protectSyntheticAirconExit="
+                                        + protectSyntheticAirconExit
                         );
                         logPersistentClusterEvent(
                                 "native_cluster_card_changed",
@@ -536,6 +578,8 @@ public class ServiceManager {
                                         + " lastInputKey=" + lastClusterInputKeyName
                                         + "(" + lastClusterInputKeyCode + ")"
                                         + " sinceInputMs=" + sinceInputMs
+                                        + " protectAirconProjectionExit=" + protectAirconProjectionExit
+                                        + " protectSyntheticAirconExit=" + protectSyntheticAirconExit
                         );
                     } else if (msgId == 134) {
                         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
@@ -648,9 +692,27 @@ public class ServiceManager {
                                 break;
                         }
                         if (key != null) {
-                            lastClusterInputAtMs = SystemClock.uptimeMillis();
+                            int inputCardBeforeHandling = clusterCardView;
+                            long now = SystemClock.uptimeMillis();
+                            lastClusterInputAtMs = now;
                             lastClusterInputKeyCode = keyEvent.getKeyCode();
                             lastClusterInputKeyName = key.name();
+                            boolean duplicateClusterInput =
+                                    lastHandledClusterInputKeyCode == keyEvent.getKeyCode()
+                                            && now - lastHandledClusterInputAtMs <= CLUSTER_INPUT_DEDUP_WINDOW_MS;
+                            if (!duplicateClusterInput) {
+                                lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
+                                lastHandledClusterInputAtMs = now;
+                                if (key == Screen.Key.LEFT || key == Screen.Key.RIGHT) {
+                                    handleClusterCardNavigationKey(key);
+                                } else if (ClusterCardSyncPolicy.shouldReleaseSyntheticAirconOwnershipForInput(
+                                        lastClusterInputKeyCode
+                                )) {
+                                    syntheticAirconCardOwned = false;
+                                    lastSyntheticClusterCardNavigationAtMs = 0L;
+                                    lastSyntheticClusterCardTarget = -1;
+                                }
+                            }
                             Log.w(
                                     TAG,
                                     "Cluster input key: "
@@ -665,7 +727,7 @@ public class ServiceManager {
                                     "key=" + lastClusterInputKeyName
                                             + "(" + lastClusterInputKeyCode + ")"
                                             + " action=" + keyEvent.getAction()
-                                            + " currentCard=" + clusterCardView
+                                            + " currentCard=" + inputCardBeforeHandling
                             );
                             dispatchServiceManagerEvent(
                                     ServiceManagerEventType.CLUSTER_INPUT_KEY,
@@ -673,16 +735,8 @@ public class ServiceManager {
                                     lastClusterInputKeyCode,
                                     keyEvent.getAction()
                             );
-                            long now = SystemClock.uptimeMillis();
-                            boolean duplicateClusterInput =
-                                    lastHandledClusterInputKeyCode == keyEvent.getKeyCode()
-                                            && now - lastHandledClusterInputAtMs <= CLUSTER_INPUT_DEDUP_WINDOW_MS;
                             if (!duplicateClusterInput) {
-                                lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
-                                lastHandledClusterInputAtMs = now;
-                                if (key == Screen.Key.LEFT || key == Screen.Key.RIGHT) {
-                                    handleClusterCardNavigationKey(key);
-                                } else {
+                                if (key != Screen.Key.LEFT && key != Screen.Key.RIGHT) {
                                     MainUiManager.getInstance().handleGeneralKeyEvents(key);
                                     if (key == Screen.Key.BACK) {
                                         dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
@@ -703,7 +757,7 @@ public class ServiceManager {
                                         "key=" + lastClusterInputKeyName
                                                 + "(" + lastClusterInputKeyCode + ")"
                                                 + " action=" + keyEvent.getAction()
-                                                + " currentCard=" + clusterCardView
+                                                + " currentCard=" + inputCardBeforeHandling
                                 );
                             }
                         }
@@ -760,6 +814,8 @@ public class ServiceManager {
             ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "grant", context.getPackageName(), "android.permission.WRITE_SECURE_SETTINGS"});
             controlService.registerDataChangedListener(context.getPackageName(), listener);
             controlService.addListenerKey(App.getContext().getPackageName(), getCombinedKeys());
+            startControlChannelWatchdog(); // #111: canal resiliente (ping 10s + recupera se o binder morre)
+            initMobileDataGuard();         // #112: dados móveis (reaplica no boot + check do auto-bloqueio)
 
             IBinder rawConnectivityBinder = getSystemService(Context.CONNECTIVITY_SERVICE);
             if (rawConnectivityBinder != null) {
@@ -777,11 +833,21 @@ public class ServiceManager {
                     if (intent.getAction() == null) return;
                     if (intent.getAction().equals(BluetoothAdapter.ACTION_STATE_CHANGED) || intent.getAction().equals(BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED)) {
                         int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
+                        int connectionState = intent.getIntExtra(BluetoothAdapter.EXTRA_CONNECTION_STATE, BluetoothAdapter.ERROR);
+                        logPersistentClusterEvent(
+                                "bluetooth_broadcast_state",
+                                persistentEventDetails(
+                                        "action", intent.getAction(),
+                                        "state", state,
+                                        "connectionState", connectionState,
+                                        "carPoweredOff", carPoweredOff
+                                )
+                        );
                         if (state == BluetoothAdapter.STATE_ON) {
                             // Só re-desliga se o carro está REALMENTE desligado (estado já processado),
                             // não pelo cache de driving_ready (que fica defasado no boot e matava o BT).
                             if (carPoweredOff && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false)) {
-                                disableBluetooth();
+                                disableBluetooth("bluetooth_receiver_power_off");
                             }
                         }
                     }
@@ -835,6 +901,7 @@ public class ServiceManager {
         // ligado antes do serviço subir, a flag ficaria falsa).
         wifiTetherEnabled = currentWifiTetherState();
         Log.w(TAG, "Services initialized successfully");
+        scheduleStartupReportReconciliations();
         // HEV Prioritário: no boot o carro costuma resetar o % (ex.: 45->80) e o app pode subir
         // depois do evento -> reaplica o valor salvo no init e depois monitora continuamente.
         backgroundHandler.postDelayed(() -> applyHevSocTargetIfActive("INIT+8s"), 8000);
@@ -1179,6 +1246,7 @@ public class ServiceManager {
         clusterCardView = nextCard;
         lastSyntheticClusterCardNavigationAtMs = SystemClock.uptimeMillis();
         lastSyntheticClusterCardTarget = nextCard;
+        syntheticAirconCardOwned = nextCard == 3;
 
         Log.w(
                 TAG,
@@ -1410,10 +1478,11 @@ public class ServiceManager {
     }
 
     public void dispatchAllData() {
-        if (!isControlServiceAlive()) return;
+        IIntelligentVehicleControlService svc = controlService;
+        if (!isControlServiceAlive(svc)) return;
         try {
             String[] allKeys = getCombinedKeys();
-            String[] currentValues = controlService.fetchDatas(allKeys);
+            String[] currentValues = svc.fetchDatas(allKeys);
             for (int i = 0; i < currentValues.length; i++) {
                 OnDataChanged(allKeys[i], currentValues[i]);
             }
@@ -1423,7 +1492,10 @@ public class ServiceManager {
     }
 
     private boolean isControlServiceAlive() {
-        IIntelligentVehicleControlService svc = controlService;
+        return isControlServiceAlive(controlService);
+    }
+
+    private boolean isControlServiceAlive(IIntelligentVehicleControlService svc) {
         if (svc == null) return false;
         try {
             if (!Shizuku.pingBinder()) return false;
@@ -1432,6 +1504,150 @@ public class ServiceManager {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /**
+     * Liga o linkToDeath no binder do servico de controle. Se o processo do controle do carro morre
+     * (reinicio do app OEM / OOM do system_server), o binderDied dispara e agenda a recuperacao no
+     * backgroundHandler (fora da main). Remove um recipient anterior antes, pra nao empilhar.
+     */
+    private void registerControlDeathRecipient() {
+        if (!CONTROL_CHANNEL_RESILIENCE_ENABLED) return;
+        try {
+            IIntelligentVehicleControlService svc = controlService;
+            if (svc == null) return;
+            final IBinder binder = svc.asBinder();
+            if (binder == null) return;
+            unlinkControlDeathRecipient();
+            IBinder.DeathRecipient recipient = new IBinder.DeathRecipient() {
+                @Override public void binderDied() {
+                    if (controlDeathBinder != binder) return;
+                    logPersistentClusterEvent("control_channel_binder_died", persistentEventDetails("trigger", "binderDied"));
+                    Handler handler = backgroundHandler;
+                    if (handler != null) handler.post(() -> recoverControlChannel("BINDER_DIED"));
+                }
+            };
+            controlDeathBinder = binder;
+            controlDeathRecipient = recipient;
+            binder.linkToDeath(recipient, 0);
+        } catch (Throwable t) {
+            unlinkControlDeathRecipient();
+            Log.w(TAG, "registerControlDeathRecipient falhou: " + t.getMessage());
+        }
+    }
+
+    private void unlinkControlDeathRecipient() {
+        IBinder binder = controlDeathBinder;
+        IBinder.DeathRecipient recipient = controlDeathRecipient;
+        controlDeathBinder = null;
+        controlDeathRecipient = null;
+        if (binder != null && recipient != null) {
+            try { binder.unlinkToDeath(recipient, 0); } catch (Throwable ignored) {}
+        }
+    }
+
+    private void stopControlChannelRuntime() {
+        Handler handler = backgroundHandler;
+        Runnable watchdog = controlChannelWatchdogRunnable;
+        controlChannelWatchdogRunnable = null;
+        if (handler != null && watchdog != null) handler.removeCallbacks(watchdog);
+        unlinkControlDeathRecipient();
+    }
+
+    public synchronized void stopManagedBackgroundGuards(android.content.Context context) {
+        stopMobileDataGuard(context);
+        stopControlChannelRuntime();
+    }
+
+    /**
+     * Re-adquire o binder do servico de controle do zero e re-registra listener + chaves + re-dispatch.
+     * Gate atomico pra nao rodar duas recuperacoes ao mesmo tempo (watchdog + binderDied podem
+     * coincidir). Desregistra o listener antigo antes de
+     * registrar o novo, pra nao duplicar. Cada etapa vai pro log persistente (sobrevive ao R8).
+     */
+    public void recoverControlChannel(String reason) {
+        if (!CONTROL_CHANNEL_RESILIENCE_ENABLED) return;
+        if (!controlChannelRecoveryGate.tryAcquire()) return;
+        recoveringControlChannel = true;
+        long t0 = SystemClock.uptimeMillis();
+        try {
+            logPersistentClusterEvent("control_channel_recover_start",
+                    persistentEventDetails("reason", reason, "attempt", String.valueOf(controlChannelRecoveryCount + 1)));
+
+            if (!Shizuku.pingBinder()) {
+                throw new IllegalStateException("Shizuku indisponivel durante recuperacao do canal de controle");
+            }
+            Context context = App.getContext();
+
+            // desregistra o listener antigo se o binder velho ainda responde (evita listener duplicado)
+            IIntelligentVehicleControlService old = controlService;
+            if (old != null && listener != null) {
+                try {
+                    IBinder oldBinder = old.asBinder();
+                    if (oldBinder != null && oldBinder.isBinderAlive()) {
+                        old.unRegisterDataChangedListener(context.getPackageName(), listener);
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            IBinder rawControlBinder = getSystemService("com.beantechs.intelligentvehiclecontrol");
+            if (rawControlBinder == null) throw new IllegalStateException("binder de controle indisponivel");
+            IBinder controlBinder = new ShizukuBinderWrapper(rawControlBinder);
+            if (!controlBinder.pingBinder()) throw new IllegalStateException("binder de controle morto");
+            controlService = IIntelligentVehicleControlService.Stub.asInterface(controlBinder);
+
+            registerControlDeathRecipient();
+
+            if (listener == null) {
+                listener = new IListener.Stub() {
+                    @Override public void onDataChanged(String key, String value) { OnDataChanged(key, value); }
+                };
+            }
+            controlService.registerDataChangedListener(context.getPackageName(), listener);
+            controlService.addListenerKey(context.getPackageName(), getCombinedKeys());
+            dispatchAllData();
+
+            controlChannelRecoveryCount++;
+            logPersistentClusterEvent("control_channel_recover_ok",
+                    persistentEventDetails("reason", reason,
+                            "totalRecoveries", String.valueOf(controlChannelRecoveryCount),
+                            "elapsedMs", String.valueOf(SystemClock.uptimeMillis() - t0)));
+        } catch (Throwable e) {
+            logPersistentClusterEvent("control_channel_recover_fail",
+                    persistentEventDetails("reason", reason, "error", String.valueOf(e.getMessage())));
+        } finally {
+            recoveringControlChannel = false;
+            controlChannelRecoveryGate.release();
+        }
+    }
+
+    /**
+     * Watchdog: a cada 10s faz ping no binder do controle; se estiver morto (e nenhuma recuperacao em
+     * curso), dispara recoverControlChannel. Idempotente - cancela o runnable anterior antes de reagendar,
+     * e so se reagenda enquanto ainda for o runnable ativo (evita duplicar o loop em re-init).
+     */
+    private void startControlChannelWatchdog() {
+        if (!CONTROL_CHANNEL_RESILIENCE_ENABLED) return;
+        if (backgroundHandler == null) return;
+        if (controlChannelWatchdogRunnable != null) {
+            backgroundHandler.removeCallbacks(controlChannelWatchdogRunnable);
+        }
+        controlChannelWatchdogRunnable = new Runnable() {
+            @Override public void run() {
+                try {
+                    if (!recoveringControlChannel && !isControlServiceAlive()) {
+                        logPersistentClusterEvent("control_channel_watchdog_dead", persistentEventDetails("trigger", "watchdog"));
+                        recoverControlChannel("WATCHDOG");
+                    }
+                } catch (Throwable ignored) {
+                } finally {
+                    if (backgroundHandler != null && controlChannelWatchdogRunnable == this) {
+                        backgroundHandler.postDelayed(this, CONTROL_CHANNEL_WATCHDOG_MS);
+                    }
+                }
+            }
+        };
+        backgroundHandler.postDelayed(controlChannelWatchdogRunnable, CONTROL_CHANNEL_WATCHDOG_MS);
     }
 
     public void addDataChangedListener(IDataChanged listener) {
@@ -1801,7 +2017,7 @@ public class ServiceManager {
                 }
                 // Desligar BT/hotspot ao recolher retrovisores (salvam o estado p/ religar ao ligar o carro).
                 if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_FOLD_MIRROR.getKey(), false)) {
-                    shutdownBluetoothForRestore();
+                    shutdownBluetoothForRestore("MIRROR_FOLD");
                 }
                 if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_FOLD_MIRROR.getKey(), false)) {
                     shutdownWifiTetherForRestore();
@@ -1840,10 +2056,10 @@ public class ServiceManager {
                     delayNextAVM = false;
                 }
             } else if (key.equals(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue())) {
-                if ((value.equals("-1") || value.equals("0"))) {
+                if (isVehicleReadyStateOff(value)) {
                     carPoweredOff = true;
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false)) {
-                        shutdownBluetoothForRestore();
+                        shutdownBluetoothForRestore("POWER_OFF");
                     }
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false)) {
                         shutdownWifiTetherForRestore();
@@ -1855,7 +2071,7 @@ public class ServiceManager {
                     carPoweredOff = false;
                     // Religa BT/hotspot que NÓS desligamos (por power-off OU ao recolher retrovisor),
                     // com delay+retry: no power-on o adapter/serviços podem não estar prontos ainda.
-                    restoreBluetoothIfWasDisabled();
+                    restoreBluetoothIfWasDisabled("POWER_ON_EVENT");
                     restoreWifiTetherIfWasDisabled();
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), false)) {
                         if (!isMaxAcActive) enableMaxAcOn();
@@ -1866,10 +2082,8 @@ public class ServiceManager {
                     // Ao ligar o carro, reaplica o % de bateria do HEV Prioritario (o carro costuma resetar).
                     applyHevSocTargetIfActive("POWER_ON");
                 }
-            } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("1") && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
-                updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
-            } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("0") && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
-                updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "0");
+            } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
+                syncDriverSeatVentilationWithHvac(value, "HVAC_POWER_EVENT");
             } else if (key.equals(CarConstants.CAR_BASIC_INSIDE_TEMP.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), false)) {
                 if (isMaxAcActive) updateMaxAcSmoothing();
             } else if (key.equals(CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.getValue())) {
@@ -2107,19 +2321,177 @@ public class ServiceManager {
     }
 
     public void disableBluetooth() {
+        disableBluetooth("manual");
+    }
+
+    private void disableBluetooth(String reason) {
         try {
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"svc", "bluetooth", "disable"});
+            boolean beforeState = currentBluetoothState();
+            String output = ShizukuUtils.runCommandAndGetOutput(new String[]{"svc", "bluetooth", "disable"});
+            logPersistentClusterEvent(
+                    "bluetooth_command",
+                    persistentEventDetails(
+                            "command", "disable",
+                            "reason", reason,
+                            "beforeState", beforeState,
+                            "afterState", currentBluetoothState(),
+                            "output", output
+                    )
+            );
         } catch (Exception e) {
             Log.e(TAG, "Error disabling Bluetooth", e);
+            logPersistentClusterEvent(
+                    "bluetooth_command_failed",
+                    persistentEventDetails(
+                            "command", "disable",
+                            "reason", reason,
+                            "error", e.getClass().getSimpleName(),
+                            "message", e.getMessage()
+                    )
+            );
         }
     }
 
     public void enableBluetooth() {
+        enableBluetooth("manual");
+    }
+
+    private void enableBluetooth(String reason) {
         try {
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"svc", "bluetooth", "enable"});
+            boolean beforeState = currentBluetoothState();
+            String output = ShizukuUtils.runCommandAndGetOutput(new String[]{"svc", "bluetooth", "enable"});
+            logPersistentClusterEvent(
+                    "bluetooth_command",
+                    persistentEventDetails(
+                            "command", "enable",
+                            "reason", reason,
+                            "beforeState", beforeState,
+                            "afterState", currentBluetoothState(),
+                            "output", output
+                    )
+            );
         } catch (Exception e) {
             Log.e(TAG, "Error enabling Bluetooth", e);
+            logPersistentClusterEvent(
+                    "bluetooth_command_failed",
+                    persistentEventDetails(
+                            "command", "enable",
+                            "reason", reason,
+                            "error", e.getClass().getSimpleName(),
+                            "message", e.getMessage()
+                    )
+            );
         }
+    }
+
+    private boolean isVehicleReadyStateOff(String value) {
+        String safeValue = value != null ? value.trim() : "";
+        return safeValue.equals("-1") || safeValue.equals("0");
+    }
+
+    private boolean isVehicleReadyStateOn(String value) {
+        String safeValue = value != null ? value.trim() : "";
+        return !safeValue.isEmpty() && !isVehicleReadyStateOff(safeValue);
+    }
+
+    private void scheduleStartupReportReconciliations() {
+        if (backgroundHandler == null) return;
+        backgroundHandler.postDelayed(() -> {
+            try {
+                reconcileStartupReportState();
+            } catch (Exception e) {
+                Log.e(TAG, "Error reconciling startup report state", e);
+                logPersistentClusterEvent(
+                        "startup_report_reconcile_failed",
+                        persistentEventDetails(
+                                "error", e.getClass().getSimpleName(),
+                                "message", e.getMessage()
+                        )
+                );
+            }
+        }, STARTUP_REPORT_RECONCILE_DELAY_MS);
+    }
+
+    private void reconcileStartupReportState() {
+        String readyState = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
+        boolean ready = isVehicleReadyStateOn(readyState);
+        boolean poweredOff = isVehicleReadyStateOff(readyState);
+        if (ready) {
+            carPoweredOff = false;
+        } else if (poweredOff) {
+            carPoweredOff = true;
+        }
+
+        String hvacPowerMode = getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue());
+        boolean bluetoothPendingRestore = sharedPreferences.getBoolean(
+                SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(),
+                false
+        );
+        boolean seatVentilationEnabled = sharedPreferences.getBoolean(
+                SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(),
+                false
+        );
+
+        logPersistentClusterEvent(
+                "startup_report_reconcile",
+                persistentEventDetails(
+                        "readyState", readyState,
+                        "carPoweredOff", carPoweredOff,
+                        "bluetoothPendingRestore", bluetoothPendingRestore,
+                        "bluetoothOn", currentBluetoothState(),
+                        "seatVentilationEnabled", seatVentilationEnabled,
+                        "hvacPowerMode", hvacPowerMode
+                )
+        );
+
+        if (!ready) {
+            logPersistentClusterEvent(
+                    "startup_report_reconcile_skipped",
+                    persistentEventDetails(
+                            "readyState", readyState,
+                            "reason", poweredOff ? "vehicle_powered_off" : "ready_state_unknown"
+                    )
+            );
+            return;
+        }
+
+        restoreBluetoothIfWasDisabled("STARTUP_RECONCILE");
+        restoreWifiTetherIfWasDisabled();
+        syncDriverSeatVentilationWithHvac(hvacPowerMode, "STARTUP_RECONCILE");
+    }
+
+    private void syncDriverSeatVentilationWithHvac(String hvacPowerMode, String reason) {
+        if (sharedPreferences == null ||
+                !sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
+            return;
+        }
+
+        String targetLevel;
+        if ("1".equals(hvacPowerMode)) {
+            targetLevel = "3";
+        } else if ("0".equals(hvacPowerMode)) {
+            targetLevel = "0";
+        } else {
+            logPersistentClusterEvent(
+                    "seat_ventilation_auto_skipped",
+                    persistentEventDetails(
+                            "reason", reason,
+                            "hvacPowerMode", hvacPowerMode,
+                            "cause", "unknown_hvac_power_mode"
+                    )
+            );
+            return;
+        }
+
+        logPersistentClusterEvent(
+                "seat_ventilation_auto_command",
+                persistentEventDetails(
+                        "reason", reason,
+                        "hvacPowerMode", hvacPowerMode,
+                        "targetLevel", targetLevel
+                )
+        );
+        updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), targetLevel);
     }
 
     public void disableWifiTether() {
@@ -2175,12 +2547,44 @@ public class ServiceManager {
         return wifiTetherEnabled;
     }
 
+    // Estado real "no ar" do SoftAP pelo sysfs (lido via Shizuku=shell, que consegue ler sysfs_net).
+    // "1"=no ar (beaconando), "0"=iface up mas sem BSS (quebrado/meio-ligado), ""=desconhecido/down.
+    private String softApCarrier() {
+        try {
+            String out = ShizukuUtils.runCommandAndGetOutput(new String[]{"sh", "-c",
+                    "i=$(getprop sys.wifi.softap_interface_name); [ -z \"$i\" ] && i=wlan2; cat /sys/class/net/$i/carrier 2>/dev/null"});
+            if (out != null) {
+                String v = out.trim();
+                if (v.equals("1") || v.equals("0")) return v;
+            }
+        } catch (Throwable ignored) {
+        }
+        return "";
+    }
+
+    // Hotspot (Wi-Fi AP) REALMENTE no ar? Prefere o carrier do sysfs (real, via wlan2); em OEMs onde o
+    // getWifiApState() retorna -1, cai pro cache do receiver WIFI_AP_STATE_CHANGED. Usado pelo status do
+    // HotRouter pra não mostrar "Ativo" com o hotspot desligado (o daemon reporta WLAN/4G de qualquer jeito).
+    public boolean isHotspotOnAir() {
+        String carrier = softApCarrier();
+        return "1".equals(carrier) || (carrier.isEmpty() && currentWifiTetherState());
+    }
+
     // Desliga o BT salvando que estava ligado (p/ religar no próximo power-on). Não sobrescreve um
     // "estava ligado" anterior com false (caso recolher-retrovisor + power-off no mesmo ciclo).
-    private void shutdownBluetoothForRestore() {
-        if (currentBluetoothState()) {
+    private void shutdownBluetoothForRestore(String reason) {
+        boolean currentlyOn = currentBluetoothState();
+        logPersistentClusterEvent(
+                "bluetooth_shutdown_for_restore",
+                persistentEventDetails(
+                        "reason", reason,
+                        "currentlyOn", currentlyOn,
+                        "carPoweredOff", carPoweredOff
+                )
+        );
+        if (currentlyOn) {
             sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), true).apply();
-            disableBluetooth();
+            disableBluetooth("shutdown_restore_" + reason);
         }
     }
 
@@ -2191,28 +2595,76 @@ public class ServiceManager {
         }
     }
 
-    private void restoreBluetoothIfWasDisabled() {
-        if (sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false)) {
-            attemptRestoreBluetooth(0);
+    private void restoreBluetoothIfWasDisabled(String reason) {
+        boolean pendingRestore = sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false);
+        logPersistentClusterEvent(
+                "bluetooth_restore_check",
+                persistentEventDetails(
+                        "reason", reason,
+                        "pendingRestore", pendingRestore,
+                        "carPoweredOff", carPoweredOff,
+                        "currentlyOn", currentBluetoothState()
+                )
+        );
+        if (pendingRestore) {
+            attemptRestoreBluetooth(0, reason);
         }
     }
 
-    private void attemptRestoreBluetooth(int attempt) {
+    private void attemptRestoreBluetooth(int attempt, String reason) {
         if (!sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false)) {
+            logPersistentClusterEvent(
+                    "bluetooth_restore_aborted",
+                    persistentEventDetails(
+                            "reason", reason,
+                            "attempt", attempt,
+                            "cause", "flag_cleared"
+                    )
+            );
             return; // flag limpa por outra restauração
         }
         if (carPoweredOff) {
+            logPersistentClusterEvent(
+                    "bluetooth_restore_deferred",
+                    persistentEventDetails(
+                            "reason", reason,
+                            "attempt", attempt,
+                            "cause", "car_powered_off"
+                    )
+            );
             return; // carro desligou no meio: mantém a intenção p/ o próximo power-on
         }
         if (currentBluetoothState()) {
             sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false).apply();
+            logPersistentClusterEvent(
+                    "bluetooth_restore_success",
+                    persistentEventDetails(
+                            "reason", reason,
+                            "attempt", attempt,
+                            "alreadyOn", true
+                    )
+            );
             return; // já ligou: sucesso
         }
-        enableBluetooth();
+        logPersistentClusterEvent(
+                "bluetooth_restore_attempt",
+                persistentEventDetails(
+                        "reason", reason,
+                        "attempt", attempt
+                )
+        );
+        enableBluetooth("restore_" + reason + "_" + attempt);
         if (attempt + 1 < RADIO_RESTORE_MAX_ATTEMPTS) {
-            backgroundHandler.postDelayed(() -> attemptRestoreBluetooth(attempt + 1), RADIO_RESTORE_RETRY_MS);
+            backgroundHandler.postDelayed(() -> attemptRestoreBluetooth(attempt + 1, reason), RADIO_RESTORE_RETRY_MS);
         } else {
             sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false).apply();
+            logPersistentClusterEvent(
+                    "bluetooth_restore_give_up",
+                    persistentEventDetails(
+                            "reason", reason,
+                            "attempts", RADIO_RESTORE_MAX_ATTEMPTS
+                    )
+            );
         }
     }
 
@@ -2764,5 +3216,127 @@ public class ServiceManager {
 
     public SharedPreferences getSharedPreferences() {
         return sharedPreferences;
+    }
+
+    private void initMobileDataGuard() {
+        stopMobileDataGuard(App.getContext());
+        try {
+            android.content.Context ctx = App.getContext();
+            // As duas reconciliações são serializadas no worker do MobileDataManager. Com os
+            // toggles OFF e sem estado pertencente ao app, ambas retornam sem executar shell.
+            MobileDataManager.INSTANCE.recomputeAndApply(ctx);
+            MobileDataManager.INSTANCE.applyDatatrackState();
+            if (!MobileDataManager.INSTANCE.isControlEnabled()) return;
+            MobileDataManager.INSTANCE.ensureUsageStatsPermission(ctx);
+            registerMobileDataWifiCallback(ctx); // reavalia na hora quando o WiFi conecta/cai
+            registerMobileDataTetherReceiver(ctx); // reforça o bloqueio na hora que o hotspot liga/desliga
+        } catch (Throwable t) {
+            Log.w(TAG, "initMobileDataGuard: " + t.getMessage());
+        }
+        if (backgroundHandler == null || mobileDataAutoblockRunnable != null) return;
+        mobileDataAutoblockRunnable = new Runnable() {
+            @Override public void run() {
+                try {
+                    MobileDataManager.INSTANCE.recomputeAndApply(App.getContext());
+                } catch (Throwable ignored) {
+                } finally {
+                    if (backgroundHandler != null && mobileDataAutoblockRunnable == this) {
+                        backgroundHandler.postDelayed(this, MOBILE_DATA_CHECK_MS);
+                    }
+                }
+            }
+        };
+        backgroundHandler.postDelayed(mobileDataAutoblockRunnable, MOBILE_DATA_CHECK_MS);
+    }
+
+    public void onMobileDataControlChanged(boolean enabled) {
+        Handler handler = backgroundHandler;
+        if (handler == null) return;
+        handler.post(() -> {
+            if (enabled) {
+                initMobileDataGuard();
+            } else {
+                stopMobileDataGuard(App.getContext());
+            }
+        });
+    }
+
+    private void stopMobileDataGuard(android.content.Context ctx) {
+        Handler handler = backgroundHandler;
+        Runnable runnable = mobileDataAutoblockRunnable;
+        mobileDataAutoblockRunnable = null;
+        if (handler != null && runnable != null) handler.removeCallbacks(runnable);
+
+        android.net.ConnectivityManager.NetworkCallback callback = mobileDataWifiCallback;
+        mobileDataWifiCallback = null;
+        if (callback != null) {
+            try {
+                android.net.ConnectivityManager cm =
+                        (android.net.ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) cm.unregisterNetworkCallback(callback);
+            } catch (IllegalArgumentException ignored) {
+                // Callback já removido pelo framework/reinit.
+            } catch (Throwable t) {
+                Log.w(TAG, "stopMobileDataGuard callback: " + t.getMessage());
+            }
+        }
+
+        BroadcastReceiver tetherReceiver = mobileDataTetherReceiver;
+        mobileDataTetherReceiver = null;
+        if (tetherReceiver != null) {
+            try {
+                ctx.unregisterReceiver(tetherReceiver);
+            } catch (IllegalArgumentException ignored) {
+                // Receiver já removido pelo framework/reinit.
+            } catch (Throwable t) {
+                Log.w(TAG, "stopMobileDataGuard tether: " + t.getMessage());
+            }
+        }
+    }
+
+    // Callback de WiFi: quando conecta/cai, reavalia as regras na hora (a regra "bloquear no WiFi"
+    // precisa reagir rápido; o periódico de 15s é só a rede de segurança pra consumo/projeção).
+    private void registerMobileDataWifiCallback(android.content.Context ctx) {
+        try {
+            if (mobileDataWifiCallback != null) return;
+            android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            android.net.NetworkRequest req = new android.net.NetworkRequest.Builder()
+                    .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                    .build();
+            mobileDataWifiCallback = new android.net.ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(android.net.Network network) {
+                    MobileDataManager.INSTANCE.recomputeAndApply(App.getContext());
+                }
+                @Override public void onLost(android.net.Network network) {
+                    MobileDataManager.INSTANCE.recomputeAndApply(App.getContext());
+                }
+            };
+            cm.registerNetworkCallback(req, mobileDataWifiCallback);
+        } catch (Throwable t) {
+            Log.w(TAG, "registerMobileDataWifiCallback: " + t.getMessage());
+        }
+    }
+
+    // Hotspot (tether) ligou/desligou -> reforça o bloqueio NA HORA. O hotspot religa o dado móvel pra
+    // ter uplink; sem este gatilho, o vazamento ficaria aberto até o próximo tick de 15s. O broadcast
+    // android.net.conn.TETHER_STATE_CHANGED não é protegido (qualquer app registra).
+    private void registerMobileDataTetherReceiver(android.content.Context ctx) {
+        try {
+            if (mobileDataTetherReceiver != null) return;
+            BroadcastReceiver receiver = new BroadcastReceiver() {
+                @Override public void onReceive(Context c, Intent i) {
+                    try {
+                        MobileDataManager.INSTANCE.recomputeAndApply(App.getContext());
+                    } catch (Throwable ignored) {
+                    }
+                }
+            };
+            ctx.registerReceiver(receiver, new IntentFilter("android.net.conn.TETHER_STATE_CHANGED"));
+            mobileDataTetherReceiver = receiver;
+        } catch (Throwable t) {
+            Log.w(TAG, "registerMobileDataTetherReceiver: " + t.getMessage());
+        }
     }
 }

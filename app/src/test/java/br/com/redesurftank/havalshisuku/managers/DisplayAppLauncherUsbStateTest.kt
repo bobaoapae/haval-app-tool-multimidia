@@ -137,6 +137,118 @@ class DisplayAppLauncherUsbStateTest {
     }
 
     @Test
+    fun d0NativeQuarantineRequiresUsbReconnectAndMainDisplayObservation() {
+        assertTrue(
+            DisplayAppLauncher.shouldDeferCarPlayD0NativeRestoreAfterUsbReconnectForTest(
+                now = 12_500L,
+                lastDisconnectedAt = 9_000L,
+                lastConfiguredAt = 10_000L,
+                mainDisplaySeenAt = 12_000L,
+                quarantineMs = 4_000L
+            )
+        )
+
+        assertFalse(
+            DisplayAppLauncher.shouldDeferCarPlayD0NativeRestoreAfterUsbReconnectForTest(
+                now = 12_500L,
+                lastDisconnectedAt = 0L,
+                lastConfiguredAt = 10_000L,
+                mainDisplaySeenAt = 12_000L,
+                quarantineMs = 4_000L
+            )
+        )
+
+        assertFalse(
+            DisplayAppLauncher.shouldDeferCarPlayD0NativeRestoreAfterUsbReconnectForTest(
+                now = 12_500L,
+                lastDisconnectedAt = 9_000L,
+                lastConfiguredAt = 10_000L,
+                mainDisplaySeenAt = 0L,
+                quarantineMs = 4_000L
+            )
+        )
+    }
+
+    @Test
+    fun d0NativeQuarantineExpiresAfterMainDisplayWindow() {
+        assertFalse(
+            DisplayAppLauncher.shouldDeferCarPlayD0NativeRestoreAfterUsbReconnectForTest(
+                now = 17_000L,
+                lastDisconnectedAt = 9_000L,
+                lastConfiguredAt = 10_000L,
+                mainDisplaySeenAt = 12_000L,
+                quarantineMs = 4_000L
+            )
+        )
+    }
+
+    @Test
+    fun usbInstabilityPreservesDesiredClusterTargetWhenVisualTaskTemporarilyMissing() {
+        assertTrue(
+            DisplayAppLauncher.shouldPreserveCarPlayClusterTargetDuringUsbInstabilityForTest(
+                now = 10_500L,
+                usbConfigured = false,
+                lastDisconnectedAt = 10_000L,
+                lastConfiguredAt = 0L,
+                desiredOnCluster = true,
+                hasCarPlayTasks = false,
+                graceMs = 4_000L
+            )
+        )
+
+        assertTrue(
+            DisplayAppLauncher.shouldPreserveCarPlayClusterTargetDuringUsbInstabilityForTest(
+                now = 12_500L,
+                usbConfigured = true,
+                lastDisconnectedAt = 9_000L,
+                lastConfiguredAt = 10_000L,
+                desiredOnCluster = true,
+                hasCarPlayTasks = false,
+                graceMs = 4_000L
+            )
+        )
+    }
+
+    @Test
+    fun usbInstabilityDoesNotPreserveDesiredClusterTargetOutsideMissingTaskWindow() {
+        assertFalse(
+            DisplayAppLauncher.shouldPreserveCarPlayClusterTargetDuringUsbInstabilityForTest(
+                now = 10_500L,
+                usbConfigured = false,
+                lastDisconnectedAt = 10_000L,
+                lastConfiguredAt = 0L,
+                desiredOnCluster = false,
+                hasCarPlayTasks = false,
+                graceMs = 4_000L
+            )
+        )
+
+        assertFalse(
+            DisplayAppLauncher.shouldPreserveCarPlayClusterTargetDuringUsbInstabilityForTest(
+                now = 10_500L,
+                usbConfigured = false,
+                lastDisconnectedAt = 10_000L,
+                lastConfiguredAt = 0L,
+                desiredOnCluster = true,
+                hasCarPlayTasks = true,
+                graceMs = 4_000L
+            )
+        )
+
+        assertFalse(
+            DisplayAppLauncher.shouldPreserveCarPlayClusterTargetDuringUsbInstabilityForTest(
+                now = 15_000L,
+                usbConfigured = false,
+                lastDisconnectedAt = 10_000L,
+                lastConfiguredAt = 0L,
+                desiredOnCluster = true,
+                hasCarPlayTasks = false,
+                graceMs = 4_000L
+            )
+        )
+    }
+
+    @Test
     fun projectionProcessPidOutputRequiresPositivePid() {
         assertFalse(DisplayAppLauncher.isProjectionProcessPidOutputAliveForTest(""))
         assertFalse(DisplayAppLauncher.isProjectionProcessPidOutputAliveForTest("pidof: not found"))

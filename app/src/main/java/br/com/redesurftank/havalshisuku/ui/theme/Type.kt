@@ -12,6 +12,14 @@ val Michroma = FontFamily(
     Font(R.font.michroma)
 )
 
+// IBM Plex Sans (OFL) — corpo/controles do redesign (Rodada 15). Tem tabular figures.
+val IbmPlexSans = FontFamily(
+    Font(R.font.ibm_plex_sans_regular, FontWeight.Normal),
+    Font(R.font.ibm_plex_sans_medium, FontWeight.Medium),
+    Font(R.font.ibm_plex_sans_semibold, FontWeight.SemiBold),
+    Font(R.font.ibm_plex_sans_bold, FontWeight.Bold)
+)
+
 val Typography = Typography(
     bodyLarge = TextStyle(
         fontWeight = FontWeight.Normal,

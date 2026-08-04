@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -22,7 +23,9 @@ import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
 import br.com.redesurftank.havalshisuku.ui.components.AppDimensions
+import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
 import br.com.redesurftank.havalshisuku.ui.components.StyledCard
+import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 
 @Composable
 fun CurrentValuesTab() {
@@ -31,7 +34,9 @@ fun CurrentValuesTab() {
     val advancedUse = prefs.getBoolean(SharedPreferencesKeys.ADVANCE_USE.key, false)
     val dataMap = remember {
         mutableStateMapOf<String, String>().apply {
-            putAll(ServiceManager.getInstance().allCurrentCachedData)
+            // allCurrentCachedData vem do Java e pode ter valores null; coage pra ""
+            // (senão Text(value) estoura NPE no prefetch da LazyColumn ao rolar).
+            ServiceManager.getInstance().allCurrentCachedData.forEach { (k, v) -> put(k, v ?: "") }
         }
     }
     var showConfigDialog by remember { mutableStateOf(false) }
@@ -60,52 +65,75 @@ fun CurrentValuesTab() {
         onDispose { ServiceManager.getInstance().removeDataChangedListener(listener) }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(top = 6.dp)) {
+        Text(
+            "VALORES ATUAIS",
+            fontFamily = Michroma,
+            fontSize = 15.sp,
+            letterSpacing = 1.8.sp,
+            color = ImpTokens.TextSecondary,
+            modifier = Modifier.padding(start = 4.dp, bottom = 14.dp)
+        )
         if (advancedUse) {
             Button(
                 onClick = { showConfigDialog = true },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF))
-            ) { Text("Configurar", color = Color.White) }
-            Spacer(Modifier.height(8.dp))
+                colors = ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent),
+                shape = RoundedCornerShape(12.dp)
+            ) { Text("Configurar", color = ImpTokens.OnAccent, fontWeight = FontWeight.SemiBold) }
+            Spacer(Modifier.height(12.dp))
         }
 
         TextField(
             value = searchQueryValues,
             onValueChange = { searchQueryValues = it },
             label = { Text("Pesquisar valores") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth(),
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color(0xFF2A2F37),
-                unfocusedContainerColor = Color(0xFF2A2F37),
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color(0xFFB0B8C4),
-                focusedIndicatorColor = Color(0xFF4A9EFF),
-                unfocusedIndicatorColor = Color(0xFF3A3F47),
-                focusedLabelColor = Color(0xFF4A9EFF),
-                unfocusedLabelColor = Color(0xFFB0B8C4)
+                focusedContainerColor = ImpTokens.Container,
+                unfocusedContainerColor = ImpTokens.Container,
+                focusedTextColor = ImpTokens.TextPrimary,
+                unfocusedTextColor = ImpTokens.TextPrimary,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                focusedLabelColor = ImpTokens.Accent,
+                unfocusedLabelColor = ImpTokens.TextMuted,
+                cursorColor = ImpTokens.Accent
             )
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(ImpTokens.Container)
+        ) {
             val filteredData = dataMap.toList()
                 .filter { it.first.lowercase().contains(searchQueryValues.lowercase()) }
                 .sortedBy { it.first }
-            items(filteredData) { (key, value) ->
-                Card(
-                    modifier = Modifier.fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+            itemsIndexed(filteredData) { index, pair ->
+                val (key, value) = pair
+                if (index > 0) HorizontalDivider(
+                    color = ImpTokens.Hairline,
+                    modifier = Modifier.padding(horizontal = 20.dp)
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
                         .then(
                             if (advancedUse) Modifier.clickable {
                                 selectedKey = key
                                 newValue = value
                                 showUpdateDialog = true
                             } else Modifier
-                        ),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        )
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
                 ) {
-                    Text("$key: $value", modifier = Modifier.padding(8.dp), color = Color.White, fontSize = 18.sp)
+                    Text(key ?: "", color = ImpTokens.TextSecondary, fontSize = 12.5.sp)
+                    Spacer(Modifier.height(2.dp))
+                    Text(value ?: "", color = ImpTokens.TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -152,7 +180,7 @@ fun CurrentValuesTab() {
                     showConfigDialog = false
                     ServiceManager.getInstance().updateMonitoringProperties()
                     dataMap.clear()
-                    dataMap.putAll(ServiceManager.getInstance().allCurrentCachedData)
+                    ServiceManager.getInstance().allCurrentCachedData.forEach { (k, v) -> dataMap[k] = v ?: "" }
                 }) { Text("Salvar") }
             },
             dismissButton = {

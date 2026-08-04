@@ -85,6 +85,18 @@ class AmbientLightProtocolTest {
     }
 
     @Test
+    fun dmxNativeEffectPayloadsUseOriginalLedLampModeThenSpeedFrames() {
+        val payloads =
+            AmbientLightProtocol.ledLampNativeEffectPayloads(
+                modeId = 13,
+                speed = 50,
+                output = AmbientLightOutput.DMX
+            ).map { AmbientLightProtocol.bytesToHex(it) }
+
+        assertEquals(listOf("7BFF030DFFFFFFFFBF", "7BFF0232FF00FFFFBF"), payloads)
+    }
+
+    @Test
     fun dmxCustomEffectPayloadCarriesAlbumColorModeAndSpeed() {
         assertEquals(
             "7B00070A1E140D32BF",

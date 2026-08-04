@@ -66,11 +66,15 @@ Atualizado em: 2026-06-30
   presets inspirados no LED Lamp (`13 Forward 6 Colors BU` como default, GN/BU/CN forward/backward,
   `Pulse`, `Run` e `Flow`), speed `1..100` e saida especifica do efeito (`BLE`, `DMX` ou
   `BLE + DMX`), preservando a paleta do album no loop app-side. A v284 adiciona modo por saida
-  (`BLE: Animado/Estatico`, `DMX: Animado/Estatico`), usa frame custom DMX com cor/modeId/speed para
-  presets animados que possuem `modeId`. A v286 mantem a cor base do album quando a musica esta
-  pausada mas ainda ha titulo/artista/album/capa ativos; a cor do modo de conducao so volta quando
-  nao ha mais album/metadata/capa util. A assinatura da capa nao usa `Bitmap.generationId` para
-  evitar resetar a animacao quando o player republica o mesmo artwork.
+  (`BLE: Animado/Estatico`, `DMX: Animado/Estatico`). A correcao DMX de 2026-07-08 faz presets
+  animados com `modeId` enviarem os comandos nativos LED Lamp de modo + speed no DMX para reproduzir
+  melhor o movimento de fita do app LED Car. A v290 troca o `modeId` nativo pela familia de cor mais
+  proxima da cor base do album, por exemplo `Run >` deixa de ficar preso no preset azul/7 cores e usa
+  o Run vermelho, verde, azul, amarelo, ciano, violeta ou branco mais proximo. O caminho BLE nao foi
+  alterado. A v286 mantem a cor base do album quando a musica esta pausada mas ainda ha
+  titulo/artista/album/capa ativos; a cor do modo de conducao so volta quando nao ha mais
+  album/metadata/capa util. A assinatura da capa nao usa
+  `Bitmap.generationId` para evitar resetar a animacao quando o player republica o mesmo artwork.
 - Enquanto qualquer efeito de musica esta ativo, `AmbientLightService` cancela animacoes de modo de
   conducao para evitar concorrencia no GATT. O modo de conducao continua atualizando a cor base usada
   pelo modo `Graves`.

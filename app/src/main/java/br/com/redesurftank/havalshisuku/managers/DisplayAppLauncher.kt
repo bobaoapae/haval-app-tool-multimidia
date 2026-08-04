@@ -338,9 +338,11 @@ object DisplayAppLauncher {
     private const val CARPLAY_MAIN_DUPLICATE_CLEANUP_COOLDOWN_MS = 3_500L
     private const val CARPLAY_SURFACE_PROBE_COOLDOWN_MS = 1_200L
     private const val CARPLAY_SURFACE_REASSERT_COOLDOWN_MS = 3_500L
+    private const val CARPLAY_SELF_D0_SURFACE_REASSERT_FAILED_BACKOFF_MS = 30_000L
     private const val CARPLAY_WATCHDOG_RESTORE_COOLDOWN_MS = 3_500L
     private const val CARPLAY_MISSING_VISUAL_RESTORE_WINDOW_MS = 60_000L
     private const val CARPLAY_RECONNECT_D0_OBSERVATION_WINDOW_MS = 30_000L
+    private const val CARPLAY_RECONNECT_D0_NATIVE_QUARANTINE_MS = 5 * 60_000L
     private const val CARPLAY_VIDEO_FOCUS_PULSE_COOLDOWN_MS = 4_500L
     private const val CARPLAY_VIDEO_FOCUS_AFTER_D3_HANDOFF_GRACE_MS = 2_500L
     private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
@@ -371,6 +373,7 @@ object DisplayAppLauncher {
     @Volatile private var lastCarPlayMainDuplicateCleanupAt = 0L
     @Volatile private var lastCarPlaySurfaceProbeAt = 0L
     @Volatile private var lastCarPlaySurfaceReassertAt = 0L
+    @Volatile private var lastCarPlaySelfD0SurfaceReassertFailedAt = 0L
     @Volatile private var lastCarPlayWatchdogRestoreAt = 0L
     @Volatile private var lastCarPlayClusterVisualSeenAt = 0L
     @Volatile private var carPlayClusterTargetBootGraceUntil = 0L
@@ -804,6 +807,25 @@ object DisplayAppLauncher {
 
     fun isCarPlayDesiredOnCluster(): Boolean {
         return getPrefs().getInt(PREF_DESIRED_CARPLAY_DISPLAY_ID, -1) == 3
+    }
+
+    fun shouldProtectAirconCardDuringCarPlayClusterTransition(): Boolean {
+        if (!isCarPlayDesiredOnCluster()) return false
+
+        val now = System.currentTimeMillis()
+        if (CarPlayDisplayOrchestrator.isPreparingD3()) return true
+        if (
+            shouldDeferCarPlayReconnectRestoreForTest(
+                now = now,
+                lastDisconnectedAt = lastProjectionUsbDisconnectedAt,
+                lastConfiguredAt = lastProjectionUsbConfiguredAt,
+                graceMs = CARPLAY_RECONNECT_D0_NATIVE_QUARANTINE_MS
+            )
+        ) {
+            return true
+        }
+
+        return shouldDeferCarPlayD0NativeRestoreAfterUsbReconnect(now)
     }
 
     fun isCarPlayOnDisplay(displayId: Int): Boolean {
@@ -3191,11 +3213,39 @@ object DisplayAppLauncher {
                 return
             }
 
+            val preserveDuringUsbInstability =
+                shouldPreserveCarPlayClusterTargetDuringUsbInstability(
+                    now = now,
+                    usbConfigured = usbConfigured,
+                    hasCarPlayTasks = false
+                )
             if (
                 !bootGraceActive &&
+                        !preserveDuringUsbInstability &&
                         !isMissingCarPlayVisualRestoreEligible("CARPLAY_CLUSTER_WATCHDOG_NO_TASK")
             ) {
                 clearStaleCarPlayClusterTarget("CARPLAY_CLUSTER_WATCHDOG_NO_TASK_STALE_TARGET")
+                return
+            }
+            if (preserveDuringUsbInstability) {
+                val sinceDisconnected = now - lastProjectionUsbDisconnectedAt
+                val sinceConfigured =
+                    if (lastProjectionUsbConfiguredAt > 0L) now - lastProjectionUsbConfiguredAt else -1L
+                Log.w(
+                    TAG,
+                    "[CARPLAY_CLUSTER_WATCHDOG_NO_TASK_USB_STAGING] Desired D3 target has no " +
+                            "visual task during USB instability; keeping target without restore/clear " +
+                            "(usbConfigured=$usbConfigured, sinceDisconnected=${sinceDisconnected}ms, " +
+                            "sinceConfigured=${sinceConfigured}ms)"
+                )
+                logPersistentEvent(
+                    "carplay_watchdog_no_task_usb_staging",
+                    mapOf(
+                        "usbConfigured" to usbConfigured,
+                        "sinceDisconnectedMs" to sinceDisconnected,
+                        "sinceConfiguredMs" to sinceConfigured
+                    )
+                )
                 return
             }
             if (now - lastCarPlayWatchdogRestoreAt < CARPLAY_WATCHDOG_RESTORE_COOLDOWN_MS) {
@@ -3226,9 +3276,11 @@ object DisplayAppLauncher {
             carPlayMainDisplayReconnectSeenAt = 0L
             markCarPlayClusterVisualSeen("CARPLAY_CLUSTER_WATCHDOG")
             if (getTopPackageOnDisplay(0) == App.getContext().packageName) {
-                reassertCarPlayClusterSurfaceIfStale(
-                    clusterTask,
-                    "CARPLAY_CLUSTER_WATCHDOG_SELF_D0"
+                Log.w(
+                    TAG,
+                    "[CARPLAY_CLUSTER_WATCHDOG_SELF_D0] CarPlay live on D3 stack " +
+                            "${clusterTask.stackId}; self-D0 watchdog is verify-only to avoid " +
+                            "native focus churn while the D3 task is alive"
                 )
             }
         }
@@ -3254,22 +3306,25 @@ object DisplayAppLauncher {
                 )
             }
 
-            val reconnectRestore =
-                isWithinCarPlayUsbReconnectGrace(now, CARPLAY_RECONNECT_D0_OBSERVATION_WINDOW_MS)
-            if (reconnectRestore) {
+            val nativeD0Quarantine = shouldDeferCarPlayD0NativeRestoreAfterUsbReconnect(now)
+            if (nativeD0Quarantine) {
                 val sinceConfigured = now - lastProjectionUsbConfiguredAt
                 val sinceMainSeen = now - carPlayMainDisplayReconnectSeenAt
+                val speedKmh = readVehicleSpeedKmh()
                 Log.w(
                     TAG,
-                    "[CARPLAY_CLUSTER_WATCHDOG_DIRECT_RECONNECT_STAGING] CarPlay is on display 0 " +
-                            "after USB reconnect; deferring automatic D3 restore during reconnect grace " +
-                            "(sinceConfigured=${sinceConfigured}ms, sinceMainSeen=${sinceMainSeen}ms)"
+                    "[CARPLAY_CLUSTER_WATCHDOG_DIRECT_D0_NATIVE_QUARANTINE] CarPlay is on display 0 " +
+                            "after USB reconnect; preserving native D0 route instead of forcing D3 " +
+                            "(sinceConfigured=${sinceConfigured}ms, sinceMainSeen=${sinceMainSeen}ms, " +
+                            "speed=${speedKmh ?: "unknown"}km/h)"
                 )
                 logPersistentEvent(
-                    "carplay_watchdog_direct_reconnect_staging",
+                    "carplay_watchdog_direct_d0_native_quarantine",
                     mapOf(
                         "sinceConfiguredMs" to sinceConfigured,
                         "sinceMainSeenMs" to sinceMainSeen,
+                        "quarantineMs" to CARPLAY_RECONNECT_D0_NATIVE_QUARANTINE_MS,
+                        "speedKmh" to speedKmh,
                         "mainStack" to mainTask.stackId
                     )
                 )
@@ -3379,6 +3434,70 @@ object DisplayAppLauncher {
                     lastConfiguredAt = lastConfiguredAt,
                     graceMs = graceMs
                 )
+    }
+
+    internal fun shouldDeferCarPlayD0NativeRestoreAfterUsbReconnectForTest(
+        now: Long,
+        lastDisconnectedAt: Long,
+        lastConfiguredAt: Long,
+        mainDisplaySeenAt: Long,
+        quarantineMs: Long
+    ): Boolean {
+        return lastDisconnectedAt > 0L &&
+                lastConfiguredAt > lastDisconnectedAt &&
+                mainDisplaySeenAt > 0L &&
+                now - mainDisplaySeenAt in 0..quarantineMs
+    }
+
+    private fun shouldDeferCarPlayD0NativeRestoreAfterUsbReconnect(now: Long): Boolean {
+        return shouldDeferCarPlayD0NativeRestoreAfterUsbReconnectForTest(
+            now = now,
+            lastDisconnectedAt = lastProjectionUsbDisconnectedAt,
+            lastConfiguredAt = lastProjectionUsbConfiguredAt,
+            mainDisplaySeenAt = carPlayMainDisplayReconnectSeenAt,
+            quarantineMs = CARPLAY_RECONNECT_D0_NATIVE_QUARANTINE_MS
+        )
+    }
+
+    internal fun shouldPreserveCarPlayClusterTargetDuringUsbInstabilityForTest(
+        now: Long,
+        usbConfigured: Boolean,
+        lastDisconnectedAt: Long,
+        lastConfiguredAt: Long,
+        desiredOnCluster: Boolean,
+        hasCarPlayTasks: Boolean,
+        graceMs: Long
+    ): Boolean {
+        if (!desiredOnCluster) return false
+        if (hasCarPlayTasks) return false
+
+        val disconnectGraceActive =
+            !usbConfigured &&
+                    lastDisconnectedAt > 0L &&
+                    now - lastDisconnectedAt in 0..graceMs
+        return disconnectGraceActive ||
+                shouldDeferCarPlayReconnectRestoreForTest(
+                    now = now,
+                    lastDisconnectedAt = lastDisconnectedAt,
+                    lastConfiguredAt = lastConfiguredAt,
+                    graceMs = graceMs
+                )
+    }
+
+    private fun shouldPreserveCarPlayClusterTargetDuringUsbInstability(
+        now: Long,
+        usbConfigured: Boolean,
+        hasCarPlayTasks: Boolean
+    ): Boolean {
+        return shouldPreserveCarPlayClusterTargetDuringUsbInstabilityForTest(
+            now = now,
+            usbConfigured = usbConfigured,
+            lastDisconnectedAt = lastProjectionUsbDisconnectedAt,
+            lastConfiguredAt = lastProjectionUsbConfiguredAt,
+            desiredOnCluster = isCarPlayDesiredOnCluster(),
+            hasCarPlayTasks = hasCarPlayTasks,
+            graceMs = CARPLAY_RECONNECT_D0_OBSERVATION_WINDOW_MS
+        )
     }
 
     internal fun shouldMoveMainCarPlayStackToClusterForTest(
@@ -3675,6 +3794,7 @@ object DisplayAppLauncher {
         reason: String
     ): Boolean {
         val now = System.currentTimeMillis()
+        val isSelfDisplayZeroWatchdog = reason.startsWith("CARPLAY_CLUSTER_WATCHDOG_SELF_D0")
         if (now - lastCarPlaySurfaceProbeAt < CARPLAY_SURFACE_PROBE_COOLDOWN_MS) {
             Log.w(TAG, "[$reason] Skipping CarPlay D3 Surface probe because cooldown is active")
             return false
@@ -3683,9 +3803,28 @@ object DisplayAppLauncher {
 
         val before = inspectCarPlayClusterSurfaceBuffer("${reason}_SURFACE_CHECK")
         if (!isCarPlaySurfaceBufferStaleForTest(before)) {
+            if (isSelfDisplayZeroWatchdog) {
+                lastCarPlaySelfD0SurfaceReassertFailedAt = 0L
+            }
             Log.w(
                 TAG,
                 "[$reason] CarPlay live on D3 stack ${clusterTask.stackId}; Surface buffer is not stale, no reassert"
+            )
+            return false
+        }
+
+        if (
+            shouldSkipCarPlaySelfD0SurfaceReassertForTest(
+                reason = reason,
+                now = now,
+                lastFailedAt = lastCarPlaySelfD0SurfaceReassertFailedAt
+            )
+        ) {
+            val ageMs = now - lastCarPlaySelfD0SurfaceReassertFailedAt
+            Log.w(
+                TAG,
+                "[$reason] Skipping CarPlay D3 Surface reassert because previous self-D0 " +
+                        "reassert left the Surface stale; backoff active (${ageMs}ms)"
             )
             return false
         }
@@ -3711,8 +3850,31 @@ object DisplayAppLauncher {
             reason = "${reason}_START_EXISTING_D3"
         )
         delay(850)
-        inspectCarPlayClusterSurfaceBuffer("${reason}_SURFACE_AFTER_REASSERT")
+        val after = inspectCarPlayClusterSurfaceBuffer("${reason}_SURFACE_AFTER_REASSERT")
+        if (isSelfDisplayZeroWatchdog) {
+            if (isCarPlaySurfaceBufferStaleForTest(after)) {
+                lastCarPlaySelfD0SurfaceReassertFailedAt = System.currentTimeMillis()
+                Log.w(
+                    TAG,
+                    "[$reason] CarPlay D3 Surface stayed stale after self-D0 reassert; " +
+                            "backing off repeated Activity starts"
+                )
+            } else {
+                lastCarPlaySelfD0SurfaceReassertFailedAt = 0L
+            }
+        }
         return true
+    }
+
+    internal fun shouldSkipCarPlaySelfD0SurfaceReassertForTest(
+        reason: String,
+        now: Long,
+        lastFailedAt: Long,
+        backoffMs: Long = CARPLAY_SELF_D0_SURFACE_REASSERT_FAILED_BACKOFF_MS
+    ): Boolean {
+        if (!reason.startsWith("CARPLAY_CLUSTER_WATCHDOG_SELF_D0")) return false
+        if (lastFailedAt <= 0L) return false
+        return now - lastFailedAt in 0 until backoffMs
     }
 
     private suspend fun pulseCarPlayClusterVideoFocusIfSafe(
@@ -4002,6 +4164,15 @@ object DisplayAppLauncher {
             "[$reason] Restoring CarPlay from display 0 stack ${mainTask.stackId} to cluster 3 without force-stop"
         )
         markCarPlayClusterHandoffStarted(reason)
+
+        moveMainCarPlayStackToClusterIfSafe(
+            mainTask,
+            bounds,
+            "${reason}_PRESERVE_NATIVE_SURFACE"
+        )?.let {
+            return it
+        }
+
         configureCarPlayProjection("${reason}_PREPARE")
         requestCarPlayUiIfLinkActivated("${reason}_PRE_START")
 
@@ -4255,8 +4426,39 @@ object DisplayAppLauncher {
 
         val mainTask = waitForSustainedCarPlayOnMainDisplay(reason)
         if (mainTask == null) {
-            if (findAllTasksForPackage(CARPLAY_PACKAGE).isEmpty()) {
+            val tasks = findAllTasksForPackage(CARPLAY_PACKAGE)
+            if (tasks.isEmpty()) {
                 val missingVisualReason = "${reason}_RESTORE_MISSING_VISUAL"
+                val usbConfigured = observeProjectionUsbConfigured("${missingVisualReason}_USB")
+                val now = System.currentTimeMillis()
+                if (
+                    shouldPreserveCarPlayClusterTargetDuringUsbInstability(
+                        now = now,
+                        usbConfigured = usbConfigured,
+                        hasCarPlayTasks = false
+                    )
+                ) {
+                    val sinceDisconnected = now - lastProjectionUsbDisconnectedAt
+                    val sinceConfigured =
+                        if (lastProjectionUsbConfiguredAt > 0L) now - lastProjectionUsbConfiguredAt else -1L
+                    Log.w(
+                        TAG,
+                        "[$missingVisualReason] Desired D3 target has no visual task during USB " +
+                                "instability; keeping target without restore/clear " +
+                                "(usbConfigured=$usbConfigured, sinceDisconnected=${sinceDisconnected}ms, " +
+                                "sinceConfigured=${sinceConfigured}ms)"
+                    )
+                    logPersistentEvent(
+                        "carplay_contract_no_task_usb_staging",
+                        mapOf(
+                            "reason" to missingVisualReason,
+                            "usbConfigured" to usbConfigured,
+                            "sinceDisconnectedMs" to sinceDisconnected,
+                            "sinceConfiguredMs" to sinceConfigured
+                        )
+                    )
+                    return
+                }
                 if (isMissingCarPlayVisualRestoreEligible(missingVisualReason)) {
                     recreateMissingCarPlayVisualTaskOnCluster(missingVisualReason)
                 } else {
@@ -4333,36 +4535,39 @@ object DisplayAppLauncher {
         mainTask: TaskInfo,
         now: Long = System.currentTimeMillis()
     ): Boolean {
+        if (carPlayMainDisplayReconnectSeenAt == 0L) {
+            carPlayMainDisplayReconnectSeenAt = now
+        }
+
         if (
-            !shouldDeferCarPlayClusterContractRestoreForTest(
+            !shouldDeferCarPlayD0NativeRestoreAfterUsbReconnectForTest(
                 now = now,
                 lastDisconnectedAt = lastProjectionUsbDisconnectedAt,
                 lastConfiguredAt = lastProjectionUsbConfiguredAt,
-                carPlayOnMainDisplay = true,
-                graceMs = CARPLAY_RECONNECT_D0_OBSERVATION_WINDOW_MS
+                mainDisplaySeenAt = carPlayMainDisplayReconnectSeenAt,
+                quarantineMs = CARPLAY_RECONNECT_D0_NATIVE_QUARANTINE_MS
             )
         ) {
             return false
         }
 
-        if (carPlayMainDisplayReconnectSeenAt == 0L) {
-            carPlayMainDisplayReconnectSeenAt = now
-        }
-
         val sinceConfigured = now - lastProjectionUsbConfiguredAt
         val sinceMainSeen = now - carPlayMainDisplayReconnectSeenAt
+        val speedKmh = readVehicleSpeedKmh()
         Log.w(
             TAG,
-            "[$reason] CarPlay is on display 0 after USB reconnect; deferring automatic D3 " +
-                    "restore during reconnect grace (sinceConfigured=${sinceConfigured}ms, " +
-                    "sinceMainSeen=${sinceMainSeen}ms)"
+            "[$reason] CarPlay is on display 0 after USB reconnect; preserving native D0 " +
+                    "route instead of automatic D3 restore (sinceConfigured=${sinceConfigured}ms, " +
+                    "sinceMainSeen=${sinceMainSeen}ms, speed=${speedKmh ?: "unknown"}km/h)"
         )
         logPersistentEvent(
-            "carplay_contract_reconnect_staging",
+            "carplay_contract_d0_native_quarantine",
             mapOf(
                 "reason" to reason,
                 "sinceConfiguredMs" to sinceConfigured,
                 "sinceMainSeenMs" to sinceMainSeen,
+                "quarantineMs" to CARPLAY_RECONNECT_D0_NATIVE_QUARANTINE_MS,
+                "speedKmh" to speedKmh,
                 "mainStack" to mainTask.stackId
             )
         )
@@ -4378,16 +4583,12 @@ object DisplayAppLauncher {
             return
         }
         lastCarPlayClusterGuardAt = now
-        val action = if (shouldPulseCarPlayVideoFocusForContract(reason)) {
-            ExistingClusterCarPlayAction.VIDEO_FOCUS_ONLY
-        } else {
-            ExistingClusterCarPlayAction.VERIFY_ONLY
-        }
+        val action = resolveCarPlayContractGuardAction(reason)
 
         scope.launch {
-            // D0->D3 post-start stays verify-only. Native D0 focus grabs such as
-            // AC/app/AVM can leave D3 black with a healthy buffer; those get a
-            // delayed VIDEO_FOCUS_ONLY pulse after the D3 route has settled.
+            // D0->D3 post-start and D0 native/window events stay verify-only while
+            // the real D3 task exists. On v287 physical logs, app-side VIDEO_FOCUS_CHANGE
+            // and self-D0 reasserts retriggered native requestVideoFocus/onPause/onResume.
             delay(900)
             restoreOrRefreshCarPlayClusterContract(
                 "${reason}_CONTRACT_PRIMARY",
@@ -4402,12 +4603,14 @@ object DisplayAppLauncher {
         }
     }
 
-    private fun shouldPulseCarPlayVideoFocusForContract(reason: String): Boolean {
-        return reason.startsWith("AVM_PREVIEW_STATUS_") ||
-                reason.startsWith("HVAC_PANEL_DISPLAY_") ||
-                reason.startsWith("SERVICE_OPEN_APP_") ||
-                reason.startsWith("OPEN_AVM_ONCE_") ||
-                reason.startsWith("LAUNCH_MAIN_AFTER_")
+    private fun resolveCarPlayContractGuardAction(
+        @Suppress("UNUSED_PARAMETER") reason: String
+    ): ExistingClusterCarPlayAction {
+        return ExistingClusterCarPlayAction.VERIFY_ONLY
+    }
+
+    internal fun resolveCarPlayContractGuardActionForTest(reason: String): String {
+        return resolveCarPlayContractGuardAction(reason).name
     }
 
     private fun resolveCarPlayWindowFocusGuardAction(
@@ -4415,11 +4618,8 @@ object DisplayAppLauncher {
         selfPackageName: String
     ): ExistingClusterCarPlayAction? {
         if (isProjectionMirrorPackage(packageName)) return null
-        return if (packageName == selfPackageName) {
-            ExistingClusterCarPlayAction.SURFACE_REASSERT_IF_STALE
-        } else {
-            ExistingClusterCarPlayAction.EXISTING_CLUSTER_VIDEO_FOCUS_ONLY
-        }
+        if (isPassiveCarPlayWindowFocusPackage(packageName)) return null
+        return ExistingClusterCarPlayAction.VERIFY_ONLY
     }
 
     internal fun resolveCarPlayWindowFocusGuardActionForTest(
@@ -4427,6 +4627,14 @@ object DisplayAppLauncher {
         selfPackageName: String
     ): String? {
         return resolveCarPlayWindowFocusGuardAction(packageName, selfPackageName)?.name
+    }
+
+    private fun isPassiveCarPlayWindowFocusPackage(packageName: String): Boolean {
+        val normalized = packageName.lowercase(Locale.US)
+        return normalized == SYSTEM_UI_PACKAGE ||
+                normalized == "com.beantechs.mediacenter" ||
+                normalized == "com.beantechs.mediacenter.h5.core" ||
+                normalized == "com.beantechs.vehiclecenter"
     }
 
     private fun isAndroidAutoClusterPreservationEligible(): Boolean {
@@ -4822,9 +5030,9 @@ object DisplayAppLauncher {
         val isSelfPackage = packageName == selfPackageName
         val safePackage = packageName.replace(Regex("[^A-Za-z0-9_.-]"), "_").take(80)
         scope.launch {
-            // Native D0 window-focus events can leave the D3 video black even with a
-            // healthy activeBuffer. Use a delayed lite focus pulse there, while the
-            // Haval app self-focus path still only reasserts if the Surface is stale.
+            // Physical v287 logs show D0 window-focus recovery competing with the
+            // native CarPlay route. Keep this guard observational while the D3 task
+            // exists; missing-task restore remains handled inside the contract guard.
             delay(if (isSelfPackage) 650 else 1100)
             restoreOrRefreshCarPlayClusterContract(
                 "WINDOW_CHANGE_${safePackage}_CONTRACT_PRIMARY",

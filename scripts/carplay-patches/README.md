@@ -18,7 +18,7 @@ The current target state is the 2026-05-29 CarPlay D3 focus/native-buffer patch 
 
 - `TsCarPlayApp.apk` MD5 `9d48c33f49dbeeb020c2fdc7e16bbc53`;
 - `TsCarPlayService.apk` MD5 `f0269fc640778825843762dcf55a8b83`;
-- auto-mount version `app_visual_d0_focus_service_conditional_camera_native1904x704_v13`;
+- auto-mount version `app_visual_d0_focus_service_conditional_camera_native1904x704_v14`;
 - service patch is HVAC-only by default and covers both the HVAC borrow edge
   (`priority=0x6`) and the symmetric HVAC release edge
   (`priority=0`, `action=1`, `borrowId=uiNotification`);
