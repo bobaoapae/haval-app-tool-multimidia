@@ -60,6 +60,7 @@ import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec
 import br.com.redesurftank.havalshisuku.models.ThemeMetadata
 import br.com.redesurftank.havalshisuku.models.ThemeConfig
+import br.com.redesurftank.havalshisuku.ui.components.HsvColorPicker
 import br.com.redesurftank.havalshisuku.ui.components.StyledCard
 import br.com.redesurftank.havalshisuku.ui.components.StyledTextField
 import coil.compose.AsyncImage
@@ -754,6 +755,7 @@ fun TelasTab() {
                                                                 )
                                                 merged.add(
                                                         remote.copy(
+                                                                version = local.version,
                                                                 isLocal = true,
                                                                 isDownloaded = true,
                                                                 hasUpdate = hasUpdate
@@ -801,6 +803,7 @@ fun TelasTab() {
                             prefs.edit {
                                 putString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, themeToApply.name)
                                 putString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, folderName)
+                                putLong(SharedPreferencesKeys.THEME_RELOAD_NONCE.key, System.currentTimeMillis())
 
                                 if (hasThemeBg) {
                                     val currentType = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME"
@@ -3596,70 +3599,14 @@ private fun SolidColorTab(
         ) {
             Text("Mapa de cores", color = Color(0xFFB0B8C4), fontSize = 12.sp)
 
-            Canvas(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(150.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .pointerInput(Unit) {
-                        detectTapGestures { offset ->
-                            onSatValChange(
-                                (offset.x / size.width).coerceIn(0f, 1f),
-                                (1f - offset.y / size.height).coerceIn(0f, 1f)
-                            )
-                            onCommit()
-                        }
-                    }
-                    .pointerInput(Unit) {
-                        detectDragGestures(onDragEnd = { onCommit() }) { change, _ ->
-                            onSatValChange(
-                                (change.position.x / size.width).coerceIn(0f, 1f),
-                                (1f - change.position.y / size.height).coerceIn(0f, 1f)
-                            )
-                        }
-                    }
-            ) {
-                val pureHue = Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
-                drawRect(Brush.horizontalGradient(listOf(Color.White, pureHue)))
-                drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black)))
-                drawCircle(
-                    color = Color.White,
-                    radius = 7.dp.toPx(),
-                    center = Offset(saturation * size.width, (1f - brightness) * size.height),
-                    style = Stroke(width = 2.dp.toPx())
-                )
-            }
-
-            // Faixa de matiz
-            Canvas(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .pointerInput(Unit) {
-                        detectTapGestures { offset ->
-                            onHueChange((offset.x / size.width).coerceIn(0f, 1f) * 360f)
-                            onCommit()
-                        }
-                    }
-                    .pointerInput(Unit) {
-                        detectDragGestures(onDragEnd = { onCommit() }) { change, _ ->
-                            onHueChange((change.position.x / size.width).coerceIn(0f, 1f) * 360f)
-                        }
-                    }
-            ) {
-                val hues = (0..6).map {
-                    Color(android.graphics.Color.HSVToColor(floatArrayOf(it * 60f, 1f, 1f)))
-                }
-                drawRect(Brush.horizontalGradient(hues))
-                val markerX = (hue / 360f) * size.width
-                drawLine(
-                    color = Color.White,
-                    start = Offset(markerX, 0f),
-                    end = Offset(markerX, size.height),
-                    strokeWidth = 3.dp.toPx()
-                )
-            }
+            HsvColorPicker(
+                hue = hue,
+                saturation = saturation,
+                brightness = brightness,
+                onHueChange = onHueChange,
+                onSatValChange = onSatValChange,
+                onCommit = onCommit
+            )
 
             Text("Atalhos", color = Color(0xFFB0B8C4), fontSize = 12.sp)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -4990,6 +4937,310 @@ private fun getSubstituteIconVector(
     }
 }
 
+private val DEFAULT_THEME_COLOR_PRESETS = listOf(
+    "#00A0FF", "#FF0033", "#00E676", "#FF6D00", "#0033CC", "#000000", "#FFFFFF", "#808080"
+)
+
+/** Coerces user/theme-supplied text to "#RRGGBB", or returns [fallback] if it isn't one. */
+private fun normalizeHexColor(raw: String?, fallback: String): String {
+    val trimmed = raw?.trim().orEmpty()
+    val withHash = if (trimmed.startsWith("#")) trimmed else "#$trimmed"
+    val digits = withHash.drop(1)
+    return if (digits.length == 6 && digits.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
+        withHash.uppercase()
+    } else {
+        fallback
+    }
+}
+
+/**
+ * Control for a <type>color</type> theme configuration: a row of preset swatches plus an
+ * option to open a free-form HSV color picker popup dialog.
+ */
+@Composable
+private fun ThemeColorConfigControl(
+    initialHex: String,
+    presets: List<String>,
+    onCommit: (String) -> Unit
+) {
+    val swatches = remember(presets) {
+        presets.mapNotNull { option ->
+            val normalized = normalizeHexColor(option, "")
+            normalized.ifEmpty { null }
+        }.ifEmpty { DEFAULT_THEME_COLOR_PRESETS }
+    }
+    val fallback = swatches.first()
+
+    var hex by remember(initialHex) { mutableStateOf(normalizeHexColor(initialHex, fallback)) }
+    var showCustomPickerModal by remember { mutableStateOf(false) }
+
+    fun selectSwatch(swatch: String) {
+        hex = swatch
+        onCommit(swatch)
+    }
+
+    // Single row: presets, then a chip showing the live color that opens the full picker.
+    // The old layout stacked a color+hex header, a "Personalizado" text link and a swatch
+    // strip - three rows per color setting, which does not fit once a tab has several.
+    val currentArgb = android.graphics.Color.parseColor(hex)
+    val isCustom = swatches.none { it.equals(hex, ignoreCase = true) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            swatches.forEach { swatch ->
+                val isSelected = swatch.equals(hex, ignoreCase = true)
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(Color(android.graphics.Color.parseColor(swatch)))
+                        .border(
+                            2.dp,
+                            if (isSelected) Color.White else Color(0xFF2C3139),
+                            RoundedCornerShape(7.dp)
+                        )
+                        .clickable { selectSwatch(swatch) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = contrastOn(android.graphics.Color.parseColor(swatch)),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .height(22.dp)
+                .background(Color(0xFF2C3139))
+        )
+
+        // Doubles as the current-color readout and the entry point to the HSV picker,
+        // and carries the selection ring when the value is not one of the presets.
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(RoundedCornerShape(7.dp))
+                .background(Color(currentArgb))
+                .border(
+                    2.dp,
+                    if (isCustom) Color.White else Color(0xFF2C3139),
+                    RoundedCornerShape(7.dp)
+                )
+                .clickable { showCustomPickerModal = true },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Colorize,
+                contentDescription = "Cor personalizada",
+                tint = contrastOn(currentArgb),
+                modifier = Modifier.size(15.dp)
+            )
+        }
+
+        Text(hex, color = Color(0xFF8A93A0), fontSize = 11.sp)
+    }
+
+    if (showCustomPickerModal) {
+        CustomColorPickerDialog(
+            initialHex = hex,
+            swatches = swatches,
+            onDismiss = { showCustomPickerModal = false },
+            onColorSelected = { selectedHex ->
+                selectSwatch(selectedHex)
+                showCustomPickerModal = false
+            }
+        )
+    }
+}
+
+/** Black or white, whichever stays legible on top of [argb]. */
+private fun contrastOn(argb: Int): Color {
+    val luminance = (0.299f * android.graphics.Color.red(argb) +
+        0.587f * android.graphics.Color.green(argb) +
+        0.114f * android.graphics.Color.blue(argb)) / 255f
+    return if (luminance > 0.6f) Color.Black else Color.White
+}
+
+@Composable
+private fun CustomColorPickerDialog(
+    initialHex: String,
+    swatches: List<String>,
+    onDismiss: () -> Unit,
+    onColorSelected: (String) -> Unit
+) {
+    val startHsv = remember(initialHex) {
+        FloatArray(3).also { android.graphics.Color.colorToHSV(android.graphics.Color.parseColor(initialHex), it) }
+    }
+    var hue by remember { mutableStateOf(startHsv[0]) }
+    var saturation by remember { mutableStateOf(startHsv[1]) }
+    var brightness by remember { mutableStateOf(startHsv[2]) }
+
+    val currentArgb = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness))
+    val currentHex = "#%06X".format(currentArgb and 0x00FFFFFF)
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .width(360.dp)
+                .padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF191C21)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.5.dp, Color(0xFF4A9EFF))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Cor Personalizada",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Fechar",
+                            tint = Color(0xFFB0B8C4)
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF2C3139))
+
+                // Preview & Hex value display
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF101216), RoundedCornerShape(10.dp))
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(android.graphics.Color.parseColor(currentHex)))
+                                .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        )
+                        Text(
+                            text = currentHex,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // HSV Canvas map & hue slider
+                HsvColorPicker(
+                    hue = hue,
+                    saturation = saturation,
+                    brightness = brightness,
+                    onHueChange = { hue = it },
+                    onSatValChange = { s, v -> saturation = s; brightness = v },
+                    onCommit = { },
+                    mapHeight = 130.dp
+                )
+
+                // Swatch list inside popup for quick picking
+                Text(
+                    text = "Paleta de Cores",
+                    color = Color(0xFFB0B8C4),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(swatches) { swatch ->
+                        val isSelected = swatch.equals(currentHex, ignoreCase = true)
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(android.graphics.Color.parseColor(swatch)))
+                                .border(
+                                    2.dp,
+                                    if (isSelected) Color.White else Color(0xFF2C3139),
+                                    RoundedCornerShape(6.dp)
+                                )
+                                .clickable {
+                                    val hsv = FloatArray(3)
+                                    android.graphics.Color.colorToHSV(android.graphics.Color.parseColor(swatch), hsv)
+                                    hue = hsv[0]
+                                    saturation = hsv[1]
+                                    brightness = hsv[2]
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancelar", color = Color(0xFFB0B8C4))
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { onColorSelected(currentHex) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Aplicar", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ThemeSettingsDialog(
@@ -4999,13 +5250,30 @@ fun ThemeSettingsDialog(
     val context = LocalContext.current
     val prefs = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
     val listState = rememberLazyListState()
-    
+
+    val defaultGroup = "Geral"
+    // "Geral" always leads; every other tab follows the order it first appears in
+    // theme.xml. Themes with no <group> at all collapse to a single tab and the tab
+    // row is hidden entirely, so they look exactly as they did before groups existed.
+    val groupedConfigs = remember(theme.configurations) {
+        theme.configurations.groupBy { it.group.ifBlank { defaultGroup } }
+    }
+    val groups = remember(groupedConfigs) {
+        groupedConfigs.keys.sortedBy { if (it == defaultGroup) 0 else 1 }
+    }
+    var selectedGroup by remember(groups) { mutableStateOf(groups.firstOrNull() ?: defaultGroup) }
+    val visibleConfigs = groupedConfigs[selectedGroup].orEmpty()
+
+    // One shared listState across tabs, so a tab switch has to rewind it - otherwise
+    // arriving on a short tab leaves it scrolled past its own content.
+    LaunchedEffect(selectedGroup) { listState.scrollToItem(0) }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Card(
-            modifier = Modifier.width(420.dp).heightIn(max = 560.dp).padding(16.dp),
+            modifier = Modifier.width(640.dp).heightIn(max = 720.dp).padding(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2228)),
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(1.5.dp, Color(0xFF4A9EFF))
@@ -5020,16 +5288,46 @@ fun ThemeSettingsDialog(
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
-                
+
+                if (groups.size > 1) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        groups.forEach { group ->
+                            val isSelected = group == selectedGroup
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50.dp))
+                                    .background(if (isSelected) Color(0xFF4A9EFF) else Color(0xFF13151A))
+                                    .clickable { selectedGroup = group }
+                                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = group,
+                                    color = if (isSelected) Color.White else Color(0xFFB0B8C4),
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
                 HorizontalDivider(color = Color(0xFF2C3139))
-                
+
                 Box(modifier = Modifier.weight(1f, fill = false).fillMaxWidth()) {
                     LazyColumn(
                         state = listState,
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxWidth().padding(end = 6.dp)
                     ) {
-                        items(theme.configurations) { config ->
+                        // Keyed by id so the per-control remember{} state belongs to the
+                        // config itself, not to a list slot that another tab reuses.
+                        items(visibleConfigs, key = { it.id }) { config ->
                             val scopedKey = "theme_config_${theme.folderName}_${config.stateVariable}"
                             
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -5101,6 +5399,16 @@ fun ThemeSettingsDialog(
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                     }
+                                    "color" -> {
+                                        ThemeColorConfigControl(
+                                            initialHex = prefs.getString(scopedKey, config.defaultValue) ?: config.defaultValue,
+                                            // <options> doubles as the preset swatch list for color configs.
+                                            presets = config.options,
+                                            onCommit = { hex ->
+                                                prefs.edit().putString(scopedKey, hex).apply()
+                                            }
+                                        )
+                                    }
                                     "combo" -> {
                                         var selectedOption by remember {
                                             mutableStateOf(prefs.getString(scopedKey, config.defaultValue) ?: config.options.firstOrNull() ?: "")
@@ -5140,6 +5448,10 @@ fun ThemeSettingsDialog(
                                             }
                                         }
                                     }
+                                    // Unknown type: label only. Themes declaring a type this
+                                    // app build does not know still fall back to their
+                                    // <default>, which the bridge serves unchanged.
+                                    else -> {}
                                 }
                             }
                         }

@@ -51,6 +51,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     /** How long a warning must have been standing before BACK is allowed to dismiss it, so
      *  a BACK press already in flight cannot swallow a warning the driver never saw. */
     private val WARNING_DISMISS_LOCKOUT_MS = 2500L
+    /** Grace period before the layout follows a warning that cleared by itself, so it does
+     *  not snap back while the car's own popup is still finishing its own close. */
+    private val WARNING_CLEAR_HOLDOFF_MS = 2000L
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val clockRunnable =
             object : Runnable {
@@ -97,6 +100,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     /** When each currently-active warning started. BACK dismisses the newest one and the
      *  lockout is measured against that warning, not against whichever fired first. */
     private val warningOnsetTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /** Pending hold-off before the layout follows a warning that cleared on its own. */
+    private var warningClearRunnable: Runnable? = null
     private var projectionOverlayBypassActive: Boolean? = null
     private var hvacNativePanelActive = false
     private var avmNativePreviewActive = false
@@ -114,6 +119,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             mutableMapOf<String, br.com.redesurftank.havalshisuku.models.DisplayAppConfig>()
 
     private var activeThemeMetadata: br.com.redesurftank.havalshisuku.models.ThemeMetadata? = null
+    private var nativeMaskContainer: FrameLayout? = null
+    private var fuelMaskView: android.widget.ImageView? = null
+    private var batteryMaskView: android.widget.ImageView? = null
+    private var speedMaskView: android.widget.ImageView? = null
+    private var infoMaskView: android.widget.ImageView? = null
+    private val maskVisibilityOverrides = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private var themeBridge: br.com.redesurftank.havalshisuku.bridge.ThemeBridgeImpl? = null
     private var bridgePrefsListener: br.com.redesurftank.havalshisuku.bridge.PreferencePushListener? = null
 
@@ -212,6 +223,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                         SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key,
                                         SharedPreferencesKeys.VIRTUAL_CLUSTER_DISPLAY_ID.key,
                                         SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key,
+                                        SharedPreferencesKeys.THEME_RELOAD_NONCE.key,
                                         SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key,
                                         SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key,
                                         // Background keys: the theme needs to know
@@ -244,7 +256,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     "control('enableRevisionWarning', ${enabled && nextKm > 0})"
                             )
                         }
-                        if (key == SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key) {
+                        if (key == SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key || key == SharedPreferencesKeys.THEME_RELOAD_NONCE.key) {
                             // ACTIVE_CUSTOM_THEME is the sole source of truth for what
                             // content loads (see getActiveCustomThemeName()); it's also
                             // the only key some flows (e.g. download-then-activate) write.
@@ -821,6 +833,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val startedAt = SystemClock.uptimeMillis()
         val previousCard = currentCard
         currentCard = nextCard
+        updateNativeMaskViews()
         updateKnownScreenForCard(nextCard)
 
         val snapshot = readProjectionSnapshotForCardChange()
@@ -1089,6 +1102,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         logClusterPerfEvent("projector_on_stop")
         handler.removeCallbacks(clockRunnable)
         handler.removeCallbacks(watchdogRunnable)
+        cancelPendingWarningClear()
         scope.cancel()
         preferences.unregisterOnSharedPreferenceChangeListener(prefsListener)
         bridgePrefsListener?.let {
@@ -1157,11 +1171,23 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 // --- Warning Management Logic ---
                 if (key in monitoredWarningKeys) {
                     val currentValue = value?.toString() ?: "0"
-                    trackWarningOnset(key, currentValue)
+                    val isNewOnset = trackWarningOnset(key, currentValue)
+
+                    // A new warning re-opens the car's own warning popup, and that popup
+                    // lists *every* warning currently active — so the car has just put the
+                    // driver's previously dismissed warnings back on screen. Their
+                    // acknowledgements no longer describe what is being displayed, and
+                    // holding on to them would collapse our layout out from under a popup
+                    // that is still up (dismiss the belt, open a door, close it again, and
+                    // the belt warning is still sitting there on the car's popup).
+                    if (isNewOnset &&
+                            ClusterWarningPolicy.raisesWarningBadge(key, currentValue) &&
+                            dismissedWarnings.isNotEmpty()) {
+                        Log.d(TAG, "New warning $key voids ${dismissedWarnings.size} prior acknowledgement(s)")
+                        dismissedWarnings.clear()
+                    }
+
                     if (dismissedWarnings[key] != currentValue) {
-                        // Only this key's acknowledgement lapses. Clearing the whole map
-                        // here would resurrect warnings the driver already dismissed just
-                        // because an unrelated one arrived.
                         dismissedWarnings.remove(key)
                         // Informational only — the theme renders from the warningActive
                         // boolean below, not from this. Kept so a theme that wants to list
@@ -1207,6 +1233,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupControlView(parent: FrameLayout) {
+        initNativeMaskViews(parent)
         if (webView == null) {
             webView =
                     WebView(this@InstrumentProjector2.context).apply {
@@ -1259,6 +1286,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                             // Perform a single, consolidated, full-state synchronization
                                             // using the latest car metrics to guarantee perfect UI consistency.
                                             updateValuesWebView()
+                                            updateNativeMaskViews()
 
                                             // Prime the warning state once so the UI reflects the current car warnings.
                                             syncInitialWarnings()
@@ -1520,7 +1548,6 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
      * acknowledged at is withheld below so the theme never even hears about it.
      */
     private fun syncInitialWarnings() {
-        val sm = ServiceManager.getInstance()
         val webView = this.webView ?: return
 
         for (key in monitoredWarningKeys) {
@@ -1528,7 +1555,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             // from ServiceManager's cache, which still holds whatever the last event left
             // behind. See ClusterWarningPolicy.transientWarningKeys.
             if (key in ClusterWarningPolicy.transientWarningKeys) continue
-            val value = sm.getData(key) ?: "0"
+            // On a theme switch the projector has been running and already has a live view
+            // that is fresher than the cache; on a genuine first load this falls through to
+            // the cache. Either way it is the same value the badge is computed from.
+            val value = currentWarningValue(key) ?: "0"
             trackWarningOnset(key, value)
             if (dismissedWarnings[key] == value) continue
             evaluateJsIfReady(webView, "updateWarning('$key', '$value')")
@@ -1545,8 +1575,50 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
      * backend uses for cluster visibility and app widths — and left two "which keys count"
      * lists to drift apart. The backend owns it now; themes render what they are told.
      */
-    private fun recomputeWarningState(reason: String) {
+    private fun recomputeWarningState(reason: String, immediate: Boolean = false) {
         val active = unacknowledgedBadgeWarnings().isNotEmpty()
+
+        if (active) {
+            cancelPendingWarningClear()
+            applyWarningState(true, reason)
+            return
+        }
+
+        // Raising is instant; clearing is not. When the last warning goes inactive the car's
+        // own popup lingers for a moment before it closes, and dropping the layout out from
+        // under it looks like the same mismatch as leaving it up too long — just in the other
+        // direction. A BACK press is exempt: the popup closes with it, so the layout should
+        // follow immediately.
+        if (isWarningActive && !immediate) {
+            scheduleWarningClear(reason)
+            return
+        }
+
+        cancelPendingWarningClear()
+        applyWarningState(false, reason)
+    }
+
+    private fun scheduleWarningClear(reason: String) {
+        if (warningClearRunnable != null) return // a hold-off is already running
+        val runnable = Runnable {
+            warningClearRunnable = null
+            // Re-check rather than trusting the decision made when this was queued: a warning
+            // may have arrived, or been acknowledged, during the hold-off.
+            if (unacknowledgedBadgeWarnings().isEmpty()) {
+                applyWarningState(false, "$reason+holdoff")
+            }
+        }
+        warningClearRunnable = runnable
+        handler.postDelayed(runnable, WARNING_CLEAR_HOLDOFF_MS)
+        Log.d(TAG, "Warning clear held off ${WARNING_CLEAR_HOLDOFF_MS}ms ($reason)")
+    }
+
+    private fun cancelPendingWarningClear() {
+        warningClearRunnable?.let { handler.removeCallbacks(it) }
+        warningClearRunnable = null
+    }
+
+    private fun applyWarningState(active: Boolean, reason: String) {
         val dismissed = !active && dismissedWarnings.isNotEmpty()
         val changed = active != isWarningActive || dismissed != isWarningDismissed
 
@@ -1582,11 +1654,13 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun pushBsdIndicatorsToTheme() {
-        val sm = ServiceManager.getInstance()
+        // Same live-view rule as the badge: this runs from the telemetry listener, where the
+        // cache may not yet reflect the event that triggered it — reading it here would latch
+        // an arrow on after the alert had already passed.
         val left = ClusterWarningPolicy.isWarningValueActive(
-                sm.getData(CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQLEFT.value))
+                currentWarningValue(CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQLEFT.value))
         val right = ClusterWarningPolicy.isWarningValueActive(
-                sm.getData(CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQRIGHT.value))
+                currentWarningValue(CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQRIGHT.value))
         evaluateJsIfReady(
                 webView,
                 "control('bsdLeft', $left); control('bsdRight', $right);"
@@ -1598,25 +1672,44 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
      * warning wins" pick in [dismissWarnings]. Must see every telemetry event, including
      * a warning re-arriving at a value the driver already acknowledged.
      */
-    private fun trackWarningOnset(key: String, value: String) {
+    private fun trackWarningOnset(key: String, value: String): Boolean {
         val previous = lastWarningValues.put(key, value)
         if (!ClusterWarningPolicy.isWarningValueActive(value)) {
             warningOnsetTimes.remove(key)
-            return
+            return false
         }
         // A repeat of the same value is the same warning still standing, not a new one.
         // The car re-emits these while they are active, so re-arming the lockout on every
         // emission would keep pushing it into the future and make BACK permanently inert.
         if (previous != value || !warningOnsetTimes.containsKey(key)) {
             warningOnsetTimes[key] = System.currentTimeMillis()
+            return true
         }
+        return false
     }
+
+    /**
+     * The value this projector believes a warning key currently holds.
+     *
+     * Deliberately NOT ServiceManager.getData(). The telemetry listener hands us the new
+     * value directly, and ServiceManager's cache is not guaranteed to have caught up by the
+     * time the listener runs — so a warning that had just cleared could still read as active
+     * here, leaving the badge latched on with no further event coming to clear it. It also
+     * kept dismissal fragile: an acknowledgement recorded from the getData form of a value
+     * would stop matching the listener form of the same value, and the warning would come
+     * back on its next re-emission.
+     *
+     * [lastWarningValues] is fed from the live event before the state is recomputed, and
+     * seeded from the cache at theme load, so it is both the freshest and the only view the
+     * comparisons here are made against.
+     */
+    private fun currentWarningValue(key: String): String? =
+            lastWarningValues[key] ?: ServiceManager.getInstance().getData(key)
 
     /** Warnings the driver can currently see and has not acknowledged, newest first. */
     private fun unacknowledgedBadgeWarnings(): List<Pair<String, String>> {
-        val sm = ServiceManager.getInstance()
         return monitoredWarningKeys
-                .mapNotNull { key -> sm.getData(key)?.let { key to it } }
+                .mapNotNull { key -> currentWarningValue(key)?.let { key to it } }
                 .filter { (key, value) ->
                     ClusterWarningPolicy.raisesWarningBadge(key, value) &&
                             dismissedWarnings[key] != value
@@ -1625,9 +1718,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun hasCriticalTelemetryWarning(): Boolean {
-        val sm = ServiceManager.getInstance()
         for (key in monitoredWarningKeys) {
-            val value = sm.getData(key)
+            val value = currentWarningValue(key)
             if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, value)) {
                 Log.w(TAG, "Critical telemetry warning active: key=$key value=$value")
                 return true
@@ -2234,45 +2326,46 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     /**
-     * Acknowledge one warning per BACK press, newest first.
+     * BACK closes the car's warning popup, which acknowledges everything listed in it.
      *
-     * ServiceManager fires DISMISS_WARNING on *every* BACK press, so this used to
-     * acknowledge the entire active set at once: a BACK aimed at a door warning also
-     * swallowed a seat belt warning the driver had not dealt with. The lockout was
-     * measured from the first warning of a burst too, so a warning arriving while another
-     * was already standing got no protection at all.
+     * Acknowledging only the newest was tried and is wrong: the car's popup shows every
+     * active warning at once, so one BACK dismisses the lot from the driver's point of view.
+     * Holding back the others left our layout collapsed under a popup that was still up, and
+     * meant one physical condition reported over several CAN keys (tyres are four, oil is
+     * three) needed a BACK press each.
+     *
+     * The lockout is still measured per-warning, against the most recent onset, so a warning
+     * that has only just appeared cannot be swallowed by a BACK press already in flight —
+     * that part of the per-warning work was worth keeping.
      */
     override fun dismissWarnings() {
         ensureUi {
-            val target = unacknowledgedBadgeWarnings().firstOrNull()
-            if (target == null) {
+            val showing = unacknowledgedBadgeWarnings()
+            if (showing.isEmpty()) {
                 Log.d(TAG, "dismissWarnings: nothing un-acknowledged to dismiss")
                 return@ensureUi
             }
 
-            val (key, value) = target
-            val onset = warningOnsetTimes[key] ?: lastWarningActiveTime
+            // Sorted newest-first, so the head is the warning that most recently appeared.
+            val newestKey = showing.first().first
+            val onset = warningOnsetTimes[newestKey] ?: lastWarningActiveTime
             val timeSinceWarning = System.currentTimeMillis() - onset
-            Log.d(TAG, "dismissWarnings called. key=$key timeSinceWarning=${timeSinceWarning}ms (onset=$onset)")
+            Log.d(TAG, "dismissWarnings called. newest=$newestKey timeSinceWarning=${timeSinceWarning}ms (onset=$onset)")
             logClusterPerfEvent(
                     "dismiss_warning",
-                    mapOf("key" to key, "timeSinceWarningMs" to timeSinceWarning)
+                    mapOf("newest" to newestKey, "count" to showing.size, "timeSinceWarningMs" to timeSinceWarning)
             )
             if (timeSinceWarning < WARNING_DISMISS_LOCKOUT_MS) {
-                Log.w(TAG, "DISMISS_WARNING ignored: key=$key timeSinceWarning=${timeSinceWarning}ms < ${WARNING_DISMISS_LOCKOUT_MS}ms lockout")
+                Log.w(TAG, "DISMISS_WARNING ignored: newest=$newestKey timeSinceWarning=${timeSinceWarning}ms < ${WARNING_DISMISS_LOCKOUT_MS}ms lockout")
                 return@ensureUi
             }
 
-            dismissedWarnings[key] = value
-            Log.d(TAG, "dismissWarnings: acknowledged key=$key value=$value")
-
-            // Only once every visible warning has been acknowledged is the cluster clear;
-            // until then the badge stays up for whatever is left.
-            val remaining = unacknowledgedBadgeWarnings()
-            if (remaining.isNotEmpty()) {
-                Log.d(TAG, "dismissWarnings: ${remaining.size} warning(s) still un-acknowledged: ${remaining.map { it.first }}")
+            for ((key, value) in showing) {
+                dismissedWarnings[key] = value
             }
-            recomputeWarningState("DISMISS:$key")
+            Log.d(TAG, "dismissWarnings: acknowledged ${showing.size} warning(s): ${showing.map { it.first }}")
+            // No hold-off here: the car's popup closes with the same BACK press.
+            recomputeWarningState("DISMISS", immediate = true)
         }
     }
 
@@ -2318,5 +2411,131 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             val value = br.com.redesurftank.havalshisuku.bridge.VirtualTelemetryManager.getVirtualValue(contextApp, activeAppIconKey)
             themeBridge.pushOnDataChanged(activeAppIconKey, value)
         }
+    }
+
+    private fun initNativeMaskViews(parent: FrameLayout) {
+        if (nativeMaskContainer != null) return
+        val container = FrameLayout(outerContext).apply {
+            layoutParams = FrameLayout.LayoutParams(1920, 720)
+            isClickable = false
+            isFocusable = false
+        }
+
+        fuelMaskView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            visibility = View.GONE
+        }
+        batteryMaskView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            visibility = View.GONE
+        }
+        speedMaskView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            visibility = View.GONE
+        }
+        infoMaskView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            visibility = View.GONE
+        }
+
+        container.addView(fuelMaskView)
+        container.addView(batteryMaskView)
+        container.addView(speedMaskView)
+        container.addView(infoMaskView)
+
+        nativeMaskContainer = container
+        parent.addView(container, 0)
+    }
+
+    fun updateNativeMaskViews() {
+        val metadata = activeThemeMetadata
+        val config = metadata?.nativeMasks
+        if (config == null || !config.hasAnyActiveMask()) {
+            nativeMaskContainer?.isVisible = false
+            return
+        }
+
+        nativeMaskContainer?.isVisible = true
+        val folderName = metadata.folderName
+        val isCard0 = (currentCard == 0)
+
+        fun bindMask(
+            view: android.widget.ImageView?,
+            spec: br.com.redesurftank.havalshisuku.models.NativeMaskSpec,
+            name: String,
+            forceHide: Boolean = false
+        ) {
+            if (view == null) return
+            val overrideVisible = maskVisibilityOverrides[name] ?: true
+            val shouldShow = spec.enabled && overrideVisible && !forceHide
+
+            if (!shouldShow) {
+                view.isVisible = false
+                return
+            }
+
+            val params = (view.layoutParams as? FrameLayout.LayoutParams) ?: FrameLayout.LayoutParams(spec.width, spec.height)
+            params.width = spec.width
+            params.height = spec.height
+            params.leftMargin = spec.x
+            params.topMargin = spec.y
+            view.layoutParams = params
+            view.alpha = spec.opacity
+
+            if (spec.image.isNotBlank()) {
+                val themeFile = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext).getThemeFile(folderName, spec.image)
+                if (themeFile != null && themeFile.exists()) {
+                    val bitmap = android.graphics.BitmapFactory.decodeFile(themeFile.absolutePath)
+                    view.setImageBitmap(bitmap)
+                } else {
+                    view.setImageDrawable(getThemeMaskFallbackDrawable(folderName, spec))
+                }
+            } else {
+                view.setImageDrawable(getThemeMaskFallbackDrawable(folderName, spec))
+            }
+
+            view.isVisible = true
+        }
+
+        bindMask(fuelMaskView, config.fuelMask, "fuel")
+        bindMask(batteryMaskView, config.batteryMask, "battery")
+        bindMask(speedMaskView, config.speedMask, "speed")
+        // Mask 2.2 Info Mask: ALWAYS hidden by backend when card = 0
+        bindMask(infoMaskView, config.infoMask, "info", forceHide = isCard0)
+    }
+
+    private fun getThemeMaskFallbackDrawable(folderName: String, spec: br.com.redesurftank.havalshisuku.models.NativeMaskSpec): android.graphics.drawable.Drawable {
+        val bgFile = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext).getActiveThemeBackgroundFile()
+        if (bgFile != null && bgFile.exists()) {
+            try {
+                val fullBitmap = android.graphics.BitmapFactory.decodeFile(bgFile.absolutePath)
+                if (fullBitmap != null) {
+                    val cropX = spec.x.coerceIn(0, fullBitmap.width - 1)
+                    val cropY = spec.y.coerceIn(0, fullBitmap.height - 1)
+                    val cropW = spec.width.coerceAtMost(fullBitmap.width - cropX)
+                    val cropH = spec.height.coerceAtMost(fullBitmap.height - cropY)
+                    if (cropW > 0 && cropH > 0) {
+                        val cropped = android.graphics.Bitmap.createBitmap(fullBitmap, cropX, cropY, cropW, cropH)
+                        return android.graphics.drawable.BitmapDrawable(outerContext.resources, cropped)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to crop theme background for mask fallback", e)
+            }
+        }
+        return android.graphics.drawable.ColorDrawable(Color.BLACK)
+    }
+
+    override fun setNativeMaskState(maskName: String, visible: Boolean) {
+        maskVisibilityOverrides[maskName.lowercase(Locale.ROOT)] = visible
+        ensureUi { updateNativeMaskViews() }
+    }
+
+    override fun setNativeMasksConfig(jsonConfig: String) {
+        ensureUi { updateNativeMaskViews() }
     }
 }
