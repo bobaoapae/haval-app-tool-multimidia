@@ -195,6 +195,7 @@ function refreshBackdropSource() {
     backdropSource = answer === undefined
         ? { kind: 'IMAGE', url: getThemeWallpaperUrl() }
         : answer;
+    appliedBackdropFill = null;
     applyBackdropFill();
 }
 
@@ -1202,6 +1203,14 @@ async function initMinimalistBridge() {
     subscribe('projectionMirrorInDash', render);
     subscribe('projectionPreparingD3', render);
     subscribe('appInDash', render);
+    subscribe('clusterBackground', () => {
+        refreshBackdropSource();
+        render();
+    });
+    subscribe('coverNativeGauges', () => {
+        refreshBackdropSource();
+        render();
+    });
     bridge.subscribeKeys(handleSteeringWheelKey);
     bridge.subscribe(
         [...SETTINGS_KEYS_TO_SUBSCRIBE, ...GRAPH_KEYS_TO_SUBSCRIBE, ...GAUGE_KEYS_TO_SUBSCRIBE],
