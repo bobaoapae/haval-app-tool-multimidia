@@ -163,3 +163,29 @@ To make your theme available for all users:
 > Currently the app is looking for themes into the `feature/new-screen-enhancements-v6` branch. This will be reviewed in future.
 
 The `Haval Impulse` application will automatically detect the new folder and show it in the app's theme page.
+
+## Imported Sport theme packages
+
+`SportRed` and `SportRedLite` are distributed here as prebuilt, self-contained theme packages at
+version `0.16.44`. Their generated `index.html` files are intentionally kept unchanged because the
+corresponding editable frontend source is not part of this repository.
+
+The packages preserve the cluster content bounds declared by their metadata: `1920x596` at
+`x=0`, `y=62`, inside the physical `1920x720` display. They do not change Android display bounds or
+the fullscreen behavior of native projections.
+
+Run the static package contract before publishing changes:
+
+```bash
+./cluster-widgets/Themes/validate_sport_themes.sh
+```
+
+The validator checks the canonical SHA-256 hashes, metadata/bounds, Android-WebView global
+functions, and the frontend keys used by the color palettes, Now Playing, trip/TPMS panel,
+speed-limit sign, and map speedometer preference. Canonical hashes are also recorded in
+`SPORT_THEMES_SHA256SUMS`.
+
+The generated payload contains a map image URL used only by its native mock mode. That mode is
+gated by `?nativeMocks=1` or `window.__ENABLE_NATIVE_MOCKS`; neither flag is part of the normal
+local-file loading path. Keep this boundary in the vehicle smoke test because the editable source
+needed to remove or replace that development asset is not available here.

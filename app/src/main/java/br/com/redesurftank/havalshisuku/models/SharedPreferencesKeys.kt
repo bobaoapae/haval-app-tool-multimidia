@@ -248,6 +248,7 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ),
     CURRENT_CLUSTER_TEMPLATE("currentClusterTemplate", "Template atual do cluster"),
     CURRENT_CLUSTER_DISPLAY("currentClusterDisplay", "Modo de exibição do cluster"),
+    CURRENT_CLUSTER_COLOR("currentClusterColor", "Paleta de cores do cluster"),
     DEFAULT_DISPLAY_APP_PACKAGE(
             "defaultDisplayAppPackage",
             "Pacote do app padrão para abrir no cluster"
@@ -260,6 +261,14 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "Ajuste de margem inferior para a barra (overscan)"
     ),
     CLUSTER_FUEL_DISPLAY_UNIT("clusterFuelDisplayUnit", "Unidade de exibição do combustível no cluster"),
+    CLUSTER_HIDE_SPEEDOMETER_ON_MAPS(
+            "clusterHideSpeedometerOnMaps",
+            "Ocultar velocímetro nos modos de mapa"
+    ),
+    CLUSTER_V2_TRIP_INFO(
+            "clusterV2TripInfo",
+            "Exibir dados de viagem e pressão dos pneus no Analógico V2"
+    ),
     CUSTOM_THEME_REPO_URL_PROD("customThemeRepoUrlProd", "URL do Repositório de Temas (Prod)"),
     CUSTOM_THEME_REPO_URL_DEV("customThemeRepoUrlDev", "URL do Repositório de Temas (Dev)"),
     CUSTOM_THEME_REPO_ENV("customThemeRepoEnv", "Ambiente do Repositório (Prod/Dev)"),

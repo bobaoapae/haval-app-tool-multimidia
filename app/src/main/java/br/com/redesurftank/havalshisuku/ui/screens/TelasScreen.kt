@@ -324,6 +324,19 @@ fun TelasTab() {
                         ?: "liters"
         )
     }
+    var hideSpeedometerOnMaps by remember {
+        mutableStateOf(
+                prefs.getBoolean(
+                        SharedPreferencesKeys.CLUSTER_HIDE_SPEEDOMETER_ON_MAPS.key,
+                        false
+                )
+        )
+    }
+    var showV2TripInfo by remember {
+        mutableStateOf(
+                prefs.getBoolean(SharedPreferencesKeys.CLUSTER_V2_TRIP_INFO.key, false)
+        )
+    }
 
     // Revision History States
     var revisionHistory by remember { mutableStateOf(getRevisionHistory(prefs)) }
@@ -1028,6 +1041,110 @@ fun TelasTab() {
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                                modifier =
+                                        Modifier.weight(1f)
+                                                .height(104.dp)
+                                                .background(
+                                                        ImpTokens.TrackOff,
+                                                        RoundedCornerShape(8.dp)
+                                                )
+                                                .clickable(enabled = allClusterFunctionsEnabled) {
+                                                    hideSpeedometerOnMaps =
+                                                            !hideSpeedometerOnMaps
+                                                    prefs.edit {
+                                                        putBoolean(
+                                                                SharedPreferencesKeys
+                                                                        .CLUSTER_HIDE_SPEEDOMETER_ON_MAPS
+                                                                        .key,
+                                                                hideSpeedometerOnMaps
+                                                        )
+                                                    }
+                                                }
+                                                .padding(horizontal = 20.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                        "Ocultar velocímetro nos mapas",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                        "Aplica-se aos modos de mapa dos temas Sport",
+                                        color = ImpTokens.TextSecondary,
+                                        fontSize = 12.sp
+                                )
+                            }
+                            Switch(
+                                    checked = hideSpeedometerOnMaps,
+                                    enabled = allClusterFunctionsEnabled,
+                                    onCheckedChange = null,
+                                    colors =
+                                            SwitchDefaults.colors(
+                                                    checkedThumbColor = Color.White,
+                                                    checkedTrackColor = ImpTokens.Accent
+                                            )
+                            )
+                        }
+
+                        Row(
+                                modifier =
+                                        Modifier.weight(1f)
+                                                .height(104.dp)
+                                                .background(
+                                                        ImpTokens.TrackOff,
+                                                        RoundedCornerShape(8.dp)
+                                                )
+                                                .clickable(enabled = allClusterFunctionsEnabled) {
+                                                    showV2TripInfo = !showV2TripInfo
+                                                    prefs.edit {
+                                                        putBoolean(
+                                                                SharedPreferencesKeys
+                                                                        .CLUSTER_V2_TRIP_INFO
+                                                                        .key,
+                                                                showV2TripInfo
+                                                        )
+                                                    }
+                                                }
+                                                .padding(horizontal = 20.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                        "Viagem e pneus no Analógico V2",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                        "Ativa consumo, tempo, distância e TPMS no tema Sport",
+                                        color = ImpTokens.TextSecondary,
+                                        fontSize = 12.sp
+                                )
+                            }
+                            Switch(
+                                    checked = showV2TripInfo,
+                                    enabled = allClusterFunctionsEnabled,
+                                    onCheckedChange = null,
+                                    colors =
+                                            SwitchDefaults.colors(
+                                                    checkedThumbColor = Color.White,
+                                                    checkedTrackColor = ImpTokens.Accent
+                                            )
+                            )
                         }
                     }
 

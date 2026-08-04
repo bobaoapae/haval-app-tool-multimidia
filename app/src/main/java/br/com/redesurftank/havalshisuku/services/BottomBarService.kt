@@ -42,9 +42,11 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import br.com.redesurftank.havalshisuku.ImpulseDashboardActivity
 import br.com.redesurftank.havalshisuku.BuildConfig
 import br.com.redesurftank.havalshisuku.R
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.listeners.IDataChanged
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
+import br.com.redesurftank.havalshisuku.managers.UsbMediaInfoReader
 import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
@@ -92,6 +94,8 @@ class BottomBarService : LifecycleService() {
     private val androidAutoPauseOemAudioFocusLock = Any()
     private var nativeMediaCenterServiceConnection: ServiceConnection? = null
     private var nativeMediaCenterSourceMonitorJob: Job? = null
+    private var usbMediaMonitorJob: Job? = null
+    private lateinit var usbMediaInfoReader: UsbMediaInfoReader
     private var dashboardProjectionRestoreJob: Job? = null
     @Volatile private var dashboardControlFocusRestoreSuppressedUntilMs: Long = 0L
     @Volatile private var nativeMediaCenterServiceBinder: IBinder? = null
@@ -102,6 +106,8 @@ class BottomBarService : LifecycleService() {
     private var lastCarPlayMediaSignature: String? = null
     private var lastAndroidAutoMediaSignature: String? = null
     private var lastNativeAndroidAutoMediaInfoSignature: String? = null
+    private var lastUsbMediaSignature: String? = null
+    private var lastUsbMediaDiagnosticSignature: String? = null
     private var lastAndroidAutoMediaCommandName: String? = null
     private var lastAndroidAutoMediaCommandAtMs: Long = 0L
     @Volatile private var androidAutoProgressRegressionAllowedUntilMs: Long = 0L
@@ -187,6 +193,17 @@ class BottomBarService : LifecycleService() {
             get() = elapsedMs.takeIf { it > 0L || durationMs > 0L }
     }
 
+    private data class UsbMediaCandidate(
+            val title: String,
+            val artist: String?,
+            val album: String?,
+            val artwork: Bitmap?,
+            val path: String?,
+            val durationMs: Long,
+            val elapsedMs: Long,
+            val isPlaying: Boolean
+    )
+
     private data class AndroidAutoPlaybackCommandDecision(
             val effectiveIsPlaying: Boolean,
             val audioPlaybackActiveAtResolve: Boolean
@@ -227,6 +244,7 @@ class BottomBarService : LifecycleService() {
                 prefs.getBoolean(SharedPreferencesKeys.BOTTOM_BAR_AUTO_HIDE.key, false)
 
         BottomBarState.isVisible = true
+        usbMediaInfoReader = UsbMediaInfoReader(applicationContext)
 
         // Initial check for Frida status
         updateFridaStatus(prefs)
@@ -242,6 +260,7 @@ class BottomBarService : LifecycleService() {
         startCarPlayNowPlayingMonitoring()
         startNativeMediaProtectionMonitoring()
         startNativeMediaCenterSourceMonitoring()
+        startUsbMediaMonitoring()
         startCarPlayUsbDisconnectMonitoring()
         if (isAndroidAutoNowPlayingMonitorEnabled()) {
             startAndroidAutoNowPlayingMonitoring()
@@ -943,6 +962,218 @@ class BottomBarService : LifecycleService() {
                         delay(NATIVE_MEDIA_CENTER_SOURCE_POLL_MS)
                     }
                 }
+    }
+
+    private fun startUsbMediaMonitoring() {
+        if (usbMediaMonitorJob != null) return
+        usbMediaMonitorJob =
+                lifecycleScope.launch(Dispatchers.IO) {
+                    while (isActive) {
+                        try {
+                            refreshUsbMediaSnapshot()
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Throwable) {
+                            logUsbMediaDiagnostic(
+                                    stage = "tick_failed",
+                                    details = mapOf("error" to (error.message ?: error.javaClass.simpleName))
+                            )
+                        }
+                        delay(USB_MEDIA_POLL_INTERVAL_MS)
+                    }
+                }
+    }
+
+    private suspend fun refreshUsbMediaSnapshot() {
+        val currentSource = nativeMediaCenterCurrentSource
+        val currentAudioSource = nativeMediaCenterCurrentAudioSource
+        if (currentSource == null && currentAudioSource == null) return
+
+        if (!isNativeUsbMediaCenterSourceForTest(currentSource, currentAudioSource)) {
+            usbMediaInfoReader.clearCache()
+            withContext(Dispatchers.Main) {
+                if (clearUsbMediaState("MediaCenter source changed")) {
+                    publishBestMediaState()
+                }
+            }
+            return
+        }
+
+        val playBinder = resolveNativeMediaCenterPlayServiceBinder()
+        val binderInfo =
+                playBinder?.let {
+                    readNativeMediaCenterMediaInfoBySource(it, NATIVE_MEDIA_CENTER_USB_SOURCE)
+                }
+                        ?.takeIf { it.mediaSource == 0 || it.mediaSource == NATIVE_MEDIA_CENTER_USB_SOURCE }
+        val binderPlayState =
+                playBinder?.let {
+                    readNativeMediaCenterPlayStateBySource(it, NATIVE_MEDIA_CENTER_USB_SOURCE)
+                }
+                        ?.takeIf { it.mediaSource == 0 || it.mediaSource == NATIVE_MEDIA_CENTER_USB_SOURCE }
+        val binderArtwork = binderInfo?.let(::resolveNativeMediaCenterArtwork)
+
+        val needsFallback =
+                binderInfo?.title.isNullOrBlank() ||
+                        binderInfo?.artist.isNullOrBlank() ||
+                        binderInfo?.album.isNullOrBlank() ||
+                        binderArtwork == null ||
+                        binderPlayState == null
+        val fallback =
+                if (needsFallback) usbMediaInfoReader.readSnapshot(requireActiveSource = false)
+                else null
+        val tags =
+                if (fallback?.path != null &&
+                                (binderInfo?.artist.isNullOrBlank() ||
+                                        binderInfo?.album.isNullOrBlank() ||
+                                        binderArtwork == null)
+                ) {
+                    usbMediaInfoReader.readTags(fallback.path)
+                } else {
+                    null
+                }
+
+        val title =
+                binderInfo?.title?.takeIf { it.isNotBlank() }
+                        ?: fallback?.title?.takeIf { it.isNotBlank() }
+                        ?: fallback?.path
+                                ?.substringAfterLast('/')
+                                ?.substringBeforeLast('.')
+                                ?.takeIf { it.isNotBlank() }
+                        ?: return
+        val candidate =
+                UsbMediaCandidate(
+                        title = title,
+                        artist = binderInfo?.artist ?: tags?.artist,
+                        album = binderInfo?.album ?: tags?.album,
+                        artwork = binderArtwork ?: tags?.artwork,
+                        path = fallback?.path,
+                        durationMs =
+                                (binderPlayState?.durationMs?.takeIf { it > 0L }
+                                                ?: binderInfo?.durationMs?.takeIf { it > 0L }
+                                                ?: fallback?.durationMs?.takeIf { it > 0L }
+                                                ?: tags?.durationMs
+                                                ?: 0L)
+                                        .coerceAtLeast(0L),
+                        elapsedMs =
+                                (binderPlayState?.progressElapsedMs ?: fallback?.positionMs ?: 0L)
+                                        .coerceAtLeast(0L),
+                        isPlaying = binderPlayState?.isPlaying ?: fallback?.isPlaying ?: false
+                )
+
+        val activePlayingSessionPackage = findCompetingPlayingMediaSessionPackage()
+        val ownershipSnapshot =
+                withContext(Dispatchers.Main) {
+                    BottomBarState.mediaPackageName to BottomBarState.activeClusterProjectionPackage
+                }
+        val androidAutoTransportReady =
+                (isAndroidAutoMediaPackage(ownershipSnapshot.first) ||
+                                isAndroidAutoMediaPackage(ownershipSnapshot.second)) &&
+                        isAndroidAutoMediaTransportReadyForDashboard()
+        withContext(Dispatchers.Main) {
+            val currentMediaPackage = BottomBarState.mediaPackageName
+            val activeProjectionPackage = BottomBarState.activeClusterProjectionPackage
+            val androidAutoOwnerChangedDuringRead =
+                    (isAndroidAutoMediaPackage(currentMediaPackage) ||
+                                    isAndroidAutoMediaPackage(activeProjectionPackage)) &&
+                            !isAndroidAutoMediaPackage(ownershipSnapshot.first) &&
+                            !isAndroidAutoMediaPackage(ownershipSnapshot.second)
+            val shouldPublish =
+                    shouldPublishUsbMediaForTest(
+                            currentSource = currentSource,
+                            currentAudioSource = currentAudioSource,
+                            currentMediaPackageName = currentMediaPackage,
+                            activeClusterProjectionPackage = activeProjectionPackage,
+                            activePlayingSessionPackage = activePlayingSessionPackage,
+                            androidAutoTransportReady =
+                                    androidAutoTransportReady || androidAutoOwnerChangedDuringRead,
+                            usbIsPlaying = candidate.isPlaying
+                    )
+            if (!shouldPublish) {
+                if (clearUsbMediaState("higher-priority media owner")) {
+                    publishBestMediaState()
+                }
+                logUsbMediaDiagnostic(
+                        stage = "deferred",
+                        details =
+                                mapOf(
+                                        "owner" to (currentMediaPackage ?: "none"),
+                                        "projection" to (activeProjectionPackage.ifBlank { "none" }),
+                                        "session" to (activePlayingSessionPackage ?: "none")
+                                )
+                )
+                return@withContext
+            }
+            applyUsbMediaCandidate(candidate)
+        }
+    }
+
+    private fun findCompetingPlayingMediaSessionPackage(): String? {
+        return synchronized(mediaControllerLock) {
+            mediaControllerCallbacks.keys.firstOrNull { controller ->
+                controller.packageName != "com.android.server.telecom" &&
+                        controller.packageName !in NATIVE_USB_MEDIA_SESSION_PACKAGES &&
+                        controller.playbackState?.state == PlaybackState.STATE_PLAYING
+            }?.packageName
+        }
+    }
+
+    private fun applyUsbMediaCandidate(candidate: UsbMediaCandidate) {
+        val wasUsbOwner = BottomBarState.mediaPackageName == USB_MEDIA_PACKAGE
+        val artworkSize = candidate.artwork?.let { "${it.width}x${it.height}" }.orEmpty()
+        val nextSignature =
+                "${candidate.title}|${candidate.artist}|${candidate.album}|${candidate.path}|" +
+                        "${candidate.durationMs}|$artworkSize"
+        val trackChanged = lastUsbMediaSignature != null && lastUsbMediaSignature != nextSignature
+
+        BottomBarState.mediaTitle = candidate.title
+        BottomBarState.mediaArtist = candidate.artist
+        BottomBarState.mediaAlbum = candidate.album
+        BottomBarState.mediaArtwork = candidate.artwork
+        BottomBarState.mediaPackageName = USB_MEDIA_PACKAGE
+        BottomBarState.mediaIsPlaying = candidate.isPlaying
+        updateMediaProgressState(
+                durationMs = candidate.durationMs,
+                elapsedMs = candidate.elapsedMs,
+                updatedAtMs = SystemClock.elapsedRealtime(),
+                canSeek = false,
+                allowProgressRegression = !wasUsbOwner || trackChanged
+        )
+        lastUsbMediaSignature = nextSignature
+        logUsbMediaDiagnostic(
+                stage = "published",
+                details =
+                        mapOf(
+                                "title" to candidate.title,
+                                "artist" to (candidate.artist ?: "none"),
+                                "artwork" to (artworkSize.ifBlank { "none" }),
+                                "playing" to candidate.isPlaying
+                        )
+        )
+    }
+
+    private fun clearUsbMediaState(reason: String): Boolean {
+        if (BottomBarState.mediaPackageName != USB_MEDIA_PACKAGE) return false
+        BottomBarState.mediaTitle = null
+        BottomBarState.mediaArtist = null
+        BottomBarState.mediaAlbum = null
+        BottomBarState.mediaArtwork = null
+        BottomBarState.mediaPackageName = null
+        BottomBarState.mediaIsPlaying = false
+        resetMediaProgressState()
+        lastUsbMediaSignature = null
+        logUsbMediaDiagnostic("cleared", mapOf("reason" to reason))
+        return true
+    }
+
+    private fun logUsbMediaDiagnostic(stage: String, details: Map<String, Any?> = emptyMap()) {
+        val signature = buildString {
+            append(stage)
+            details.toSortedMap().forEach { (key, value) -> append('|').append(key).append('=').append(value) }
+        }
+        if (signature == lastUsbMediaDiagnosticSignature) return
+        lastUsbMediaDiagnosticSignature = signature
+        Log.i("BottomBarService", "USB media $signature")
+        ClusterPersistentEventLogger.log("usb_media", mapOf("stage" to stage) + details)
     }
 
     private fun bindNativeMediaCenterService() {
@@ -1754,7 +1985,14 @@ class BottomBarService : LifecycleService() {
                     if (selected == null) {
                         val preserved =
                                 withContext(Dispatchers.Main) {
-                                    preserveNativeAndroidAutoMediaCenterState("no active media session")
+                                    preserveNativeAndroidAutoMediaCenterState("no active media session") ||
+                                            shouldPreserveUsbOwnerForCandidateForTest(
+                                                    currentMediaPackageName = BottomBarState.mediaPackageName,
+                                                    currentSource = nativeMediaCenterCurrentSource,
+                                                    currentAudioSource = nativeMediaCenterCurrentAudioSource,
+                                                    candidatePackageName = null,
+                                                    candidateIsPlaying = false
+                                            )
                                 }
                         if (!preserved) {
                             withContext(Dispatchers.Main) { clearMediaState(preserveCarPlay = true) }
@@ -1791,6 +2029,17 @@ class BottomBarService : LifecycleService() {
                     logMediaSelection(packageName, title, artist, album, artwork, metadata)
 
                     withContext(Dispatchers.Main) {
+                        if (
+                                shouldPreserveUsbOwnerForCandidateForTest(
+                                        currentMediaPackageName = BottomBarState.mediaPackageName,
+                                        currentSource = nativeMediaCenterCurrentSource,
+                                        currentAudioSource = nativeMediaCenterCurrentAudioSource,
+                                        candidatePackageName = packageName,
+                                        candidateIsPlaying = isPlaying
+                                )
+                        ) {
+                            return@withContext
+                        }
                         val androidAutoFallbackPackage =
                                 resolveAndroidAutoProjectionFallbackMediaPackage(packageName, hasMetadata)
                         if (androidAutoFallbackPackage != null) {
@@ -3654,6 +3903,11 @@ class BottomBarService : LifecycleService() {
         androidAutoMonitorRefreshJob = null
         nativeMediaCenterSourceMonitorJob?.cancel()
         nativeMediaCenterSourceMonitorJob = null
+        usbMediaMonitorJob?.cancel()
+        usbMediaMonitorJob = null
+        if (::usbMediaInfoReader.isInitialized) {
+            usbMediaInfoReader.clearCache()
+        }
         dashboardProjectionRestoreJob?.cancel()
         dashboardProjectionRestoreJob = null
         abandonAndroidAutoPauseOemAudioFocus("BottomBarService destroy")
@@ -3760,6 +4014,9 @@ class BottomBarService : LifecycleService() {
         private const val NATIVE_MEDIA_CENTER_LOCAL_RADIO_MIN_SOURCE = 10
         private const val NATIVE_MEDIA_CENTER_LOCAL_RADIO_MAX_SOURCE = 14
         private const val NATIVE_MEDIA_CENTER_ANDROID_AUTO_SOURCE = 402
+        private const val NATIVE_MEDIA_CENTER_USB_SOURCE = 2
+        private const val USB_MEDIA_PACKAGE = "com.beantechs.mediacenter.usb"
+        private const val USB_MEDIA_POLL_INTERVAL_MS = 2_000L
         private const val NATIVE_MEDIA_CENTER_STATE_IDLE = 0
         private const val NATIVE_MEDIA_CENTER_STATE_PLAYING = 3
         private const val NATIVE_MEDIA_CENTER_STATE_PAUSED = 4
@@ -3782,6 +4039,12 @@ class BottomBarService : LifecycleService() {
                 setOf(
                         "com.beantechs.mediacenter",
                         "com.beantechs.mediacenter.h5.core"
+                )
+        private val NATIVE_USB_MEDIA_SESSION_PACKAGES =
+                setOf(
+                        NATIVE_MEDIA_CENTER_PACKAGE,
+                        "com.beantechs.mediacenter.h5.core",
+                        USB_MEDIA_PACKAGE
                 )
         private val DASHBOARD_PASSIVE_EXTERNAL_FOCUS_PACKAGES =
                 setOf(
@@ -4277,6 +4540,59 @@ class BottomBarService : LifecycleService() {
         ): Boolean {
             return isNativeMediaCenterAndroidAutoSource(currentSource) ||
                     isNativeMediaCenterAndroidAutoSource(currentAudioSource)
+        }
+
+        internal fun isNativeUsbMediaCenterSourceForTest(
+                currentSource: Int?,
+                currentAudioSource: Int?
+        ): Boolean {
+            return currentSource == NATIVE_MEDIA_CENTER_USB_SOURCE ||
+                    currentAudioSource == NATIVE_MEDIA_CENTER_USB_SOURCE
+        }
+
+        internal fun shouldPublishUsbMediaForTest(
+                currentSource: Int?,
+                currentAudioSource: Int?,
+                currentMediaPackageName: String?,
+                activeClusterProjectionPackage: String?,
+                activePlayingSessionPackage: String?,
+                androidAutoTransportReady: Boolean,
+                usbIsPlaying: Boolean
+        ): Boolean {
+            if (!isNativeUsbMediaCenterSourceForTest(currentSource, currentAudioSource)) return false
+            if (shouldProtectNativeMediaCenterSourceForTest(currentSource, currentAudioSource)) {
+                return false
+            }
+            if (isCarPlayMediaPackageName(currentMediaPackageName)) return false
+            if (isCarPlayMediaPackageName(activeClusterProjectionPackage)) return false
+            if (!activePlayingSessionPackage.isNullOrBlank()) return false
+            if (
+                    androidAutoTransportReady &&
+                            (isAndroidAutoMediaPackageName(currentMediaPackageName) ||
+                                    isAndroidAutoMediaPackageName(activeClusterProjectionPackage))
+            ) {
+                return false
+            }
+            return currentMediaPackageName == USB_MEDIA_PACKAGE || usbIsPlaying
+        }
+
+        internal fun shouldPreserveUsbOwnerForCandidateForTest(
+                currentMediaPackageName: String?,
+                currentSource: Int?,
+                currentAudioSource: Int?,
+                candidatePackageName: String?,
+                candidateIsPlaying: Boolean
+        ): Boolean {
+            if (currentMediaPackageName != USB_MEDIA_PACKAGE) return false
+            if (!isNativeUsbMediaCenterSourceForTest(currentSource, currentAudioSource)) return false
+            if (isProjectionMediaPackageName(candidatePackageName)) return false
+            if (
+                    candidatePackageName != null &&
+                            candidatePackageName in NATIVE_USB_MEDIA_SESSION_PACKAGES
+            ) {
+                return true
+            }
+            return !candidateIsPlaying
         }
 
         private fun isNativeMediaCenterLocalRadioSource(source: Int?): Boolean {

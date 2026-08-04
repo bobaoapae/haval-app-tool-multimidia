@@ -1,6 +1,6 @@
 # Kotlin JS Bridge
 
-Atualizado em: 2026-06-12
+Atualizado em: 2026-08-04
 
 ## Android Para JavaScript
 
@@ -43,10 +43,38 @@ deixar pulsos nativos de TTS/LCA entrarem no caminho pesado de warning e card fl
 
 `addJavascriptInterface(WebAppInterface(), "Android")` expõe:
 
+- `getInitialClusterDisplay()`
+- `getInitialClusterColor()`
 - `heartbeat()`
 - `setWarningActive(Boolean)`
 - `setCardId(Int)`
 - `saveSetting(String, String)`
+
+`saveSetting` continua restrito a uma allowlist. Os únicos campos aceitos do frontend são
+`currentClusterDisplay` e `currentClusterColor`; qualquer outra chave é ignorada. Os valores de
+modo e cor também são normalizados antes de persistir.
+
+## Contrato dos temas Sport
+
+`SportRed` e `SportRedLite` consomem, além das chaves legadas:
+
+- aparência: `colorTheme`, `hideSpeedometerOnMaps` e `v2TripInfo`;
+- viagem/TPMS: `tripAvgConsumption`, `tripDriveTime`, `tripOdometer`, `tripAvgSpeed`,
+  `tirePressures` e `tireTemperatures`;
+- reconhecimento de placa: `speedLimit` e `speedLimitActive`;
+- mídia: `nowPlayingTitle`, `nowPlayingArt`, `nowPlayingDurationMs`, `nowPlayingElapsedMs` e
+  `nowPlayingPlaying`.
+
+Strings novas são serializadas com JSON quoting. Capa é limitada a 320 px, JPEG 80 e enviada
+somente quando a referência muda. TPMS roda a cada 5 s apenas com o recurso habilitado; TSR roda a
+cada 1,5 s apenas nos temas Sport. Todos os jobs, callback de mídia e listener de dados são
+cancelados no `onStop`.
+
+O valor de TSR vem diretamente do VHAL `557847281`: codigos `1..40` permanecem crus para a
+conversao em passos de 5 km/h feita pelo tema, e valores `41..200` ja representam km/h. Ausencia,
+zero, `255` e status explicitamente inativo limpam `speedLimit`; uma classe de visibilidade injetada
+pelo Android esconde os overlays Sport nesses estados para impedir que o fallback interno de 30
+km/h do bundle apareca como dado real.
 
 ## Readiness e Reload do WebView
 
@@ -58,6 +86,11 @@ demais funcoes globais.
 
 Em `onPageFinished`, o heartbeat e renovado antes do sync completo para impedir reload prematuro
 do watchdog enquanto o primeiro `window.Android.heartbeat()` ainda nao disparou.
+
+O timer de heartbeat usa `window.__havalHeartbeatTimer`: um timer anterior é cancelado antes de
+instalar o novo. No teardown, o timer é removido e `window.cleanup()` é chamado quando existir.
+As filas de JS permanecem limitadas a 250 comandos durante loading e são substituídas pelo sync
+completo no `onPageFinished`.
 
 ## Arquivos Relacionados
 

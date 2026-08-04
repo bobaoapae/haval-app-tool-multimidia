@@ -4,10 +4,12 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
+import android.util.Base64
 import android.view.Display
 import android.view.View
 import android.view.WindowManager
@@ -23,6 +25,9 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
+import br.com.redesurftank.havalshisuku.managers.VehiclePropertyReader
+import br.com.redesurftank.havalshisuku.listeners.IDataChanged
+import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.models.MainUiManager
 import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType
@@ -33,11 +38,13 @@ import br.com.redesurftank.havalshisuku.models.screens.MainMenu
 import br.com.redesurftank.havalshisuku.models.screens.RegenScreen
 import br.com.redesurftank.havalshisuku.models.screens.Screen
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.collections.get
 import kotlinx.coroutines.*
+import org.json.JSONObject
 
 class InstrumentProjector2(private val outerContext: Context, display: Display) :
         BaseProjector(outerContext, display) {
@@ -50,6 +57,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private val PROJECTION_PROJECTOR_WARMUP_BYPASS_MS = 1600L
     private val PROJECTION_D3_FALSE_NEGATIVE_HOLD_MS = 12_000L
     private val PERF_HEARTBEAT_INTERVAL_MS = 60_000L
+    private val MAX_PENDING_JS_COMMANDS = 250
+    private val vehiclePropertyReader = VehiclePropertyReader()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val clockRunnable =
             object : Runnable {
@@ -59,6 +68,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     handler.postDelayed(this, 30000) // Update every 30s
                 }
             }
+    private val mediaRunnable =
+            object : Runnable {
+                override fun run() {
+                    if (isSportThemeActive()) {
+                        publishNowPlayingState()
+                        handler.postDelayed(this, 1000L)
+                    }
+                }
+            }
     private val preferences: SharedPreferences =
             App.getDeviceProtectedContext()
                     .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
@@ -66,6 +84,19 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private val webViewsLoaded = mutableMapOf<WebView, Boolean>()
     private val pendingJsQueues = mutableMapOf<WebView, MutableList<String>>()
     private lateinit var root: FrameLayout
+    private var dataChangedListener: IDataChanged? = null
+    private var tsrJob: Job? = null
+    private var tpmsJob: Job? = null
+    private var artworkEncodingJob: Job? = null
+    private var lastTsrPayload: String? = null
+    private var lastTpmsPressures: String? = null
+    private var lastTpmsTemperatures: String? = null
+    private var nowPlayingResyncPending = true
+    private var lastNowPlayingTitle: String? = null
+    private var lastNowPlayingArtwork: Bitmap? = null
+    private var lastNowPlayingDurationMs = Long.MIN_VALUE
+    private var lastNowPlayingElapsedMs = Long.MIN_VALUE
+    private var lastNowPlayingState: Boolean? = null
 
     // Dedup cache: skip a JS push when the same key:value pair was the most
     // recently pushed one. Car CAN bus often re-emits identical values back
@@ -198,6 +229,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                         SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key,
                                         SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key,
                                         SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key,
+                                        SharedPreferencesKeys.CLUSTER_HIDE_SPEEDOMETER_ON_MAPS.key,
+                                        SharedPreferencesKeys.CLUSTER_V2_TRIP_INFO.key,
                                         SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_ACTIVE.key,
                                         SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_SCORE.key,
                                         SharedPreferencesKeys
@@ -225,6 +258,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                         key == SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key
                         ) {
                             Log.d(TAG, "Theme changed, reloading WebView")
+                            nowPlayingResyncPending = true
+                            updateSportFeaturePolling()
                             webView?.let { wv ->
                                 markWebViewLoading(wv, "THEME_CHANGED")
                                 wv.loadDataWithBaseURL(
@@ -240,6 +275,21 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             val unit = getClusterFuelDisplayUnit()
                             Log.d(TAG, "[HavalDev] Cluster fuel display unit changed: $unit")
                             evaluateJsIfReady(webView, "control('fuelDisplayUnit', '$unit')")
+                        }
+                        if (key == SharedPreferencesKeys.CLUSTER_HIDE_SPEEDOMETER_ON_MAPS.key) {
+                            evaluateJsIfReady(
+                                    webView,
+                                    "control('hideSpeedometerOnMaps', ${getHideSpeedometerOnMaps()})"
+                            )
+                        }
+                        if (key == SharedPreferencesKeys.CLUSTER_V2_TRIP_INFO.key) {
+                            val enabled = getV2TripInfo()
+                            evaluateJsIfReady(webView, "control('v2TripInfo', $enabled)")
+                            if (enabled && isSportThemeActive()) {
+                                startTpmsPolling()
+                            } else {
+                                stopTpmsPolling()
+                            }
                         }
                         if (key == SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_ACTIVE.key) {
                             val active = preferences.getBoolean(key, false)
@@ -1020,6 +1070,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         refreshNativeProjectionPanelStateFromCache()
         updateVirtualClusterVisibility(reason = "ON_CREATE")
         setupDataListeners()
+        updateSportFeaturePolling()
     }
 
     override fun onStop() {
@@ -1027,13 +1078,29 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         logClusterPerfEvent("projector_on_stop")
         handler.removeCallbacks(clockRunnable)
         handler.removeCallbacks(watchdogRunnable)
+        handler.removeCallbacks(mediaRunnable)
+        tsrJob?.cancel()
+        tsrJob = null
+        tpmsJob?.cancel()
+        tpmsJob = null
+        artworkEncodingJob?.cancel()
+        artworkEncodingJob = null
         scope.cancel()
         preferences.unregisterOnSharedPreferenceChangeListener(prefsListener)
         ServiceManager.getInstance().removeServiceManagerEventListener(eventListener)
+        dataChangedListener?.let { ServiceManager.getInstance().removeDataChangedListener(it) }
+        dataChangedListener = null
+        vehiclePropertyReader.close()
 
         // Hardening: Explicitly destroy WebView to prevent leaks and broken channels
         webView?.let { wv: WebView ->
             Log.w(TAG, "Destroying WebView")
+            runCatching {
+                wv.evaluateJavascript(
+                        "(function(){if(window.__havalHeartbeatTimer){clearInterval(window.__havalHeartbeatTimer);window.__havalHeartbeatTimer=null;}if(typeof window.cleanup==='function'){window.cleanup();}})()",
+                        null
+                )
+            }
             root.removeView(wv)
             wv.stopLoading()
             wv.clearHistory()
@@ -1044,13 +1111,26 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             wv.destroy()
             webView = null
         }
+        webViewsLoaded.clear()
+        pendingJsQueues.clear()
+        lastSentValues.clear()
+        lastAppliedConfigs.clear()
 
         super.onStop()
     }
 
     private fun setupDataListeners() {
-        ServiceManager.getInstance().addDataChangedListener { key, value ->
-            if (value == null) return@addDataChangedListener
+        if (dataChangedListener != null) return
+        val listener = IDataChanged { key, value ->
+            if (value != null) {
+                handleDataChanged(key, value)
+            }
+        }
+        dataChangedListener = listener
+        ServiceManager.getInstance().addDataChangedListener(listener)
+    }
+
+    private fun handleDataChanged(key: String, value: String) {
 
             if (isNativeProjectionPanelKey(key)) {
                 ensureUi {
@@ -1074,7 +1154,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             // WebView's internal state to stay current so it's correct
             // the moment visibility returns.
             val previous = lastSentValues[key]
-            if (previous == value) return@addDataChangedListener
+            if (previous == value) return
             lastSentValues[key] = value
 
             ensureUi {
@@ -1085,6 +1165,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     }
                     CarConstants.CAR_BASIC_TOTAL_ODOMETER.value -> {
                         evaluateJsIfReady(webView, "control('odometer', '$value')")
+                    }
+                    CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT_SIGN_STATUS.value -> {
+                        if (isSportThemeActive()) {
+                            val active = normalizeSpeedLimitActive(value)
+                            if (active == "0") {
+                                publishSpeedLimit(null)
+                            } else {
+                                publishTsrVisibility(lastTsrPayload?.isNotEmpty() == true)
+                            }
+                        }
                     }
                     CarConstants.CAR_BASIC_REMAIN_FUEL_PERCENTAGE.value -> {
                         evaluateJsIfReady(webView, "control('fuelPercent', '$value')")
@@ -1200,11 +1290,23 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     CarConstants.CAR_EV_INFO_INSTANT_ENERGY_CONSUMPTION.value -> {
                         evaluateJsIfReady(webView, "control('instantEVConsumption', '$value')")
                     }
+                    CarConstants.CAR_BASIC_AVG_FUEL_CONSUMPTION.value -> {
+                        evaluateJsIfReady(webView, controlStringJs("tripAvgConsumption", value))
+                    }
+                    CarConstants.CAR_BASIC_ACCUMULATED_DIRVETIME.value -> {
+                        evaluateJsIfReady(webView, controlStringJs("tripDriveTime", value))
+                    }
+                    CarConstants.CAR_BASIC_ACCUMULATED_ODOMETER.value -> {
+                        evaluateJsIfReady(webView, controlStringJs("tripOdometer", value))
+                    }
+                    CarConstants.CAR_BASIC_AVG_VEHICLE_SPEED_SINCE_RESET.value -> {
+                        evaluateJsIfReady(webView, controlStringJs("tripAvgSpeed", value))
+                    }
                 }
 
                 // --- Warning Management Logic ---
                 if (key in monitoredWarningKeys) {
-                    val currentValue = value?.toString() ?: "0"
+                    val currentValue = value
                     if (dismissedWarnings[key] != currentValue) {
                         dismissedWarnings.remove(key)
                         if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, currentValue)) {
@@ -1222,7 +1324,6 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     }
                 }
             }
-        }
     }
 
     private fun triggerAutoLaunch() {
@@ -1292,6 +1393,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                             // Perform a single, consolidated, full-state synchronization
                                             // using the latest car metrics to guarantee perfect UI consistency.
                                             updateValuesWebView()
+                                            nowPlayingResyncPending = true
+                                            updateSportFeaturePolling()
 
                                             // Prime the warning state once so the UI reflects the current car warnings.
                                             syncInitialWarnings()
@@ -1303,7 +1406,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
                                             // Inject Heartbeat
                                             wv.evaluateJavascript(
-                                                    "setInterval(() => { if (window.Android && window.Android.heartbeat) window.Android.heartbeat(); }, 2000);",
+                                                    "(function(){if(window.__havalHeartbeatTimer){clearInterval(window.__havalHeartbeatTimer);}window.__havalHeartbeatTimer=setInterval(function(){if(window.Android&&typeof window.Android.heartbeat==='function'){window.Android.heartbeat();}},2000);})()",
                                                     null
                                             )
                                         }
@@ -1371,6 +1474,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         updates["projectionPreparingD3"] = projectionPreparingD3.toString()
         updates["cardId"] = currentCard.toString()
         updates["display"] = getSavedClusterDisplay()
+        updates["colorTheme"] = getSavedClusterColor()
         Log.w(
                 TAG,
                 "[WEBVIEW_STATE_SYNC] carPlayInDash=$carPlayInDash projectionMirrorInDash=$projectionMirrorInDash projectionPreparingD3=$projectionPreparingD3 cardId=$currentCard display=${updates["display"]} loaded=${
@@ -1437,6 +1541,21 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         updates["batteryRange"] =
                 sm.getData(CarConstants.CAR_EV_INFO_ELECTRIC_MODE_REMAIN_ODOMETER.value) ?: "0"
         updates["fuelDisplayUnit"] = getClusterFuelDisplayUnit()
+        updates["hideSpeedometerOnMaps"] = getHideSpeedometerOnMaps().toString()
+        updates["v2TripInfo"] = getV2TripInfo().toString()
+        updates["tripAvgConsumption"] =
+                sm.getData(CarConstants.CAR_BASIC_AVG_FUEL_CONSUMPTION.value) ?: ""
+        updates["tripDriveTime"] =
+                sm.getData(CarConstants.CAR_BASIC_ACCUMULATED_DIRVETIME.value) ?: ""
+        updates["tripOdometer"] =
+                sm.getData(CarConstants.CAR_BASIC_ACCUMULATED_ODOMETER.value) ?: ""
+        updates["tripAvgSpeed"] =
+                sm.getData(CarConstants.CAR_BASIC_AVG_VEHICLE_SPEED_SINCE_RESET.value) ?: ""
+        updates["tirePressures"] = lastTpmsPressures ?: ""
+        updates["tireTemperatures"] = lastTpmsTemperatures ?: ""
+        updates["speedLimit"] = lastTsrPayload.orEmpty()
+        updates["speedLimitActive"] =
+                if (lastTsrPayload?.isNotEmpty() == true && !isTsrExplicitlyInactive()) "1" else "0"
         val tripAnalysisActive =
                 preferences.getBoolean(
                         SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_ACTIVE.key,
@@ -1501,6 +1620,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         lastSentValues.clear()
 
         batchEvaluateJs(webView, updates)
+        if (isSportThemeActive()) {
+            publishTsrVisibility(lastTsrPayload?.isNotEmpty() == true && !isTsrExplicitlyInactive())
+        }
     }
 
     private fun updateCardEntryValuesWebView(cardId: Int) {
@@ -1591,6 +1713,251 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         return if (unit == "percent") "percent" else "liters"
     }
 
+    private fun getHideSpeedometerOnMaps(): Boolean {
+        return preferences.getBoolean(
+                SharedPreferencesKeys.CLUSTER_HIDE_SPEEDOMETER_ON_MAPS.key,
+                false
+        )
+    }
+
+    private fun getV2TripInfo(): Boolean {
+        return preferences.getBoolean(SharedPreferencesKeys.CLUSTER_V2_TRIP_INFO.key, false)
+    }
+
+    private fun isSportThemeActive(): Boolean {
+        val theme = getActiveCustomThemeName()
+        return theme.equals("SportRed", ignoreCase = true) ||
+                theme.equals("SportRedLite", ignoreCase = true)
+    }
+
+    private fun updateSportFeaturePolling() {
+        if (isSportThemeActive()) {
+            handler.removeCallbacks(mediaRunnable)
+            handler.post(mediaRunnable)
+            startTsrPolling()
+            if (getV2TripInfo()) {
+                startTpmsPolling()
+            } else {
+                stopTpmsPolling()
+            }
+        } else {
+            handler.removeCallbacks(mediaRunnable)
+            tsrJob?.cancel()
+            tsrJob = null
+            lastTsrPayload = null
+            stopTpmsPolling()
+            artworkEncodingJob?.cancel()
+            artworkEncodingJob = null
+            nowPlayingResyncPending = true
+        }
+    }
+
+    private fun startTsrPolling() {
+        if (tsrJob?.isActive == true) return
+        tsrJob =
+                scope.launch(Dispatchers.IO) {
+                    while (isActive) {
+                        val directPayload =
+                                VehiclePropertyReader.normalizeSpeedLimit(
+                                        vehiclePropertyReader.readPropertyAsString(
+                                                VehiclePropertyReader.TSR_SPEED_LIMIT_PROPERTY_ID
+                                        )
+                                )
+                        val payload =
+                                if (isTsrExplicitlyInactive()) null
+                                else directPayload
+                        withContext(Dispatchers.Main.immediate) {
+                            if (isSportThemeActive()) {
+                                publishSpeedLimit(payload)
+                            }
+                        }
+                        delay(1500L)
+                    }
+                }
+    }
+
+    private fun publishSpeedLimit(speedLimit: String?) {
+        val payload = speedLimit ?: ""
+        publishTsrVisibility(payload.isNotEmpty() && !isTsrExplicitlyInactive())
+        if (lastTsrPayload == payload) return
+        lastTsrPayload = payload
+        evaluateJsIfReady(webView, controlStringJs("speedLimit", payload))
+    }
+
+    private fun publishTsrVisibility(active: Boolean) {
+        val activeValue = if (active) "1" else "0"
+        evaluateJsIfReady(webView, "control('speedLimitActive', '$activeValue')")
+        evaluateJsIfReady(
+                webView,
+                """
+                (function(){
+                  var root=document.documentElement;
+                  if(!root){return;}
+                  var style=document.getElementById('haval-tsr-visibility-style');
+                  if(!style){
+                    style=document.createElement('style');
+                    style.id='haval-tsr-visibility-style';
+                    style.textContent='.haval-tsr-inactive .dashboard-sport-tsr-overlay,.haval-tsr-inactive .g20-v2-simulated-tsr{display:none!important}';
+                    (document.head||root).appendChild(style);
+                  }
+                  root.classList.toggle('haval-tsr-inactive',${!active});
+                })()
+                """.trimIndent().replace("\n", " ")
+        )
+    }
+
+    private fun normalizeSpeedLimitActive(value: String?): String {
+        return when (value?.trim()?.lowercase(Locale.ROOT)) {
+            "1", "true", "on", "active" -> "1"
+            else -> "0"
+        }
+    }
+
+    private fun isTsrExplicitlyInactive(): Boolean {
+        val rawStatus =
+                ServiceManager.getInstance()
+                        .getData(CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT_SIGN_STATUS.value)
+                        ?: return false
+        return normalizeSpeedLimitActive(rawStatus) == "0"
+    }
+
+    private fun startTpmsPolling() {
+        if (tpmsJob?.isActive == true || !getV2TripInfo() || !isSportThemeActive()) return
+        tpmsJob =
+                scope.launch(Dispatchers.IO) {
+                    while (isActive && getV2TripInfo() && isSportThemeActive()) {
+                        val pressures =
+                                VehiclePropertyReader.TPMS_PRESSURE_PROPERTY_IDS.joinToString(",") {
+                                    vehiclePropertyReader.readPropertyAsString(it).orEmpty()
+                                }
+                        val temperatures =
+                                VehiclePropertyReader.TPMS_TEMPERATURE_PROPERTY_IDS.joinToString(",") {
+                                    vehiclePropertyReader.readPropertyAsString(it).orEmpty()
+                                }
+                        if (
+                                pressures != lastTpmsPressures ||
+                                        temperatures != lastTpmsTemperatures
+                        ) {
+                            lastTpmsPressures = pressures
+                            lastTpmsTemperatures = temperatures
+                            withContext(Dispatchers.Main.immediate) {
+                                evaluateJsIfReady(
+                                        webView,
+                                        controlStringJs("tirePressures", pressures)
+                                )
+                                evaluateJsIfReady(
+                                        webView,
+                                        controlStringJs("tireTemperatures", temperatures)
+                                )
+                            }
+                        }
+                        delay(5000L)
+                    }
+                }
+    }
+
+    private fun stopTpmsPolling() {
+        tpmsJob?.cancel()
+        tpmsJob = null
+        lastTpmsPressures = null
+        lastTpmsTemperatures = null
+    }
+
+    private fun publishNowPlayingState() {
+        val playing = BottomBarState.mediaIsPlaying
+        val title =
+                BottomBarState.mediaTitle
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        .orEmpty()
+        val artwork = BottomBarState.mediaArtwork?.takeIf { title.isNotEmpty() }
+        val durationMs = BottomBarState.mediaDurationMs.coerceAtLeast(0L)
+        val elapsedMs = calculateCurrentMediaElapsedMs(durationMs, playing)
+        val force = nowPlayingResyncPending
+        nowPlayingResyncPending = false
+
+        if (force || title != lastNowPlayingTitle) {
+            lastNowPlayingTitle = title
+            evaluateJsIfReady(webView, controlStringJs("nowPlayingTitle", title))
+        }
+        if (force || artwork !== lastNowPlayingArtwork) {
+            lastNowPlayingArtwork = artwork
+            artworkEncodingJob?.cancel()
+            artworkEncodingJob = null
+            if (artwork == null) {
+                evaluateJsIfReady(webView, controlStringJs("nowPlayingArt", ""))
+            } else {
+                artworkEncodingJob =
+                        scope.launch(Dispatchers.Default) {
+                            val encoded = encodeArtwork(artwork)
+                            withContext(Dispatchers.Main.immediate) {
+                                if (isSportThemeActive() && artwork === lastNowPlayingArtwork) {
+                                    evaluateJsIfReady(
+                                            webView,
+                                            controlStringJs("nowPlayingArt", encoded)
+                                    )
+                                }
+                            }
+                        }
+            }
+        }
+        if (force || durationMs != lastNowPlayingDurationMs) {
+            lastNowPlayingDurationMs = durationMs
+            evaluateJsIfReady(webView, "control('nowPlayingDurationMs', $durationMs)")
+        }
+        if (force || elapsedMs != lastNowPlayingElapsedMs) {
+            lastNowPlayingElapsedMs = elapsedMs
+            evaluateJsIfReady(webView, "control('nowPlayingElapsedMs', $elapsedMs)")
+        }
+        if (force || playing != lastNowPlayingState) {
+            lastNowPlayingState = playing
+            evaluateJsIfReady(webView, "control('nowPlayingPlaying', $playing)")
+        }
+    }
+
+    private fun calculateCurrentMediaElapsedMs(durationMs: Long, playing: Boolean): Long {
+        var elapsedMs = BottomBarState.mediaElapsedMs.coerceAtLeast(0L)
+        val updatedAtMs = BottomBarState.mediaProgressUpdatedAtMs
+        if (playing && updatedAtMs > 0L) {
+            val now = SystemClock.elapsedRealtime()
+            if (now >= updatedAtMs) {
+                elapsedMs += now - updatedAtMs
+            }
+        }
+        return if (durationMs > 0L) elapsedMs.coerceIn(0L, durationMs) else elapsedMs
+    }
+
+    private fun encodeArtwork(source: Bitmap): String {
+        var encodedBitmap = source
+        var createdScaledBitmap = false
+        return try {
+            if (source.width > 320 || source.height > 320) {
+                val scale = minOf(320f / source.width, 320f / source.height)
+                encodedBitmap =
+                        Bitmap.createScaledBitmap(
+                                source,
+                                (source.width * scale).toInt().coerceAtLeast(1),
+                                (source.height * scale).toInt().coerceAtLeast(1),
+                                true
+                        )
+                createdScaledBitmap = encodedBitmap !== source
+            }
+            ByteArrayOutputStream().use { output ->
+                if (!encodedBitmap.compress(Bitmap.CompressFormat.JPEG, 80, output)) {
+                    return ""
+                }
+                "data:image/jpeg;base64," +
+                        Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+            }
+        } catch (_: Throwable) {
+            ""
+        } finally {
+            if (createdScaledBitmap) {
+                encodedBitmap.recycle()
+            }
+        }
+    }
+
     private fun batchEvaluateJs(view: WebView?, updates: Map<String, String>) {
         if (view == null || updates.isEmpty()) return
         val jsBuilder = StringBuilder("(function(){")
@@ -1602,11 +1969,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     value.toDoubleOrNull() != null
                     )
                             value
-                    else "'$value'"
-            jsBuilder.append("control('$key', $formattedValue);")
+                    else JSONObject.quote(value)
+            jsBuilder.append("control(${JSONObject.quote(key)}, $formattedValue);")
         }
         jsBuilder.append("})()")
         evaluateJsIfReady(view, jsBuilder.toString())
+    }
+
+    private fun controlStringJs(key: String, value: String): String {
+        return "control(${JSONObject.quote(key)}, ${JSONObject.quote(value)})"
     }
 
     private fun updateVirtualClusterVisibility(
@@ -1861,7 +2232,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             }
             webView.evaluateJavascript(js, null)
         } else {
-            pendingJsQueues.getOrPut(webView) { mutableListOf() }.add(js)
+            val queue = pendingJsQueues.getOrPut(webView) { mutableListOf() }
+            if (queue.size >= MAX_PENDING_JS_COMMANDS) {
+                queue.removeAt(0)
+            }
+            queue.add(js)
         }
     }
 
@@ -2085,11 +2460,49 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         return normalizeClusterDisplay(savedDisplay)
     }
 
-    private fun normalizeClusterDisplay(display: String): String {
-        return when (display) {
-            "Normal", "Esportivo", "Reduzido", "Clean", "Mapa" -> display
-            else -> "Normal"
+    private fun getSavedClusterColor(): String {
+        val savedColor =
+                preferences.getString(
+                        SharedPreferencesKeys.CURRENT_CLUSTER_COLOR.key,
+                        "Red Sport"
+                ) ?: "Red Sport"
+        return normalizeClusterColor(savedColor)
+    }
+
+    private fun normalizeClusterColor(color: String): String {
+        return when (color) {
+            "Red Sport",
+            "Red GT",
+            "Ocean Blue",
+            "Green",
+            "Dark Blue",
+            "Amber Gold",
+            "Purple GT" -> color
+            else -> "Red Sport"
         }
+    }
+
+    private fun normalizeClusterDisplay(display: String): String {
+        return if (isSportThemeActive()) {
+            when (display) {
+                "Normal", "Analógico V2", "Digital", "Mapa", "Mapa Graduado", "Mapa Limpo" ->
+                        display
+                else -> "Normal"
+            }
+        } else {
+            when (display) {
+                "Normal", "Esportivo", "Reduzido", "Clean", "Mapa" -> display
+                else -> "Normal"
+            }
+        }
+    }
+
+    private fun saveClusterColor(color: String) {
+        val normalizedColor = normalizeClusterColor(color)
+        preferences.edit()
+                .putString(SharedPreferencesKeys.CURRENT_CLUSTER_COLOR.key, normalizedColor)
+                .apply()
+        Log.d(TAG, "Cluster color saved: $normalizedColor")
     }
 
     private fun saveClusterDisplay(display: String) {
@@ -2136,6 +2549,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     inner class WebAppInterface {
+        @JavascriptInterface
+        fun getInitialClusterColor(): String = getSavedClusterColor()
+
+        @JavascriptInterface
+        fun getInitialClusterDisplay(): String = getSavedClusterDisplay()
+
         @JavascriptInterface
         fun heartbeat() {
             lastHeartbeatTime = System.currentTimeMillis()
@@ -2192,6 +2611,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         fun saveSetting(key: String, value: String) {
             when (key) {
                 SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key -> saveClusterDisplay(value)
+                SharedPreferencesKeys.CURRENT_CLUSTER_COLOR.key -> saveClusterColor(value)
                 else -> Log.w(TAG, "Ignoring unsupported WebView setting: $key")
             }
         }

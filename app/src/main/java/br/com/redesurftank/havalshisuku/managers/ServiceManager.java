@@ -129,6 +129,9 @@ public class ServiceManager {
             CarConstants.CAR_EV_INFO_CYCLE_FUEL_CONSUME_INFO,
             CarConstants.CAR_CONFIGURE_PEDAL_CONTROL_ENABLE,
             CarConstants.CAR_BASIC_INSTANT_FUEL_CONSUMPTION,
+            CarConstants.CAR_BASIC_AVG_FUEL_CONSUMPTION,
+            CarConstants.CAR_BASIC_ACCUMULATED_ODOMETER,
+            CarConstants.CAR_BASIC_AVG_VEHICLE_SPEED_SINCE_RESET,
             CarConstants.CAR_EV_INFO_CUR_CHARGE_CURRENT,
             CarConstants.CAR_EV_INFO_POWER_BATTERY_VOLTAGE,
             CarConstants.CAR_BASIC_REMAIN_FUEL_PERCENTAGE,
@@ -156,7 +159,9 @@ public class ServiceManager {
             CarConstants.CAR_IPK_LIGHT_TPMS_WARNING,
             CarConstants.CAR_BASIC_ENGINE_SPEED,
             CarConstants.CAR_EV_INFO_INSTANT_ENERGY_CONSUMPTION,
-            CarConstants.CAR_IPK_LIGHT_FUEL_LOW
+            CarConstants.CAR_IPK_LIGHT_FUEL_LOW,
+            CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT,
+            CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT_SIGN_STATUS
     };
 
     private static final CarConstants[] KEYS_TO_SAVE = {
