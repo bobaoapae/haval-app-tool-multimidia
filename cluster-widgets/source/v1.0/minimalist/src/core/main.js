@@ -779,6 +779,10 @@ window.control = function (key, value) {
             val = Number(value);
         }
         setState(key, val);
+        if (key === 'clusterBackground') {
+            refreshBackdropSource();
+            render();
+        }
         // warningActive has its own subscription to render() at line 184, so no need for manual trigger here
         logger.leave('window.control');
     } catch (e) {
