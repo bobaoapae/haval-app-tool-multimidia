@@ -155,6 +155,116 @@ function isBottomNotchVisible() {
     return !(val === false || val === 'false' || val === 0 || val === '0');
 }
 
+// The car's fuel and battery gauges are composited between display 1 and display 3, so
+// the opaque bottom bar is also the lid on them. With the bar hidden the notch look costs
+// us that lid, and .mask-gauge-patch puts it back over each gauge by repainting the
+// display-1 wallpaper from up here (see the CSS for why that is invisible).
+//
+// It is only invisible while the wallpaper really is what is behind those pills. Anything
+// projected onto display 1 is showing that app there instead, and painting the wallpaper
+// over it would be two visible blotches on the app — worse than the gauges. That is also
+// why this needs no host call to check display 1: whether something is projected is state
+// the theme already has.
+function isGaugePatchVisible() {
+    if (isBottomBarVisible()) return false;
+    if (isProjectingAnything()) return false;
+    const val = get('coverNativeGauges');
+    if (val === false || val === 'false' || val === 0 || val === '0') return false;
+    return backdropSource !== null;
+}
+
+// The wallpaper is a user setting on the host, not a theme asset, so it can only be
+// resolved at runtime. Re-resolved whenever the backdrop is about to be shown, which is
+// the only moment its value can matter.
+let backdropSource = null;
+let appliedBackdropFill = null;
+
+// Only for a host that predates getClusterBackdropSource, which cannot tell us what the
+// wallpaper is. theme.xml declares car-bg.png as this theme's own display-1 wallpaper and
+// it ships as a sibling of app.html, so on the default setting it is the right image —
+// and on a custom one the user can turn the whole feature off. A host that *can* answer
+// and says "nothing" is taken at its word instead; it means the strip is not showing a
+// wallpaper at all, and painting one there would be the visible seam, not the fix.
+// (A function, not a const: nativeMockEnabled is declared further down this module.)
+function getThemeWallpaperUrl() {
+    return nativeMockEnabled ? '/src/assets/car-bg.png' : 'car-bg.png';
+}
+
+function refreshBackdropSource() {
+    const answer = bridge.getClusterBackdropSource();
+    backdropSource = answer === undefined
+        ? { kind: 'IMAGE', url: getThemeWallpaperUrl() }
+        : answer;
+    applyBackdropFill();
+}
+
+function applyBackdropFill() {
+    const patches = (maskComponent && maskComponent.gaugePatches) || [];
+    if (patches.length === 0) return;
+
+    let fill = null;
+    if (backdropSource && backdropSource.kind === 'IMAGE') {
+        fill = { image: 'url("' + backdropSource.url + '")', color: 'transparent' };
+    } else if (backdropSource && backdropSource.kind === 'COLOR') {
+        // The host paints a solid colour as an elliptical vignette over it: a 640x240
+        // bitmap, radial gradient of radius 0.62*width squashed to the bitmap's aspect,
+        // stops transparent / transparent 45% / black, then CENTER_CROP onto 1920x720.
+        // 640x240 and 1920x720 are the same aspect, so that is a plain 3x upscale and the
+        // ellipse maps to 1190.4 x 446.4 centred — reproduced here rather than approximated,
+        // since a vignette that disagrees with display 1 would show up as exactly the seam
+        // this element exists to avoid.
+        const alpha = Math.max(0, Math.min(100, Number(backdropSource.vignette) || 0)) / 100;
+        fill = {
+            image: alpha > 0
+                ? 'radial-gradient(ellipse 1190.4px 446.4px at 50% 50%, ' +
+                  'rgba(0,0,0,0) 0%, rgba(0,0,0,0) 45%, rgba(0,0,0,' + alpha + ') 100%)'
+                : 'none',
+            color: backdropSource.color
+        };
+    }
+
+    const serialized = fill ? fill.image + '|' + fill.color : '';
+    if (serialized === appliedBackdropFill) return;
+    appliedBackdropFill = serialized;
+
+    // Both pills carry the same full-canvas wallpaper and differ only in their clip, so
+    // each lines up with display 1 on its own without knowing about the other.
+    patches.forEach((el) => {
+        el.style.backgroundImage = fill ? fill.image : '';
+        el.style.backgroundColor = fill ? fill.color : '';
+    });
+}
+
+// projection_keep_visible is a "multi" config: the host stores the chosen options as a
+// comma separated list, so the value arrives as one raw string. Each option maps to a
+// keep-<slug> class and CSS hides the readouts whose slug is absent while projecting.
+// Which readouts survive a map used to be hard-coded in the stylesheet — one rule I had
+// written myself for the gauges — which meant every new readout was another exception.
+const PROJECTION_CONTENT = [
+    { option: 'Gauges', slug: 'gauges' },
+    { option: 'Hora', slug: 'hora' },
+    { option: 'Marcha', slug: 'marcha' },
+    { option: 'HEV', slug: 'hev' },
+    { option: 'Regen', slug: 'regen' }
+];
+
+// Same accent hazard as the other combos, plus the split: an entry saved as "Hora" or
+// "hora" or with stray spaces must all land on the same slug.
+function getProjectionKeepSlugs() {
+    const raw = get('projectionKeepVisible');
+    // Only a genuinely absent value falls back to "keep everything", and that is just the
+    // boot frame before bindThemeSetting seeds the theme.xml default. An empty *string*
+    // is a saved selection with nothing ticked, which must hide everything — the two are
+    // indistinguishable once stored, so the distinction has to be made here.
+    if (typeof raw !== 'string') {
+        return PROJECTION_CONTENT.map((c) => c.slug);
+    }
+    const chosen = raw.split(',').map(foldAccents).filter(Boolean);
+    return PROJECTION_CONTENT
+        .filter((c) => chosen.includes(foldAccents(c.option)))
+        .map((c) => c.slug);
+}
+
 // One-shot, read-only migration off the retired hide_bottom_bar + do_not_hide_bars_on
 // pair. Nothing is written back: if the host still holds the old keys we just derive an
 // equivalent starting value, and the first time the user touches the new combo the app
@@ -295,6 +405,10 @@ function initializeLayout() {
         console.error('[Error] Failed to initialize dashboard info: ', e);
     }
 
+    // The mask element only exists now, so any source resolved before this point still
+    // has to be painted onto it.
+    applyBackdropFill();
+
     // Side no-app discs removed — mask-panel L/R gradients cover that role
     logger.leave('initializeLayout');
 }
@@ -322,6 +436,9 @@ function render() {
             c !== 'hide-top-bar' &&
             c !== 'show-top-notch' &&
             c !== 'show-bottom-notch' &&
+            c !== 'show-gauge-patch' &&
+            c !== 'projecting' &&
+            !c.startsWith('keep-') &&
             c !== 'hide-regen-icon' &&
             c !== 'hide-rpm-icon' &&
             c !== 'nav-mask-reduced' &&
@@ -366,6 +483,22 @@ function render() {
         }
         if (isBottomNotchVisible()) {
             classes.push('show-bottom-notch');
+        }
+        // Re-resolved on the way in, not just at boot: the wallpaper can be changed from
+        // the app at any time, and a stale copy of the old one is the one case where this
+        // element is visible instead of invisible.
+        if (!isBottomBarVisible()) {
+            refreshBackdropSource();
+        }
+        if (isGaugePatchVisible()) {
+            classes.push('show-gauge-patch');
+        }
+        // While anything is projected, projection_keep_visible decides which readouts
+        // stay. One flag class plus one keep-<slug> per chosen option, so the stylesheet
+        // states each readout as a symmetric rule instead of a hard-coded exception.
+        if (isProjectingAnything()) {
+            classes.push('projecting');
+            getProjectionKeepSlugs().forEach((slug) => classes.push('keep-' + slug));
         }
         if (get('showRegenIcon') === false) {
             classes.push('hide-regen-icon');
@@ -1054,6 +1187,8 @@ async function initMinimalistBridge() {
     bindSetting('topBarVisibility', 'Sempre');
     bindSetting('bottomBarVisibility', 'Só com Projeção');
     bindSetting('bottomBarNotch', true);
+    bindSetting('coverNativeGauges', true);
+    bindSetting('projectionKeepVisible', 'Gauges, Hora, Marcha, HEV, Regen');
     bindSetting('showRegenIcon', true);
     bindSetting('showRpmIcon', true);
     bindSetting('navigationDisplayMode', 'Clean');

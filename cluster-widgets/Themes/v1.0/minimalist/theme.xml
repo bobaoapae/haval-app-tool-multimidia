@@ -1,7 +1,7 @@
 <theme>
     <name>Minimalist</name>
     <description>Clean, square edges, flat menu, and minimalist typography.</description>
-    <version>1.4.0</version>
+    <version>1.5.2</version>
     <minBridgeVersion>1.0.0</minBridgeVersion>
     <contractVersion>v1.0</contractVersion>
     <thumbnail>thumbnail.png</thumbnail>
@@ -71,6 +71,29 @@
             <type>boolean</type>
             <default>true</default>
             <stateVariable>bottomBarNotch</stateVariable>
+        </configuration>
+        <!-- Os medidores originais de combustível e bateria são desenhados entre o
+             display 1 e o display 3, então quem os escondia era a barra inferior opaca.
+             Com a barra oculta, esta opção repinta o papel de parede do display 1 sobre
+             cada medidor, em duas pílulas — mantendo o recorte, sem devolver a barra
+             preta, e sem cobrir o resto da faixa, que traz informação nativa útil. -->
+        <configuration>
+            <id>cover_native_gauges</id>
+            <label>Cobrir Medidores Originais</label>
+            <type>boolean</type>
+            <default>true</default>
+            <stateVariable>coverNativeGauges</stateVariable>
+        </configuration>
+        <!-- Multiple selection, stored as a comma separated list. On app builds that do
+             not know the "multi" type the settings dialog shows the label with no
+             control and the theme keeps this default, so the theme stays usable. -->
+        <configuration>
+            <id>projection_keep_visible</id>
+            <label>Manter Visível na Projeção</label>
+            <type>multi</type>
+            <options>Gauges, Hora, Marcha, HEV, Regen</options>
+            <default>Gauges, Hora, Marcha, HEV, Regen</default>
+            <stateVariable>projectionKeepVisible</stateVariable>
         </configuration>
     </configurations>
 </theme>

@@ -3900,6 +3900,34 @@ canvas.graph-chart {
   align-items: center !important;
 }
 
+/* Card 0 (native car content) / card 3 (AC) label — same top-center slot as the
+   menu carousel above, shown instead of it since neither card populates the carousel.
+   Sized to match .menu-item.focused .menu-label (46px): the carousel only ever shows
+   its focused item in this slot, so that — not the 36px unfocused style — is the
+   size people actually see there.
+   height/top match .main-menu-container (top:0, height:80px inside the 150px
+   .dashboard-menu-container), not the full 150px box: the carousel text centers on
+   that inner 80px band (viewport y 45), not the outer box's own center (y 80). Centering
+   on the full 150px here would land the text 35px lower than the carousel it replaces. */
+.dashboard-card-title {
+  position: absolute;
+  left: 50%;
+  top: 5px;
+  transform: translateX(-50%);
+  width: 300px;
+  height: 80px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Khand', sans-serif;
+  font-weight: 300;
+  font-size: 46px;
+  color: var(--menu-item-text-focused);
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .main-menu-container {
   top: 0 !important;
   bottom: auto !important;
@@ -5145,10 +5173,36 @@ body.nav-mask-reduced .graph-screen,
   pointer-events: none !important;
 }
 
-/* The old ".keep the gauges when something is projected" override is gone: which
-   contexts show a bar is now the bottom_bar_visibility setting's job, decided in
-   main.js, so leaving a CSS rule that force-shows content of a hidden bar would
-   just fight it. */
+/*
+ * projection_keep_visible. While anything is projected, main.js sets .projecting plus a
+ * keep-<slug> for each option the user kept, so each readout is one symmetric rule
+ * rather than a hard-coded exception per element.
+ */
+.projecting:not(.keep-gauges) .dashboard-bottom-gauges,
+.projecting:not(.keep-hora) .dashboard-clock,
+.projecting:not(.keep-marcha) .dashboard-gear,
+.projecting:not(.keep-hev) .dashboard-bottom-ev-mode,
+.projecting:not(.keep-regen) .dashboard-bottom-regen {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Fuel and battery are the only readouts anchored to the bottom strip, so hiding the
+   bar takes them with it. While projecting they are the last range information left, so
+   a kept "Gauges" outranks the bar's own visibility. The extra .keep-gauges class puts
+   this at specificity (0,4,0) — above both the .hide-bottom-bar rule and the
+   :not(.keep-gauges) rule above, which would otherwise tie and be decided by order.
+   They get no backdrop: the bottom notch is sized for the time/gear group and these
+   span the full width, so they rely on their own text shadow over the map. */
+.app-in-dash-active.hide-bottom-bar.keep-gauges .dashboard-bottom-gauges,
+.map-in-dash-active.hide-bottom-bar.keep-gauges .dashboard-bottom-gauges,
+.carplay-in-dash.hide-bottom-bar.keep-gauges .dashboard-bottom-gauges,
+.projection-map-display-active.hide-bottom-bar.keep-gauges .dashboard-bottom-gauges {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
 
 .hide-top-bar .mask-top-bar {
   opacity: 0 !important;
@@ -5167,9 +5221,17 @@ body.nav-mask-reduced .graph-screen,
  * at either join. Shoulder 150px, control points at half that (tension .5) for a
  * symmetric ease-in-out.
  *
- *   top:    flat 640..1280 at depth 95, so the tab spans 490..1430
- *           (menu occupies 660..1260 — 20px clear each side)
- *   bottom: flat 790..1130 at depth 60, so the tab spans 640..1280
+ *   top:    flat 830..1090 at depth 64, shoulder 86, so the tab spans 744..1176
+ *           The menu's *container* is 660..1260, but that is a carousel track that is
+ *           almost entirely empty. Measuring opacity up the ancestor chain (the faded
+ *           neighbours are hidden by a parent, not by their own style) the legible
+ *           icon+label ink is 841..1079, and the content bottom is y=59 — the box only
+ *           reaches 80 on line-height leading. Sized to the ink rather than the track,
+ *           this is about as small as the notch can get and still back the menu: 11px
+ *           clear each side and 6px under the icons. 432x64 against the bottom's 640x60
+ *           — a third narrower, but 4px deeper, and it cannot match 60: the menu icons
+ *           bottom out at y=59, so a 60 deep notch would clear them by a single pixel.
+ *   bottom: flat 790..1130 at depth 60, shoulder 150, so the tab spans 640..1280
  *           (time/gear occupies 812..1108 — 22px clear each side)
  *
  * They live inside .cluster-mask-bg (z-index 1, below content), so they sit behind the
@@ -5189,7 +5251,7 @@ body.nav-mask-reduced .graph-screen,
 
 .mask-top-notch {
   background-color: var(--mask-top-bar-bg);
-  clip-path: path('M 490 0 C 565 0, 565 95, 640 95 L 1280 95 C 1355 95, 1355 0, 1430 0 Z');
+  clip-path: path('M 744 0 C 787 0, 787 64, 830 64 L 1090 64 C 1133 64, 1133 0, 1176 0 Z');
 }
 
 .mask-bottom-notch {
@@ -5199,6 +5261,112 @@ body.nav-mask-reduced .graph-screen,
 
 .show-top-notch .mask-top-notch,
 .show-bottom-notch .mask-bottom-notch {
+  display: block;
+}
+
+/*
+ * The cluster panel composites display 1 UNDER the car's own fuel/battery gauges and
+ * display 3 -- this theme -- OVER them. So the opaque bottom bar was doing two jobs: the
+ * backdrop for the time/gear readout, and the lid on the native gauges. Hiding it for the
+ * notch look takes the lid off too, and the gauges appear over the wallpaper.
+ *
+ * These put the lid back over the two gauges only, without the bar: each paints the
+ * display-1 wallpaper itself, from up here where we outrank the gauges, clipped to a pill
+ * around one gauge. The pixels are the same ones already showing through, so a pill is
+ * invisible except where a gauge was drawn on top of them.
+ *
+ * Which is why the pills are per-gauge and not one strip: an invisible patch still HIDES
+ * whatever native content sits under it, and the rest of that band carries readouts worth
+ * keeping. Sizing is therefore a real trade -- too tight leaves a sliver of gauge, too
+ * loose eats a neighbour -- so the geometry lives in the variables below.
+ *
+ * Alignment is the other half. The box is the full 1920x720 canvas with `cover` +
+ * `center`, which is exactly the CENTER_CROP fit InstrumentProjector's ImageView applies
+ * on display 1; clip AFTER laying it out that way, never by shrinking the box, or a
+ * non-1920x720 wallpaper lands at a different scale and the seam shows.
+ *
+ * main.js supplies the image (or the solid colour) at runtime from the host -- the
+ * wallpaper is a user setting, not a theme asset, so it cannot be a build-time url().
+ */
+:root {
+  /* Each pill runs off its own outer screen edge and off the bottom, so the only edges it
+     actually has are the inner one and the top -- which is why one number per axis places
+     both pills. --gauge-patch-inner is the fuel pill's inner edge; the battery pill
+     mirrors it at 1920 minus this.
+
+     Seeded from where this theme puts its own readouts (fuel 450..700, battery 1220..1470,
+     symmetric about the 960 centre) with room to spare, since a native gauge is probably a
+     little larger. Calibrate against the real cluster: push --gauge-patch-inner in until
+     nothing is left showing, and no further -- everything between the two pills stays
+     visible, and that gap is the point of the shape. */
+  --gauge-patch-inner: 720px;
+  --gauge-patch-top: 656px;
+  /* Width of the alpha ramp on those two edges. The patch is wallpaper over the same
+     wallpaper, so in theory the boundary cannot show -- but only in theory: display 1 and
+     display 3 are scaled and blended by different pipelines, and any disagreement between
+     them lands exactly on this edge. A ramp turns a potential hard seam into a gradient
+     nobody can see. */
+  --gauge-patch-feather: 28px;
+}
+
+.mask-gauge-patch {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1920px;
+  height: 720px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  display: none;
+
+  /* The two ramps are intersected, so each softens its own edge and their overlap rounds
+     the inner-top corner for free. The vertical one only fades in at the top; the bottom
+     runs off the screen. */
+  -webkit-mask-size: var(--gauge-patch-inner) calc(720px - var(--gauge-patch-top));
+  mask-size: var(--gauge-patch-inner) calc(720px - var(--gauge-patch-top));
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  /* Legacy first, standard second: old WebViews only parse the prefixed spelling, newer
+     ones take the standard one. Getting this wrong is not cosmetic -- unintersected mask
+     layers are ADDED, which would union the two ramps instead of overlapping them. */
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+
+  /* Bound of last resort. If a WebView ignores masks entirely the element would otherwise
+     paint over the whole canvas; this keeps the damage to the pill's own box, which is
+     just the hard-edged version of the same patch. */
+  clip-path: inset(var(--gauge-patch-top) var(--patch-inset-right) 0 var(--patch-inset-left));
+}
+
+.mask-gauge-patch.fuel {
+  --patch-inset-left: 0px;
+  --patch-inset-right: calc(1920px - var(--gauge-patch-inner));
+  -webkit-mask-image:
+    linear-gradient(to right, #000 calc(100% - var(--gauge-patch-feather)), transparent 100%),
+    linear-gradient(to bottom, transparent 0, #000 var(--gauge-patch-feather), #000 100%);
+  mask-image:
+    linear-gradient(to right, #000 calc(100% - var(--gauge-patch-feather)), transparent 100%),
+    linear-gradient(to bottom, transparent 0, #000 var(--gauge-patch-feather), #000 100%);
+  -webkit-mask-position: 0 var(--gauge-patch-top);
+  mask-position: 0 var(--gauge-patch-top);
+}
+
+.mask-gauge-patch.battery {
+  --patch-inset-left: calc(1920px - var(--gauge-patch-inner));
+  --patch-inset-right: 0px;
+  -webkit-mask-image:
+    linear-gradient(to left, #000 calc(100% - var(--gauge-patch-feather)), transparent 100%),
+    linear-gradient(to bottom, transparent 0, #000 var(--gauge-patch-feather), #000 100%);
+  mask-image:
+    linear-gradient(to left, #000 calc(100% - var(--gauge-patch-feather)), transparent 100%),
+    linear-gradient(to bottom, transparent 0, #000 var(--gauge-patch-feather), #000 100%);
+  -webkit-mask-position: calc(1920px - var(--gauge-patch-inner)) var(--gauge-patch-top);
+  mask-position: calc(1920px - var(--gauge-patch-inner)) var(--gauge-patch-top);
+}
+
+.show-gauge-patch .mask-gauge-patch {
   display: block;
 }
 

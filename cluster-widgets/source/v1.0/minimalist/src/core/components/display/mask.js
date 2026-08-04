@@ -4,6 +4,18 @@ import { div } from '../../../../../shared/utils/createElement.js';
 export function createMask() {
     // Background layer (Bars and side gradient panels) - z-index: 50
     const maskBg = div({ className: 'cluster-mask-bg' });
+
+    // The car's own fuel and battery gauges are composited between display 1 and display 3,
+    // so the opaque bottom bar is what hides them — take the bar away for the notch look
+    // and they show through. These paint the display-1 wallpaper back over each gauge from
+    // up here, where we outrank them. One pill per gauge rather than the whole strip: the
+    // rest of that band carries native readouts worth keeping. First children, so
+    // everything else in the mask still draws on top (including the notch they exist for).
+    const fuelPatch = div({ className: 'mask-gauge-patch fuel' });
+    const batteryPatch = div({ className: 'mask-gauge-patch battery' });
+    maskBg.appendChild(fuelPatch);
+    maskBg.appendChild(batteryPatch);
+
     const topBar = div({ className: 'mask-top-bar' });
     const bottomBar = div({ className: 'mask-bottom-bar' });
     const leftPanel = div({ className: 'mask-panel left' });
@@ -62,6 +74,7 @@ export function createMask() {
 
     return {
         background: maskBg,
+        gaugePatches: [fuelPatch, batteryPatch],
         partial: partialAppMask,
         cleanup: () => {
             unsub1();

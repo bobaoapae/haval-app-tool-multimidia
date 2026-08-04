@@ -41,6 +41,19 @@ export function createDashboardInfo() {
     const container = div({ className: 'dashboard-info-container' });
     const menuWrapper = div({ className: 'dashboard-menu-container' });
 
+    // Card title: the top-center slot normally holds the Gráficos/Ajustes/Informações
+    // carousel (screen 'main_menu', card 1). Cards 0 (native car content) and 3 (AC)
+    // never populate that carousel, so the slot sits empty — this fills it with a
+    // static label naming what's on screen instead.
+    const CARD_TITLES = { 0: 'Principal', 3: 'Climatização' };
+    const cardTitle = div({ className: 'dashboard-card-title' });
+    const updateCardTitle = (cardId) => {
+        const text = CARD_TITLES[Number(cardId)];
+        cardTitle.textContent = text || '';
+        cardTitle.style.display = text ? 'flex' : 'none';
+    };
+    updateCardTitle(getState('cardId'));
+
     // 1. Top Bar Elements (Clock, Gear, Mode)
     const topCenter = div({ className: 'dashboard-top-center' });
     const clock = span({ className: 'dashboard-clock', children: [getState('clockTime')] });
@@ -413,6 +426,7 @@ export function createDashboardInfo() {
     container.appendChild(externalTempContainer);
     container.appendChild(internalTempContainer);
     container.appendChild(menuWrapper);
+    container.appendChild(cardTitle);
     container.appendChild(alertIndicatorsContainer);
     container.appendChild(tripAnalysisIndicator);
     container.appendChild(bottomEvMode);
@@ -460,6 +474,7 @@ export function createDashboardInfo() {
     const updateFuelDisplay = () => {};
 
     const subscriptions = [
+        subscribe('cardId', updateCardTitle),
         subscribe('clockTime', val => clock.textContent = val),
         subscribe('gearState', val => {
             gear.textContent = val;
