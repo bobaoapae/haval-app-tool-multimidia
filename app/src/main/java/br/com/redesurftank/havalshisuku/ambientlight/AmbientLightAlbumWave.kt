@@ -330,21 +330,16 @@ class AlbumWaveMusicController(
         animatedColor: LedColor,
         staticColor: LedColor
     ): Boolean {
-        val modeId = settings.albumEffect.ledLampModeId
+        val modeId = settings.albumEffect.dmxModeIdForAlbumColor(staticColor)
         if (modeId != null) {
-            val key = albumOutputKey(settings, staticColor, "dmx-native-${settings.albumEffect.name}-${settings.albumEffectSpeed}")
+            val key = albumOutputKey(settings, staticColor, "dmx-native-${settings.albumEffect.name}-$modeId-${settings.albumEffectSpeed}")
             if (key == lastDmxNativeKey) return false
             lastDmxNativeKey = key
-            val payload =
-                AmbientLightProtocol.setDmxLedLampCustomEffectPayload(
-                    r = staticColor.r,
-                    g = staticColor.g,
-                    b = staticColor.b,
-                    modeId = modeId,
-                    speed = settings.albumEffectSpeed,
-                    colorOrder = settings.colorOrder
-                )
-            return controller.sendHex(AmbientLightProtocol.bytesToHex(payload))
+            return controller.setLedLampNativeEffect(
+                modeId = modeId,
+                speed = settings.albumEffectSpeed,
+                output = AmbientLightOutput.DMX
+            )
         }
         return controller.setRgb(
             animatedColor.r,

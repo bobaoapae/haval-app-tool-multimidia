@@ -4,8 +4,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
-import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,7 +34,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import androidx.core.content.edit
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.TAG
@@ -48,13 +45,9 @@ import br.com.redesurftank.havalshisuku.ui.components.AppColors
 import br.com.redesurftank.havalshisuku.ui.components.AppDimensions
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
+import br.com.redesurftank.havalshisuku.utils.ApkUpdateInstaller
 import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import kotlinx.coroutines.*
-import java.io.BufferedInputStream
-import java.io.File
-import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
 
 
@@ -162,34 +155,15 @@ fun InformacoesTab() {
                 isDownloading = true
                 downloadProgress = 0f
                 downloadJob =
-                        scope.launch(Dispatchers.IO) {
+                        scope.launch {
                                 try {
                                         val file =
-                                                File(
-                                                        context.getExternalFilesDir(null),
-                                                        "update.apk"
-                                                )
-                                        withContext(Dispatchers.IO) {
-                                                val dlUrl = URL(url)
-                                                val conn =
-                                                        dlUrl.openConnection() as HttpURLConnection
-                                                val length = conn.contentLength
-                                                val input = BufferedInputStream(conn.inputStream)
-                                                val output = FileOutputStream(file)
-                                                val buffer = ByteArray(4096)
-                                                var bytesRead: Int
-                                                var total = 0
-                                                while (input.read(buffer).also { bytesRead = it } !=
-                                                        -1) {
-                                                        output.write(buffer, 0, bytesRead)
-                                                        total += bytesRead
-                                                        if (length > 0)
-                                                                downloadProgress =
-                                                                        total.toFloat() / length
+                                                ApkUpdateInstaller.downloadUpdateApk(
+                                                        context,
+                                                        url
+                                                ) { progress ->
+                                                        downloadProgress = progress
                                                 }
-                                                output.close()
-                                                input.close()
-                                        }
                                         isDownloading = false
 
                                         if (resetTargetVersion != null) {
@@ -203,34 +177,16 @@ fun InformacoesTab() {
                                                         .apply()
                                         }
 
-                                        withContext(Dispatchers.Main) {
-                                                if (!context.packageManager
-                                                                .canRequestPackageInstalls()
-                                                ) {
-                                                        showPermissionDialog = true
-                                                        return@withContext
-                                                }
-                                                val uri =
-                                                        FileProvider.getUriForFile(
-                                                                context,
-                                                                "${context.packageName}.provider",
-                                                                file
-                                                        )
-                                                val intent =
-                                                        Intent(Intent.ACTION_VIEW).apply {
-                                                                setDataAndType(
-                                                                        uri,
-                                                                        "application/vnd.android.package-archive"
-                                                                )
-                                                                addFlags(
-                                                                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                                                )
-                                                                addFlags(
-                                                                        Intent.FLAG_ACTIVITY_NEW_TASK
-                                                                )
-                                                        }
-                                                context.startActivity(intent)
+                                        if (!ApkUpdateInstaller.canRequestPackageInstalls(context)) {
+                                                showPermissionDialog = true
+                                                return@launch
                                         }
+                                        context.startActivity(
+                                                ApkUpdateInstaller.buildInstallIntent(context, file)
+                                        )
+                                } catch (e: CancellationException) {
+                                        isDownloading = false
+                                        throw e
                                 } catch (e: Exception) {
                                         Log.e(TAG, "Download failed", e)
                                         isDownloading = false
@@ -1060,9 +1016,10 @@ fun InformacoesTab() {
                                 TextButton(
                                         onClick = {
                                                 showPermissionDialog = false
-                                                val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
-                                                intent.setData(Uri.parse("package:${context.packageName}"))
-                                                requestPermissionLauncher.launch(intent)
+                                                requestPermissionLauncher.launch(
+                                                        ApkUpdateInstaller
+                                                                .buildUnknownSourcesIntent(context)
+                                                )
                                         }
                                 ) { Text("Configurações") }
                         },

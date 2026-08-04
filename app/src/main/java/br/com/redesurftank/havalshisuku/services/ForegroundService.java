@@ -58,7 +58,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     private static final long SHIZUKU_BINDER_RECEIVE_TIMEOUT_MS = 15000L;
     private static final int SHIZUKU_BINDER_TIMEOUTS_BEFORE_RESTART = 3;
     private static final String CARPLAY_PATCH_VERSION_KEY = "carPlayPatchAutoMountPatchVersion";
-    private static final String CARPLAY_HVAC_FOCUS_PATCH_VERSION = "app_visual_d0_focus_service_conditional_camera_native1904x704_v13";
+    private static final String CARPLAY_HVAC_FOCUS_PATCH_VERSION = "app_visual_d0_focus_service_conditional_camera_native1904x704_v14";
 
     private HandlerThread handlerThread;
     private Handler backgroundHandler;
