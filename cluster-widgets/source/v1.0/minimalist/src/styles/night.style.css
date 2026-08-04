@@ -3886,7 +3886,7 @@ canvas.graph-chart {
 .dashboard-menu-container {
   position: absolute !important;
   left: 50% !important;
-  top: 5px !important;
+  top: -12px !important;
   transform: translateX(-50%) !important;
   width: 300px !important;
   height: 150px !important;
@@ -3912,7 +3912,7 @@ canvas.graph-chart {
 .dashboard-card-title {
   position: absolute;
   left: 50%;
-  top: 5px;
+  top: -12px;
   transform: translateX(-50%);
   width: 300px;
   height: 80px;
@@ -5251,7 +5251,7 @@ body.nav-mask-reduced .graph-screen,
 
 .mask-top-notch {
   background-color: var(--mask-top-bar-bg);
-  clip-path: path('M 744 0 C 787 0, 787 64, 830 64 L 1090 64 C 1133 64, 1133 0, 1176 0 Z');
+  clip-path: path('M 684 0 C 727 0, 727 64, 770 64 L 1150 64 C 1193 64, 1193 0, 1236 0 Z');
 }
 
 .mask-bottom-notch {
@@ -5300,13 +5300,13 @@ body.nav-mask-reduced .graph-screen,
      nothing is left showing, and no further -- everything between the two pills stays
      visible, and that gap is the point of the shape. */
   --gauge-patch-inner: 720px;
-  --gauge-patch-top: 656px;
+  --gauge-patch-top: 648px;
   /* Width of the alpha ramp on those two edges. The patch is wallpaper over the same
      wallpaper, so in theory the boundary cannot show -- but only in theory: display 1 and
      display 3 are scaled and blended by different pipelines, and any disagreement between
      them lands exactly on this edge. A ramp turns a potential hard seam into a gradient
      nobody can see. */
-  --gauge-patch-feather: 28px;
+  --gauge-patch-feather: 10px;
 }
 
 .mask-gauge-patch {
