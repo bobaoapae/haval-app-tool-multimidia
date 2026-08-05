@@ -85,6 +85,30 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     DISABLE_NATIVE_NAVIGATION("disableNativeNavigation", "Desativar navegador GPS nativo (Neusoft)"),
     DISABLE_NATIVE_VOICE("disableNativeVoice", "Desativar assistente de voz nativo (iFlyTek)"),
     DISABLE_NATIVE_WEATHER("disableNativeWeather", "Desativar serviço de previsão do tempo (OEM)"),
+    // ===== Overlay flutuante de CPU/RAM =====
+    ENABLE_RESOURCE_OVERLAY(
+            "enableResourceOverlay",
+            "Indicador flutuante de CPU e RAM por cima dos apps (some com a barra estendida aberta)"
+    ),
+    RESOURCE_OVERLAY_FONT_SP(
+            "resourceOverlayFontSp",
+            "Tamanho da fonte do indicador flutuante de CPU/RAM (sp)"
+    ),
+    RESOURCE_OVERLAY_CORNER(
+            "resourceOverlayCorner",
+            "Canto de ancoragem do indicador flutuante: 0=sup.esq 1=sup.dir 2=inf.esq 3=inf.dir"
+    ),
+    RESOURCE_OVERLAY_X(
+            "resourceOverlayX",
+            "Deslocamento horizontal (dp) do indicador flutuante a partir do canto escolhido"
+    ),
+    RESOURCE_OVERLAY_Y(
+            "resourceOverlayY",
+            "Deslocamento vertical (dp) do indicador flutuante a partir do canto escolhido"
+    ),
+    // ===== Deslocamento do Android Auto no cluster (contorna o crop do menu lateral) =====
+    ENABLE_AA_CLUSTER_OFFSET("enableAaClusterOffset", "Habilitar deslocamento do Android Auto no cluster"),
+    AA_CLUSTER_LEFT_OFFSET("aaClusterLeftOffset", "Deslocamento horizontal do Android Auto no cluster (px)"),
     CAR_MONITOR_PROPERTIES("carMonitorProperties", "Propriedades do monitoramento do carro"),
     BYPASS_SELF_INSTALLATION_INTEGRITY_CHECK(
             "bypassSelfInstallationIntegrityCheck",
