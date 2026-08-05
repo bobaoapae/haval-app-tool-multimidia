@@ -104,6 +104,18 @@ public final class ClusterCardSyncPolicy {
             return true;
         }
 
+        // O menu (card 1) e o A/C (card 3) são os cards que o OEM SOBE sozinho sobre o mapa: o menu é
+        // o card default; o A/C sobe quando o OEM detecta atividade de clima — inclusive auto/passiva,
+        // NAO so toque do usuario. As protecoes acima cobrem SAIR do A/C (previousCard == AIRCON), mas
+        // nao a RE-ENTRADA espontanea (nextCard == menu/A/C vindo do mapa), que a linha abaixo
+        // (nextCard != 0 -> honra) deixava passar — o painel "voltava sozinho" sobre o mapa. Sem toque
+        // LEFT/RIGHT recente (nem nav sintetica recente, ja tratada acima), IGNORA a subida espontanea.
+        // A navegacao de proposito pro card segue honrada pela janela sintetica/de input.
+        if ((nextCard == MAIN_MENU_CARD || nextCard == AIRCON_CARD)
+                && !isRecentClusterCardNavigationInput(lastInputKeyCode, sinceInputMs)) {
+            return true;
+        }
+
         if (nextCard != 0) return false;
         if (previousCard != MAIN_MENU_CARD && previousCard != AIRCON_CARD) return false;
         if (previousCard == AIRCON_CARD
