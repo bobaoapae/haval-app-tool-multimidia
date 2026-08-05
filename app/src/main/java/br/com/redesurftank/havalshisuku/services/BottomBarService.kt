@@ -62,6 +62,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.lsposed.hiddenapibypass.HiddenApiBypass
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
+import br.com.redesurftank.havalshisuku.utils.HeadUnitResourceSampler
 
 class BottomBarService : LifecycleService() {
 
@@ -236,6 +238,7 @@ class BottomBarService : LifecycleService() {
         observeDashboardActivityState()
         observeVisibility()
         observeAutoHide()
+        observeResourceOverlay()
         registerUpdateReceiver()
         startMediaMetadataMonitoring()
         startMediaAccessMonitoring()
@@ -3689,7 +3692,155 @@ class BottomBarService : LifecycleService() {
         } catch (e: Exception) {}
     }
 
+    // ===== Overlay flutuante de CPU/RAM (opt-in) =====
+    //  - Leitura via /proc puro (HeadUnitResourceSampler), fora da main thread. Sem shell.
+    //  - FLAG_NOT_TOUCHABLE: nunca rouba toque de app nenhum.
+    private var resourceOverlayView: android.widget.TextView? = null
+    private var resourceOverlayJob: kotlinx.coroutines.Job? = null
+
+    private fun isResourceOverlayEnabled(): Boolean =
+            br.com.redesurftank.App.getDeviceProtectedContext()
+                    .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+                    .getBoolean(SharedPreferencesKeys.ENABLE_RESOURCE_OVERLAY.key, false)
+
+    private fun observeResourceOverlay() {
+        // Semeia os espelhos observaveis a partir das prefs (a UI atualiza os dois lados).
+        val op = br.com.redesurftank.App.getDeviceProtectedContext()
+                .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+        BottomBarState.resourceOverlayEnabled = isResourceOverlayEnabled()
+        BottomBarState.resourceOverlayFontSp =
+                op.getInt(SharedPreferencesKeys.RESOURCE_OVERLAY_FONT_SP.key, 14)
+        BottomBarState.resourceOverlayCorner =
+                op.getInt(SharedPreferencesKeys.RESOURCE_OVERLAY_CORNER.key, 3)
+        BottomBarState.resourceOverlayX =
+                op.getInt(SharedPreferencesKeys.RESOURCE_OVERLAY_X.key, 12)
+        BottomBarState.resourceOverlayY =
+                op.getInt(SharedPreferencesKeys.RESOURCE_OVERLAY_Y.key, 90)
+        // Estilo/posicao: qualquer mudanca RECRIA a janela (WRAP_CONTENT + gravity mudam o layout).
+        lifecycleScope.launch {
+            snapshotFlow {
+                        listOf(
+                                BottomBarState.resourceOverlayFontSp,
+                                BottomBarState.resourceOverlayCorner,
+                                BottomBarState.resourceOverlayX,
+                                BottomBarState.resourceOverlayY
+                        )
+                    }
+                    .distinctUntilChanged()
+                    .collectLatest {
+                        if (resourceOverlayView != null) {
+                            hideResourceOverlay()
+                            showResourceOverlay()
+                        }
+                    }
+        }
+        lifecycleScope.launch {
+            // Some com a estendida aberta (la o mesmo dado ja aparece no card de dinamica).
+            snapshotFlow {
+                        BottomBarState.resourceOverlayEnabled &&
+                                !BottomBarState.isDashboardExpanded
+                    }
+                    .collectLatest { shouldShow ->
+                        if (shouldShow) showResourceOverlay() else hideResourceOverlay()
+                    }
+        }
+    }
+
+    private fun showResourceOverlay() {
+        if (resourceOverlayView != null) return
+        val wm = mWindowManager ?: return
+        val density = resources.displayMetrics.density
+        val tv =
+                android.widget.TextView(this).apply {
+                    setTextColor(android.graphics.Color.parseColor("#F5F5F5"))
+                    textSize = BottomBarState.resourceOverlayFontSp.toFloat()
+                    typeface = android.graphics.Typeface.MONOSPACE
+                    setPadding(
+                            (8 * density).toInt(),
+                            (4 * density).toInt(),
+                            (8 * density).toInt(),
+                            (4 * density).toInt()
+                    )
+                    background =
+                            android.graphics.drawable.GradientDrawable().apply {
+                                cornerRadius = 6 * density
+                                setColor(android.graphics.Color.parseColor("#CC12141A"))
+                                setStroke(
+                                        (1 * density).toInt(),
+                                        android.graphics.Color.parseColor("#334A9EFF")
+                                )
+                            }
+                    text = "CPU --  RAM --"
+                }
+        val lp =
+                WindowManager.LayoutParams(
+                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                        } else {
+                            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+                        },
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                        PixelFormat.TRANSLUCENT
+                )
+                        .apply {
+                            gravity =
+                                    when (BottomBarState.resourceOverlayCorner) {
+                                        0 -> Gravity.TOP or Gravity.START
+                                        1 -> Gravity.TOP or Gravity.END
+                                        2 -> Gravity.BOTTOM or Gravity.START
+                                        else -> Gravity.BOTTOM or Gravity.END
+                                    }
+                            x = (BottomBarState.resourceOverlayX * density).toInt()
+                            y = (BottomBarState.resourceOverlayY * density).toInt()
+                        }
+        val add = runCatching { wm.addView(tv, lp) }
+        if (add.isFailure) {
+            ClusterPersistentEventLogger.logText(
+                    "resource_overlay",
+                    "addView_falhou: " + (add.exceptionOrNull()?.toString() ?: "?")
+            )
+            return
+        }
+        ClusterPersistentEventLogger.logText(
+                "resource_overlay",
+                "exibido canto=${BottomBarState.resourceOverlayCorner} x=${lp.x} y=${lp.y} " +
+                        "fonte=${BottomBarState.resourceOverlayFontSp}sp"
+        )
+        resourceOverlayView = tv
+        HeadUnitResourceSampler.reset()
+        resourceOverlayJob =
+                lifecycleScope.launch {
+                    // 1a amostra so esquenta a base do calculo de CPU (exige duas leituras).
+                    withContext(Dispatchers.IO) { HeadUnitResourceSampler.sample() }
+                    while (true) {
+                        kotlinx.coroutines.delay(RESOURCE_OVERLAY_INTERVAL_MS)
+                        val s = withContext(Dispatchers.IO) { HeadUnitResourceSampler.sample() }
+                        val cpu = s.cpuPct?.let { "$it%" } ?: "--"
+                        val ram = s.ramPct?.let { "$it%" } ?: "--"
+                        resourceOverlayView?.text = "CPU $cpu  RAM $ram"
+                    }
+                }
+    }
+
+    private fun hideResourceOverlay() {
+        resourceOverlayJob?.cancel()
+        resourceOverlayJob = null
+        resourceOverlayView?.let { v ->
+            runCatching { mWindowManager?.removeView(v) }
+                    .onFailure { Log.w("BottomBarService", "Falha ao remover overlay de recursos: ${it.message}") }
+        }
+        resourceOverlayView = null
+        HeadUnitResourceSampler.reset()
+        ClusterPersistentEventLogger.logText("resource_overlay", "escondido")
+    }
+
     companion object {
+        private const val RESOURCE_OVERLAY_INTERVAL_MS = 2_500L
         private const val DEBUG_MEDIA_TAG = "BottomBarDebug"
         private const val ACTION_DEBUG_MEDIA_COMMAND =
                 "br.com.redesurftank.havalshisuku.DEBUG_MEDIA_COMMAND"
