@@ -2501,6 +2501,11 @@ canvas.graph-chart {
 
 
 /* Warning mode: hide right-side chrome (mirrors default theme) */
+/* The card title shares the top-centre slot with the menu carousel, which lives inside
+   .dashboard-menu-container and therefore already goes with it. Cards 0 and 3 fill that
+   slot from outside the container, so without this the label was the one piece of menu
+   chrome still standing over a warning. */
+.warn-is-active .dashboard-card-title,
 .warn-is-active .dashboard-menu-container,
 .warn-is-active .mask-circle.right,
 .warn-is-active .mask-circle-border.right,

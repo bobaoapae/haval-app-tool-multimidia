@@ -157,10 +157,10 @@ document.addEventListener('keydown', (e) => {
             console.log(`[AC Sim] MAX AUTO -> ${newModeState ? 'ON' : 'OFF'}`);
             setState('maxauto', newModeState);
         } else if (e.key === 'r' || e.key === 'R') {
-            // R — toggle recycle (0 = fresh air, 1 = recirculate)
+            // R — toggle recycle. Raw car convention: 0 = recirculate, 1 = fresh air.
             e.preventDefault();
             const next = (currentState.recycle == 0 || currentState.recycle === '0') ? 1 : 0;
-            console.log(`[AC Sim] Recycle -> ${next === 1 ? 'RECIRC' : 'FRESH'}`);
+            console.log(`[AC Sim] Recycle -> ${next === 0 ? 'RECIRC' : 'FRESH'}`);
             setState('recycle', next);
         } else if (e.key === 'p' || e.key === 'P') {
             // P — toggle AC power

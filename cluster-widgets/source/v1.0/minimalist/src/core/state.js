@@ -78,7 +78,9 @@ var stateManager = new StateManager({
     fan: '-',
     power: 0,
     auto: 0,
-    recycle: 0,
+    // Raw car.hvac.cycle_mode: 1 is fresh air, 0 is recirculating (see aircon/cycleMode.js).
+    // Seeded to fresh air so the boot frame before the car's first push reads as OFF.
+    recycle: 1,
     aion: 0,
     maxauto: 0,
     impulseauto: 0, // TODO: for future implementation of AC automated control, should replace maxauto

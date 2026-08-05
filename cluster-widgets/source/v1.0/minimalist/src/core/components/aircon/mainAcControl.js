@@ -9,6 +9,7 @@
  */
 import { stateManager, subscribe, setState } from '../../state.js';
 import { div, span } from '../../../../../shared/utils/createElement.js';
+import { isRecirculating } from './cycleMode.js';
 
 const FAN_MAX = 7;
 const TEMP_MIN = 16;
@@ -136,11 +137,11 @@ export function createAcControlScreen() {
     const powerPill = makePill('ac-pill-power', stateManager.get('power') === 1 ? 'AC ON' : 'AC OFF', stateManager.get('power') === 1);
     const autoPill = makePill('ac-pill-auto', 'AUTO', stateManager.get('auto') === 1);
     const maxAutoPill = makePill('ac-pill-maxauto', 'MAX AUTO', stateManager.get('maxauto') === 1);
-    // Always labeled RECYCLE; green when activated (recycle === 1)
+    // Always labeled RECYCLE; green while air is actually recirculating
     const recyclePill = makePill(
         'ac-pill-recycle',
         'RECYCLE',
-        stateManager.get('recycle') === 1 || stateManager.get('recycle') === '1'
+        isRecirculating(stateManager.get('recycle'))
     );
 
     const footer = div({
@@ -212,7 +213,7 @@ export function createAcControlScreen() {
     }));
 
     unsubs.push(subscribe('recycle', (v) => {
-        recyclePill.classList.toggle('is-on', v === 1 || v === '1');
+        recyclePill.classList.toggle('is-on', isRecirculating(v));
     }));
 
     // Initial paint from power only (fan=0 does not mean AC off)
