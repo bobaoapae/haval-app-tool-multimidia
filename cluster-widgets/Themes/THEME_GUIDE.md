@@ -128,6 +128,47 @@ The metadata file tells the launcher how to identify and validate your theme:
 * **`<minBridgeVersion>`**: Required. Specifies the minimum Android JavaScript Bridge API version required (`1.0.0` for current standardized bridge, `0.1.0` for legacy bridge).
 * **`<contractVersion>`**: Required. Specifies the telemetry schema and layout contract (`v1.0`).
 
+### 2. User Settings (`<configurations>`)
+
+Anything you declare here becomes a control in the app's theme settings dialog, with no
+native code required. Values reach your theme through the ordinary `getPreference` path
+under the `stateVariable` name.
+
+```xml
+<configurations>
+    <configuration>
+        <id>accent_color</id>
+        <label>Cor de Destaque</label>
+        <type>color</type>
+        <options>#00A0FF, #FF0033, #00E676</options>
+        <default>#00A0FF</default>
+        <stateVariable>accentColor</stateVariable>
+        <group>Cores</group>
+    </configuration>
+</configurations>
+```
+
+| Field | Notes |
+|---|---|
+| `<type>` | `boolean`, `text`, `number`, `combo`, `color` |
+| `<options>` | Comma-separated. Choices for `combo`; preset swatches for `color`. Ignored otherwise. |
+| `<default>` | Always a string. For `color`, must be `#RRGGBB`. |
+| `<stateVariable>` | The name your JS reads. Scoped per theme internally, so two themes may reuse a name safely. |
+| `<group>` | **Optional.** Tab this setting appears under. |
+
+**Groups / tabs.** `<group>` only organises the dialog — it carries no runtime meaning and
+never reaches your JavaScript.
+
+* Omit it (or leave it blank) and the setting lands in **`Geral`**.
+* **`Geral` is always the first tab.** Other tabs follow the order their name first appears
+  in the file.
+* If everything resolves to one group, the tab row is not drawn at all — so themes written
+  before groups existed look exactly as they always did.
+* Names are matched verbatim: `Cores` and `cores` would become two separate tabs.
+
+Both `<group>` and the `color` type are additive extensions of the `v1.0` contract; older
+app builds ignore them and fall back to the declared `<default>`.
+
 ---
 
 ## Architectural Separation: Bridge Version vs. Contract Version

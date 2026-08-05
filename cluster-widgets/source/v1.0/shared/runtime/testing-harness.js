@@ -1670,7 +1670,11 @@ export function initTestHarness(stateManager, menuItems) {
                 } else {
                     const input = document.createElement('input');
                     input.id = `sim-control-${config.id}`;
-                    input.type = config.type === 'number' ? 'number' : 'text';
+                    // 'color' gets the browser's native picker, which stands in for the
+                    // app's Compose color dialog while running in the simulator.
+                    input.type = config.type === 'number' ? 'number'
+                        : config.type === 'color' ? 'color'
+                            : 'text';
                     input.value = currentVal;
                     input.style.cssText = 'background: #1e293b; color: #f8fafc; border: 1px solid rgba(56, 189, 248, 0.2); padding: 4px 8px; border-radius: 4px; font-size: 12px; outline: none; max-width: 120px;';
                     

@@ -32,6 +32,18 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
     }
 
     @JavascriptInterface
+    fun setNativeMaskState(maskName: String, visible: Boolean) {
+        Log.d(TAG, "setNativeMaskState: maskName=$maskName visible=$visible")
+        context.setNativeMaskState(maskName, visible)
+    }
+
+    @JavascriptInterface
+    fun setNativeMasksConfig(jsonConfig: String) {
+        Log.d(TAG, "setNativeMasksConfig: json=$jsonConfig")
+        context.setNativeMasksConfig(jsonConfig)
+    }
+
+    @JavascriptInterface
     fun saveSetting(key: String, value: String) {
         context.saveClusterDisplay(value)
     }
@@ -141,6 +153,117 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             }
         } catch (e: Exception) {
             Log.e(TAG, "setThemeBackground failed", e)
+        }
+    }
+
+    /**
+     * Theme → native: where the Display-1 wallpaper comes from, so a theme can repaint a
+     * slice of it from display 3.
+     *
+     * The cluster panel composites display 1 *under* the car's own fuel/battery gauge
+     * layer and display 3 (this WebView) *over* it, so the theme's opaque bottom bar is
+     * what hides those native gauges today — take the bar away and they show through.
+     * Redrawing the wallpaper's own bottom strip over them, from display 3 where we
+     * outrank them, hides the gauges again without putting the black bar back.
+     *
+     * Returns a JSON object, or `{}` when there is no still image to slice (background
+     * disabled, or a live WEB_URL page) and the theme should keep its solid bar:
+     *
+     *     {"kind":"IMAGE","url":"file:///…/car-bg.png"}
+     *     {"kind":"COLOR","color":"#101820","vignette":45}
+     *
+     * An IMAGE must be painted into a 1920x720 box with `background-size: cover` and
+     * `background-position: center`, then clipped. That is exactly the CENTER_CROP fit
+     * InstrumentProjector's ImageView applies, so the copy lines up with display 1 pixel
+     * for pixel — which is the whole trick: the slice is invisible everywhere except
+     * where it covers something that was drawn on top of the wallpaper.
+     *
+     * Whether the wallpaper is what is actually behind the strip is the caller's call:
+     * while an app or a projection owns display 1 it is showing that app, not this. The
+     * theme already tracks that, and asking here would cost a task-list shell-out on
+     * every render.
+     */
+    // Themes poll this on render, and resolving a THEME wallpaper re-parses the active
+    // theme.xml off disk — too expensive to repeat per wheel press on the cluster's UI
+    // thread. The three preferences below are the entire input, and reading them is
+    // in-memory, so cache the answer against them.
+    private var backdropCacheKey: String? = null
+    private var backdropCacheValue: String = "{}"
+
+    @JavascriptInterface
+    fun getClusterBackdropSource(): String {
+        return try {
+            val prefs = context.preferences
+            val enabled = prefs.getBoolean(
+                br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key,
+                true
+            )
+            val type = (prefs.getString(
+                br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key,
+                "THEME"
+            ) ?: "THEME").trim().uppercase()
+            val value = (prefs.getString(
+                br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key,
+                ""
+            ) ?: "").trim()
+            // The active theme decides which folder a THEME wallpaper resolves in.
+            val theme = prefs.getString(
+                br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key,
+                ""
+            ) ?: ""
+
+            val cacheKey = "$enabled|$type|$value|$theme"
+            if (cacheKey != backdropCacheKey) {
+                backdropCacheValue = resolveClusterBackdropSource(enabled, type, value)
+                backdropCacheKey = cacheKey
+            }
+            backdropCacheValue
+        } catch (e: Exception) {
+            Log.e(TAG, "getClusterBackdropSource failed", e)
+            "{}"
+        }
+    }
+
+    private fun resolveClusterBackdropSource(enabled: Boolean, type: String, value: String): String {
+        return try {
+            if (!enabled) return "{}"
+            val json = JSONObject()
+
+            when (type) {
+                "THEME" -> {
+                    val file = br.com.redesurftank.havalshisuku.managers.ThemeManager
+                        .getInstance(App.getContext())
+                        .getActiveThemeBackgroundFile(value.ifBlank { null })
+                        ?: return "{}"
+                    json.put("kind", "IMAGE").put("url", "file://${file.absolutePath}")
+                }
+                "FILE" -> {
+                    val file = java.io.File(value)
+                    if (value.isEmpty() || !file.exists()) return "{}"
+                    json.put("kind", "IMAGE").put("url", "file://${file.absolutePath}")
+                }
+                "PRESET" -> {
+                    if (value.isEmpty()) return "{}"
+                    json.put("kind", "IMAGE").put("url", "file:///android_asset/backgrounds/$value")
+                }
+                "IMAGE_URL" -> {
+                    if (value.isEmpty()) return "{}"
+                    json.put("kind", "IMAGE").put("url", value)
+                }
+                br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec.TYPE -> {
+                    val spec = br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec.parse(value)
+                        ?: return "{}"
+                    json.put("kind", "COLOR")
+                        .put("color", "#%06X".format(spec.color and 0x00FFFFFF))
+                        .put("vignette", spec.vignette)
+                }
+                // WEB_URL renders a live page, so there is no still image to slice.
+                else -> return "{}"
+            }
+            json.toString()
+        } catch (e: Exception) {
+            Log.e(TAG, "resolveClusterBackdropSource failed for type=$type", e)
+            "{}"
         }
     }
 

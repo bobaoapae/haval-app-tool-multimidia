@@ -78,6 +78,19 @@ public class ServiceManager {
             CarConstants.CAR_BASIC_GEAR_STATUS,
             CarConstants.CAR_BASIC_DOOR_STATUS,
             CarConstants.CAR_BASIC_DOOR_LOCK_STATUS,
+            CarConstants.CAR_BASIC_FRONT_FOG_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_HAZARD_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_HEAD_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_HIGH_BEAM_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_LEFT_TURN_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_LEFT_TURN_INDICATOR_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_LOW_BEAM_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_LOW_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_REAR_FOG_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_RIGHT_TURN_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_RIGHT_TURN_INDICATOR_LIGHT_STATUS,
+            CarConstants.CAR_DRIVE_SETTING_OUTSIDE_LAMPS_STATE,
+            CarConstants.CAR_BASIC_HAND_BRAKE_STATUS,
             CarConstants.CAR_BASIC_DRIVING_READY_STATE,
             CarConstants.CAR_BASIC_INSIDE_TEMP,
             CarConstants.CAR_BASIC_MAINTENANCE_WARNING,
@@ -1587,8 +1600,12 @@ public class ServiceManager {
         try {
             String[] allKeys = getCombinedKeys();
             String[] currentValues = controlService.fetchDatas(allKeys);
-            for (int i = 0; i < currentValues.length; i++) {
-                OnDataChanged(allKeys[i], currentValues[i]);
+            if (currentValues != null) {
+                for (int i = 0; i < allKeys.length && i < currentValues.length; i++) {
+                    if (currentValues[i] != null && !currentValues[i].isEmpty()) {
+                        OnDataChanged(allKeys[i], currentValues[i]);
+                    }
+                }
             }
         } catch (Exception e) {
             Log.e(TAG, "Error dispatching data", e);
@@ -1896,13 +1913,25 @@ public class ServiceManager {
     }
 
     public void OnDataChanged(String key, String value) {
+        if (key != null && key.contains("door")) {
+            Log.w(TAG, "[DOOR_DEBUG] key=" + key + " value=" + value);
+        }
+        // Internal package-scoped broadcasts for havalshisuku UI components
         Intent broadcastIntent = new Intent("android.intent.haval." + key);
+        broadcastIntent.putExtra("key", key);
         broadcastIntent.putExtra("value", value);
         broadcastIntent.setPackage(App.getContext().getPackageName());
         App.getContext().sendBroadcast(broadcastIntent);
-        broadcastIntent = new Intent("android.intent.haval." + key + "_" + value);
-        broadcastIntent.setPackage(App.getContext().getPackageName());
-        App.getContext().sendBroadcast(broadcastIntent);
+
+        Intent broadcastValueIntent = new Intent("android.intent.haval." + key + "_" + value);
+        broadcastValueIntent.setPackage(App.getContext().getPackageName());
+        App.getContext().sendBroadcast(broadcastValueIntent);
+
+        // Public broadcast for external apps (e.g. 3D Viewer)
+        Intent publicIntent = new Intent("com.haval.vehicle.EVENT_CHANGED");
+        publicIntent.putExtra("key", key);
+        publicIntent.putExtra("value", value);
+        App.getContext().sendBroadcast(publicIntent);
         for (IDataChanged listener : new ArrayList<>(dataChangedListeners)) {
             try {
                 listener.onDataChanged(key, value);
@@ -2846,6 +2875,8 @@ public class ServiceManager {
             dispatchAllData();
         });
     }
+
+
 
 
 

@@ -116,7 +116,7 @@ class ThemeManager private constructor(val context: Context) {
         return ThemeMetadata(
             name = "Default",
             description = "Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.",
-            version = "1.4.27",
+            version = "1.4.34",
             thumbnailUrl = "",
             mainFile = "index.html",
             folderName = "Default",
@@ -124,13 +124,20 @@ class ThemeManager private constructor(val context: Context) {
             isDownloaded = true,
             hasUpdate = false,
             contractVersion = "v1.0",
+            // Mirrors assets/Default/theme.xml - same entries, same order, same option
+            // order. Only reached when that descriptor fails to parse.
             configurations = listOf(
-                ThemeConfig("hidden_bars", "Ocultar Barras", "combo", "Nenhuma", "hiddenBars", listOf("Nenhuma", "Superior", "Inferior", "Ambas")),
-                ThemeConfig("theme_mode", "Modo Visual", "combo", "Dark", "mode", listOf("Dark", "Light")),
-                ThemeConfig("bar_images", "Imagens das Barras", "boolean", "true", "barImages"),
-                ThemeConfig("gauge_style", "Estilo dos Marcadores", "combo", "Esportivo", "gaugeStyle", listOf("Esportivo", "Clássico")),
-                ThemeConfig("navigation_display_mode", "Modo de Exibição na Navegação", "combo", "Mapa", "navigationDisplayMode", listOf("Mapa", "Normal", "Reduzido", "Clean")),
-                ThemeConfig("app_display_mode", "Modo de Exibição de Outros Apps", "combo", "Normal", "appDisplayMode", listOf("Mapa", "Normal", "Reduzido", "Clean"))
+                ThemeConfig("theme_mode", "Modo Visual", "combo", "Dark", "mode", listOf("Dark", "Light"), "Geral"),
+                ThemeConfig("gauge_style", "Estilo dos Marcadores", "combo", "Esportivo", "gaugeStyle", listOf("Esportivo", "Clássico"), "Geral"),
+                ThemeConfig("accent_color", "Cor de Destaque", "color", "#00A0FF", "accentColor", listOf("#00A0FF", "#FF0033", "#00E676", "#FF6D00", "#0033CC", "#000000", "#FFFFFF", "#808080"), "Cores"),
+                ThemeConfig("drive_mode_colors", "Cor por Modo de Condução", "boolean", "false", "driveModeColors", emptyList(), "Cores"),
+                ThemeConfig("fuel_color", "Cor do Medidor de Combustível", "color", "#3B82F6", "fuelColor", listOf("#3B82F6", "#00A0FF", "#00E676", "#FFC400", "#FF6D00", "#FF0033", "#FFFFFF", "#808080"), "Cores"),
+                ThemeConfig("battery_color", "Cor do Medidor de Bateria", "color", "#10B981", "batteryColor", listOf("#10B981", "#00E676", "#00A0FF", "#FFC400", "#FF6D00", "#FF0033", "#FFFFFF", "#808080"), "Cores"),
+                ThemeConfig("bar_images", "Imagens das Barras", "boolean", "true", "barImages", emptyList(), "Barras"),
+                ThemeConfig("hidden_bars", "Ocultar Barras", "combo", "Nenhuma", "hiddenBars", listOf("Nenhuma", "Superior", "Inferior", "Ambas"), "Barras"),
+                ThemeConfig("do_not_hide_bars_on", "Não Ocultar Barras Se Houver", "combo", "Ambos", "doNotHideBarsOn", listOf("Navegação", "Aplicativo", "Ambos", "Ignorar"), "Barras"),
+                ThemeConfig("navigation_display_mode", "Modo de Exibição na Navegação", "combo", "Mapa", "navigationDisplayMode", listOf("Normal", "Reduzido", "Clean", "Mapa"), "Outros"),
+                ThemeConfig("app_display_mode", "Modo de Exibição de Outros Apps", "combo", "Normal", "appDisplayMode", listOf("Normal", "Reduzido", "Clean", "Mapa"), "Outros")
             )
         )
     }
@@ -206,7 +213,15 @@ class ThemeManager private constructor(val context: Context) {
             var configDefault = ""
             var configStateVar = ""
             var configOptions = ""
-            
+            var configGroup = ""
+
+            var fuelMask = br.com.redesurftank.havalshisuku.models.NativeMaskSpec(x = 0, y = 520, width = 380, height = 200)
+            var batteryMask = br.com.redesurftank.havalshisuku.models.NativeMaskSpec(x = 1540, y = 520, width = 380, height = 200)
+            var speedMask = br.com.redesurftank.havalshisuku.models.NativeMaskSpec(x = 0, y = 0, width = 600, height = 720)
+            var infoMask = br.com.redesurftank.havalshisuku.models.NativeMaskSpec(x = 1320, y = 0, width = 600, height = 720)
+            var topCenterMask = br.com.redesurftank.havalshisuku.models.NativeMaskSpec(x = 710, y = 0, width = 500, height = 67)
+            var hasNativeMasks = false
+
             while (parser.next() != XmlPullParser.END_DOCUMENT) {
                 val eventType = parser.eventType
                 val tagName = parser.name
@@ -235,6 +250,28 @@ class ThemeManager private constructor(val context: Context) {
                                 Log.w(TAG, "Ignoring <DisplayMode> in $folderName: needs name, x, y, width and height attributes")
                             }
                         }
+                        "fuelMask", "batteryMask", "speedMask", "infoMask", "topCenterMask" -> {
+                            hasNativeMasks = true
+                            val enabled = (parser.getAttributeValue(null, "enabled") ?: "true").trim().lowercase() == "true"
+                            val image = parser.getAttributeValue(null, "image")?.trim().orEmpty()
+                            val opacity = parser.getAttributeValue(null, "opacity")?.toFloatOrNull() ?: 1.0f
+                            val defaultX = when (tagName) { "batteryMask" -> 1540; "infoMask" -> 1320; "topCenterMask" -> 710; else -> 0 }
+                            val defaultY = when (tagName) { "fuelMask", "batteryMask" -> 520; else -> 0 }
+                            val defaultW = when (tagName) { "fuelMask", "batteryMask" -> 380; "topCenterMask" -> 500; else -> 600 }
+                            val defaultH = when (tagName) { "fuelMask", "batteryMask" -> 200; "topCenterMask" -> 67; else -> 720 }
+                            val maskX = parser.getAttributeValue(null, "x")?.trim()?.toIntOrNull() ?: defaultX
+                            val maskY = parser.getAttributeValue(null, "y")?.trim()?.toIntOrNull() ?: defaultY
+                            val maskW = parser.getAttributeValue(null, "width")?.trim()?.toIntOrNull() ?: defaultW
+                            val maskH = parser.getAttributeValue(null, "height")?.trim()?.toIntOrNull() ?: defaultH
+                            val spec = br.com.redesurftank.havalshisuku.models.NativeMaskSpec(enabled, image, maskX, maskY, maskW, maskH, opacity)
+                            when (tagName) {
+                                "fuelMask" -> fuelMask = spec
+                                "batteryMask" -> batteryMask = spec
+                                "speedMask" -> speedMask = spec
+                                "infoMask" -> infoMask = spec
+                                "topCenterMask" -> topCenterMask = spec
+                            }
+                        }
                         "x" -> if (inAppDefaultPosition) x = parser.nextText().toIntOrNull()
                         "y" -> if (inAppDefaultPosition) y = parser.nextText().toIntOrNull()
                         "width" -> if (inAppDefaultPosition) width = parser.nextText().toIntOrNull()
@@ -246,7 +283,7 @@ class ThemeManager private constructor(val context: Context) {
                         "configurations" -> inConfigurations = true
                         "configuration" -> {
                             inConfiguration = true
-                            configId = ""; configLabel = ""; configType = ""; configDefault = ""; configStateVar = ""; configOptions = ""
+                            configId = ""; configLabel = ""; configType = ""; configDefault = ""; configStateVar = ""; configOptions = ""; configGroup = ""
                         }
                         "id" -> if (inConfiguration) configId = parser.nextText().trim()
                         "label" -> if (inConfiguration) configLabel = parser.nextText().trim()
@@ -254,6 +291,9 @@ class ThemeManager private constructor(val context: Context) {
                         "default" -> if (inConfiguration) configDefault = parser.nextText().trim()
                         "stateVariable" -> if (inConfiguration) configStateVar = parser.nextText().trim()
                         "options" -> if (inConfiguration) configOptions = parser.nextText().trim()
+                        // Optional. Themes written before this existed simply omit it and
+                        // land in the default "Geral" tab.
+                        "group" -> if (inConfiguration) configGroup = parser.nextText().trim()
                     }
                 } else if (eventType == XmlPullParser.END_TAG) {
                     when (tagName) {
@@ -263,7 +303,7 @@ class ThemeManager private constructor(val context: Context) {
                             inConfiguration = false
                             if (configId.isNotEmpty() && configStateVar.isNotEmpty()) {
                                 val opts = if (configOptions.isNotEmpty()) configOptions.split(",").map { it.trim() } else emptyList()
-                                configurations.add(ThemeConfig(configId, configLabel, configType, configDefault, configStateVar, opts))
+                                configurations.add(ThemeConfig(configId, configLabel, configType, configDefault, configStateVar, opts, configGroup))
                             }
                         }
                     }
@@ -293,6 +333,10 @@ class ThemeManager private constructor(val context: Context) {
                 "legacy"
             }
             
+            val nativeMasksConfig = if (hasNativeMasks) {
+                br.com.redesurftank.havalshisuku.models.NativeMaskConfig(fuelMask, batteryMask, speedMask, infoMask, topCenterMask)
+            } else null
+
             return ThemeMetadata(
                 name = name,
                 description = description,
@@ -311,7 +355,8 @@ class ThemeManager private constructor(val context: Context) {
                 configurations = configurations,
                 displayModes = displayModes,
                 background = background,
-                backgroundAbsolutePath = resolvedBackgroundAbs
+                backgroundAbsolutePath = resolvedBackgroundAbs,
+                nativeMasks = nativeMasksConfig
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing theme.xml in $folderName", e)

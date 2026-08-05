@@ -332,6 +332,47 @@ export class ThemeBridgeAdapter {
     }
 
     /**
+     * Where the Display-1 wallpaper comes from, for themes that need to repaint a slice
+     * of it from display 3 (see `.mask-bottom-backdrop`).
+     *
+     * `{kind: "IMAGE", url}` must be painted into a 1920x720 box with `background-size:
+     * cover; background-position: center`, which is the CENTER_CROP fit the host applies
+     * on display 1; anything else and the copy will not line up.
+     *
+     * The two empty answers are deliberately different, because a theme should act on
+     * them differently: `null` is the host stating there is nothing to copy (background
+     * disabled, or a live web page as wallpaper), and `undefined` is a host that predates
+     * this call and cannot answer at all — the only case where guessing at the wallpaper
+     * from the theme's own package is better than doing nothing.
+     *
+     * @returns {{kind: "IMAGE", url: string} | {kind: "COLOR", color: string, vignette: number} | null | undefined}
+     */
+    getClusterBackdropSource() {
+        if (!this.rawBridge || typeof this.rawBridge.getClusterBackdropSource !== "function") {
+            return undefined;
+        }
+        try {
+            const parsed = JSON.parse(this.rawBridge.getClusterBackdropSource() || "{}");
+            if (!parsed || typeof parsed !== "object") return null;
+            if (parsed.kind === "IMAGE") {
+                return typeof parsed.url === "string" && parsed.url !== ""
+                    ? { kind: "IMAGE", url: parsed.url }
+                    : null;
+            }
+            if (parsed.kind === "COLOR") {
+                const vignette = Number(parsed.vignette);
+                return typeof parsed.color === "string" && parsed.color !== ""
+                    ? { kind: "COLOR", color: parsed.color, vignette: Number.isFinite(vignette) ? vignette : 0 }
+                    : null;
+            }
+            return null;
+        } catch (e) {
+            console.error("[BridgeAdapter] getClusterBackdropSource failed:", e);
+            return null;
+        }
+    }
+
+    /**
      * Persists a user preference value to Android SharedPreferences.
      * @param {string} key
      * @param {string} value

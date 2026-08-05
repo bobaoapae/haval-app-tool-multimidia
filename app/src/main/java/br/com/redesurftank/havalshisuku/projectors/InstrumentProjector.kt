@@ -358,7 +358,8 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
 
     override fun carMainScreenOff() {
         ensureUi {
-            updateBackgroundVisibility()
+            rootLayout.isVisible = false
+            webView?.onPause()
         }
     }
 

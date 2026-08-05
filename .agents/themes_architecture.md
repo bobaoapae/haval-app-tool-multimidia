@@ -150,10 +150,11 @@ To support dynamic and flexible theme configuration without hardcoding options i
     <configuration>
         <id>[unique_setting_id]</id>
         <label>[Friendly display title in form]</label>
-        <type>[boolean | text | number | combo]</type>
+        <type>[boolean | text | number | combo | color]</type>
         <default>[default_fallback_value_string]</default>
         <stateVariable>[javascript_reactive_state_variable]</stateVariable>
-        <options>[comma_separated_values_for_combo_types_only]</options>
+        <options>[comma_separated_values_for_combo_and_color_types_only]</options>
+        <group>[optional_tab_name; omitted = "Geral"]</group>
     </configuration>
 </configurations>
 ```
@@ -163,6 +164,21 @@ To support dynamic and flexible theme configuration without hardcoding options i
 2. **`text`**: Renders as a standard text input field.
 3. **`number`**: Renders as a numeric-only input field.
 4. **`combo`**: Renders as a dropdown selection box. Dropdown options are defined as a comma-separated list under `<options>` (e.g. `<options>Eco,Normal,Sport</options>`).
+5. **`color`**: Renders a row of preset swatches plus a "Personalizado" HSV picker (saturation/brightness map + hue strip). `<options>` doubles as the preset list and holds comma-separated `#RRGGBB` values; when omitted, a built-in palette is used. `<default>` must be `#RRGGBB`. The stored value is the `#RRGGBB` string, which reaches the theme through the ordinary `getPreference` path with no bridge changes. In the local simulator the same declaration renders as a native `<input type="color">`.
+
+> **Backwards compatibility.** `color` is an additive extension of the `v1.0` contract. An app build that predates it hits the `when (config.type)` in `ThemeSettingsDialog` with no matching branch and renders the label only, so the theme falls back to its `<default>` — degraded, not broken. Themes that do not declare `color` are unaffected either way.
+
+### Configuration Groups (Tabs):
+`<group>` is optional and names the tab a setting appears under in the settings dialog. It exists purely to keep long configuration lists navigable — it carries no runtime meaning and never reaches the theme's JavaScript.
+
+- A setting with no `<group>` (or a blank one) falls into **`Geral`**.
+- **`Geral` is always the first tab.** Every other tab follows the order its group name first appears in `theme.xml`.
+- When a theme resolves to a single group, the tab row is **not rendered at all**, so ungrouped themes look exactly as they did before groups existed.
+- Group names are free-form strings and are matched verbatim, so `Cores` and `cores` would produce two separate tabs.
+
+The Default theme uses `Geral`, `Cores`, `Barras`, `Outros`.
+
+> **Backwards compatibility.** `<group>` is additive and safe in both directions. A new app reading an old descriptor finds no `<group>` and puts everything in `Geral`. An old app reading a new descriptor never matches `group` in its tag `when` block, so the element is skipped and its text is never consumed — the remaining fields parse exactly as before. No contract version bump is required.
 
 ### JNI Scope Resolution:
 To prevent settings desynchronization between different themes sharing the same `stateVariable` names, settings are saved and sandboxed under key `"theme_config_[themeFolderName]_[stateVariable]"`. The JNI bridge resolves these transparently so the active theme can query using the simple `stateVariable` name.
@@ -184,6 +200,27 @@ In the Default / Sporty theme (`cluster-widgets/source/v1.0/default`), dynamic s
   - Toggling to `Clássico` adds `.gauge-style-classico` to `#app` which forces the classic dial face and digital speed layout to show, while completely hiding the sporty canvas needle.
   - Toggling to `Esportivo` adds `.gauge-style-esportivo` to `#app` which displays the modern active canvas dial, needle rotation, glow FX, and mock ready overlays.
   - Inherits custom sport speedometer variables globally on the `:root` so the sporty cluster has perfect scale (`1.03`) and correct vertical offsets (`y = 45px`) in both the `Normal` (default) and `Esportivo` display modes.
+
+### 2b. User-Selectable Accent Color (`accentColor`)
+
+The Default theme's blue accent is user-configurable through the `accent_color` configuration (`<type>color</type>`, `stateVariable` = `accentColor`, default `#00A0FF`).
+
+- **Palette derivation** lives in `src/core/accent.js`. Rather than flattening every blue to the picked color, `applyAccent(hex)` *rotates* the shipped palette: it reads the base value of each accent token off the computed `:root` once at boot (so `night.style.css` stays the single source of truth), then re-emits each one rotated toward the pick.
+- **The rotation happens in OKLCH, not HSL.** HSL saturation is not a measure of how colorful something looks — it varies enormously with hue. Measured on this theme's own tokens, HSL `S=100%` at hue 229° (the cyan accent) is only `0.151` of real chroma, while `S=100%` at hue 26° (red) is `0.256`. Rotating in HSL holds the *number* at 100% and so inflates real colorfulness by ~70% while perceptual lightness drops ~0.13, which turned 48 of 119 tokens into over-saturated, too-dark versions of themselves and read as "pink". OKLCH separates the three cleanly.
+- **Chroma and lightness deltas are weighted** by how "accent-like" a token already is (its share of the reference's chroma). A token sitting on the reference lands exactly on the pick; near-neutral tokens barely move; the pale ice/frost tints keep their airiness instead of being dragged into saturated salmon.
+- **The hue *spread* compresses as you rotate away from blue.** Perceptual hue categories are not equally wide: this palette's blues span ~27° (OKLCH 233–260) and all still read as "blue", but rotated rigidly onto red that spread becomes 16–43°, straddling pink-red, red and orange — red only reads as red across roughly 20°. The spread factor is `1.0` at zero rotation, which keeps the shipped blue bit-identical, easing to `0.45` at a half-turn.
+- **Reference accent** is `#00A0FF` (`--color-ring-glow`). Semantic colors — greens (success/regen), reds (danger), oranges (power), the fuel/battery bar fills (`--fuel-bar-color`, `--battery-bar-color`), and the speedometer's `hsla(120 - ratio*120, …)` RPM gradient — are deliberately excluded and never move.
+- **Baked-in artwork** (top bar, Mapa tray, bottom gauges strip, Mapa speed badge, sport dial ring) is recolored **per pixel**, with the same OKLCH mapping the tokens get. `filter: hue-rotate()` is only the first-frame approximation and the failure fallback: it is a fixed linear matrix, not a real hue rotation, and over large angles it is badly wrong — the reference `#00A0FF` rotated onto red comes out `#FF5946`, a salmon, because the matrix holds luma constant and blue is far darker than red. Once the pixels carry the rotation, `--accent-hue-rotate` **must** be reset to `0deg`, or everything rotates twice.
+- **Recolor cost and caching.** The artwork is 87–98% near-gray with a narrow blue band, so the gray majority takes a cheap early-out. Encoding is WebP q0.92, not PNG — measured 225 ms vs 1050 ms on the largest asset (1586×992), with alpha preserved exactly and mean channel error 0.16/255. Results are cached per color (bounded, blobs revoked on eviction) because `driveModeColors` ties the accent to `drivingMode`, which flips while the car is moving. Typical costs: ~2.3 s first change (includes one-time source capture), ~500 ms for a new color, ~70 ms for a cached one.
+- **Artwork must be filtered on a dedicated layer**, not on the element that owns it: elements carrying `transition: all` never recompute a `filter` built from `var()` when only the custom property changes, and elements with real children would tint those children too. Each image therefore lives on a `::before` (or, for the dial, a standalone `<img>`), with the real children lifted to `position: relative; z-index: 1`.
+- **Light mode is unaffected by design.** `#app.theme-light` overrides several accent tokens to black/white to kill glows on a white backdrop; because those rules are scoped to `#app` they still win over the `:root` inline properties written by `applyAccent`.
+- Use `top/left/right/bottom: 0` rather than `inset: 0` on these layers — the head unit is Chrome ~80, which predates the `inset` shorthand (as it does `color-mix()`, `oklch()` and relative color syntax, which is why the derivation is done in JS at all).
+
+### 2c. Drive-Mode Accent and Per-Gauge Colors
+
+- **`driveModeColors`** (`boolean`, default `false`) ties the accent to the drive mode. While enabled, **Sport forces `#FF0000` and Eco forces `#00E676`**; every other mode — Normal, Neve, Areia, Lama — keeps the user's own `accentColor`. Resolution lives in `resolveAccent()` in `src/core/main.js`, which subscribes to `accentColor`, `driveModeColors` and `drivingMode`.
+- `applyAccent()` short-circuits when the resolved color is unchanged. This is load-bearing, not an optimization: `drivingMode` pushes arrive on every mode flip and would otherwise restart the full artwork pass for no visible change.
+- **`fuelColor`** (default `#3B82F6`) and **`batteryColor`** (default `#10B981`) drive `--fuel-bar-color` / `--battery-bar-color`. These tokens are deliberately **not** in `ACCENT_TOKENS`; staying out is what makes them independent of the accent. Note this is a behavior change: the fuel bar previously used `--primary-blue` and so silently followed the accent.
 
 ### 3. Local Simulator Segmented Pill Selectors
 In the floating Agent Testing Console testing harness, when a dynamic layout configuration is a `combo` of exactly **two options** (e.g. `mode` with `Dark, Light` or `gaugeStyle` with `Esportivo, Clássico`), the default dropdown `<select>` is automatically replaced with a premium, glassmorphic **segmented pill control** divided in the middle:

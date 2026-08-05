@@ -26,5 +26,7 @@ data class ThemeMetadata(
     /** Relative path inside theme package (e.g. car-bg.png). Empty = no theme bg. */
     val background: String = "",
     /** Absolute path when theme is installed locally; empty for remote-only listings. */
-    val backgroundAbsolutePath: String = ""
+    val backgroundAbsolutePath: String = "",
+    /** Native mask overlay configurations for Display 3 (fuel, battery, speed, info) */
+    val nativeMasks: NativeMaskConfig? = null
 )

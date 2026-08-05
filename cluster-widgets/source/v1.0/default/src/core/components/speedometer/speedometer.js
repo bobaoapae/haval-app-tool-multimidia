@@ -1,5 +1,6 @@
 import { getState, subscribe } from '../../state.js';
 import { div } from '../../../../../shared/utils/createElement.js';
+import { registerArtworkImage } from '../../accent.js';
 
 export function createSpeedometerScreen(){
 
@@ -29,7 +30,10 @@ const NEEDLE_SMOOTHING = 0.16;
 
   // ===== FUNDO (IMAGEM) =====
   const bgImg = document.createElement("img");
-  bgImg.src = BASE64_IMAGE;
+  // Registering hands back the recolored source when an accent is already applied, so a
+  // re-render after a color change does not pop the dial back to blue.
+  bgImg.dataset.accentArtwork = "dial-ring";
+  bgImg.src = registerArtworkImage("dial-ring", BASE64_IMAGE);
   bgImg.style.cssText = `
     position:absolute;
     left:-23px;
@@ -37,6 +41,7 @@ const NEEDLE_SMOOTHING = 0.16;
     width:500px;
     height:500px;
     object-fit:cover;
+    filter:hue-rotate(var(--accent-hue-rotate)) saturate(var(--accent-saturate));
   `;
 
   // ===== CANVAS FX =====

@@ -9,6 +9,13 @@
       "port": 1235
     },
     {
+      "name": "default-built-check",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "1237"],
+      "cwd": "cluster-widgets/source/v1.0/default/dist",
+      "port": 1237
+    },
+    {
       "name": "minimalist-theme-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],

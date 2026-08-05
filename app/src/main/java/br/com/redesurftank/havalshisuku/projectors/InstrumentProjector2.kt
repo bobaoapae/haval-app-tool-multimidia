@@ -124,6 +124,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var batteryMaskView: android.widget.ImageView? = null
     private var speedMaskView: android.widget.ImageView? = null
     private var infoMaskView: android.widget.ImageView? = null
+    private var topCenterMaskView: android.widget.ImageView? = null
+    private var globalMaskView: android.widget.ImageView? = null
     private val maskVisibilityOverrides = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private var themeBridge: br.com.redesurftank.havalshisuku.bridge.ThemeBridgeImpl? = null
     private var bridgePrefsListener: br.com.redesurftank.havalshisuku.bridge.PreferencePushListener? = null
@@ -280,6 +282,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             val unit = getClusterFuelDisplayUnit()
                             Log.d(TAG, "[HavalDev] Cluster fuel display unit changed: $unit")
                             evaluateJsIfReady(webView, "control('fuelDisplayUnit', '$unit')")
+                        }
+                        if (key == SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key ||
+                            key == SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key ||
+                            key == SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key) {
+                            updateNativeMaskViews()
                         }
                         if (key == SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_ACTIVE.key) {
                             val active = preferences.getBoolean(key, false)
@@ -2418,7 +2425,6 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val container = FrameLayout(outerContext).apply {
             layoutParams = FrameLayout.LayoutParams(1920, 720)
             isClickable = false
-            isFocusable = false
         }
 
         fuelMaskView = android.widget.ImageView(outerContext).apply {
@@ -2441,27 +2447,94 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             scaleType = android.widget.ImageView.ScaleType.FIT_XY
             visibility = View.GONE
         }
+        topCenterMaskView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            visibility = View.GONE
+        }
+        globalMaskView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            layoutParams = FrameLayout.LayoutParams(1920, 720)
+            visibility = View.GONE
+        }
 
+        container.addView(globalMaskView)
         container.addView(fuelMaskView)
         container.addView(batteryMaskView)
         container.addView(speedMaskView)
         container.addView(infoMaskView)
+        container.addView(topCenterMaskView)
 
         nativeMaskContainer = container
         parent.addView(container, 0)
     }
 
     fun updateNativeMaskViews() {
-        val metadata = activeThemeMetadata
+        val customThemeName = getActiveCustomThemeName()
+        val themeMgr = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext)
+        val metadata = activeThemeMetadata ?: if (customThemeName.isNotEmpty()) {
+            themeMgr.getThemeMetadata(customThemeName)
+        } else {
+            themeMgr.getEmbeddedDefaultTheme()
+        }
         val config = metadata?.nativeMasks
+        Log.d(TAG, "updateNativeMaskViews: customThemeName='$customThemeName' metadata='${metadata?.name}' hasConfig=${config != null && config.hasAnyActiveMask()}")
         if (config == null || !config.hasAnyActiveMask()) {
             nativeMaskContainer?.isVisible = false
             return
         }
 
         nativeMaskContainer?.isVisible = true
-        val folderName = metadata.folderName
+        val folderName = metadata?.folderName ?: customThemeName
         val isCard0 = (currentCard == 0)
+
+        val assetMaskBitmap: android.graphics.Bitmap? = try {
+            outerContext.assets.open("d3_mask.png").use { stream ->
+                android.graphics.BitmapFactory.decodeStream(stream)
+            }
+        } catch (e: Exception) {
+            null
+        }
+
+        val globalMaskFile = themeMgr.getThemeFile(folderName, "d3_mask.png")
+        val maskBitmap = assetMaskBitmap ?: if (globalMaskFile != null && globalMaskFile.exists()) {
+            android.graphics.BitmapFactory.decodeFile(globalMaskFile.absolutePath)
+        } else null
+
+        if (maskBitmap != null) {
+            try {
+                val bgBitmap = getBackgroundBitmap(folderName)
+                if (bgBitmap != null) {
+                    val scaledBg = getCoverScaledBitmap(bgBitmap, 1920, 720)
+                    val scaledMask = getCoverScaledBitmap(maskBitmap, 1920, 720)
+
+                    val alphaMask = convertLuminanceToAlpha(scaledMask)
+                    
+                    val result = android.graphics.Bitmap.createBitmap(1920, 720, android.graphics.Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(result)
+                    canvas.drawBitmap(scaledBg, 0f, 0f, null)
+                    
+                    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+                    }
+                    canvas.drawBitmap(alphaMask, 0f, 0f, paint)
+                    
+                    globalMaskView?.setImageBitmap(result)
+                    globalMaskView?.isVisible = true
+                    
+                    fuelMaskView?.isVisible = false
+                    batteryMaskView?.isVisible = false
+                    speedMaskView?.isVisible = false
+                    infoMaskView?.isVisible = false
+                    topCenterMaskView?.isVisible = false
+                    return
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load global d3_mask.png", e)
+            }
+        }
+        globalMaskView?.isVisible = false
 
         fun bindMask(
             view: android.widget.ImageView?,
@@ -2506,28 +2579,104 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         bindMask(speedMaskView, config.speedMask, "speed")
         // Mask 2.2 Info Mask: ALWAYS hidden by backend when card = 0
         bindMask(infoMaskView, config.infoMask, "info", forceHide = isCard0)
+        bindMask(topCenterMaskView, config.topCenterMask, "topcenter")
+    }
+
+    private fun getBackgroundBitmap(folderName: String): android.graphics.Bitmap? {
+        val isEnabled = preferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+        if (!isEnabled) return null
+
+        val type = preferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME"
+        val value = preferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: ""
+        val themeMgr = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext)
+
+        try {
+            when (type) {
+                "THEME" -> {
+                    val bgFile = themeMgr.getActiveThemeBackgroundFile(value.ifBlank { null })
+                        ?: themeMgr.getThemeFile(folderName, "car-bg.png")
+                    if (bgFile != null && bgFile.exists()) {
+                        return android.graphics.BitmapFactory.decodeFile(bgFile.absolutePath)
+                    }
+                }
+                "FILE" -> {
+                    val file = File(value)
+                    if (file.exists()) {
+                        return android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                    }
+                }
+                "PRESET" -> {
+                    val inputStream = outerContext.assets.open("backgrounds/$value")
+                    return android.graphics.BitmapFactory.decodeStream(inputStream)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load custom background for mask fallback", e)
+        }
+        return null
+    }
+
+    private fun getCoverScaledBitmap(bitmap: android.graphics.Bitmap, targetW: Int, targetH: Int): android.graphics.Bitmap {
+        if (bitmap.width == targetW && bitmap.height == targetH) return bitmap
+        
+        val scale = Math.max(targetW.toFloat() / bitmap.width, targetH.toFloat() / bitmap.height)
+        val scaledW = Math.round(bitmap.width * scale)
+        val scaledH = Math.round(bitmap.height * scale)
+        
+        val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(bitmap, scaledW, scaledH, true)
+        
+        val x = ((scaledW - targetW) / 2).coerceIn(0, Math.max(0, scaledW - targetW))
+        val y = ((scaledH - targetH) / 2).coerceIn(0, Math.max(0, scaledH - targetH))
+        
+        return android.graphics.Bitmap.createBitmap(scaledBitmap, x, y, targetW, targetH)
     }
 
     private fun getThemeMaskFallbackDrawable(folderName: String, spec: br.com.redesurftank.havalshisuku.models.NativeMaskSpec): android.graphics.drawable.Drawable {
-        val bgFile = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext).getActiveThemeBackgroundFile()
-        if (bgFile != null && bgFile.exists()) {
+        val fullBitmap = getBackgroundBitmap(folderName)
+
+        if (fullBitmap != null) {
             try {
-                val fullBitmap = android.graphics.BitmapFactory.decodeFile(bgFile.absolutePath)
-                if (fullBitmap != null) {
-                    val cropX = spec.x.coerceIn(0, fullBitmap.width - 1)
-                    val cropY = spec.y.coerceIn(0, fullBitmap.height - 1)
-                    val cropW = spec.width.coerceAtMost(fullBitmap.width - cropX)
-                    val cropH = spec.height.coerceAtMost(fullBitmap.height - cropY)
-                    if (cropW > 0 && cropH > 0) {
-                        val cropped = android.graphics.Bitmap.createBitmap(fullBitmap, cropX, cropY, cropW, cropH)
-                        return android.graphics.drawable.BitmapDrawable(outerContext.resources, cropped)
-                    }
+                val scaledBitmap = getCoverScaledBitmap(fullBitmap, 1920, 720)
+                
+                val cropX = spec.x.coerceIn(0, scaledBitmap.width - 1)
+                val cropY = spec.y.coerceIn(0, scaledBitmap.height - 1)
+                val cropW = spec.width.coerceAtMost(scaledBitmap.width - cropX)
+                val cropH = spec.height.coerceAtMost(scaledBitmap.height - cropY)
+                if (cropW > 0 && cropH > 0) {
+                    val cropped = android.graphics.Bitmap.createBitmap(scaledBitmap, cropX, cropY, cropW, cropH)
+                    return android.graphics.drawable.BitmapDrawable(outerContext.resources, cropped)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to crop theme background for mask fallback", e)
             }
         }
-        return android.graphics.drawable.ColorDrawable(Color.BLACK)
+
+        // Return TRANSPARENT for large side mask fallbacks to avoid black side bars
+        return if (spec.width >= 500 && spec.height >= 500) {
+            android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+        } else {
+            android.graphics.drawable.ColorDrawable(Color.BLACK)
+        }
+    }
+
+    private fun convertLuminanceToAlpha(mask: android.graphics.Bitmap): android.graphics.Bitmap {
+        val width = mask.width
+        val height = mask.height
+        val result = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(width * height)
+        mask.getPixels(pixels, 0, width, 0, 0, width, height)
+        for (i in pixels.indices) {
+            val p = pixels[i]
+            val a = (p ushr 24) and 0xFF
+            val r = (p ushr 16) and 0xFF
+            val g = (p ushr 8) and 0xFF
+            val b = p and 0xFF
+            val lum = (0.299f * r + 0.587f * g + 0.114f * b).toInt().coerceIn(0, 255)
+            val newAlpha = (lum * (a / 255f)).toInt().coerceIn(0, 255)
+            pixels[i] = (newAlpha shl 24) or 0x00FFFFFF
+        }
+        result.setPixels(pixels, 0, width, 0, 0, width, height)
+        return result
     }
 
     override fun setNativeMaskState(maskName: String, visible: Boolean) {

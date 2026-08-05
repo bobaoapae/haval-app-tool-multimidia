@@ -15,6 +15,7 @@ import { bootstrapThemeFromManifest, themeEngine } from '../../../shared/runtime
 import { KEYS, getLabel, translateFriendlyValue, FRIENDLY_KEY_TO_CAN_KEY } from '../../../shared/car/carConstants.js';
 import { createGraphTelemetryHandler, getAdjustedSpeed } from '../../../shared/car/carDerivations.js';
 import { initSimulationHarness } from '../../../shared/runtime/testing-utils.js';
+import { applyAccent, DEFAULT_ACCENT } from './accent.js';
 
 initializeConstants();
 initWarningHandler();
@@ -431,6 +432,31 @@ subscribe('gaugeStyle', render);
 subscribe('barImages', render);
 subscribe('navigationDisplayMode', render);
 subscribe('appDisplayMode', render);
+// Sport and Eco force their own accent while driveModeColors is on. Every other mode
+// - Normal, Neve, Areia, Lama - keeps whatever the user picked.
+const DRIVE_MODE_ACCENTS = { Sport: '#FF0000', Eco: '#00E676' };
+
+function resolveAccent() {
+    const base = get('accentColor') || DEFAULT_ACCENT;
+    if (!get('driveModeColors')) return base;
+    return DRIVE_MODE_ACCENTS[get('drivingMode')] || base;
+}
+
+// Not render(): the accent only rewrites :root custom properties, so a full layout
+// rebuild would be wasted work. applyAccent no-ops when the resolved color is
+// unchanged, which matters here because drivingMode churns while driving.
+const reapplyAccent = () => applyAccent(resolveAccent());
+subscribe('accentColor', reapplyAccent);
+subscribe('driveModeColors', reapplyAccent);
+subscribe('drivingMode', reapplyAccent);
+
+// Gauge fills are plain token writes - deliberately independent of the accent.
+subscribe('fuelColor', (hex) => {
+    document.documentElement.style.setProperty('--fuel-bar-color', hex || '#3B82F6');
+});
+subscribe('batteryColor', (hex) => {
+    document.documentElement.style.setProperty('--battery-bar-color', hex || '#10B981');
+});
 
 subscribe('clusterEnabled', render);
 subscribe('clusterBackground', render);
@@ -669,6 +695,10 @@ async function initDecentralizedBridge() {
     bridge.bindThemeSetting('navigationDisplayMode', 'Mapa', setState);
     bridge.bindThemeSetting('appDisplayMode', 'Normal', setState);
     bridge.bindThemeSetting('display', 'Normal', setState);
+    bridge.bindThemeSetting('accentColor', DEFAULT_ACCENT, setState);
+    bridge.bindThemeSetting('driveModeColors', false, setState);
+    bridge.bindThemeSetting('fuelColor', '#3B82F6', setState);
+    bridge.bindThemeSetting('batteryColor', '#10B981', setState);
     const enableOdometer = bridge.getPreference('enableOdometer', 'true') === 'true';
     const enableRevisionWarning = bridge.getPreference('enableRevisionWarning', 'false') === 'true';
     const nextRevisionKm = Number(bridge.getPreference('nextRevisionKm', '0')) || 0;

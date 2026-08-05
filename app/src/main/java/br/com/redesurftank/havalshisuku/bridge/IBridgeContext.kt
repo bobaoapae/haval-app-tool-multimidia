@@ -19,4 +19,7 @@ interface IBridgeContext {
     fun saveClusterDisplay(value: String)
     fun updateHeartbeat()
     fun refreshDisplayBounds()
+    fun setNativeMaskState(maskName: String, visible: Boolean) {}
+    fun setNativeMasksConfig(jsonConfig: String) {}
 }
+

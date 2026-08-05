@@ -37,6 +37,16 @@ object CompatTranslationLayer {
                         ]);
                     };
                 }
+                if (typeof window.Android.setNativeMaskState !== 'function') {
+                    window.Android.setNativeMaskState = function(maskName, visible) {
+                        console.log("Polyfill: setNativeMaskState called (" + maskName + ", " + visible + ")");
+                    };
+                }
+                if (typeof window.Android.setNativeMasksConfig !== 'function') {
+                    window.Android.setNativeMasksConfig = function(config) {
+                        console.log("Polyfill: setNativeMasksConfig called", config);
+                    };
+                }
             }
         """.trimIndent())
 
