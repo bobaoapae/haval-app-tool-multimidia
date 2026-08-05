@@ -80,6 +80,11 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "disableAvmCarStopped",
             "Desativar camera AVM quando o carro está parado"
     ),
+    // ===== Debloat: desativa apps do sistema (OEM) que rodam e consomem RAM/CPU da multimídia =====
+    // Reversível (pm install-existing) e reaplicado no boot por ServiceManager.ensureDebloatedSystemApps().
+    DISABLE_NATIVE_NAVIGATION("disableNativeNavigation", "Desativar navegador GPS nativo (Neusoft)"),
+    DISABLE_NATIVE_VOICE("disableNativeVoice", "Desativar assistente de voz nativo (iFlyTek)"),
+    DISABLE_NATIVE_WEATHER("disableNativeWeather", "Desativar serviço de previsão do tempo (OEM)"),
     CAR_MONITOR_PROPERTIES("carMonitorProperties", "Propriedades do monitoramento do carro"),
     BYPASS_SELF_INSTALLATION_INTEGRITY_CHECK(
             "bypassSelfInstallationIntegrityCheck",
