@@ -325,10 +325,6 @@ function initializeLayout() {
         console.error('[Error] Failed to initialize dashboard info: ', e);
     }
 
-    // The mask element only exists now, so any source resolved before this point still
-    // has to be painted onto it.
-    applyBackdropFill();
-
     // Side no-app discs removed — mask-panel L/R gradients cover that role
     logger.leave('initializeLayout');
 }
@@ -691,7 +687,6 @@ window.control = function (key, value) {
         }
         setState(key, val);
         if (key === 'clusterBackground') {
-            refreshBackdropSource();
             render();
         }
         // warningActive has its own subscription to render() at line 184, so no need for manual trigger here
