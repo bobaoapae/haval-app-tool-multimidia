@@ -84,27 +84,35 @@ export class ThemeBridgeAdapter {
     }
 
     /**
-     * Fallback standard key mappings for legacy APK clients.
+     * Fallback key list for hosts that cannot answer getAvailableKeys() -- legacy APKs,
+     * and the browser dev harness, which has no window.Android at all.
+     *
+     * This is the whole v1.0 contract surface, not a hand-picked subset. It used to list
+     * 15 keys and left out every gauge and graph signal (fuel %, battery %, both ranges,
+     * RPM, the four ev_info power readings), so on any host taking this path hasKey()
+     * rejected them and the cluster came up with dead gauges. A subset here is a trap: the
+     * only safe floor is "everything the contract defines", since an unsupported key on
+     * the host side is already handled -- it simply never pushes a value.
      */
     loadLegacyKeylist() {
-        const legacyKeys = [
-            KEYS.VEHICLE_SPEED,
-            KEYS.TOTAL_ODOMETER,
-            KEYS.GEAR_STATUS,
-            KEYS.ESP_ENABLE,
-            KEYS.POWER_MODEL_CONFIG,
-            KEYS.DRIVE_MODE,
-            KEYS.STEER_ASSIST_MODE,
-            KEYS.REGEN_LEVEL,
-            KEYS.PEDAL_CONTROL_ENABLE,
-            KEYS.HVAC_POWER,
-            KEYS.HVAC_FAN_SPEED,
-            KEYS.HVAC_DRIVER_TEMP,
-            KEYS.HVAC_CYCLE_MODE,
-            KEYS.HVAC_AUTO,
-            KEYS.HVAC_ANION
-        ];
-        this.supportedKeys = new Set(legacyKeys);
+        this.supportedKeys = new Set([
+            // Every CAN + virtual key the shared contract table defines.
+            ...Object.values(KEYS),
+            // Climate readouts and the unit setting, which predate the KEYS table and are
+            // still referenced as literals by the Default theme.
+            "car.basic.inside_temp",
+            "car.basic.outside_temp",
+            "car.configure.default_temp_unit",
+            // Host-computed flags pushed under bare names rather than an "app." namespace.
+            "bsdLeft",
+            "bsdRight",
+            "carPlayInDash",
+            "projectionMirrorInDash",
+            "projectionPreparingD3",
+            "projectionCardOverlayAllowed",
+            "warningActive",
+            "warningDismissed"
+        ]);
     }
 
     /**
@@ -114,11 +122,19 @@ export class ThemeBridgeAdapter {
      */
     hasKey(key) {
         if (typeof key !== "string") return false;
-        if (this.supportedKeys.has(key)) return true;
+        // Theme configuration values are theme-local and have no entry in the host's
+        // capability list: the host mints the name from the theme.xml <stateVariable>
+        // and only ever pushes it prefixed (PreferencePushListener). The prefix IS the
+        // contract, so it is the thing to check.
         if (key.startsWith("app.preferences.")) return true;
-        // Allow all theme preference / configuration setting keys (non-CAN keys)
-        if (!key.startsWith("car.") && !key.startsWith("app.display.")) return true;
-        return true;
+        // Everything else must be a capability the host actually advertises. Waving
+        // unknown names through is not harmless: ThemeBridgeImpl.subscribe() routes any
+        // key that is neither "app.*" nor a known virtual into its CAN branch and hands
+        // it to ServiceManager.ensureKeysMonitored(), which registers it with the car's
+        // ControlService and keeps it in dynamicallyRegisteredKeys for the life of the
+        // process. An unsupported key is a bug in the theme, so let it surface as the
+        // suppression warning in subscribe() instead of as junk on the vehicle bus.
+        return this.supportedKeys.has(key);
     }
 
     /**
@@ -436,22 +452,9 @@ export class ThemeBridgeAdapter {
                 }
             });
         }
-
-        // Also check if key is app.preferences.X or X for listeners registered on the alternate form
-        const altKey = key.startsWith("app.preferences.")
-            ? key.substring("app.preferences.".length)
-            : `app.preferences.${key}`;
-
-        const altListeners = this.dataListeners.get(altKey);
-        if (altListeners) {
-            altListeners.forEach(callback => {
-                try {
-                    callback(key, value);
-                } catch (e) {
-                    console.error(`[BridgeAdapter] Error in telemetry callback for altKey ${altKey}:`, e);
-                }
-            });
-        }
+        // No prefixed/bare alias dispatch here on purpose. It only ever matched because
+        // bindThemeSetting used to register a listener under both spellings, so a single
+        // push ran the same callback twice; nothing on the host emits the bare form.
     }
 
     dispatchKeyEvent(keyName) {
@@ -481,13 +484,19 @@ export class ThemeBridgeAdapter {
         console.log(`[BridgeAdapter DEBUG] bindThemeSetting key=${key} defaultValue=${defaultValue} raw=${raw} val=${val}`);
         setStateFn(key, val);
         
-        // 2. Register live preference push listener for both app.preferences.key AND key
+        // 2. Register the live preference push listener.
+        //
+        // Only the prefixed form. PreferencePushListener pushes exactly one name for a
+        // theme config -- "app.preferences.<stateVariable>" -- and ThemeBridgeImpl echoes
+        // subscriptions back under the same string the theme subscribed with, so the bare
+        // name never arrives. Subscribing it anyway sent every stateVariable down to the
+        // native subscribe(), which read it as a CAN signal and registered it with the
+        // car's ControlService (22 bogus names across the two themes).
         const updateFn = (k, v) => {
             const parsed = isBool ? (v === "true" || v === true || v === "1" || v === 1) : (isNum ? Number(v) : v);
             setStateFn(key, parsed);
         };
         this.subscribe(`app.preferences.${key}`, updateFn);
-        this.subscribe(key, updateFn);
     }
 }
 

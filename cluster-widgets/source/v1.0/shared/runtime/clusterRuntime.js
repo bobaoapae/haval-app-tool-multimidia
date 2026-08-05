@@ -180,21 +180,41 @@ if (isBrowser) {
     window.__MOCK_CAR_STATE__ = mockState;
 
     window.Android = {
+        // Must mirror ThemeBridgeImpl.getAvailableKeys() in the app. hasKey() rejects
+        // anything absent from this list, so a mock that under-reports does not merely
+        // look different from the car -- it makes the dev harness suppress real
+        // subscriptions and render dead gauges, which reads as a theme bug that does not
+        // exist. This list was missing every gauge and graph signal for exactly that reason.
         getAvailableKeys: () => {
             return JSON.stringify([
                 "car.basic.vehicle_speed",
+                "car.basic.engine_speed",
+                "car.basic.instant_fuel_consumption",
                 "car.basic.total_odometer",
                 "car.basic.gear_status",
+                "car.basic.inside_temp",
+                "car.basic.outside_temp",
+                "car.basic.remain_fuel_percentage",
+                "car.ev_info.cur_battery_power_percentage",
+                "car.ev_info.fuel_mode_remain_odometer",
+                "car.ev_info.electric_mode_remain_odometer",
+                "car.configure.default_temp_unit",
                 "car.drive_setting.esp_enable",
                 "car.ev_setting.power_model_config",
                 "car.drive_setting.drive_mode",
                 "car.drive_setting.steering_wheel_assist_mode",
                 "car.ev_setting.energy_recovery_level",
                 "car.ev.setting.pedal_control_enable",
+                "car.ev_info.energy_output_percentage",
+                "car.ev_info.cur_charge_current",
+                "car.ev_info.power_battery_voltage",
+                "car.ev_info.Instant_energy_consumption",
                 "car.hvac.power_mode",
                 "car.hvac.fan_speed",
                 "car.hvac.driver_temperature",
                 "car.hvac.cycle_mode",
+                "car.hvac.auto_enable",
+                "car.hvac.anion_enable",
                 "app.display.1.active_app",
                 "app.display.1.active_app_label",
                 "app.display.1.active_app_icon",
@@ -213,7 +233,15 @@ if (isBrowser) {
                 "app.phone.state",
                 "app.phone.caller_name",
                 "app.phone.caller_number",
-                "app.phone.call_duration"
+                "app.phone.call_duration",
+                "bsdLeft",
+                "bsdRight",
+                "carPlayInDash",
+                "projectionMirrorInDash",
+                "projectionPreparingD3",
+                "projectionCardOverlayAllowed",
+                "warningActive",
+                "warningDismissed"
             ]);
         },
 
