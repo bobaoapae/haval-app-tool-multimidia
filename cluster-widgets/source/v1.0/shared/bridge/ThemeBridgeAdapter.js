@@ -116,17 +116,9 @@ export class ThemeBridgeAdapter {
         if (typeof key !== "string") return false;
         if (this.supportedKeys.has(key)) return true;
         if (key.startsWith("app.preferences.")) return true;
-        // Allow theme preference keys without app.preferences. prefix
-        const isPrefKey = [
-            "appDisplayMode", "navigationDisplayMode", "display", "hiddenBars", 
-            "gaugeStyle", "barImages", "mode", "hidden_bars", "gauge_style", 
-            "bar_images", "theme_mode", "navigation_display_mode", "app_display_mode",
-            "navigationMaskMode", "navigation_mask_mode", "appMaskMode", "app_mask_mode",
-            "hideBottomBar", "hide_bottom_bar", "showRegenIcon", "show_regen_icon",
-            "showRpmIcon", "show_rpm_icon", "enableOdometer", "enableRevisionWarning",
-            "nextRevisionKm", "nextRevisionDate", "fuelDisplayUnit"
-        ].includes(key);
-        return isPrefKey;
+        // Allow all theme preference / configuration setting keys (non-CAN keys)
+        if (!key.startsWith("car.") && !key.startsWith("app.display.")) return true;
+        return true;
     }
 
     /**
@@ -441,6 +433,22 @@ export class ThemeBridgeAdapter {
                     callback(key, value);
                 } catch (e) {
                     console.error(`[BridgeAdapter] Error in telemetry callback for key ${key}:`, e);
+                }
+            });
+        }
+
+        // Also check if key is app.preferences.X or X for listeners registered on the alternate form
+        const altKey = key.startsWith("app.preferences.")
+            ? key.substring("app.preferences.".length)
+            : `app.preferences.${key}`;
+
+        const altListeners = this.dataListeners.get(altKey);
+        if (altListeners) {
+            altListeners.forEach(callback => {
+                try {
+                    callback(key, value);
+                } catch (e) {
+                    console.error(`[BridgeAdapter] Error in telemetry callback for altKey ${altKey}:`, e);
                 }
             });
         }

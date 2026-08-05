@@ -15,7 +15,7 @@ import { bootstrapThemeFromManifest, themeEngine } from '../../../shared/runtime
 import { KEYS, getLabel, translateFriendlyValue, FRIENDLY_KEY_TO_CAN_KEY } from '../../../shared/car/carConstants.js';
 import { createGraphTelemetryHandler, getAdjustedSpeed } from '../../../shared/car/carDerivations.js';
 import { initSimulationHarness } from '../../../shared/runtime/testing-utils.js';
-import { applyAccent, DEFAULT_ACCENT } from './accent.js';
+import { applyAccent, applyIconColor, DEFAULT_ACCENT, DEFAULT_ICON_COLOR } from './accent.js';
 
 initializeConstants();
 initWarningHandler();
@@ -450,6 +450,9 @@ subscribe('accentColor', reapplyAccent);
 subscribe('driveModeColors', reapplyAccent);
 subscribe('drivingMode', reapplyAccent);
 
+// Menu icons carry their blue in the pixels, so they get their own repaint pass.
+subscribe('iconColor', (hex) => applyIconColor(hex || DEFAULT_ICON_COLOR));
+
 // Gauge fills are plain token writes - deliberately independent of the accent.
 subscribe('fuelColor', (hex) => {
     document.documentElement.style.setProperty('--fuel-bar-color', hex || '#3B82F6');
@@ -697,6 +700,7 @@ async function initDecentralizedBridge() {
     bridge.bindThemeSetting('display', 'Normal', setState);
     bridge.bindThemeSetting('accentColor', DEFAULT_ACCENT, setState);
     bridge.bindThemeSetting('driveModeColors', false, setState);
+    bridge.bindThemeSetting('iconColor', DEFAULT_ICON_COLOR, setState);
     bridge.bindThemeSetting('fuelColor', '#3B82F6', setState);
     bridge.bindThemeSetting('batteryColor', '#10B981', setState);
     const enableOdometer = bridge.getPreference('enableOdometer', 'true') === 'true';

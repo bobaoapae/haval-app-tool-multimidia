@@ -5065,7 +5065,12 @@ private fun ThemeColorConfigControl(
             onColorSelected = { selectedHex ->
                 selectSwatch(selectedHex)
                 showCustomPickerModal = false
-            }
+            },
+            // Writing the pref is what pushes the colour to the running cluster, via
+            // PreferencePushListener - so a preview is just an early commit that Cancel
+            // rewinds. `hex` is intentionally not updated here, so the row behind the
+            // dialog keeps showing the value that is actually saved.
+            onPreview = { previewHex -> onCommit(previewHex) }
         )
     }
 }
@@ -5083,7 +5088,12 @@ private fun CustomColorPickerDialog(
     initialHex: String,
     swatches: List<String>,
     onDismiss: () -> Unit,
-    onColorSelected: (String) -> Unit
+    onColorSelected: (String) -> Unit,
+    /**
+     * Pushes a colour to the live cluster without treating it as the final choice.
+     * Debounced below, and rewound to [initialHex] if the user cancels.
+     */
+    onPreview: (String) -> Unit = {}
 ) {
     val startHsv = remember(initialHex) {
         FloatArray(3).also { android.graphics.Color.colorToHSV(android.graphics.Color.parseColor(initialHex), it) }
@@ -5095,8 +5105,25 @@ private fun CustomColorPickerDialog(
     val currentArgb = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness))
     val currentHex = "#%06X".format(currentArgb and 0x00FFFFFF)
 
+    // Live preview: the cluster is a second display, so it IS the preview. Debounced
+    // because each distinct colour costs the theme a full artwork repaint - the restart
+    // on every change means we only push once the drag settles.
+    var previewed by remember { mutableStateOf(false) }
+    LaunchedEffect(currentHex) {
+        if (currentHex.equals(initialHex, ignoreCase = true)) return@LaunchedEffect
+        delay(250)
+        previewed = true
+        onPreview(currentHex)
+    }
+
+    // Cancelling must put the cluster back; otherwise a preview the user rejected sticks.
+    val cancel = {
+        if (previewed) onPreview(initialHex)
+        onDismiss()
+    }
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = cancel,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Card(
@@ -5125,7 +5152,7 @@ private fun CustomColorPickerDialog(
                         fontWeight = FontWeight.Bold
                     )
                     IconButton(
-                        onClick = onDismiss,
+                        onClick = cancel,
                         modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
@@ -5224,7 +5251,7 @@ private fun CustomColorPickerDialog(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onDismiss) {
+                    TextButton(onClick = cancel) {
                         Text("Cancelar", color = Color(0xFFB0B8C4))
                     }
                     Spacer(modifier = Modifier.width(8.dp))

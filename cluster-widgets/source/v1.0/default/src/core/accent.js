@@ -21,6 +21,9 @@ const REFERENCE_ACCENT = '#00A0FF';
 /** Fallback when the setting is missing or unparseable. */
 export const DEFAULT_ACCENT = REFERENCE_ACCENT;
 
+/** The blue baked into the shipped menu icons, and the default for the iconColor setting. */
+export const DEFAULT_ICON_COLOR = '#00A0E0';
+
 /**
  * Every :root custom property that carries the blue accent.
  * Tokens that are defined as var() aliases of these (the --graph-* family,
@@ -446,11 +449,40 @@ export function registerArtworkImage(id, originalSrc) {
     return artworkRecolored[id] || artworkSourceUrls[id];
 }
 
+const URL_IN_VALUE = /url\(\s*"?(data:[^")]+)"?\s*\)/;
+
+/*
+ * Walks the stylesheets for a custom property's *specified* value.
+ *
+ * getComputedStyle() is the obvious way to do this and works fine on desktop, but on the
+ * head unit's WebView it returns nothing for these particular properties - the cluster log
+ * showed all four coming back unresolved while the dial <img> resolved fine. They are the
+ * only ones holding 100-200 KB base64 payloads, which that WebView will not hand back
+ * through computed style. Reading the rule directly sidesteps it.
+ *
+ * Also finds properties declared outside :root - --mapa-speed-badge-image lives on a nested
+ * selector, so computed style on documentElement never saw it at all.
+ */
+function readCustomPropertyFromSheets(token) {
+    for (const sheet of document.styleSheets) {
+        let rules;
+        try { rules = sheet.cssRules; } catch { continue; } // cross-origin sheet
+        if (!rules) continue;
+        for (const rule of rules) {
+            if (!rule.style) continue;
+            const value = rule.style.getPropertyValue(token);
+            if (value && URL_IN_VALUE.test(value)) return value;
+        }
+    }
+    return '';
+}
+
 function collectArtworkSources() {
     const computed = getComputedStyle(document.documentElement);
     const sources = {};
     ARTWORK_VARS.forEach((token) => {
-        const match = computed.getPropertyValue(token).trim().match(/url\(\s*"?(data:[^")]+)"?\s*\)/);
+        const raw = computed.getPropertyValue(token).trim() || readCustomPropertyFromSheets(token);
+        const match = raw.match(URL_IN_VALUE);
         if (match) {
             if (!artworkSourceUrls[token]) artworkSourceUrls[token] = match[1];
             sources[token] = artworkSourceUrls[token];
@@ -638,15 +670,20 @@ async function recolorArtwork(hex, rotate, identity) {
             return;
         }
 
+        /*
+         * Render everything first, then apply in one go. Applying inside the loop meant an
+         * aborted run - which is the normal case while dragging the color picker, since
+         * each new pick bumps artworkRun - could leave the top bar recolored and the dial
+         * still blue until the next pass caught up.
+         */
         const rendered = {};
         for (const key of Object.keys(artworkOriginals)) {
-            const url = identity
+            rendered[key] = identity
                 ? artworkSourceUrls[key]
                 : await toDataUrl(rotatePixels(artworkOriginals[key], rotate));
             if (run !== artworkRun) return;
-            rendered[key] = url;
-            applyArtworkUrl(key, url);
         }
+        Object.entries(rendered).forEach(([key, url]) => applyArtworkUrl(key, url));
         cacheArtwork(hex, rendered);
 
         // The pixels now carry the rotation, so the CSS approximation MUST go to identity.
@@ -655,6 +692,85 @@ async function recolorArtwork(hex, rotate, identity) {
     } catch (err) {
         // Leave the CSS filter in place as the fallback - approximate, but not blue.
         console.warn('[accent] artwork recolor failed, keeping CSS filter', err);
+    }
+}
+
+/* ------------------------------------------------------------------ icons */
+
+/*
+ * Menu icons are baked data URIs, and the set is mixed: iconDisplay is an SVG carrying a
+ * literal #00A0E0, the other six are PNGs. So there are two paths - a string swap for the
+ * SVG, which stays crisp at any size, and the same pixel rotation the artwork uses for the
+ * PNGs. They are 24-48 px, so the pixel path costs nothing.
+ *
+ * Icons are independent of the accent by design (their own iconColor setting), matching how
+ * the fuel and battery gauges work.
+ */
+
+const ICON_SELECTOR = '[data-accent-icon]';
+
+/** id -> pristine data URI, captured before the first recolor. */
+const iconSourceUrls = {};
+/** id -> recolored data URI currently applied. */
+const iconRecolored = {};
+let iconRun = 0;
+
+/**
+ * Records an icon's shipped source and hands back whatever should be displayed now, so an
+ * icon rebuilt by a re-render does not pop back to blue.
+ */
+export function registerIcon(id, originalSrc) {
+    if (!iconSourceUrls[id]) iconSourceUrls[id] = originalSrc;
+    return iconRecolored[id] || iconSourceUrls[id];
+}
+
+const SVG_PREFIX = 'data:image/svg+xml;base64,';
+
+function recolorSvgDataUri(src, hex) {
+    const svg = atob(src.slice(SVG_PREFIX.length));
+    // The shipped icons use exactly one blue; swap every casing of it.
+    const swapped = svg.replace(new RegExp(DEFAULT_ICON_COLOR, 'gi'), hex);
+    return SVG_PREFIX + btoa(swapped);
+}
+
+async function recolorRasterIcon(src, rotate) {
+    const data = await captureOne(src);
+    return toDataUrl(rotatePixels(data, rotate));
+}
+
+/**
+ * Repaints every registered icon to `hex`. Safe to call repeatedly; a run that is
+ * superseded mid-flight drops out without touching the DOM.
+ */
+export async function applyIconColor(hex) {
+    const target = parseColor(hex) || parseColor(DEFAULT_ICON_COLOR);
+    const run = ++iconRun;
+
+    // Pick up any icon that has rendered since the last pass.
+    document.querySelectorAll(ICON_SELECTOR).forEach((el) => {
+        const id = el.dataset.accentIcon;
+        if (id && !iconSourceUrls[id]) iconSourceUrls[id] = el.src;
+    });
+
+    const identity = `${target.r},${target.g},${target.b}` ===
+        (() => { const d = parseColor(DEFAULT_ICON_COLOR); return `${d.r},${d.g},${d.b}`; })();
+    const rotate = makeOklchRotator(parseColor(DEFAULT_ICON_COLOR), target);
+    const hexOut = `#${[target.r, target.g, target.b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+
+    try {
+        const rendered = {};
+        for (const [id, src] of Object.entries(iconSourceUrls)) {
+            if (identity) rendered[id] = src;
+            else if (src.startsWith(SVG_PREFIX)) rendered[id] = recolorSvgDataUri(src, hexOut);
+            else rendered[id] = await recolorRasterIcon(src, rotate);
+            if (run !== iconRun) return;
+        }
+        Object.entries(rendered).forEach(([id, url]) => {
+            if (url !== iconSourceUrls[id]) iconRecolored[id] = url; else delete iconRecolored[id];
+            document.querySelectorAll(`[data-accent-icon="${id}"]`).forEach((el) => { el.src = url; });
+        });
+    } catch (err) {
+        console.warn('[accent] icon recolor failed', err);
     }
 }
 

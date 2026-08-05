@@ -1,7 +1,7 @@
 <theme>
     <name>Default</name>
     <description>Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.</description>
-    <version>1.4.36</version>
+    <version>1.4.38</version>
     <thumbnail>thumbnail.png</thumbnail>
     <mainFile>index.html</mainFile>
     <decentralized>true</decentralized>
@@ -67,6 +67,15 @@
             <options>#00A0FF, #FF0033, #00E676, #FF6D00, #0033CC, #000000, #FFFFFF, #808080</options>
             <default>#00A0FF</default>
             <stateVariable>accentColor</stateVariable>
+            <group>Cores</group>
+        </configuration>
+        <configuration>
+            <id>icon_color</id>
+            <label>Cor dos Ícones</label>
+            <type>color</type>
+            <options>#00A0E0, #FF0033, #00E676, #FF6D00, #FFC400, #B388FF, #FFFFFF, #808080</options>
+            <default>#00A0E0</default>
+            <stateVariable>iconColor</stateVariable>
             <group>Cores</group>
         </configuration>
         <configuration>

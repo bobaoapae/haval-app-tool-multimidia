@@ -239,6 +239,7 @@ public class ServiceManager {
     private IInputListener.Stub inputListener;
     private IClusterCallback.Stub clusterCallback;
     private boolean servicesInitialized = false;
+    private boolean hasRunStartupCurtainAutomation = false;
     private boolean isFridaInitialized = false;
     private final List<Runnable> pendingTasks = new ArrayList<>();
     private static long timeBootReceived;
@@ -1035,8 +1036,9 @@ public class ServiceManager {
         wifiTetherEnabled = currentWifiTetherState();
         Log.w(TAG, "Services initialized successfully");
         boolean curtainOnStartEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
-        traceCurtain("sunroof_curtain_init", "enabled", curtainOnStartEnabled);
-        if (curtainOnStartEnabled) {
+        traceCurtain("sunroof_curtain_init", "enabled", curtainOnStartEnabled, "hasRun", hasRunStartupCurtainAutomation);
+        if (curtainOnStartEnabled && !hasRunStartupCurtainAutomation) {
+            hasRunStartupCurtainAutomation = true;
             autoOpenSunroofCurtain(0);
         }
         // HEV Prioritário: no boot o carro costuma resetar o % (ex.: 45->80) e o app pode subir
@@ -2734,6 +2736,8 @@ public class ServiceManager {
             clearPersistedMaxAcState(); // Clear corrupted state
         }
     }
+
+
 
     public void executeWithServicesRunning(Runnable task) {
         Runnable wrapperWithCatch = () -> {

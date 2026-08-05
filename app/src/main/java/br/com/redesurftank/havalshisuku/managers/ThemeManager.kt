@@ -130,6 +130,7 @@ class ThemeManager private constructor(val context: Context) {
                 ThemeConfig("theme_mode", "Modo Visual", "combo", "Dark", "mode", listOf("Dark", "Light"), "Geral"),
                 ThemeConfig("gauge_style", "Estilo dos Marcadores", "combo", "Esportivo", "gaugeStyle", listOf("Esportivo", "Clássico"), "Geral"),
                 ThemeConfig("accent_color", "Cor de Destaque", "color", "#00A0FF", "accentColor", listOf("#00A0FF", "#FF0033", "#00E676", "#FF6D00", "#0033CC", "#000000", "#FFFFFF", "#808080"), "Cores"),
+                ThemeConfig("icon_color", "Cor dos Ícones", "color", "#00A0E0", "iconColor", listOf("#00A0E0", "#FF0033", "#00E676", "#FF6D00", "#FFC400", "#B388FF", "#FFFFFF", "#808080"), "Cores"),
                 ThemeConfig("drive_mode_colors", "Cor por Modo de Condução", "boolean", "false", "driveModeColors", emptyList(), "Cores"),
                 ThemeConfig("fuel_color", "Cor do Medidor de Combustível", "color", "#3B82F6", "fuelColor", listOf("#3B82F6", "#00A0FF", "#00E676", "#FFC400", "#FF6D00", "#FF0033", "#FFFFFF", "#808080"), "Cores"),
                 ThemeConfig("battery_color", "Cor do Medidor de Bateria", "color", "#10B981", "batteryColor", listOf("#10B981", "#00E676", "#00A0FF", "#FFC400", "#FF6D00", "#FF0033", "#FFFFFF", "#808080"), "Cores"),
