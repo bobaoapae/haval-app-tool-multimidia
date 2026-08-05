@@ -73,5 +73,21 @@ Write-Host "Connecting to $mmiIp..."
 Write-Host "Installing APK..."
 & $adbPath -s "${mmiIp}:5555" install -r $apkPath
 
+Write-Host "Syncing Minimalist Theme files to Car internal storage..."
+& $adbPath -s "${mmiIp}:5555" push "$PSScriptRoot\..\cluster-widgets\source\v1.0\minimalist\src\assets\car-bg.png" "/data/local/tmp/car-bg.png"
+& $adbPath -s "${mmiIp}:5555" push "$PSScriptRoot\..\cluster-widgets\Themes\v1.0\minimalist\theme.xml" "/data/local/tmp/theme.xml"
+& $adbPath -s "${mmiIp}:5555" push "$PSScriptRoot\..\cluster-widgets\Themes\v1.0\minimalist\app.html" "/data/local/tmp/app.html"
+& $adbPath -s "${mmiIp}:5555" shell run-as br.com.redesurftank.havalshisuku mkdir -p files/themes/minimalist
+& $adbPath -s "${mmiIp}:5555" shell run-as br.com.redesurftank.havalshisuku cp /data/local/tmp/car-bg.png files/themes/minimalist/car-bg.png
+& $adbPath -s "${mmiIp}:5555" shell run-as br.com.redesurftank.havalshisuku cp /data/local/tmp/theme.xml files/themes/minimalist/theme.xml
+& $adbPath -s "${mmiIp}:5555" shell run-as br.com.redesurftank.havalshisuku cp /data/local/tmp/app.html files/themes/minimalist/app.html
+
+Write-Host "Syncing Default Theme files to Car internal storage..."
+& $adbPath -s "${mmiIp}:5555" push "$PSScriptRoot\..\cluster-widgets\Themes\v1.0\Default\theme.xml" "/data/local/tmp/default_theme.xml"
+& $adbPath -s "${mmiIp}:5555" push "$PSScriptRoot\..\cluster-widgets\Themes\v1.0\Default\index.html" "/data/local/tmp/default_index.html"
+& $adbPath -s "${mmiIp}:5555" shell run-as br.com.redesurftank.havalshisuku mkdir -p files/themes/Default
+& $adbPath -s "${mmiIp}:5555" shell run-as br.com.redesurftank.havalshisuku cp /data/local/tmp/default_theme.xml files/themes/Default/theme.xml
+& $adbPath -s "${mmiIp}:5555" shell run-as br.com.redesurftank.havalshisuku cp /data/local/tmp/default_index.html files/themes/Default/index.html
+
 Write-Host ""
 Write-Host "Deployment Complete!" -ForegroundColor Green
