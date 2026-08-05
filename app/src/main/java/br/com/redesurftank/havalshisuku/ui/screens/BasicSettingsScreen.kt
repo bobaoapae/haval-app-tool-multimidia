@@ -904,20 +904,6 @@ fun BasicSettingsTab() {
                 )
         )
 
-        // Congelar a telemetria OEM (DataTrack -> nuvem). Reversível; impacto remoto/OTA a confirmar.
-        settingsList.add(
-                SettingItem(
-                        title = "Bloquear telemetria (DataTrack → nuvem)",
-                        description =
-                                "Congela o serviço OEM que manda telemetria pra nuvem. Reversível. Impacto em comandos remotos/OTA: a confirmar no veículo.",
-                        checked = blockDatatrack,
-                        onCheckedChange = {
-                                blockDatatrack = it
-                                mdm.setDatatrackBlocked(it)
-                        }
-                )
-        )
-
         settingsList.add(
                 SettingItem(
                         title = "Manter % de bateria no HEV Prioritário",
@@ -2794,6 +2780,9 @@ fun BasicSettingsTab() {
                 )
         )
 
+
+        // Aba "Performance" (SettingsGroups.PERFORMANCE): debloat + DataTrack + overlay CPU/RAM.
+        settingsList.addAll(performanceSettingItems(prefs))
 
         GroupedSettingsLayout(items = settingsList)
 
