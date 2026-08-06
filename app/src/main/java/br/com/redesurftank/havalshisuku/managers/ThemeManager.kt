@@ -136,9 +136,9 @@ class ThemeManager private constructor(val context: Context) {
                 ThemeConfig("battery_color", "Cor do Medidor de Bateria", "color", "#10B981", "batteryColor", listOf("#10B981", "#00E676", "#00A0FF", "#FFC400", "#FF6D00", "#FF0033", "#FFFFFF", "#808080"), "Cores"),
                 ThemeConfig("bar_images", "Imagens das Barras", "boolean", "true", "barImages", emptyList(), "Barras"),
                 ThemeConfig("hidden_bars", "Ocultar Barras", "combo", "Nenhuma", "hiddenBars", listOf("Nenhuma", "Superior", "Inferior", "Ambas"), "Barras"),
-                ThemeConfig("do_not_hide_bars_on", "Não Ocultar Barras Se Houver", "combo", "Ambos", "doNotHideBarsOn", listOf("Navegação", "Aplicativo", "Ambos", "Ignorar"), "Barras"),
-                ThemeConfig("navigation_display_mode", "Modo de Exibição na Navegação", "combo", "Mapa", "navigationDisplayMode", listOf("Normal", "Reduzido", "Clean", "Mapa"), "Outros"),
-                ThemeConfig("app_display_mode", "Modo de Exibição de Outros Apps", "combo", "Normal", "appDisplayMode", listOf("Normal", "Reduzido", "Clean", "Mapa"), "Outros")
+                ThemeConfig("hidden_bars_on_projection", "Ocultar Barras na Projeção", "combo", "Nenhuma", "hiddenBarsOnProjection", listOf("Nenhuma", "Superior", "Inferior", "Ambas"), "Barras"),
+                ThemeConfig("navigation_display_mode", "Modo de Exibição na Navegação", "combo", "Mapa", "navigationDisplayMode", listOf("Normal", "Reduzido", "Clean", "Mapa"), "Exibição"),
+                ThemeConfig("app_display_mode", "Modo de Exibição de Outros Apps", "combo", "Normal", "appDisplayMode", listOf("Normal", "Reduzido", "Clean", "Mapa"), "Exibição")
             )
         )
     }

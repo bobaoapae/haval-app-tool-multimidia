@@ -4066,7 +4066,7 @@ body.display-mapa .mask-panel.right {
 }
 
 /* mask-bottom-bar is deliberately NOT in this list: its visibility is decided by
-   hidden_bars / do_not_hide_bars_on (see .hide-bottom below), same as mirror-cluster
+   hidden_bars / hidden_bars_on_projection (see .hide-bottom below), same as mirror-cluster
    or not. Forcing it off here bypassed that theme.xml setting whenever AA/CarPlay
    mirrored onto the cluster. */
 .theme-mirror-cluster .dashboard-warning-label,
