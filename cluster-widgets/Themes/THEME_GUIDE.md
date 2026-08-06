@@ -326,16 +326,24 @@ To compile your modular theme into a single bundle:
 ```bash
 npm run build
 ```
-This runs `parcel build` and executes `inline.js` to create your self-contained `app.html` inside the `dist/` directory.
+This runs `parcel build` and executes `inline.js` to create a self-contained `app.html` inside the `dist/` directory.
 
-### 2. Automatic Syncing
-During development, the reference project is configured to automatically copy the compiled `dist/app.html` file into the main Android application's resources at `app/src/main/res/raw/app.html`.
+### 2. Where the build lands (Default vs dynamic / OTA)
 
-### 3. Submitting Custom Themes
-To publish your theme for all users to download:
-1. Save your compiled package (containing `theme.xml`, `manifest.json`, `thumbnail.png`, and `app.html`) under a unique subfolder in `cluster-widgets/Themes/[ThemeFolder]`.
-2. Commit and push your changes to your feature branch.
-3. The launcher dynamically crawls the directory structure and populates compatible themes in the **Telas** screen.
+| Theme type | Example | `npm run build` destination |
+|---|---|---|
+| **Default (APK-bundled)** | `source/v1.0/default/` | `app/src/main/res/raw/app.html` + `app/src/main/assets/Default/theme.xml` |
+| **Dynamic / OTA** | `source/v1.0/minimalist/` | `cluster-widgets/Themes/v1.0/<theme>/app.html` **and** `theme.xml` |
+
+For OTA themes, `theme.xml` **must** be copied with `app.html`: the host compares `<version>` in that XML to decide whether an update is available. Shipping a new `app.html` beside a stale `theme.xml` means the car never picks up the change.
+
+The release branch crawled by the in-app catalog is configured in `ThemeManager.kt` (currently `feature/new-screen-enhancements-v7`).
+
+### 3. Submitting / updating an OTA theme
+1. Bump `<version>` in the theme's source `theme.xml`.
+2. Run `npm run build` in the theme source folder (copies minified HTML + config XML into `Themes/`).
+3. Commit and push source **and** `cluster-widgets/Themes/v1.0/<theme>/` to the release branch.
+4. The launcher crawls that branch and populates compatible themes on the **Telas** screen.
 
 ---
 

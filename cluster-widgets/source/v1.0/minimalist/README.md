@@ -1,42 +1,31 @@
-# Cluster Air UI
+# Minimalist Theme (v1.0 contract)
 
-UI for the vehicle's air conditioning cluster widgets.
+OTA cluster theme — **not** bundled in the APK. The in-app catalog downloads it from `cluster-widgets/Themes/v1.0/minimalist/` on the release branch (`ThemeManager.kt`, currently `feature/new-screen-enhancements-v7`).
 
-## Architecture
-
-This project follows a **Webview Frontend** architecture, designed to run within the car's multimedia system (Android backend).
-
-- **Frontend:** A web application built with HTML, CSS, and JavaScript, bundled using [Parcel](https://parceljs.org/).
-- **Theming:** Supports both `app-light.html` and `app-night.html` themes.
-- **CSS Architecture:** Uses a modular approach:
-  - `dashboard.style.css`: Contains all base layout and component styles (AC, Regen, Graphs) using CSS variables.
-  - `night.style.css` / `light.style.css`: Contains only the theme-specific `:root` variable definitions (colors, gradients, shadows).
-
-## Local Testing
-
-To test the controls and UI behavior locally:
+## Local testing
 
 ```bash
-npm run dev-controls
+npm run dev
 ```
 
-This will start a development server (usually at `http://localhost:1234`) using `index.html`, which provides the necessary controls for simulation (managed under testing-utils.js).
+Dev server (usually `http://localhost:1234` / next free port) with simulator harness via `testing-utils.js`. Append `?nativeMocks=1` for mock cluster backgrounds.
 
-## Build and Compilation
+## Build & publish (OTA)
 
-To generate the final version for the car, follow these mandatory steps:
+Unlike the Default theme (which copies into `app/src/main/res/raw` + `assets/`), Minimalist's build **only** publishes into `Themes/`:
 
-1. **Build the assets:**
-   ```bash
-   npm run build
-   ```
-   This command clears the `dist` folder, builds both theme entry points, and runs `inline.js` to bundle all CSS and JS directly into the HTML files.
+```bash
+# 1. Bump <version> in theme.xml (required for in-car update detection)
+# 2. Build
+npm run build
+```
 
-2. **Deploy to the Android App (Mandatory for the car):**
-   ```bash
-   # For the night theme (default)
-   cp .\dist\app-night.html ..\..\app\src\main\res\raw\app.html
-   ```
+`npm run build` clears `dist/`, runs Parcel, then `inline.js`, which:
 
-   > [!IMPORTANT]
-   > The step above is mandatory to make the UI work correctly in the car's multimedia system.
+1. Inlines CSS/JS into a self-contained `dist/app.html`
+2. Copies `dist/app.html` → `cluster-widgets/Themes/v1.0/minimalist/app.html`
+3. Copies `theme.xml` → `cluster-widgets/Themes/v1.0/minimalist/theme.xml`
+
+Then **commit and push both** the source changes and `Themes/v1.0/minimalist/` to the release branch so the app can list/download the new version.
+
+> Do not copy Minimalist into `res/raw` / APK assets — that path is Default-only.
