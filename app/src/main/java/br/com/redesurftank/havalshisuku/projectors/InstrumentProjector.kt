@@ -346,6 +346,9 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
         
         Log.d(TAG, "Visibility check: isAnyAppOnDisplay1=$isAnyAppOnDisplay1, isScreenOn=$isScreenOn, isEnabled=$isEnabled")
 
+        // When an app is on D1, hide this wallpaper so the app is visible. (D3 uses an
+        // app-rect hole in its native mask instead — see InstrumentProjector2.display3AppRect.
+        // No matching full-frame mask is applied on D1.)
         if (isAnyAppOnDisplay1 || !isScreenOn || !isEnabled) {
             rootLayout.isVisible = false
             webView?.onPause()

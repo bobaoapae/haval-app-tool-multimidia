@@ -1605,7 +1605,7 @@ public class ServiceManager {
             if (currentValues != null) {
                 for (int i = 0; i < allKeys.length && i < currentValues.length; i++) {
                     if (currentValues[i] != null && !currentValues[i].isEmpty()) {
-                        OnDataChanged(allKeys[i], currentValues[i]);
+                        dispatchTelemetryOnly(allKeys[i], currentValues[i]);
                     }
                 }
             }
@@ -1914,10 +1914,8 @@ public class ServiceManager {
         return new HashMap<>(dataCache);
     }
 
-    public void OnDataChanged(String key, String value) {
-        if (key != null && key.contains("door")) {
-            Log.w(TAG, "[DOOR_DEBUG] key=" + key + " value=" + value);
-        }
+    public void dispatchTelemetryOnly(String key, String value) {
+        if (key == null || value == null) return;
         // Internal package-scoped broadcasts for havalshisuku UI components
         Intent broadcastIntent = new Intent("android.intent.haval." + key);
         broadcastIntent.putExtra("key", key);
@@ -1934,6 +1932,7 @@ public class ServiceManager {
         publicIntent.putExtra("key", key);
         publicIntent.putExtra("value", value);
         App.getContext().sendBroadcast(publicIntent);
+
         for (IDataChanged listener : new ArrayList<>(dataChangedListeners)) {
             try {
                 listener.onDataChanged(key, value);
@@ -1942,6 +1941,13 @@ public class ServiceManager {
             }
         }
         dataCache.put(key, value);
+    }
+
+    public void OnDataChanged(String key, String value) {
+        if (key != null && key.contains("door")) {
+            Log.w(TAG, "[DOOR_DEBUG] key=" + key + " value=" + value);
+        }
+        dispatchTelemetryOnly(key, value);
         if (!servicesInitialized) {
             return;
         }

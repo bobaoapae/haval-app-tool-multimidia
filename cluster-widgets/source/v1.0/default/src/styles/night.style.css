@@ -3810,6 +3810,37 @@ body.display-mapa .mask-panel.right {
   transform: translate(-50%, 0) !important;
 }
 
+/*
+ * Top notch: the backdrop that survives when the bar above is hidden, so the clock and
+ * gear keep a dark ground over the map instead of floating on it.
+ *
+ * Shape is one cubic per shoulder, control points horizontal at both ends, so the curve
+ * leaves the top edge flat and reaches the notch floor flat — no crease at either join.
+ * Flat 765..1155 at depth 88, shoulder 86, giving a tab of 679..1241. The clock/gear ink
+ * measures 775..1145 and bottoms out at y=81, so that is 10px clear each side and 7px
+ * underneath, inside a bar that is 125 deep.
+ *
+ * It is deliberately keyed off the exact selector above rather than a class of its own:
+ * the notch must appear precisely when the content it backs is kept, and sharing the
+ * condition means the two cannot drift apart.
+ */
+.mask-top-notch {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1920px;
+  height: 720px;
+  background-color: var(--mask-top-bar-bg);
+  pointer-events: none;
+  clip-path: path('M 679 0 C 722 0, 722 88, 765 88 L 1155 88 C 1198 88, 1198 0, 1241 0 Z');
+}
+
+.map-in-dash-active.hide-header .mask-top-notch,
+.app-in-dash-active.hide-header .mask-top-notch {
+  display: block;
+}
+
 /* Decorative bar artwork off (theme setting barImages = false): the top bar
    falls back to its plain gradient, the bottom gauges to no artwork at all */
 #app.bar-images-hidden {
@@ -4156,12 +4187,24 @@ body.display-mapa .mask-panel.right {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1) !important;
 }
 
+/* The menu's detail screens are listed alongside the menu itself, matching
+   isMainMenuSessionScreen() in main.js. They are reached from the menu and live in the
+   same circle, so keeping the menu but dropping Gráficos/Regen/Telas the moment you open
+   one just moves the blank circle one keypress away. */
 .display-mapa.screen-main-menu:not(.theme-mirror-cluster) .dashboard-info-container,
+.display-mapa.screen-graph:not(.theme-mirror-cluster) .dashboard-info-container,
+.display-mapa.screen-graphs:not(.theme-mirror-cluster) .dashboard-info-container,
+.display-mapa.screen-regen:not(.theme-mirror-cluster) .dashboard-info-container,
+.display-mapa.screen-display-selection:not(.theme-mirror-cluster) .dashboard-info-container,
 .display-mapa.screen-aircon:not(.theme-mirror-cluster) .dashboard-info-container {
   z-index: 320;
 }
 
 .display-mapa.screen-main-menu:not(.theme-mirror-cluster) .dashboard-menu-container,
+.display-mapa.screen-graph:not(.theme-mirror-cluster) .dashboard-menu-container,
+.display-mapa.screen-graphs:not(.theme-mirror-cluster) .dashboard-menu-container,
+.display-mapa.screen-regen:not(.theme-mirror-cluster) .dashboard-menu-container,
+.display-mapa.screen-display-selection:not(.theme-mirror-cluster) .dashboard-menu-container,
 .display-mapa.screen-aircon:not(.theme-mirror-cluster) .dashboard-menu-container {
   display: block !important;
   opacity: 1 !important;

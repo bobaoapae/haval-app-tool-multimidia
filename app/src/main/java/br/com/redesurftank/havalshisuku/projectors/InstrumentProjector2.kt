@@ -126,6 +126,35 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var infoMaskView: android.widget.ImageView? = null
     private var topCenterMaskView: android.widget.ImageView? = null
     private var globalMaskView: android.widget.ImageView? = null
+
+    /**
+     * Where an app currently sits on display 3, in display pixels, or null when none does.
+     *
+     * This Presentation is a TYPE_PRESENTATION window, so it is unconditionally above every
+     * activity on the same display — an app moved to display 3 can never be brought out in
+     * front of it. The native mask layer is opaque wherever d3_mask.png is, which is most of
+     * the panel, so the app ended up buried under the cluster wallpaper. Punching the app's
+     * own rectangle out of that layer (mask only — not the WebView) gives the same result as
+     * the app being on top, while the masks keep covering the car's native gauges everywhere
+     * the app is not.
+     *
+     * Display 1 does not need a matching hole: InstrumentProjector already hides its wallpaper
+     * when an app is on D1, and when the app is on D3 the D1 wallpaper should stay for continuity.
+     *
+     * Recomputed by updateVirtualClusterVisibility(), which already walks these bounds for
+     * appInDash, so knowing this costs no extra Shizuku round trip.
+     */
+    private var display3AppRect: android.graphics.Rect? = null
+
+    /**
+     * Cached wallpaper × d3_mask composite with no app hole. App-rect changes copy this and
+     * CLEAR the hole instead of reloading assets and re-running DST_IN every time.
+     */
+    private var cachedGlobalMaskBase: android.graphics.Bitmap? = null
+    private var cachedGlobalMaskKey: String? = null
+    /** Last bitmap handed to [globalMaskView]; recycled when replaced. */
+    private var displayedGlobalMaskBitmap: android.graphics.Bitmap? = null
+
     private val maskVisibilityOverrides = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private var themeBridge: br.com.redesurftank.havalshisuku.bridge.ThemeBridgeImpl? = null
     private var bridgePrefsListener: br.com.redesurftank.havalshisuku.bridge.PreferencePushListener? = null
@@ -134,6 +163,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var lastCarPlayInDash: Boolean? = null
     private var lastProjectionMirrorInDash: Boolean? = null
     private var lastProjectionPreparingD3: Boolean? = null
+    private var lastProjectionCardOverlayAllowed: Boolean? = null
     private var lastHealthyCarPlayD3AtMs = 0L
     private var lastCarPlayD3HoldLogAtMs = 0L
     private var lastProjectionVisibilityLog = ""
@@ -267,6 +297,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             // as ACTIVE_CUSTOM_THEME when switching via the theme picker, so
                             // reacting to it too only double-fired this reload per switch.
                             Log.w(TAG, "Theme changed, reloading WebView (key=$key)")
+                            invalidateGlobalMaskCache()
                             webView?.let { wv ->
                                 markWebViewLoading(wv, "THEME_CHANGED")
                                 wv.loadDataWithBaseURL(
@@ -286,6 +317,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         if (key == SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key ||
                             key == SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key ||
                             key == SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key) {
+                            invalidateGlobalMaskCache()
                             updateNativeMaskViews()
                         }
                         if (key == SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_ACTIVE.key) {
@@ -593,6 +625,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         lastCarPlayInDash = null
         lastProjectionMirrorInDash = null
         lastProjectionPreparingD3 = null
+        lastProjectionCardOverlayAllowed = null
     }
 
     private fun isProjectionActive(
@@ -701,13 +734,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun getManagedSecondaryDisplayConfigs(
-            displayIds: Set<Int>
+            displayIds: Set<Int>,
+            requireKnownActive: Boolean = true
     ): List<br.com.redesurftank.havalshisuku.models.DisplayAppConfig> {
         if (displayIds.isEmpty()) return emptyList()
         return br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.getAllConfigs()
                 .filter { config ->
                     displayIds.any { displayId ->
-                        isDisplayKnownActive(displayId) && shouldInspectConfigForDisplay(config, displayId)
+                        shouldInspectConfigForDisplay(config, displayId) &&
+                                (!requireKnownActive || isDisplayKnownActive(displayId))
                     }
                 }
     }
@@ -727,6 +762,68 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             1 -> isAnyAppOnDisplay1
             3 -> isAnyAppOnDisplay3
             else -> false
+        }
+    }
+
+    /**
+     * Live bounds for AA/CarPlay on display 3. Those packages are filtered out of
+     * [getManagedSecondaryDisplayConfigs], so the normal hole walk never sees them.
+     */
+    private fun resolveProjectionDisplay3AppRect(): android.graphics.Rect? {
+        val launcher = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+        val pkg =
+                launcher.resolveActiveProjectionPackageForDisplay(3)
+                        ?: return null
+        val task = launcher.findFirstTasksForPackages(listOf(pkg))[pkg] ?: return null
+        if (task.displayId != 3) return null
+        val live = task.bounds
+        return if (live != null && live.size >= 4) {
+            android.graphics.Rect(live[0], live[1], live[2], live[3])
+        } else {
+            // Full cluster panel fallback — projection activities are normally fullscreen.
+            val res = launcher.getDisplayResolution(3)
+            if (res.first <= 0 || res.second <= 0) null
+            else android.graphics.Rect(0, 0, res.first, res.second)
+        }
+    }
+
+    /**
+     * Punch the native-mask hole using the bounds we are about to place on D3,
+     * before the activity is moved/started — avoids a frame of the app buried under
+     * the opaque mask.
+     */
+    fun prepareDisplay3AppHole(bounds: IntArray, reason: String = "PREPARE_DISPLAY3_APP_HOLE") {
+        if (bounds.size < 4) return
+        ensureUi {
+            val res =
+                    br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                            .getDisplayResolution(3)
+            val fullWidth = res.first
+            val baseX = bounds[0]
+            val baseY = bounds[1]
+            val baseRight = bounds[2]
+            val baseBottom = bounds[3]
+            val baseWidth = baseRight - baseX
+            val actualWidth =
+                    if (fullWidth > 0 &&
+                                    !isWarningDismissed &&
+                                    (currentCard == ClusterCardIds.NATIVE_CARD || isWarningActive)
+                    ) {
+                        (fullWidth * 0.7f).toInt() - baseX
+                    } else {
+                        baseWidth
+                    }
+            val appliedWidth = kotlin.math.max(100, kotlin.math.min(baseWidth, actualWidth))
+            val rect =
+                    android.graphics.Rect(baseX, baseY, baseX + appliedWidth, baseBottom)
+            if (rect != display3AppRect) {
+                display3AppRect = rect
+                Log.w(TAG, "display3AppRect hole prepare reason=$reason rect=$rect")
+                updateNativeMaskViews()
+            } else {
+                // Same rect, but force a redraw in case the mask was rebuilt without the hole.
+                updateNativeMaskViews()
+            }
         }
     }
 
@@ -794,6 +891,24 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         if (sendProjectionPreparing) {
             evaluateJsIfReady(webView, "control('projectionPreparingD3', $projectionPreparingD3)")
             lastProjectionPreparingD3 = projectionPreparingD3
+        }
+
+        // May the card menu be drawn over the projection? Only a card-backed menu has
+        // anything to draw — card 0 is the car's own content and must stay clear.
+        //
+        // getAvailableKeys() has always advertised this key and the Default theme has
+        // always subscribed to it, but nothing here ever sent a value, so it sat on its
+        // `false` default for the theme's whole lifetime. The theme reads that as "never
+        // overlay", which is why the right-hand circle went blank for the entire time a
+        // map was in the dash: every rule meant to bring the menu back is written against
+        // .projection-card-overlay-active.
+        val cardOverlayAllowed = ClusterCardFlowPolicy.isCardBackedMenu(currentCard)
+        if (force || lastProjectionCardOverlayAllowed != cardOverlayAllowed) {
+            evaluateJsIfReady(
+                    webView,
+                    "control('projectionCardOverlayAllowed', $cardOverlayAllowed)"
+            )
+            lastProjectionCardOverlayAllowed = cardOverlayAllowed
         }
         if (carPlayInDash || projectionMirrorInDash || projectionPreparingD3 || force) {
             scheduleProjectionDomDiagnostic("PROJECTION_STATE_PUSH")
@@ -1025,7 +1140,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             if (!isAnyAppOnDisplay3) {
                                 lastAppliedConfigs.clear()
                             }
-                            updateVirtualClusterVisibility(reason = "DISPLAY_3_APP_STATE_CHANGED")
+                            // Force hole refresh even when the rect object compares equal:
+                            // the flag flip is the authoritative "app arrived/left" signal.
+                            updateVirtualClusterVisibility(
+                                    reason = "DISPLAY_3_APP_STATE_CHANGED",
+                                    forceNativeMaskRefresh = true
+                            )
                             syncSecondaryDisplayApps(3)
                             pushVirtualDisplayState(3)
                         }
@@ -1047,8 +1167,17 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         }
                         ServiceManagerEventType.APP_GEOMETRY_CHANGED -> {
                             logClusterPerfEvent("app_geometry_changed")
-                            updateVirtualClusterVisibility(reason = "APP_GEOMETRY_CHANGED")
+                            updateVirtualClusterVisibility(
+                                    reason = "APP_GEOMETRY_CHANGED",
+                                    forceNativeMaskRefresh = true
+                            )
                             syncSecondaryDisplayApps(3)
+                        }
+                        ServiceManagerEventType.PREPARE_DISPLAY3_APP_HOLE -> {
+                            val bounds = args.getOrNull(0) as? IntArray
+                            if (bounds != null && bounds.size >= 4) {
+                                prepareDisplay3AppHole(bounds, reason = "PREPARE_DISPLAY3_APP_HOLE")
+                            }
                         }
                         ServiceManagerEventType.RAW_KEY_EVENT -> {
                             val key = args[0] as br.com.redesurftank.havalshisuku.models.ClusterKey
@@ -1130,6 +1259,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             wv.destroy()
             webView = null
         }
+
+        setDisplayedGlobalMask(null)
+        invalidateGlobalMaskCache()
 
         super.onStop()
     }
@@ -1643,7 +1775,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     "warning_state_changed",
                     mapOf("active" to active, "dismissed" to dismissed, "reason" to reason)
             )
-            updateVirtualClusterVisibility(reason = "WARNING_STATE_CHANGED")
+            updateVirtualClusterVisibility(
+                    reason = "WARNING_STATE_CHANGED",
+                    forceNativeMaskRefresh = true
+            )
             syncSecondaryDisplayApps(3)
         }
 
@@ -1766,7 +1901,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             carPlayInDash: Boolean = isCarPlayInDash(),
             projectionMirrorInDash: Boolean = isProjectionMirrorInDash(),
             reason: String = "UPDATE_VIRTUAL_CLUSTER_VISIBILITY",
-            projectionPreparingD3: Boolean = isProjectionPreparingD3()
+            projectionPreparingD3: Boolean = isProjectionPreparingD3(),
+            forceNativeMaskRefresh: Boolean = false
     ) {
         val clusterEnabled =
                 preferences.getBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key, true)
@@ -1788,12 +1924,19 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             isRightCovered = true
         }
 
+        // Always include display 3 when resolving the native-mask hole so a stale
+        // isAnyAppOnDisplay3 flag cannot leave the app buried under d3_mask. Configs
+        // without a live task on D3 still yield no hole (filtered below).
         val displayIdsToInspect =
                 buildSet {
                     if (isAnyAppOnDisplay1) add(1)
-                    if (isAnyAppOnDisplay3 || projectionMirrorInDash || projectionPreparingD3) add(3)
+                    add(3)
                 }
-        val configs = getManagedSecondaryDisplayConfigs(displayIdsToInspect)
+        val configs =
+                getManagedSecondaryDisplayConfigs(
+                        displayIdsToInspect,
+                        requireKnownActive = false
+                )
         val tasksByPackage =
                 if (configs.isEmpty()) {
                     emptyMap()
@@ -1801,6 +1944,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
                             .findFirstTasksForPackages(configs.map { it.packageName })
                 }
+
+        var appRectOnDisplay3: android.graphics.Rect? = null
 
         for (displayId in listOf(1, 3)) {
             val res =
@@ -1816,11 +1961,20 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     }
 
             for (app in appsOnDisplay) {
+                val task = tasksByPackage[app.packageName]
+                val liveBounds = task?.bounds
                 val bounds =
-                        br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-                                .getEffectiveBounds(app)
+                        if (liveBounds != null && liveBounds.size >= 4) {
+                            liveBounds
+                        } else {
+                            br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                                    .getEffectiveBounds(app)
+                        }
                 val baseX = bounds[0]
-                val baseWidth = bounds[2] - bounds[0]
+                val baseY = bounds[1]
+                val baseRight = bounds[2]
+                val baseBottom = bounds[3]
+                val baseWidth = baseRight - baseX
 
                 if (baseX <= (fullWidth * 0.1f).toInt()) {
                     isLeftCovered = true
@@ -1840,7 +1994,48 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 if (baseX + actualWidth >= (fullWidth * 0.7f).toInt()) {
                     isRightCovered = true
                 }
+
+                if (displayId == 3) {
+                    // Same clamp syncSecondaryDisplayApps() applies, so the hole matches the
+                    // window that was actually resized rather than the unsqueezed request.
+                    val appliedWidth =
+                            kotlin.math.max(100, kotlin.math.min(baseWidth, actualWidth))
+                    val rect =
+                            android.graphics.Rect(
+                                    baseX,
+                                    baseY,
+                                    baseX + appliedWidth,
+                                    baseBottom
+                            )
+                    appRectOnDisplay3 =
+                            appRectOnDisplay3?.apply { union(rect) } ?: rect
+                }
             }
+        }
+
+        // AA/CarPlay are intentionally excluded from managed secondary configs (resize/
+        // sync paths), but they still need a native-mask hole on D3 — otherwise the
+        // opaque d3_mask wallpaper stays on top of the projection.
+        if (appRectOnDisplay3 == null) {
+            val projectionHole = resolveProjectionDisplay3AppRect()
+            if (projectionHole != null) {
+                appRectOnDisplay3 = projectionHole
+                isLeftCovered = true
+                isRightCovered = true
+            }
+        }
+
+        val rectChanged = appRectOnDisplay3 != display3AppRect
+        if (rectChanged) {
+            display3AppRect = appRectOnDisplay3?.let { android.graphics.Rect(it) }
+        }
+        if (rectChanged || forceNativeMaskRefresh) {
+            Log.w(
+                    TAG,
+                    "display3AppRect hole update reason=$reason rect=$display3AppRect " +
+                            "force=$forceNativeMaskRefresh"
+            )
+            updateNativeMaskViews()
         }
 
         val appInDashValue =
@@ -2471,69 +2666,41 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     fun updateNativeMaskViews() {
-        val customThemeName = getActiveCustomThemeName()
+        val customThemeDir = getActiveCustomThemeName()
         val themeMgr = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext)
-        val metadata = activeThemeMetadata ?: if (customThemeName.isNotEmpty()) {
-            themeMgr.getThemeMetadata(customThemeName)
+        val metadata = activeThemeMetadata ?: if (customThemeDir.isNotEmpty()) {
+            themeMgr.getThemeMetadata(customThemeDir)
         } else {
             themeMgr.getEmbeddedDefaultTheme()
         }
         val config = metadata?.nativeMasks
-        Log.d(TAG, "updateNativeMaskViews: customThemeName='$customThemeName' metadata='${metadata?.name}' hasConfig=${config != null && config.hasAnyActiveMask()}")
+        Log.d(TAG, "updateNativeMaskViews: customThemeDir='$customThemeDir' metadata='${metadata?.name}' hasConfig=${config != null && config.hasAnyActiveMask()} hole=$display3AppRect")
         if (config == null || !config.hasAnyActiveMask()) {
             nativeMaskContainer?.isVisible = false
+            setDisplayedGlobalMask(null)
             return
         }
 
         nativeMaskContainer?.isVisible = true
-        val folderName = metadata?.folderName ?: customThemeName
+        val folderName = metadata?.folderName ?: customThemeDir
         val isCard0 = (currentCard == 0)
 
-        val assetMaskBitmap: android.graphics.Bitmap? = try {
-            outerContext.assets.open("d3_mask.png").use { stream ->
-                android.graphics.BitmapFactory.decodeStream(stream)
-            }
-        } catch (e: Exception) {
-            null
+        val cacheKey = buildGlobalMaskCacheKey(folderName)
+        val base = obtainGlobalMaskBase(folderName, cacheKey, themeMgr)
+        if (base != null) {
+            val framed = applyDisplay3AppHoleToBase(base)
+            setDisplayedGlobalMask(framed)
+            globalMaskView?.isVisible = true
+
+            fuelMaskView?.isVisible = false
+            batteryMaskView?.isVisible = false
+            speedMaskView?.isVisible = false
+            infoMaskView?.isVisible = false
+            topCenterMaskView?.isVisible = false
+            return
         }
 
-        val globalMaskFile = themeMgr.getThemeFile(folderName, "d3_mask.png")
-        val maskBitmap = assetMaskBitmap ?: if (globalMaskFile != null && globalMaskFile.exists()) {
-            android.graphics.BitmapFactory.decodeFile(globalMaskFile.absolutePath)
-        } else null
-
-        if (maskBitmap != null) {
-            try {
-                val bgBitmap = getBackgroundBitmap(folderName)
-                if (bgBitmap != null) {
-                    val scaledBg = getCoverScaledBitmap(bgBitmap, 1920, 720)
-                    val scaledMask = getCoverScaledBitmap(maskBitmap, 1920, 720)
-
-                    val alphaMask = convertLuminanceToAlpha(scaledMask)
-                    
-                    val result = android.graphics.Bitmap.createBitmap(1920, 720, android.graphics.Bitmap.Config.ARGB_8888)
-                    val canvas = android.graphics.Canvas(result)
-                    canvas.drawBitmap(scaledBg, 0f, 0f, null)
-                    
-                    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
-                    }
-                    canvas.drawBitmap(alphaMask, 0f, 0f, paint)
-                    
-                    globalMaskView?.setImageBitmap(result)
-                    globalMaskView?.isVisible = true
-                    
-                    fuelMaskView?.isVisible = false
-                    batteryMaskView?.isVisible = false
-                    speedMaskView?.isVisible = false
-                    infoMaskView?.isVisible = false
-                    topCenterMaskView?.isVisible = false
-                    return
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to load global d3_mask.png", e)
-            }
-        }
+        setDisplayedGlobalMask(null)
         globalMaskView?.isVisible = false
 
         fun bindMask(
@@ -2559,18 +2726,22 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             view.layoutParams = params
             view.alpha = spec.opacity
 
-            if (spec.image.isNotBlank()) {
-                val themeFile = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext).getThemeFile(folderName, spec.image)
-                if (themeFile != null && themeFile.exists()) {
-                    val bitmap = android.graphics.BitmapFactory.decodeFile(themeFile.absolutePath)
-                    view.setImageBitmap(bitmap)
-                } else {
-                    view.setImageDrawable(getThemeMaskFallbackDrawable(folderName, spec))
-                }
-            } else {
-                view.setImageDrawable(getThemeMaskFallbackDrawable(folderName, spec))
-            }
+            val artwork: android.graphics.drawable.Drawable =
+                    if (spec.image.isNotBlank()) {
+                        val themeFile = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext).getThemeFile(folderName, spec.image)
+                        if (themeFile != null && themeFile.exists()) {
+                            android.graphics.drawable.BitmapDrawable(
+                                    outerContext.resources,
+                                    android.graphics.BitmapFactory.decodeFile(themeFile.absolutePath)
+                            )
+                        } else {
+                            getThemeMaskFallbackDrawable(folderName, spec)
+                        }
+                    } else {
+                        getThemeMaskFallbackDrawable(folderName, spec)
+                    }
 
+            view.setImageDrawable(withDisplay3AppHole(artwork, spec))
             view.isVisible = true
         }
 
@@ -2580,6 +2751,173 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         // Mask 2.2 Info Mask: ALWAYS hidden by backend when card = 0
         bindMask(infoMaskView, config.infoMask, "info", forceHide = isCard0)
         bindMask(topCenterMaskView, config.topCenterMask, "topcenter")
+    }
+
+    private fun buildGlobalMaskCacheKey(folderName: String): String {
+        val bgEnabled = preferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+        val bgType = preferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME"
+        val bgValue = preferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: ""
+        return "folder=$folderName|bgEnabled=$bgEnabled|bgType=$bgType|bgValue=$bgValue"
+    }
+
+    /**
+     * Returns the cached wallpaper × d3_mask composite (no app hole), rebuilding only when
+     * the theme/background identity changes.
+     */
+    private fun obtainGlobalMaskBase(
+            folderName: String,
+            cacheKey: String,
+            themeMgr: br.com.redesurftank.havalshisuku.managers.ThemeManager
+    ): android.graphics.Bitmap? {
+        val cached = cachedGlobalMaskBase
+        if (cached != null && !cached.isRecycled && cachedGlobalMaskKey == cacheKey) {
+            return cached
+        }
+
+        invalidateGlobalMaskCache()
+
+        val assetMaskBitmap: android.graphics.Bitmap? = try {
+            outerContext.assets.open("d3_mask.png").use { stream ->
+                android.graphics.BitmapFactory.decodeStream(stream)
+            }
+        } catch (e: Exception) {
+            null
+        }
+
+        val globalMaskFile = themeMgr.getThemeFile(folderName, "d3_mask.png")
+        val maskBitmap = assetMaskBitmap ?: if (globalMaskFile != null && globalMaskFile.exists()) {
+            android.graphics.BitmapFactory.decodeFile(globalMaskFile.absolutePath)
+        } else null
+
+        if (maskBitmap == null) return null
+
+        return try {
+            val bgBitmap = getBackgroundBitmap(folderName) ?: return null
+            val scaledBg = getCoverScaledBitmap(bgBitmap, 1920, 720)
+            val scaledMask = getCoverScaledBitmap(maskBitmap, 1920, 720)
+            val alphaMask = convertLuminanceToAlpha(scaledMask)
+
+            val result = android.graphics.Bitmap.createBitmap(1920, 720, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(result)
+            canvas.drawBitmap(scaledBg, 0f, 0f, null)
+
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+            }
+            canvas.drawBitmap(alphaMask, 0f, 0f, paint)
+
+            cachedGlobalMaskBase = result
+            cachedGlobalMaskKey = cacheKey
+            result
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to compose global d3_mask.png", e)
+            null
+        }
+    }
+
+    /** Copy [base] and CLEAR [display3AppRect], or return [base] itself when there is no hole. */
+    private fun applyDisplay3AppHoleToBase(base: android.graphics.Bitmap): android.graphics.Bitmap {
+        val hole = display3AppRect ?: return base
+        return try {
+            val framed = base.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+            val canvas = android.graphics.Canvas(framed)
+            clearDisplay3AppRect(canvas, 0, 0)
+            framed
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to punch display-3 app hole out of global mask", e)
+            base
+        }
+    }
+
+    private fun setDisplayedGlobalMask(bitmap: android.graphics.Bitmap?) {
+        val previous = displayedGlobalMaskBitmap
+        globalMaskView?.setImageBitmap(bitmap)
+        displayedGlobalMaskBitmap = bitmap
+        // Recycle the previous framed copy, but never the cached base.
+        if (previous != null &&
+                        previous !== bitmap &&
+                        previous !== cachedGlobalMaskBase &&
+                        !previous.isRecycled
+        ) {
+            previous.recycle()
+        }
+    }
+
+    private fun invalidateGlobalMaskCache() {
+        val base = cachedGlobalMaskBase
+        cachedGlobalMaskBase = null
+        cachedGlobalMaskKey = null
+        if (base != null && base !== displayedGlobalMaskBitmap && !base.isRecycled) {
+            base.recycle()
+        }
+    }
+
+    /**
+     * Erase whatever the display-3 app covers from a mask being composed onto [canvas],
+     * whose top-left corner sits at ([originX], [originY]) in display coordinates.
+     *
+     * PorterDuff.CLEAR rather than skipping the mask outright: an app rarely spans the whole
+     * panel, and the parts of the car's native cluster it does not reach still need covering.
+     * Does not touch the WebView — only native mask pixels.
+     */
+    private fun clearDisplay3AppRect(
+            canvas: android.graphics.Canvas,
+            originX: Int,
+            originY: Int
+    ) {
+        val hole = display3AppRect ?: return
+        val clearPaint =
+                android.graphics.Paint().apply {
+                    xfermode =
+                            android.graphics.PorterDuffXfermode(
+                                    android.graphics.PorterDuff.Mode.CLEAR
+                            )
+                }
+        canvas.drawRect(
+                (hole.left - originX).toFloat(),
+                (hole.top - originY).toFloat(),
+                (hole.right - originX).toFloat(),
+                (hole.bottom - originY).toFloat(),
+                clearPaint
+        )
+    }
+
+    /**
+     * Same hole, for the per-mask views. Each one is laid out at its spec's position and
+     * scaled FIT_XY, so rendering into a bitmap of exactly the spec's size keeps display
+     * coordinates and drawable coordinates in step and the cut lands where the app is.
+     */
+    private fun withDisplay3AppHole(
+            drawable: android.graphics.drawable.Drawable,
+            spec: br.com.redesurftank.havalshisuku.models.NativeMaskSpec
+    ): android.graphics.drawable.Drawable {
+        val hole = display3AppRect ?: return drawable
+        if (spec.width <= 0 || spec.height <= 0) return drawable
+        val maskRect =
+                android.graphics.Rect(
+                        spec.x,
+                        spec.y,
+                        spec.x + spec.width,
+                        spec.y + spec.height
+                )
+        if (!android.graphics.Rect.intersects(maskRect, hole)) return drawable
+
+        return try {
+            val bitmap =
+                    android.graphics.Bitmap.createBitmap(
+                            spec.width,
+                            spec.height,
+                            android.graphics.Bitmap.Config.ARGB_8888
+                    )
+            val canvas = android.graphics.Canvas(bitmap)
+            drawable.setBounds(0, 0, spec.width, spec.height)
+            drawable.draw(canvas)
+            clearDisplay3AppRect(canvas, spec.x, spec.y)
+            android.graphics.drawable.BitmapDrawable(outerContext.resources, bitmap)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to punch display-3 app hole out of mask", e)
+            drawable
+        }
     }
 
     private fun getBackgroundBitmap(folderName: String): android.graphics.Bitmap? {

@@ -2386,6 +2386,8 @@ object DisplayAppLauncher {
         val bounds = getEffectiveBounds(config)
         val previousDisplay = findTaskForPackage(ANDROID_AUTO_PACKAGE)?.displayId
 
+        prepareDisplay3MaskHoleBeforeMove(displayId, bounds, reason)
+
         rememberAndroidAutoDisplayTarget(displayId, reason)
         AndroidAutoPatchManager.ensureMounted()
         configureAndroidAutoProjection(reason)
@@ -6813,10 +6815,14 @@ object DisplayAppLauncher {
     suspend fun launchApp(config: DisplayAppConfig) {
         withContext(Dispatchers.IO) {
             if (isCarPlayPackage(config.packageName)) {
+                val bounds = getEffectiveBounds(config)
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "LAUNCH_APP_CARPLAY")
                 CarPlayDisplayOrchestrator.start(config, "LAUNCH_APP")
                 return@withContext
             }
             if (isAndroidAutoPackage(config.packageName)) {
+                val bounds = getEffectiveBounds(config)
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "LAUNCH_APP_AA")
                 startAndroidAutoOnDisplay(config, "LAUNCH_APP")
                 return@withContext
             }
@@ -6833,6 +6839,8 @@ object DisplayAppLauncher {
                 val y = bounds[1]
                 val right = bounds[2]
                 val bottom = bounds[3]
+
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "LAUNCH_APP")
 
                 val escapedActivity = config.activityName.replace("$", "\\$")
                 val isOwnPackage = config.packageName == App.getContext().packageName
@@ -7293,15 +7301,20 @@ object DisplayAppLauncher {
     suspend fun sendToDisplay(config: DisplayAppConfig) = withContext(Dispatchers.IO) {
         try {
             if (isCarPlayPackage(config.packageName)) {
+                val bounds = getEffectiveBounds(config)
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "SEND_TO_DISPLAY_CARPLAY")
                 CarPlayDisplayOrchestrator.start(config, "SEND_TO_DISPLAY")
                 return@withContext
             }
             if (isAndroidAutoPackage(config.packageName)) {
+                val bounds = getEffectiveBounds(config)
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "SEND_TO_DISPLAY_AA")
                 startAndroidAutoOnDisplay(config, "SEND_TO_DISPLAY")
                 return@withContext
             }
 
             val bounds = getEffectiveBounds(config)
+            prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "SEND_TO_DISPLAY")
 
             // Already on target display — just resize
             val existing = findStackIdForPackage(config.packageName, config.displayId)
@@ -7593,6 +7606,30 @@ object DisplayAppLauncher {
             Log.e(TAG, "Error getting top package for display $displayId", e)
         }
         return null
+    }
+
+    /**
+     * Ask InstrumentProjector2 to punch the native-mask hole for [bounds] on display 3
+     * *before* the activity is moved/started, so the first composed frame is already open.
+     * No-op for other displays. Brief sleep lets the UI thread apply the bitmap.
+     */
+    private fun prepareDisplay3MaskHoleBeforeMove(displayId: Int, bounds: IntArray, reason: String) {
+        if (displayId != 3 || bounds.size < 4) return
+        try {
+            Log.w(
+                TAG,
+                "[$reason] Preparing D3 native-mask hole before move: " +
+                    "[${bounds[0]},${bounds[1]}][${bounds[2]},${bounds[3]}]"
+            )
+            ServiceManager.getInstance().dispatchServiceManagerEvent(
+                br.com.redesurftank.havalshisuku.models.ServiceManagerEventType.PREPARE_DISPLAY3_APP_HOLE,
+                bounds
+            )
+            // One-ish frame for updateNativeMaskViews to land before the activity appears.
+            Thread.sleep(48)
+        } catch (e: Exception) {
+            Log.w(TAG, "[$reason] Failed to prepare D3 mask hole before move", e)
+        }
     }
 
     fun notifyDisplayStateChanged(displayId: Int) {

@@ -322,11 +322,20 @@ function oklchToRgb(L, C, H) {
 /** Signed shortest way round the hue circle, in degrees. */
 const hueDiff = (a, b) => ((a - b + 540) % 360) - 180;
 
-function makeOklchRotator(referenceRgb, pickedRgb) {
+/**
+ * @param {boolean} [preserveLightness] - keep each input's own L instead of moving it
+ *   toward the pick's. Required for raster artwork: the image's luminance structure (glow
+ *   falloff, shading, the ring standing out from its background) *is* the artwork, and a
+ *   dark pick would otherwise drag the whole thing to black. Measured on the dial ring, a
+ *   black accent cut mean rim luminance from ~30 to ~7 - the ring vanished into the
+ *   backdrop rather than reading as a dark ring. Tokens still follow the pick's lightness,
+ *   because there a black accent genuinely should produce black.
+ */
+function makeOklchRotator(referenceRgb, pickedRgb, preserveLightness = false) {
     const ref = rgbToOklch(referenceRgb);
     const pick = rgbToOklch(pickedRgb);
     const chromaDelta = pick.C - ref.C;
-    const lightDelta = pick.L - ref.L;
+    const lightDelta = preserveLightness ? 0 : pick.L - ref.L;
 
     /*
      * Perceptual hue categories are not equally wide. This palette's blues span ~27 deg
@@ -452,26 +461,32 @@ export function registerArtworkImage(id, originalSrc) {
 const URL_IN_VALUE = /url\(\s*"?(data:[^")]+)"?\s*\)/;
 
 /*
- * Walks the stylesheets for a custom property's *specified* value.
+ * Reads a custom property's data URI out of the raw stylesheet TEXT.
  *
- * getComputedStyle() is the obvious way to do this and works fine on desktop, but on the
- * head unit's WebView it returns nothing for these particular properties - the cluster log
- * showed all four coming back unresolved while the dial <img> resolved fine. They are the
- * only ones holding 100-200 KB base64 payloads, which that WebView will not hand back
- * through computed style. Reading the rule directly sidesteps it.
+ * Both CSSOM routes fail on the head unit. The cluster log settled it: computed style
+ * returns the property at full length (113528 chars against desktop's 109439) but in a
+ * form the URL regex will not match, and the CSSOM rule walk returns nothing at all. That
+ * WebView re-serializes the value on the way out - it comes back ~4% longer, i.e. escaped.
  *
- * Also finds properties declared outside :root - --mapa-speed-badge-image lives on a nested
- * selector, so computed style on documentElement never saw it at all.
+ * The raw <style> text is what our own inliner emitted, with no CSSOM round trip in the
+ * middle, so it is the one representation both environments agree on. It also picks up
+ * properties declared outside :root, like --mapa-speed-badge-image.
  */
 function readCustomPropertyFromSheets(token) {
+    const declaration = new RegExp(`${token}\\s*:\\s*url\\(\\s*["']?(data:[^"')]+)["']?\\s*\\)`);
+    for (const node of document.querySelectorAll('style')) {
+        const match = node.textContent.match(declaration);
+        if (match) return match[1];
+    }
+    // Same idea for linked sheets, where the text is not in the document.
     for (const sheet of document.styleSheets) {
         let rules;
         try { rules = sheet.cssRules; } catch { continue; } // cross-origin sheet
         if (!rules) continue;
         for (const rule of rules) {
-            if (!rule.style) continue;
-            const value = rule.style.getPropertyValue(token);
-            if (value && URL_IN_VALUE.test(value)) return value;
+            if (!rule.cssText) continue;
+            const match = rule.cssText.match(declaration);
+            if (match) return match[1];
         }
     }
     return '';
@@ -480,16 +495,34 @@ function readCustomPropertyFromSheets(token) {
 function collectArtworkSources() {
     const computed = getComputedStyle(document.documentElement);
     const sources = {};
+    const probes = [];
+
     ARTWORK_VARS.forEach((token) => {
-        const raw = computed.getPropertyValue(token).trim() || readCustomPropertyFromSheets(token);
-        const match = raw.match(URL_IN_VALUE);
-        if (match) {
-            if (!artworkSourceUrls[token]) artworkSourceUrls[token] = match[1];
+        /*
+         * Fall back whenever the MATCH fails, not merely when the string is empty. The head
+         * unit hands back a value that is non-empty but unusable (very likely truncated -
+         * these are 100-216 KB payloads), and an `|| fallback` never fired because a
+         * truthy-but-broken string short-circuited it.
+         */
+        const fromComputed = computed.getPropertyValue(token).trim();
+        const computedMatch = fromComputed.match(URL_IN_VALUE);
+        let url = computedMatch ? computedMatch[1] : '';
+        let via = url ? 'computed' : '';
+        if (!url) {
+            url = readCustomPropertyFromSheets(token);
+            via = url ? 'styletext' : 'none';
+        }
+        probes.push(`${token.replace('--', '')}=${via}/c${fromComputed.length}/u${url.length}`);
+        if (url) {
+            if (!artworkSourceUrls[token]) artworkSourceUrls[token] = url;
             sources[token] = artworkSourceUrls[token];
         }
     });
+
     // Durable breadcrumb: the head unit routes console output to cluster-diagnostics,
-    // which is the only way to see what this resolved to on the car.
+    // which is the only way to see what this resolved to on the car. Reports which route
+    // won and how long each candidate string was, so a truncation shows up directly.
+    console.warn(`[accent] artwork var probe: ${probes.join(' ')}`);
     const missing = ARTWORK_VARS.filter((token) => !sources[token]);
     if (missing.length) console.warn(`[accent] artwork vars unresolved: ${missing.join(', ')}`);
 
@@ -640,6 +673,24 @@ function clearArtworkFilter() {
     document.documentElement.style.setProperty('--accent-saturate', '1');
 }
 
+/*
+ * The CSS filter is now a FAILURE FALLBACK ONLY, never a first-frame preview.
+ *
+ * It used to be applied eagerly on every pick, which produced a visible wrong-colour flash:
+ * hue-rotate() is a linear matrix, so it lands the theme's blue on salmon/orange (#00A0FF
+ * becomes #FF5946), and that orange showed for the ~500 ms until the real pixels arrived.
+ * Leaving the artwork on its previous colour for those 500 ms is far less jarring than
+ * flashing a colour the user never chose.
+ */
+function applyArtworkFilter() {
+    document.documentElement.style.setProperty('--accent-hue-rotate', pendingFilterHue);
+    document.documentElement.style.setProperty('--accent-saturate', pendingFilterSat);
+}
+
+/** Stashed by applyAccent so the fallback can apply the right rotation if it is needed. */
+let pendingFilterHue = '0deg';
+let pendingFilterSat = '1';
+
 async function recolorArtwork(hex, rotate, identity) {
     const run = ++artworkRun;
     try {
@@ -686,12 +737,14 @@ async function recolorArtwork(hex, rotate, identity) {
         Object.entries(rendered).forEach(([key, url]) => applyArtworkUrl(key, url));
         cacheArtwork(hex, rendered);
 
-        // The pixels now carry the rotation, so the CSS approximation MUST go to identity.
-        // Leaving it at hueDelta rotates everything a second time (red -> pink/orange).
+        // Belt and braces: the pixels carry the rotation, so the filter must read identity.
+        // If it were ever left at hueDelta everything would rotate a second time.
         clearArtworkFilter();
     } catch (err) {
-        // Leave the CSS filter in place as the fallback - approximate, but not blue.
-        console.warn('[accent] artwork recolor failed, keeping CSS filter', err);
+        // Recolor is unavailable - fall back to the approximate CSS tint so the artwork at
+        // least follows the pick rather than sitting at its shipped blue.
+        console.warn('[accent] artwork recolor failed, falling back to CSS filter', err);
+        applyArtworkFilter();
     }
 }
 
@@ -754,7 +807,9 @@ export async function applyIconColor(hex) {
 
     const identity = `${target.r},${target.g},${target.b}` ===
         (() => { const d = parseColor(DEFAULT_ICON_COLOR); return `${d.r},${d.g},${d.b}`; })();
-    const rotate = makeOklchRotator(parseColor(DEFAULT_ICON_COLOR), target);
+    // preserveLightness for the same reason as the artwork: a dark icon colour must render
+    // the glyph dark, not erase its shading and anti-aliasing into the background.
+    const rotate = makeOklchRotator(parseColor(DEFAULT_ICON_COLOR), target, true);
     const hexOut = `#${[target.r, target.g, target.b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
     try {
@@ -821,12 +876,15 @@ export function applyAccent(hex) {
         root.style.setProperty(token, `${out.r}, ${out.g}, ${out.b}`);
     });
 
-    // Immediate, approximate: the artwork tracks the pick on the very next frame.
-    root.style.setProperty('--accent-hue-rotate', `${Math.round(hueDelta * 10) / 10}deg`);
-    root.style.setProperty('--accent-saturate', String(Math.round(satScale * 100) / 100));
+    // Held in case the recolor fails; NOT applied up front - see applyArtworkFilter().
+    pendingFilterHue = `${Math.round(hueDelta * 10) / 10}deg`;
+    pendingFilterSat = String(Math.round(satScale * 100) / 100);
 
-    // Precise: recolors the pixels with the same OKLCH mapping the tokens just got, then
-    // zeroes the filter above. Deliberately not awaited - the CSS palette must not wait
-    // on a ~5 MP decode to reach the screen.
-    recolorArtwork(targetKey, rotate, Math.abs(hueDelta) < 0.5 && Math.abs(satScale - 1) < 0.02);
+    // Recolors the artwork pixels. Same hue/chroma mapping the tokens just got, but with
+    // lightness preserved - see makeOklchRotator's preserveLightness note.
+    // Deliberately not awaited - the CSS palette must not wait on a ~5 MP decode. The
+    // artwork keeps its previous colour until the new pixels are ready, which reads as a
+    // brief catch-up rather than a flash of a colour nobody picked.
+    const rotatePixel = makeOklchRotator(parseColor(REFERENCE_ACCENT), target, true);
+    recolorArtwork(targetKey, rotatePixel, Math.abs(hueDelta) < 0.5 && Math.abs(satScale - 1) < 0.02);
 }

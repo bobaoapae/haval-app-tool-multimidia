@@ -330,6 +330,47 @@ fun CompactThemeCard(
 
 
 
+/**
+ * Everything that has to be put back to stock when the virtual panel is switched off.
+ *
+ * ACTIVE_CUSTOM_THEME is the sole source of truth for what HTML the cluster loads
+ * (see InstrumentProjector2.getActiveCustomThemeName()), and custom themes are
+ * authored assuming the mask is painted. Leaving one selected with the panel off
+ * can leave the menu unusable, so fall back to the embedded Default theme.
+ *
+ * Default's own colour settings go back to stock too: with the panel off the menu
+ * is drawn over the car's native cluster, and a customised palette clashes with it.
+ * The stock values are whatever assets/Default/theme.xml declares, so this stays
+ * correct as configurations are added or their defaults change.
+ *
+ * Values are written explicitly rather than removed: PreferencePushListener pushes
+ * `sharedPreferences.all[key]` to the theme, and a removed key would push an empty
+ * string instead of the colour the theme expects.
+ */
+private fun resetToStockDefaultTheme(context: Context, prefs: SharedPreferences) {
+    val defaultTheme = ThemeManager.getInstance(context).getEmbeddedDefaultTheme()
+    // A colour setting is either a literal swatch or the drive-mode override that
+    // repaints them — leaving the latter on would re-tint the dials anyway.
+    val colorConfigs =
+            defaultTheme.configurations.filter {
+                it.type.equals("color", ignoreCase = true) ||
+                        it.stateVariable == "driveModeColors"
+            }
+
+    prefs.edit {
+        putString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "")
+        putString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default")
+        colorConfigs.forEach { config ->
+            // Must match the key ThemeSettingsDialog scopes its saves with.
+            putString(
+                    "theme_config_${defaultTheme.folderName}_${config.stateVariable}",
+                    config.defaultValue
+            )
+        }
+        putLong(SharedPreferencesKeys.THEME_RELOAD_NONCE.key, System.currentTimeMillis())
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TelasTab() {
@@ -557,7 +598,14 @@ fun TelasTab() {
                                                 false
                                         )
                                     }
+                                    // Same invariant as the Painel Virtual switch: whenever
+                                    // the virtual cluster goes off, the theme goes back to
+                                    // stock Default. Otherwise re-enabling the cluster
+                                    // functions later would restore the projector with a
+                                    // custom theme still selected and the mask off.
                                     enableMask = false
+                                    selectedTheme = "Default"
+                                    resetToStockDefaultTheme(context, prefs)
                                     prefs.edit {
                                         putBoolean(
                                                 SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key,
@@ -623,6 +671,8 @@ fun TelasTab() {
                                     showVirtualClusterWarningDialog = true
                                 } else {
                                     enableMask = false
+                                    selectedTheme = "Default"
+                                    resetToStockDefaultTheme(context, prefs)
                                     prefs.edit {
                                         putBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key, false)
                                     }
@@ -4954,6 +5004,67 @@ private fun normalizeHexColor(raw: String?, fallback: String): String {
 }
 
 /**
+ * Control for a <type>multi</type> theme configuration: the same pills as a combo, but
+ * any number can be active at once. The value is persisted to the usual scoped key as a
+ * comma separated list, so it needs no storage format of its own and older app builds
+ * that do not know this type simply fall through to the theme's <default>.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ThemeMultiConfigControl(
+    options: List<String>,
+    initialCsv: String,
+    onCommit: (String) -> Unit
+) {
+    var selected by remember {
+        mutableStateOf(initialCsv.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet())
+    }
+
+    // FlowRow rather than the combo's Row of weight(1f) cells: splitting the width evenly
+    // already crowds the labels at four options and truncates them beyond that. These keep
+    // their natural width and wrap to a second line instead.
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        options.forEach { option ->
+            val isSelected = selected.any { it.equals(option, ignoreCase = true) }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50.dp))
+                    .background(if (isSelected) Color(0xFF4A9EFF) else Color(0xFF13151A))
+                    .clickable {
+                        val next = if (isSelected) {
+                            selected.filterNot { it.equals(option, ignoreCase = true) }.toSet()
+                        } else {
+                            selected + option
+                        }
+                        selected = next
+                        // Emit in the order theme.xml declares, not tap order, so the stored
+                        // string stays stable and readable. Everything unticked writes an
+                        // empty string, which themes must read as "nothing kept" — not as
+                        // "unset", since an absent key already resolves to <default>.
+                        onCommit(
+                            options.filter { o -> next.any { it.equals(o, ignoreCase = true) } }
+                                .joinToString(", ")
+                        )
+                    }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = option,
+                    color = if (isSelected) Color.White else Color(0xFFB0B8C4),
+                    fontSize = 13.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+/**
  * Control for a <type>color</type> theme configuration: a row of preset swatches plus an
  * option to open a free-form HSV color picker popup dialog.
  */
@@ -5433,6 +5544,16 @@ fun ThemeSettingsDialog(
                                             presets = config.options,
                                             onCommit = { hex ->
                                                 prefs.edit().putString(scopedKey, hex).apply()
+                                            }
+                                        )
+                                    }
+                                    "multi" -> {
+                                        ThemeMultiConfigControl(
+                                            options = config.options,
+                                            initialCsv = prefs.getString(scopedKey, config.defaultValue)
+                                                ?: config.defaultValue,
+                                            onCommit = { csv ->
+                                                prefs.edit().putString(scopedKey, csv).apply()
                                             }
                                         )
                                     }

@@ -9,8 +9,16 @@ export function createMask() {
     const leftCircle = div({ className: 'mask-circle left' });
     const rightCircle = div({ className: 'mask-circle right' });
 
+    // Backdrop the top bar leaves behind for the clock/gear group while it is hidden
+    // but still shown (that is, during projection). It lives here rather than next to
+    // the content so it inherits the mask layer's z-index 1 and stays behind the
+    // readouts, which sit at 140 — a backdrop, not an overlay. night.style.css clips it
+    // and decides when it renders.
+    const topNotch = div({ className: 'mask-top-notch' });
+
     maskBg.appendChild(topBar);
     maskBg.appendChild(bottomBar);
+    maskBg.appendChild(topNotch);
     maskBg.appendChild(leftCircle);
     maskBg.appendChild(rightCircle);
 

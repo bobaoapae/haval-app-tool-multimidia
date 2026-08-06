@@ -164,8 +164,15 @@ function render() {
     // Update app class based on display mode
     if (appContainer) {
         logger.log('Rendering screen:', screen);
-        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'hide-bottom' && c !== 'bar-images-hidden' && c !== 'app-in-dash-disabled' && c !== 'app-in-dash-active' && c !== 'map-in-dash-active' && c !== 'cluster-bg-applied' && c !== 'menu-minimized' && c !== 'carplay-in-dash' && c !== 'projection-mirror-in-dash' && c !== 'projection-preparing-d3' && c !== 'projection-map-display-active' && c !== 'projection-card-overlay-active' && c !== 'native-mock-enabled');
+        let classes = appContainer.className.split(' ').filter(c => !c.startsWith('display-') && !c.startsWith('screen-') && !c.startsWith('theme-') && !c.startsWith('gauge-style-') && c !== 'cluster-disabled' && c !== 'warn-is-active' && c !== 'hide-header' && c !== 'hide-bottom' && c !== 'bar-images-hidden' && c !== 'app-in-dash-disabled' && c !== 'app-in-dash-active' && c !== 'map-in-dash-active' && c !== 'cluster-bg-applied' && c !== 'menu-minimized' && c !== 'carplay-in-dash' && c !== 'projection-mirror-in-dash' && c !== 'projection-preparing-d3' && c !== 'projection-map-display-active' && c !== 'projection-card-overlay-active' && c !== 'native-mock-enabled');
         classes.push('display-' + displayMode.toLowerCase());
+        // Which screen is on the right-hand circle. The stylesheet has always been written
+        // against these (.screen-main-menu, .screen-aircon, .screen-display-selection) but
+        // nothing ever set them, so every rule keyed on one was dead. That silently cost the
+        // right-circle menu in Mapa mode: the broad `.display-mapa .dashboard-menu-container`
+        // hide applied, and the narrower rule meant to bring it back for the menu and AC
+        // screens could never match.
+        classes.push('screen-' + String(screen || '').replace(/_/g, '-'));
 
         if (get('clusterEnabled') === false) {
             classes.push('cluster-disabled');

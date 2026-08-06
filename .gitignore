@@ -108,3 +108,4 @@ __pycache__/
 !app/src/main/assets/**/*.apk
 !scripts/milestones/**/*.apk
 !scripts/carplay-patches/**/*.apk
+/.cursor

@@ -16,6 +16,17 @@ $apkPath = Join-Path $PSScriptRoot "..\app\build\outputs\apk\debug\app-debug.apk
 
 Write-Host "--- Building Project ---" -ForegroundColor Cyan
 $env:JAVA_HOME = $jbrPath
+# AVG HTTPS scanning MITMs TLS; JBR cacerts does not trust AVG's root. Use the
+# user truststore created by scripts/Setup-JavaSslForAvg.ps1 when present.
+$avgTrust = Join-Path $env:USERPROFILE ".gradle\haval-ssl\cacerts-with-avg"
+if (Test-Path $avgTrust) {
+    $sslOpts = "-Djavax.net.ssl.trustStore=`"$avgTrust`" -Djavax.net.ssl.trustStorePassword=changeit"
+    $env:JAVA_OPTS = if ($env:JAVA_OPTS) { "$env:JAVA_OPTS $sslOpts" } else { $sslOpts }
+    $env:GRADLE_OPTS = if ($env:GRADLE_OPTS) { "$env:GRADLE_OPTS $sslOpts" } else { $sslOpts }
+    Write-Host "Using AVG-aware Java truststore: $avgTrust" -ForegroundColor DarkGray
+} else {
+    Write-Host "[!] AVG truststore missing — if build fails with PKIX, run scripts\Setup-JavaSslForAvg.ps1" -ForegroundColor Yellow
+}
 & $gradlew assembleDebug
 
 if (-not (Test-Path $apkPath)) {
