@@ -18,6 +18,29 @@
         <height>596</height>
     </AppDefaultPosition>
 
+    <!--
+      nativeMasks — host-drawn ImageViews on Display 3 (InstrumentProjector2), NOT the
+      theme's CSS .mask-panel gradients.
+
+      Purpose: opaque rectangles that cover OEM chrome (fuel / battery gauges, top-center
+      strip) so a custom theme can own those regions. The host punches a hole where an
+      in-dash app/map sits (display3AppRect) so masks do not paint over projected content.
+
+      Each child: enabled + x/y/width/height in the 1920×720 cluster space. Optional
+      attrs (parsed by ThemeManager): image, opacity. speedMask / infoMask are reserved
+      full-height side covers; leave commented unless you need them.
+
+      Omit the whole <nativeMasks> block (or disable every child) to leave OEM chrome
+      visible. Geometry below is tuned for Minimalist's bottom / top strips.
+    -->
+    <nativeMasks>
+        <fuelMask enabled="true" x="0" y="653" width="730" height="67" />
+        <batteryMask enabled="true" x="1190" y="653" width="730" height="67" />
+        <topCenterMask enabled="true" x="710" y="0" width="500" height="67" />
+        <!-- <speedMask enabled="false" x="0" y="0" width="600" height="720" /> -->
+        <!-- <infoMask enabled="false" x="1320" y="0" width="600" height="720" /> -->
+    </nativeMasks>
+
     <configurations>
         <configuration>
             <id>show_regen_icon</id>
