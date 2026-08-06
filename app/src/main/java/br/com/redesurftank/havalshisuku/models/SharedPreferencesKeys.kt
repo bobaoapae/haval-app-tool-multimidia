@@ -348,10 +348,9 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ENABLE_CUSTOM_BACKGROUND_D1("enableCustomBackgroundD1", "Habilitar fundo personalizado no Display 1"),
     CUSTOM_BACKGROUND_TYPE_D1("customBackgroundTypeD1", "Tipo de fundo do Display 1"),
     CUSTOM_BACKGROUND_VALUE_D1("customBackgroundValueD1", "Valor do fundo do Display 1"),
-    WEB_IMAGE_API_KEYS("webImageApiKeys", "Chaves de API dos provedores de imagens da web"),
     AUTO_MOVE_PROJECTION_TO_CLUSTER(
             "autoMoveProjectionToCluster",
-            "Mover projeção de navegação (Android Auto / CarPlay) automaticamente para o painel de instrumentos (Display 3)"
+            "Mover AA/CarPlay para o cluster (D3) no auto-start — só se AA/CarPlay for o app inicial na tela Telas"
     ),
     ENABLE_HOT_ROUTER("enableHotRouter", "Roteia o hotspot pelo 4G ou WLAN (Starlink) quando disponível"),
     // ===== Controle de dados móveis do carro =====

@@ -68,6 +68,31 @@ class BottomBarUIProjectionConfigTest {
         assertEquals("com.example.music", effectivePackage)
     }
 
+    @Test
+    fun resolveBottomBarTouchableLeftPx_keepsGutterWhenAndroidAutoOff() {
+        assertEquals(128, resolveBottomBarTouchableLeftPx(128, androidAutoOnMainDisplay = false))
+        assertEquals(0, resolveBottomBarTouchableLeftPx(0, androidAutoOnMainDisplay = false))
+    }
+
+    @Test
+    fun resolveBottomBarTouchableLeftPx_usesAndroidAutoCutoutWhenOn() {
+        assertEquals(
+            ANDROID_AUTO_BOTTOM_BAR_LEFT_PASSTHROUGH_PX,
+            resolveBottomBarTouchableLeftPx(0, androidAutoOnMainDisplay = true)
+        )
+        assertEquals(
+            ANDROID_AUTO_BOTTOM_BAR_LEFT_PASSTHROUGH_PX,
+            resolveBottomBarTouchableLeftPx(128, androidAutoOnMainDisplay = true)
+        )
+    }
+
+    @Test
+    fun resolveBottomBarRowStartPadPx_keepsContentAtGutterAfterSurfaceCutout() {
+        assertEquals(128, resolveBottomBarRowStartPadPx(128, surfaceCutoutPx = 0))
+        assertEquals(28, resolveBottomBarRowStartPadPx(128, surfaceCutoutPx = 100))
+        assertEquals(0, resolveBottomBarRowStartPadPx(0, surfaceCutoutPx = 100))
+    }
+
     private fun config(packageName: String, customName: String? = null): DisplayAppConfig {
         return DisplayAppConfig(
             packageName = packageName,

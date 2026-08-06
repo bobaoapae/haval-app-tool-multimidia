@@ -11,11 +11,16 @@ There are **no hardcoded screens on the Android backend**—the frontend theme H
 2. [Three-Tier Customization Model](#three-tier-customization-model)
 3. [Package Structure](#package-structure)
 4. [Theme Metadata & Manifests](#theme-metadata--manifests)
-5. [The JavaScript Bridge & Primitives](#the-javascript-bridge--primitives)
-6. [Development Workflow & Local Simulation](#development-workflow--local-simulation)
-7. [Build, Inlining & Deployment](#build-inlining--deployment)
+5. [Native masks (covering OEM chrome)](#native-masks-covering-oem-chrome)
+6. [The JavaScript Bridge & Primitives](#the-javascript-bridge--primitives)
+7. [Development Workflow & Local Simulation](#development-workflow--local-simulation)
+8. [Build, Inlining & Deployment](#build-inlining--deployment)
 
 ---
+
+> **System docs:** host layout, APK vs OTA deploy, and compatibility policy live in
+> [`docs/architecture/themes-contract-v1.md`](../../docs/architecture/themes-contract-v1.md).
+> Keep API/authoring details in this guide; keep system/deploy rules there.
 
 ## Decentralized Theme Architecture
 
@@ -100,10 +105,12 @@ A finished theme package consists of a folder structured as follows:
 
 ```text
 Themes/MyCustomTheme/
-├── theme.xml        # Core metadata (name, minBridgeVersion)
-├── manifest.json    # Level 1 menu and grid configurations
+├── theme.xml        # Core metadata (name, minBridgeVersion, nativeMasks, …)
+├── manifest.json    # Level 1 menu and grid configurations (optional)
 ├── thumbnail.png    # 200x200px dashboard preview image
-└── app.html         # The compiled, fully self-contained bundle
+├── app.html         # The compiled, fully self-contained bundle
+├── car-bg.png       # Recommended wallpaper (Display 1 / mask composite)
+└── d3_mask.png      # Optional global alpha mask for Display 3 native layer
 ```
 
 ---
@@ -171,6 +178,80 @@ app builds ignore them and fall back to the declared `<default>`.
 
 ---
 
+## Native masks (covering OEM chrome)
+
+### Why they exist
+
+The instrument cluster is not one blank canvas. OEM graphics (fuel/battery bars, speedo-side
+chrome, top-center strip, etc.) sit in the physical / compositor stack **around and under**
+the Display‑3 WebView. A theme that only draws inside the WebView cannot paint over those
+regions — so gauges and strips stay visible and fight the custom UI.
+
+**Native masks** let the **Android host** draw opaque rectangles (and optional bitmaps) in
+those regions on Display 3, composited with the theme wallpaper. That covers the stock
+cluster chrome so the WebView theme can own the look end-to-end.
+
+```text
+┌──────────────────────── Display 3 (cluster) ────────────────────────┐
+│  OEM gauges / strips (always there underneath)                      │
+│  ┌─ Native mask layer (Android ImageViews + optional d3_mask.png) ─┐│
+│  │  Covers fuel / battery / top strip / optional side covers       ││
+│  │  ┌─ Hole punched when AA/CarPlay/app is on D3 ─────────────────┐││
+│  │  │  Projection visible through the hole                        │││
+│  │  └─────────────────────────────────────────────────────────────┘││
+│  └─────────────────────────────────────────────────────────────────┘│
+│  WebView theme (app.html) — free to design without fighting OEM UI  │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+When an app (Android Auto / CarPlay / map) is on Display 3, the host **punches a hole** in
+the mask layer for that app’s rectangle so projection is not buried under the wallpaper
+masks. The WebView stays; only the mask layer is cut.
+
+### Declaring masks in `theme.xml`
+
+```xml
+<!-- Prefer a theme <background> wallpaper — masks composite against it. -->
+<background>car-bg.png</background>
+
+<nativeMasks>
+    <fuelMask enabled="true" x="0" y="653" width="730" height="67" />
+    <batteryMask enabled="true" x="1190" y="653" width="730" height="67" />
+    <topCenterMask enabled="true" x="710" y="0" width="500" height="67" />
+    <!-- Optional full-height side covers (usually leave off): -->
+    <!-- <speedMask enabled="false" x="0" y="0" width="600" height="720" /> -->
+    <!-- <infoMask enabled="false" x="1320" y="0" width="600" height="720" /> -->
+</nativeMasks>
+```
+
+| Child | Typical use |
+|---|---|
+| `fuelMask` | Cover OEM fuel / left bottom gauge strip |
+| `batteryMask` | Cover OEM battery / right bottom gauge strip |
+| `topCenterMask` | Cover OEM top-center info strip |
+| `speedMask` | Optional left full-height cover |
+| `infoMask` | Optional right full-height cover |
+
+Coordinates are in the **1920×720** cluster space. Each child supports `enabled`, `x`, `y`,
+`width`, `height`, and optionally `image` / `opacity` (parsed by `ThemeManager`).
+
+- Omit `<nativeMasks>` (or disable every child) → leave OEM chrome visible.
+- Geometry is theme-specific (Minimalist’s values are a good starting point).
+- Without a wallpaper, masks look wrong — ship `<background>` / `car-bg.png`.
+- Optional package file `d3_mask.png`: global alpha mask used when composing the Display‑3
+  wallpaper layer (see `InstrumentProjector2`).
+
+### Runtime control from JS
+
+| Function | Direction | Description |
+|---|---|---|
+| `setNativeMaskState(maskName, visible)` | JS → Host | Show/hide one named mask (`fuelMask`, `batteryMask`, …). |
+| `setNativeMasksConfig(jsonConfig)` | JS → Host | Push a JSON override for mask config (advanced). |
+
+System overview: [`docs/architecture/themes-contract-v1.md`](../../docs/architecture/themes-contract-v1.md).
+
+---
+
 ## Architectural Separation: Bridge Version vs. Contract Version
 
 * **Bridge Version (`minBridgeVersion` / `CURRENT_BRIDGE_VERSION = "1.0.0"`)**:
@@ -199,6 +280,8 @@ Theme interactions occur via the global `window.Android` namespace and standard 
 | **Telemetry** | `updateCarData(key: String, val: String)` | JS → Host | Sends CAN-bus setting command back to vehicle hardware. |
 | **Layout & Cutouts** | `setAppDefaultDimensions(x, y, w, h)` | JS → Host | Informs Android of theme canvas bounds for CarPlay/AA cutouts. |
 | **Layout & Cutouts** | `setWarningActive(isActive: Boolean)` | JS → Host | Toggles cluster warning banner overlay state. |
+| **Native masks** | `setNativeMaskState(maskName, visible)` | JS → Host | Show/hide a Display‑3 OEM-cover mask (`fuelMask`, …). |
+| **Native masks** | `setNativeMasksConfig(jsonConfig)` | JS → Host | Advanced JSON override for native mask geometry/state. |
 | **Wallpaper** | `setClusterBackground(type, val)` | JS → Host | Sets Display-1 cluster background (`THEME`, `PRESET`, `IMAGE_URL`, `FILE`, `COLOR`). |
 | **Wallpaper** | `setThemeBackground(relativePath)` | JS → Host | Registers theme package wallpaper asset (e.g. `car-bg.png`). |
 | **Preferences** | `savePreference(key, val)` | JS → Host | Persists theme-scoped user configuration. |

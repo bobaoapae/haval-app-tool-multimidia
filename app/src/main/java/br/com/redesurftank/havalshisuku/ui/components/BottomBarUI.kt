@@ -70,6 +70,11 @@ private const val recycleOut = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAD
 private const val BOTTOM_BAR_TAG = "BottomBarUI"
 private const val BOTTOM_BAR_CARPLAY_PACKAGE = "com.ts.carplay.app"
 private const val BOTTOM_BAR_ANDROID_AUTO_PACKAGE = "com.ts.androidauto.app"
+/**
+ * When Android Auto owns display 0, leave this many pixels at the left of the bottom bar clear so
+ * the AA rail icon that sits under the bar stays visible and tappable.
+ */
+internal const val ANDROID_AUTO_BOTTOM_BAR_LEFT_PASSTHROUGH_PX = 100
 internal const val DASHBOARD_FUEL_TANK_CAPACITY_LITERS = 55f
 private const val DASHBOARD_MEDIA_VOLUME_MIN = 0
 private const val DASHBOARD_MEDIA_VOLUME_MAX = 30
@@ -142,6 +147,45 @@ internal fun resolveBottomBarEffectivePackage(
                 ?: selectedPackage.takeIf { it.isNotEmpty() }
                 ?: firstConfiguredPackage
 }
+
+/** True when the top package on display 0 is Android Auto (not merely AA on the cluster). */
+internal fun isAndroidAutoShownOnMainDisplay(currentPackage: String): Boolean {
+        return br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                .resolveProjectionPackageOrNull(currentPackage) == BOTTOM_BAR_ANDROID_AUTO_PACKAGE
+}
+
+/** Transparent/click-through width at the left of the bar while AA owns display 0; 0 otherwise. */
+internal fun resolveAndroidAutoBottomBarCutoutPx(
+        androidAutoOnMainDisplay: Boolean,
+        androidAutoPassthroughPx: Int = ANDROID_AUTO_BOTTOM_BAR_LEFT_PASSTHROUGH_PX
+): Int = if (androidAutoOnMainDisplay) androidAutoPassthroughPx.coerceAtLeast(0) else 0
+
+/**
+ * Left edge of the bar window's touchable region. When AA is on screen, pass through the AA rail
+ * cutout; otherwise leave the SystemUI gutter alone (the pane draws above us there).
+ */
+internal fun resolveBottomBarTouchableLeftPx(
+        overlayLeftGutterPx: Int,
+        androidAutoOnMainDisplay: Boolean,
+        androidAutoPassthroughPx: Int = ANDROID_AUTO_BOTTOM_BAR_LEFT_PASSTHROUGH_PX
+): Int {
+        val cutout =
+                resolveAndroidAutoBottomBarCutoutPx(
+                        androidAutoOnMainDisplay = androidAutoOnMainDisplay,
+                        androidAutoPassthroughPx = androidAutoPassthroughPx
+                )
+        if (cutout > 0) return cutout
+        return overlayLeftGutterPx.coerceAtLeast(0)
+}
+
+/**
+ * Start padding for the button Row inside a Surface that already has [surfaceCutoutPx] start
+ * padding. Keeps content anchored at the SystemUI gutter so AA on/off does not reflow the bar.
+ */
+internal fun resolveBottomBarRowStartPadPx(
+        overlayLeftGutterPx: Int,
+        surfaceCutoutPx: Int
+): Int = (overlayLeftGutterPx.coerceAtLeast(0) - surfaceCutoutPx.coerceAtLeast(0)).coerceAtLeast(0)
 
 private fun getBottomBarAppConfigs(): List<DisplayAppConfig> {
         return mergeBottomBarProjectionConfigs(
@@ -358,12 +402,24 @@ fun BottomBarContent() {
         // The window spans the physical display, so inset the content past the left navigation pane
         // (which draws above us). Constant at runtime, so the bar never reflows when a fullscreen app
         // hides the pane.
-        val leftGutter = with(LocalDensity.current) { BottomBarState.overlayLeftGutterPx.toDp() }
+        val leftGutterPx = BottomBarState.overlayLeftGutterPx
+        val androidAutoOnMain = isAndroidAutoShownOnMainDisplay(BottomBarState.currentPackage)
+        val aaCutoutPx = resolveAndroidAutoBottomBarCutoutPx(androidAutoOnMain)
+        val density = LocalDensity.current
+        // Punch only the AA rail hole in the black strip; keep the button Row at the same physical
+        // gutter as when AA is off so weights/positions do not jump.
+        val surfaceStartPad = with(density) { aaCutoutPx.toDp() }
+        val rowStartPad =
+                with(density) {
+                        resolveBottomBarRowStartPadPx(leftGutterPx, aaCutoutPx).toDp()
+                }
         val barContext = LocalContext.current
 
         // Note the gutter is applied to the content Row below, NOT here: the black Surface has to span
         // the whole window so the bar reads as one continuous strip. Padding it here leaves the left
         // 128px transparent, which shows through as a gap whenever the app behind is not dark.
+        // Exception: when Android Auto owns display 0 we pad the Surface by the AA cutout only (not
+        // the full gutter) so the rail icon stays visible without reflowing the buttons.
         Box(
                 modifier = Modifier.fillMaxWidth().height(60.dp),
                 contentAlignment = Alignment.BottomCenter
@@ -372,6 +428,7 @@ fun BottomBarContent() {
                         Surface(
                                 modifier =
                                         Modifier.fillMaxWidth()
+                                                .padding(start = surfaceStartPad)
                                                 .height(60.dp)
                                                 // Swipe-down gesture: if user drags down > 20dp,
                                                 // hide the bar.
@@ -468,7 +525,7 @@ fun BottomBarContent() {
                                                         Modifier.fillMaxWidth()
                                                                 .fillMaxHeight()
                                                                 .padding(
-                                                                        start = leftGutter,
+                                                                        start = rowStartPad,
                                                                         end = 8.dp
                                                                 ),
                                                 verticalAlignment = Alignment.CenterVertically

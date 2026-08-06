@@ -1,39 +1,47 @@
 # Architecture Overview
 
-Atualizado em: 2026-05-24
+Updated: 2026-08-06
 
-## O Que Foi Identificado
+## What this app is
 
-O projeto é um app Android chamado `HavalShisuku`, com application id `br.com.redesurftank.havalshisuku`. Ele opera como uma ferramenta de integração com a central Haval/GWM, renderizando um cluster customizado e gerenciando apps/projeções em displays secundários.
+Android app `HavalShisuku` (`br.com.redesurftank.havalshisuku`) for Haval/GWM head units: vehicle integration via AIDL/Shizuku, custom cluster UI on secondary displays, and projection helpers (Android Auto / CarPlay tooling lives partly under `scripts/`).
 
 ## Stack
 
-- Android Kotlin/Java com Gradle Kotlin DSL.
-- Jetpack Compose para telas do app principal.
-- Shizuku e comandos shell para operações privilegiadas.
-- WebView dentro de `Presentation` para renderizar dashboard HTML no cluster.
-- Frontend em JavaScript/CSS/HTML com Parcel e empacotamento inline.
-- Scripts shell em `tools/headunit-dev/` para deploy/logs/diagnóstico.
+- Android Kotlin/Java (Gradle Kotlin DSL)
+- Jetpack Compose for the main settings UI
+- Shizuku / privileged shell for OEM service access
+- WebView inside a `Presentation` for the cluster dashboard
+- Theme frontends in JS/CSS/HTML (Parcel + inline packaging)
+- `tools/headunit-dev/` for deploy / logs / diagnostics
 
-## Arquivos Relacionados
+## Cluster UI (current)
 
-- `app/build.gradle.kts`
-- `app/src/main/AndroidManifest.xml`
-- `app/src/main/java/br/com/redesurftank/App.java`
+Themes are **self-contained** Web apps under contract `v1.0`. The host does not own screen FSMs for the dashboard; the loaded theme owns screens and navigation.
+
+- Architecture summary: [`themes-contract-v1.md`](themes-contract-v1.md)
+- Author guide: [`cluster-widgets/Themes/THEME_GUIDE.md`](../../cluster-widgets/Themes/THEME_GUIDE.md)
+- Sources: `cluster-widgets/source/v1.0/`
+- OTA packages: `cluster-widgets/Themes/v1.0/`
+- Legacy (non-contract): `cluster-widgets/source/noncontract/`
+
+## Related files
+
 - `app/src/main/java/br/com/redesurftank/havalshisuku/services/ForegroundService.java`
-- `app/src/main/java/br/com/redesurftank/havalshisuku/managers/ServiceManager.java`
-- `app/src/main/java/br/com/redesurftank/havalshisuku/managers/ProjectorManager.java`
-- `app/src/main/java/br/com/redesurftank/havalshisuku/projectors/InstrumentProjector2.kt`
-- `cluster-widgets/default/`
+- `…/managers/ServiceManager.java`
+- `…/managers/ProjectorManager.java`
+- `…/managers/ThemeManager.kt`
+- `…/projectors/InstrumentProjector2.kt`
+- `…/bridge/ThemeBridgeImpl.kt`
 
-## Riscos
+## Risks
 
-- Alterações em bootstrap, Shizuku ou ServiceManager podem impedir inicialização.
-- Alterações em display secundário podem quebrar cluster ou projeções.
-- Alterações em WebView/JS podem gerar tela preta, loop ou flickering.
+- Bootstrap / Shizuku / ServiceManager changes can block startup.
+- Secondary-display / projector changes can blank the cluster or break AA/CarPlay cutouts.
+- Theme bridge or contract edits without a compatibility check break installed themes.
+- WebView/JS errors can freeze a theme (“pretty but frozen” if a module aborts at load).
 
-## Dúvidas a Confirmar
+## Open questions
 
-- Manter `docs/` em minúsculo como pasta canônica da documentação.
-- Quais temas ainda são usados em produção.
-- Qual firmware/modelo da central é alvo principal.
+- Which firmwares/models are primary targets.
+- How long `noncontract/` themes remain supported in the field.

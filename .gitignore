@@ -3,22 +3,15 @@
 build/
 
 # Documentation
-# `docs/` is the canonical documentation path. Avoid uppercase `DOCS/`
-# because this repo is commonly used on case-insensitive filesystems.
-!docs/
-!docs/**
+# `docs/` is tracked (canonical). Do not create uppercase `DOCS/` — on
+# case-insensitive filesystems it collides with `docs/`.
 .ai-context
 .agents
 .codex
 prompts/
-docs/
-!docs/
-!docs/qa/
-!docs/qa/carplay-d3-baseline-workflow.md
 .docs
 AGENTS.md
 AI-README.md
-docs/
 reverse/
 tools/headunit-dev/output/
 artifacts/

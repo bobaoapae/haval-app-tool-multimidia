@@ -1,45 +1,48 @@
 # Frontend Flow
 
-Atualizado em: 2026-05-24
+Updated: 2026-08-06
 
-## O Que Foi Identificado
+## Layout
 
-O frontend dos widgets fica em `cluster-widgets/`. O tema Default atual está em `cluster-widgets/default`.
+Active contract themes live under `cluster-widgets/source/v1.0/<theme>/`.
+Legacy packages remain in `cluster-widgets/source/noncontract/`.
+Packaged OTA output is `cluster-widgets/Themes/v1.0/<theme>/`.
 
-Cada tema contém:
+Typical theme package:
 
-- `index.html`
-- `src/core/main.js`
-- `src/core/state.js`
-- `src/core/components/`
-- `src/styles/`
-- `inline.js`
-- `package.json`
+- `index.html` / entry used by Parcel
+- `src/` (JS components, styles)
+- `theme.xml` (name, version, `minBridgeVersion`, `contractVersion`, settings)
+- `inline.js` + `package.json`
+- Build emits a single self-contained `app.html`
 
-O build usa Parcel e depois `inline.js` para gerar HTML único com assets inlined.
+See [`themes-contract-v1.md`](themes-contract-v1.md) and [`THEME_GUIDE.md`](../../cluster-widgets/Themes/THEME_GUIDE.md).
 
-## Contrato JS
+## JS contract (v1.0)
 
-- `window.control(key, value)`: recebe dados Android e atualiza estado.
-- `window.focus(target)`: altera foco de menu/AC/display.
-- `window.showScreen(screenName)`: alterna tela.
-- `window.cleanup()`: cleanup chamado quando disponível.
-- `window.Android`: bridge para Android quando WebView real existe.
+- `window.Android.*` — host bridge (`subscribe`, telemetry, prefs, wallpaper, …)
+- `window.onKeyEvent(key)` — raw steering keys from the host
+- Theme-defined screens/menus — not a fixed Android screen enum
 
-## Arquivos Relacionados
+Legacy globals (`window.control`, `window.showScreen`, `window.focus`) may still appear in older packages; do not treat them as the v1.0 authoring model.
 
-- `cluster-widgets/default/src/core/main.js`
-- `cluster-widgets/default/src/core/state.js`
-- `cluster-widgets/default/src/styles/night.style.css`
-- `cluster-widgets/default/src/core/components/`
+## Build
 
-## Riscos
+Parcel bundles the theme; `inline.js` produces one HTML with inlined CSS/JS/assets.
 
-- Alterar nomes globais quebra bridge.
-- CSS de simulador pode vazar para produção se gating falhar.
-- Build de tema pode não refletir no APK se `app.html` não for atualizado.
+- **Default** → APK `res/raw/app.html` + `assets/Default/theme.xml`
+- **OTA themes** → `Themes/v1.0/<theme>/` (commit + push to the ThemeManager catalog branch)
 
-## A Confirmar
+## Related paths
 
-- Qual tema é fonte principal para produção em cada versão.
-- Se `air-control` ainda é usado como tema ativo ou legado.
+- `cluster-widgets/source/v1.0/default/`
+- `cluster-widgets/source/v1.0/minimalist/`
+- `cluster-widgets/source/v1.0/shared/`
+- `cluster-widgets/Themes/v1.0/`
+
+## Risks
+
+- Renaming bridge globals breaks the host contract.
+- Default build that skips APK copy leaves the car on stale HTML.
+- OTA build that skips `Themes/v1.0/` never reaches the in-app catalog.
+- Simulator-only CSS must stay gated out of production bundles.

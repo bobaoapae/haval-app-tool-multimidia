@@ -28,6 +28,10 @@ if (Test-Path $avgTrust) {
     Write-Host "[!] AVG truststore missing - if build fails with PKIX, run scripts\Setup-JavaSslForAvg.ps1" -ForegroundColor Yellow
 }
 & $gradlew assembleDebug
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Gradle build failed (exit $LASTEXITCODE) - aborting deploy so a stale APK is not installed."
+    exit $LASTEXITCODE
+}
 
 if (-not (Test-Path $apkPath)) {
     Write-Error "APK not found at $apkPath"

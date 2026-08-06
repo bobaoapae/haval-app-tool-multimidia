@@ -2302,7 +2302,7 @@ fun BasicSettingsTab() {
                         SettingItem(
                                 title = "Mover navegação para o cluster ao iniciar",
                                 description =
-                                        "Enviar Android Auto ou CarPlay automaticamente para o cluster",
+                                        "Enviar Android Auto ou CarPlay automaticamente para o cluster ao iniciar (só se AA/CarPlay estiver selecionado como app inicial na tela Telas)",
                                 checked = autoMoveProjectionToCluster,
                                 onCheckedChange = { checked ->
                                         autoMoveProjectionToCluster = checked

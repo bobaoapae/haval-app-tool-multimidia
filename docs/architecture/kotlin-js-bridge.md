@@ -1,79 +1,83 @@
 # Kotlin JS Bridge
 
-Atualizado em: 2026-06-12
+Updated: 2026-08-06
 
-## Android Para JavaScript
+## Current contract themes (`v1.0` / bridge `1.0.0`)
 
-`InstrumentProjector2` envia comandos para JS com `evaluateJavascript`, normalmente via:
+Contract themes talk to the host through `window.Android` (see `ThemeBridgeImpl.kt` and the full table in [`THEME_GUIDE.md`](../../cluster-widgets/Themes/THEME_GUIDE.md)).
 
-- `evaluateJsIfReady`
-- `batchEvaluateJs`
-- `updateValuesWebView`
-- listeners de `ServiceManager`
+Typical theme → host flow:
 
-O padrão principal é:
+- `subscribe(keysJson)` / `unsubscribe(keysJson)` — client-driven telemetry
+- `getCarData` / `updateCarData` — read cache / write vehicle settings
+- `heartbeat()` — WebView liveness
+- Layout / wallpaper / preferences / `launchApp` — as documented in THEME_GUIDE
+
+Host → theme:
+
+- Telemetry updates for subscribed keys
+- Raw steering events via `window.onKeyEvent(key)` (`UP`, `DOWN`, `ENTER`, `BACK`, …)
+
+System layout and versioning: [`themes-contract-v1.md`](themes-contract-v1.md).
+
+`CompatTranslationLayer.kt` supplies JS polyfills when a theme’s `minBridgeVersion` is older than the host bridge.
+
+## Legacy host → JS helpers (still present)
+
+`InstrumentProjector2` can still push into the page with `evaluateJavascript`, historically via:
+
+- `evaluateJsIfReady` / `batchEvaluateJs` / `updateValuesWebView`
+- `ServiceManager` listeners
+
+Older / transitional globals include:
 
 ```text
-control('nomeDaChave', valor)
+control('key', value)
+showScreen(...)
+focus(...)
+updateWarning(...)
+clearWarnings()
 ```
 
-Também existem chamadas para:
+New `v1.0` themes should prefer **subscribe + `onKeyEvent`**, not assume a host-driven `showScreen` FSM. Prefer extending `window.Android` (and THEME_GUIDE) over adding new ad-hoc globals.
 
-- `showScreen(...)`
-- `focus(...)`
-- `updateWarning(...)`
-- `clearWarnings()`
+## Warning policy
 
-## Politica de Warnings
+`InstrumentProjector2` separates visual vs critical warnings:
 
-`InstrumentProjector2` mantém uma separação entre warning visual e warning crítico:
+- Visual keys (`car.ipk_info.warning_tts_notify`,
+  `car.ipk_info.bsd_lca_warning_reqleft`, `car.ipk_info.bsd_lca_warning_reqright`) still go to the
+  frontend via `updateWarning(...)`;
+- those keys do not drive `syncInitialWarnings()`, critical dismiss, or heavy card/visibility recompute;
+- critical warnings may still use `window.Android.setWarningActive(...)`.
 
-- chaves visuais (`car.ipk_info.warning_tts_notify`,
-  `car.ipk_info.bsd_lca_warning_reqleft`, `car.ipk_info.bsd_lca_warning_reqright`) continuam sendo
-  enviadas ao frontend por `updateWarning(...)`;
-- essas chaves não disparam `syncInitialWarnings()`, `isWarningActive`, dismiss crítico nem
-  recomputação de visibilidade do cluster;
-- warnings críticos continuam podendo acionar `updateWarningUI(...)` via bridge
-  `window.Android.setWarningActive(...)`.
+Goal: keep visual-only pulses off the expensive warning/card path.
 
-O objetivo é preservar o contrato do frontend, que já tratava essas chaves como visual-only, sem
-deixar pulsos nativos de TTS/LCA entrarem no caminho pesado de warning e card flow.
+## Readiness and WebView reload
 
-## JavaScript Para Android
+Theme load, watchdog reload, and theme swap set a `loading` state:
+`webViewsLoaded=false`, pending JS queue cleared, heartbeat renewed. That avoids running
+`control` / `updateWarning` / `focus` / `showScreen` before the theme reinstalls its globals.
 
-`addJavascriptInterface(WebAppInterface(), "Android")` expõe:
+On `onPageFinished`, heartbeat is renewed before full sync so the watchdog does not reload
+while the first `window.Android.heartbeat()` has not fired yet.
 
-- `heartbeat()`
-- `setWarningActive(Boolean)`
-- `setCardId(Int)`
-- `saveSetting(String, String)`
-
-## Readiness e Reload do WebView
-
-`InstrumentProjector2` trata `onPageStarted`, reload por watchdog e troca de tema como estado
-`loading`: `webViewsLoaded=false`, fila pendente antiga descartada e heartbeat renovado. Isso
-evita que chamadas como `control(...)`, `updateWarning(...)`, `focus(...)` e `showScreen(...)`
-sejam executadas contra uma pagina em reload antes de o modulo JS reinstalar `window.control` e
-demais funcoes globais.
-
-Em `onPageFinished`, o heartbeat e renovado antes do sync completo para impedir reload prematuro
-do watchdog enquanto o primeiro `window.Android.heartbeat()` ainda nao disparou.
-
-## Arquivos Relacionados
+## Related files
 
 - `InstrumentProjector2.kt`
-- `cluster-widgets/default/src/core/main.js`
-- `cluster-widgets/default/src/core/components/warningHandler.js`
-- `cluster-widgets/default/src/core/components/display/themeSelection.js`
+- `ThemeBridgeImpl.kt`
+- `CompatTranslationLayer.kt`
+- `cluster-widgets/source/v1.0/` (active themes)
+- `cluster-widgets/Themes/THEME_GUIDE.md`
 
-## Riscos
+## Risks
 
-- Strings sem escape podem quebrar JS.
-- `value.toDoubleOrNull()` em `batchEvaluateJs` é heurística simples.
-- Chamadas antes de load precisam entrar em fila.
-- Loops de warning podem gerar CPU alta se não houver guard.
+- Unescaped strings break JS evaluation.
+- Calls before load must queue or drop safely.
+- Warning loops can burn CPU without guards.
+- Changing bridge method signatures without a bridge/contract bump breaks OTA themes.
 
-## A Confirmar
+## Open
 
-- Se há contrato formal de todas as chaves `control`.
-- Se há testes automatizados para bridge.
+- Automated tests covering the full `window.Android` surface.
+- How long legacy `control()` push remains required for `noncontract/` themes.

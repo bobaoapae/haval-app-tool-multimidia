@@ -53,7 +53,6 @@ import br.com.redesurftank.havalshisuku.managers.ThemeManager
 import br.com.redesurftank.havalshisuku.managers.BackgroundSyncServer
 import br.com.redesurftank.havalshisuku.managers.WallpaperLibrary
 import br.com.redesurftank.havalshisuku.managers.WebImage
-import br.com.redesurftank.havalshisuku.managers.WebImageProvider
 import br.com.redesurftank.havalshisuku.managers.WebImageSearch
 import br.com.redesurftank.havalshisuku.models.DisplayAppConfig
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
@@ -2517,9 +2516,8 @@ fun ClusterBackgroundSettingsDialog(
         customBgValue = SolidBackgroundSpec(argb, solidVignette).encode()
     }
 
-    // ── Busca na web (estado no nível do diálogo para sobreviver à troca de abas) ──
+    // ── Busca na web (Wallhaven; estado no diálogo sobrevive à troca de abas) ──
     val ioScope = rememberCoroutineScope()
-    var webProvider by remember { mutableStateOf(WebImageProvider.WALLHAVEN) }
     var webQuery by remember { mutableStateOf(DEFAULT_WEB_QUERY) }
     var webResults by remember { mutableStateOf<List<WebImage>>(emptyList()) }
     var webPage by remember { mutableIntStateOf(1) }
@@ -2529,20 +2527,9 @@ fun ClusterBackgroundSettingsDialog(
     var webError by remember { mutableStateOf<String?>(null) }
     var webRetryToken by remember { mutableIntStateOf(0) }
     var webLoadedSignature by remember { mutableStateOf("") }
-    var apiKeyRefreshToken by remember { mutableIntStateOf(0) }
     var favoriteBusyKey by remember { mutableStateOf<String?>(null) }
     var libraryMessage by remember { mutableStateOf<String?>(null) }
     val webGridState = rememberLazyGridState()
-
-    val webApiKey = remember(webProvider, apiKeyRefreshToken) {
-        WebImageSearch.getApiKey(prefs, webProvider)
-    }
-    val lockedProviders = remember(apiKeyRefreshToken) {
-        WebImageProvider.entries
-            .filter { it.requiresKey && WebImageSearch.getApiKey(prefs, it).isBlank() }
-            .map { it.id }
-            .toSet()
-    }
 
     suspend fun loadWebPage(page: Int) {
         if (page == 1) {
@@ -2552,7 +2539,7 @@ fun ClusterBackgroundSettingsDialog(
             webLoadingMore = true
         }
         try {
-            val result = WebImageSearch.search(webProvider, webQuery, page, webApiKey)
+            val result = WebImageSearch.search(webQuery, page)
             webResults = if (page == 1) result.images else webResults + result.images
             webPage = result.page
             webHasMore = result.hasMore && result.images.isNotEmpty()
@@ -2568,16 +2555,11 @@ fun ClusterBackgroundSettingsDialog(
     }
 
     val webTabActive = selectedTab == "IMAGE_URL"
-    val webSignature = "${webProvider.id}|${webQuery.trim()}|$webRetryToken|${webApiKey.isNotBlank()}"
+    val webSignature = "${webQuery.trim()}|$webRetryToken"
 
     LaunchedEffect(webTabActive, webSignature) {
         if (!webTabActive) return@LaunchedEffect
         if (webSignature == webLoadedSignature && webResults.isNotEmpty()) return@LaunchedEffect
-        if (webProvider.requiresKey && webApiKey.isBlank()) {
-            webResults = emptyList()
-            webError = null
-            return@LaunchedEffect
-        }
         if (webQuery.isNotBlank()) delay(500) // debounce da digitação
         webLoadedSignature = webSignature
         loadWebPage(1)
@@ -2906,13 +2888,13 @@ fun ClusterBackgroundSettingsDialog(
                                     modifier = Modifier.fillMaxSize(),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    // Busca ao vivo no provedor selecionado
+                                    // Busca ao vivo no Wallhaven
                                     OutlinedTextField(
                                         value = webQuery,
                                         onValueChange = { webQuery = it },
                                         placeholder = {
                                             Text(
-                                                "Buscar no ${webProvider.label}: carros, paisagem, abstrato...",
+                                                "Buscar no Wallhaven: carros, paisagem, abstrato...",
                                                 fontSize = 12.sp,
                                                 color = Color(0xFFB0B8C4),
                                                 maxLines = 1
@@ -2951,46 +2933,6 @@ fun ClusterBackgroundSettingsDialog(
                                         modifier = Modifier.fillMaxWidth()
                                     )
 
-                                    // Provedores de imagens públicas
-                                    LazyRow(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        items(WebImageProvider.entries.toList()) { provider ->
-                                            val isSelected = webProvider == provider
-                                            val locked = provider.id in lockedProviders
-                                            Box(
-                                                modifier = Modifier
-                                                    .background(
-                                                        if (isSelected) Color(0xFF4A9EFF) else Color(0xFF2C3139),
-                                                        RoundedCornerShape(6.dp)
-                                                    )
-                                                    .clickable { webProvider = provider }
-                                                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = if (locked) Icons.Default.Lock else Icons.Default.Public,
-                                                        contentDescription = null,
-                                                        tint = if (locked) Color(0xFFB0B8C4) else Color.White,
-                                                        modifier = Modifier.size(12.dp)
-                                                    )
-                                                    Text(
-                                                        provider.label,
-                                                        color = Color.White,
-                                                        fontSize = 11.sp,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-
                                     Text(
                                         libraryMessage
                                             ?: "Toque para pré-visualizar no cluster · ♥ salva na Biblioteca para usar sem internet.",
@@ -3000,61 +2942,7 @@ fun ClusterBackgroundSettingsDialog(
                                         overflow = TextOverflow.Ellipsis
                                     )
 
-                                    val needsKey = webProvider.requiresKey && webApiKey.isBlank()
-
                                     when {
-                                        needsKey -> {
-                                            var keyInput by remember(webProvider) { mutableStateOf("") }
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(top = 12.dp),
-                                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                                            ) {
-                                                Text(
-                                                    "${webProvider.label} exige uma chave de API gratuita.",
-                                                    color = Color.White,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Text(
-                                                    "Crie a sua em ${webProvider.keyPortal} e cole abaixo. Ela fica salva no carro e vale para as próximas buscas. Wallhaven e Openverse funcionam sem chave.",
-                                                    color = Color(0xFFB0B8C4),
-                                                    fontSize = 12.sp
-                                                )
-                                                OutlinedTextField(
-                                                    value = keyInput,
-                                                    onValueChange = { keyInput = it },
-                                                    placeholder = {
-                                                        Text("Cole aqui a chave de API", fontSize = 12.sp, color = Color(0xFF718096))
-                                                    },
-                                                    colors = OutlinedTextFieldDefaults.colors(
-                                                        focusedBorderColor = Color(0xFF4A9EFF),
-                                                        unfocusedBorderColor = Color(0xFF2C3139),
-                                                        focusedContainerColor = Color(0xFF13151A),
-                                                        unfocusedContainerColor = Color(0xFF13151A),
-                                                        focusedTextColor = Color.White,
-                                                        unfocusedTextColor = Color.White
-                                                    ),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    singleLine = true,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                                Button(
-                                                    onClick = {
-                                                        WebImageSearch.setApiKey(prefs, webProvider, keyInput)
-                                                        keyInput = ""
-                                                        apiKeyRefreshToken++
-                                                    },
-                                                    enabled = keyInput.isNotBlank(),
-                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF)),
-                                                    shape = RoundedCornerShape(8.dp)
-                                                ) {
-                                                    Text("Salvar chave", fontSize = 12.sp, color = Color.White)
-                                                }
-                                            }
-                                        }
-
                                         webLoading && webResults.isEmpty() -> {
                                             Box(
                                                 modifier = Modifier.fillMaxSize(),
@@ -3062,8 +2950,8 @@ fun ClusterBackgroundSettingsDialog(
                                             ) {
                                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                                     CircularProgressIndicator(color = Color(0xFF4A9EFF))
-                                                    Spacer(Modifier.height(8.dp))
-                                                    Text("Buscando em ${webProvider.label}...", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+                                                    Spacer(modifier = Modifier.height(8.dp))
+                                                    Text("Buscando no Wallhaven...", color = Color(0xFFB0B8C4), fontSize = 12.sp)
                                                 }
                                             }
                                         }
@@ -3113,7 +3001,7 @@ fun ClusterBackgroundSettingsDialog(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
-                                                    if (webQuery.isBlank()) "Digite algo para buscar em ${webProvider.label}."
+                                                    if (webQuery.isBlank()) "Digite algo para buscar no Wallhaven."
                                                     else "Nenhuma imagem encontrada para \"$webQuery\".",
                                                     color = Color(0xFFB0B8C4),
                                                     fontSize = 12.sp,
@@ -3253,7 +3141,7 @@ fun ClusterBackgroundSettingsDialog(
                                                 } else if (!webHasMore) {
                                                     item(span = { GridItemSpan(maxLineSpan) }) {
                                                         Text(
-                                                            "Fim dos resultados de ${webProvider.label}.",
+                                                            "Fim dos resultados do Wallhaven.",
                                                             color = Color(0xFF718096),
                                                             fontSize = 11.sp,
                                                             textAlign = TextAlign.Center,

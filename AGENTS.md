@@ -58,5 +58,5 @@ When working on cluster widgets or Android bridge code, distinguish between:
 Before making any change to `ThemeBridgeImpl.kt`, `BridgeContractTranslator.kt`, `InstrumentProjector2.kt`, or `cluster-widgets/source/`:
 - [ ] Check if the change introduces new keys or modifies existing key names.
 - [ ] Verify if legacy themes or `v1.0` themes will continue to operate without missing data.
-- [ ] Update `THEME_GUIDE.md` and `.agents/themes_architecture.md` if new bridge methods or telemetry keys are added.
+- [ ] Update `THEME_GUIDE.md` and `docs/architecture/themes-contract-v1.md` if new bridge methods or telemetry keys are added.
 - [ ] If backwards compatibility is broken, **STOP** and ask the user to declare a new contract version (e.g. `v2.0`).

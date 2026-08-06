@@ -50,6 +50,8 @@ import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.ui.components.BottomBarContent
 import br.com.redesurftank.havalshisuku.ui.components.BottomBarMenus
+import br.com.redesurftank.havalshisuku.ui.components.isAndroidAutoShownOnMainDisplay
+import br.com.redesurftank.havalshisuku.ui.components.resolveBottomBarTouchableLeftPx
 import br.com.redesurftank.havalshisuku.ui.theme.HavalShisukuTheme
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import com.beantechs.mediacenter.core_common.data.MediaInfo
@@ -3812,8 +3814,18 @@ class BottomBarService : LifecycleService() {
                                 )
 
                                 // The left navigation pane draws above us and owns the gutter, so
-                                // there is nothing of ours to touch there.
-                                val left = BottomBarState.overlayLeftGutterPx
+                                // there is nothing of ours to touch there. When Android Auto owns
+                                // display 0, also clear the AA left-rail cutout (see
+                                // resolveBottomBarTouchableLeftPx).
+                                val left =
+                                        resolveBottomBarTouchableLeftPx(
+                                                overlayLeftGutterPx =
+                                                        BottomBarState.overlayLeftGutterPx,
+                                                androidAutoOnMainDisplay =
+                                                        isAndroidAutoShownOnMainDisplay(
+                                                                BottomBarState.currentPackage
+                                                        )
+                                        )
 
                                 if (BottomBarState.isVisible) {
                                     // Main Bar touchable area - full width, bottom 80dp
