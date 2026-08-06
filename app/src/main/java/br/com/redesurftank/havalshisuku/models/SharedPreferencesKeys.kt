@@ -265,6 +265,15 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     CUSTOM_THEME_REPO_ENV("customThemeRepoEnv", "Ambiente do Repositório (Prod/Dev)"),
     ACTIVE_CUSTOM_THEME("activeCustomTheme", "Tema Dinâmico Ativo"),
     THEME_RELOAD_NONCE("themeReloadNonce", "Nonce para recarregar WebView do tema"),
+    /**
+     * Tracks which one-shot theme startup migrations have already run.
+     * Bump [ThemeManager.BUNDLED_DEFAULT_THEME_MIGRATION] when a new first-run
+     * "switch to bundled Default" pass is required after an app upgrade.
+     */
+    THEME_STARTUP_MIGRATION_VERSION(
+            "themeStartupMigrationVersion",
+            "Versão da migração de tema aplicada no primeiro start após upgrade"
+    ),
     BOTTOM_BAR_AUTO_HIDE("bottomBarAutoHide", "Esconder barra automaticamente após 30s"),
     HIDE_LEFT_NAV_PANE("hideLeftNavPane", "Manter o painel lateral esquerdo oculto"),
     BOTTOM_BAR_SWIPE_UP_ACTION("bottomBarSwipeUpAction", "Ação ao deslizar a barra para cima"),

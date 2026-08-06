@@ -36,6 +36,14 @@ class ThemeManager private constructor(val context: Context) {
         const val THEME_REPO_URL = "https://github.com/netseek/haval-app-tool-multimidia/tree/feature/new-screen-enhancements-v7/cluster-widgets/Themes/v1.0"
         const val CURRENT_CONTRACT_VERSION = "v1.0"
 
+        /**
+         * One-shot migration id for forcing the APK-bundled Default theme on first run
+         * after upgrading to an app that ships a new Default. Bump when another such
+         * first-run switch is required; [SharedPreferencesKeys.THEME_STARTUP_MIGRATION_VERSION]
+         * stores the last applied value so each bump runs once.
+         */
+        const val BUNDLED_DEFAULT_THEME_MIGRATION = 1
+
         /** HttpURLConnection defaults to no timeout at all, so a stalled car connection
          *  would spin the refresh indicator forever with nothing shown to the user. */
         private const val CONNECT_TIMEOUT_MS = 10_000
@@ -151,8 +159,86 @@ class ThemeManager private constructor(val context: Context) {
         return normalized == CURRENT_CONTRACT_VERSION || normalized == "v1.0" || normalized == "1.0"
     }
 
-    fun sanitizeActiveThemeContract(context: Context) {
-        val prefs = context.getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+    private fun themePrefs() =
+            App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+
+    /**
+     * Selects the APK-bundled Default theme (empty [SharedPreferencesKeys.ACTIVE_CUSTOM_THEME]).
+     * Downloaded theme folders are left on disk so the user can re-select them later.
+     */
+    fun applyBundledDefaultTheme(bumpReloadNonce: Boolean = true) {
+        val editor = themePrefs().edit()
+            .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "")
+            .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default")
+        if (bumpReloadNonce) {
+            editor.putLong(
+                br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.THEME_RELOAD_NONCE.key,
+                System.currentTimeMillis()
+            )
+        }
+        editor.apply()
+    }
+
+    /**
+     * First-run-after-upgrade: if the user still has a custom/legacy theme selected,
+     * switch to the Default theme shipped in this APK. Runs once per
+     * [BUNDLED_DEFAULT_THEME_MIGRATION] bump. Fresh installs are a no-op (already Default).
+     *
+     * Also re-sanitizes contract-incompatible selections on every call so the cluster
+     * never boots into a stale theme before Telas is opened.
+     */
+    fun runStartupThemeMigrations() {
+        val prefs = themePrefs()
+        val applied = prefs.getInt(
+            br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.THEME_STARTUP_MIGRATION_VERSION.key,
+            0
+        )
+        if (applied < BUNDLED_DEFAULT_THEME_MIGRATION) {
+            val activeFolder = prefs.getString(
+                br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key,
+                ""
+            ) ?: ""
+            val virtualTheme = prefs.getString(
+                br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key,
+                "Default"
+            ) ?: "Default"
+
+            val activeIsDefault =
+                activeFolder.isBlank() || activeFolder.equals("Default", ignoreCase = true)
+            val virtualIsDefault =
+                virtualTheme.isBlank() || virtualTheme.equals("Default", ignoreCase = true)
+
+            val editor = prefs.edit()
+                .putInt(
+                    br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.THEME_STARTUP_MIGRATION_VERSION.key,
+                    BUNDLED_DEFAULT_THEME_MIGRATION
+                )
+
+            if (!activeIsDefault || !virtualIsDefault) {
+                Log.w(
+                    TAG,
+                    "First run after app upgrade: replacing active theme " +
+                        "(folder='$activeFolder', virtual='$virtualTheme') with bundled Default"
+                )
+                editor
+                    .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "")
+                    .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default")
+                    .putLong(
+                        br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.THEME_RELOAD_NONCE.key,
+                        System.currentTimeMillis()
+                    )
+            } else {
+                Log.w(TAG, "First run after app upgrade: already on bundled Default, migration recorded")
+            }
+
+            editor.apply()
+        }
+
+        sanitizeActiveThemeContract()
+    }
+
+    fun sanitizeActiveThemeContract(@Suppress("UNUSED_PARAMETER") context: Context? = null) {
+        val prefs = themePrefs()
         val activeFolder = prefs.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
         val virtualTheme = prefs.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default") ?: "Default"
 
@@ -175,10 +261,7 @@ class ThemeManager private constructor(val context: Context) {
 
         if (isFolderInvalid || isVirtualInvalid) {
             Log.w(TAG, "Active theme (folder='$activeFolder', virtual='$virtualTheme') is incompatible with contract $CURRENT_CONTRACT_VERSION. Falling back to Default.")
-            prefs.edit()
-                .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "")
-                .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default")
-                .apply()
+            applyBundledDefaultTheme(bumpReloadNonce = true)
         }
     }
 
