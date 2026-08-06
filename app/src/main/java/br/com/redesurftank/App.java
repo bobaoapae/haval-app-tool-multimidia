@@ -42,8 +42,8 @@ public class App extends Application {
         );
         br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.ensureDefaultDesktopShortcuts();
 
-        // Before ForegroundService / cluster projector start: one-shot upgrade migration
-        // to the APK-bundled Default theme, plus contract sanitization of the active theme.
+        // Before ForegroundService / cluster projector start: if the active theme is
+        // legacy or contract-incompatible, fall back to the APK-bundled Default.
         br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(this).runStartupThemeMigrations();
 
         var context = getContext();

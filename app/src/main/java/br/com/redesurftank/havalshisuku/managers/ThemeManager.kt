@@ -36,14 +36,6 @@ class ThemeManager private constructor(val context: Context) {
         const val THEME_REPO_URL = "https://github.com/netseek/haval-app-tool-multimidia/tree/feature/new-screen-enhancements-v7/cluster-widgets/Themes/v1.0"
         const val CURRENT_CONTRACT_VERSION = "v1.0"
 
-        /**
-         * One-shot migration id for forcing the APK-bundled Default theme on first run
-         * after upgrading to an app that ships a new Default. Bump when another such
-         * first-run switch is required; [SharedPreferencesKeys.THEME_STARTUP_MIGRATION_VERSION]
-         * stores the last applied value so each bump runs once.
-         */
-        const val BUNDLED_DEFAULT_THEME_MIGRATION = 1
-
         /** HttpURLConnection defaults to no timeout at all, so a stalled car connection
          *  would spin the refresh indicator forever with nothing shown to the user. */
         private const val CONNECT_TIMEOUT_MS = 10_000
@@ -180,60 +172,21 @@ class ThemeManager private constructor(val context: Context) {
     }
 
     /**
-     * First-run-after-upgrade: if the user still has a custom/legacy theme selected,
-     * switch to the Default theme shipped in this APK. Runs once per
-     * [BUNDLED_DEFAULT_THEME_MIGRATION] bump. Fresh installs are a no-op (already Default).
-     *
-     * Also re-sanitizes contract-incompatible selections on every call so the cluster
-     * never boots into a stale theme before Telas is opened.
+     * True when [folderName] is a non-Default selection that is missing on disk or
+     * not contract-compatible (legacy / blank contractVersion).
+     */
+    fun isLegacyOrIncompatibleThemeFolder(folderName: String?): Boolean {
+        if (folderName.isNullOrBlank() || folderName.equals("Default", ignoreCase = true)) return false
+        val metadata = getThemeMetadata(folderName) ?: return true
+        return !isContractCompatible(metadata.contractVersion)
+    }
+
+    /**
+     * Startup pass (before the cluster projector loads): if the active theme is
+     * legacy / missing / contract-incompatible, switch to the APK-bundled Default.
+     * Compatible custom themes (e.g. Minimalist) are left alone.
      */
     fun runStartupThemeMigrations() {
-        val prefs = themePrefs()
-        val applied = prefs.getInt(
-            br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.THEME_STARTUP_MIGRATION_VERSION.key,
-            0
-        )
-        if (applied < BUNDLED_DEFAULT_THEME_MIGRATION) {
-            val activeFolder = prefs.getString(
-                br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key,
-                ""
-            ) ?: ""
-            val virtualTheme = prefs.getString(
-                br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key,
-                "Default"
-            ) ?: "Default"
-
-            val activeIsDefault =
-                activeFolder.isBlank() || activeFolder.equals("Default", ignoreCase = true)
-            val virtualIsDefault =
-                virtualTheme.isBlank() || virtualTheme.equals("Default", ignoreCase = true)
-
-            val editor = prefs.edit()
-                .putInt(
-                    br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.THEME_STARTUP_MIGRATION_VERSION.key,
-                    BUNDLED_DEFAULT_THEME_MIGRATION
-                )
-
-            if (!activeIsDefault || !virtualIsDefault) {
-                Log.w(
-                    TAG,
-                    "First run after app upgrade: replacing active theme " +
-                        "(folder='$activeFolder', virtual='$virtualTheme') with bundled Default"
-                )
-                editor
-                    .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "")
-                    .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default")
-                    .putLong(
-                        br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.THEME_RELOAD_NONCE.key,
-                        System.currentTimeMillis()
-                    )
-            } else {
-                Log.w(TAG, "First run after app upgrade: already on bundled Default, migration recorded")
-            }
-
-            editor.apply()
-        }
-
         sanitizeActiveThemeContract()
     }
 
@@ -242,25 +195,20 @@ class ThemeManager private constructor(val context: Context) {
         val activeFolder = prefs.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
         val virtualTheme = prefs.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default") ?: "Default"
 
-        var isFolderInvalid = false
-        if (activeFolder.isNotBlank() && !activeFolder.equals("Default", ignoreCase = true)) {
-            val metadata = getThemeMetadata(activeFolder)
-            if (metadata == null || !isContractCompatible(metadata.contractVersion)) {
-                isFolderInvalid = true
-            }
-        }
+        val isFolderInvalid = isLegacyOrIncompatibleThemeFolder(activeFolder)
 
-        var isVirtualInvalid = false
-        if (!virtualTheme.equals("Default", ignoreCase = true) && !virtualTheme.equals("Minimalist", ignoreCase = true)) {
-            // Check if virtualTheme metadata is contract compatible
-            val metadata = getLocalThemes().firstOrNull { it.name.equals(virtualTheme, ignoreCase = true) }
-            if (metadata == null || !isContractCompatible(metadata.contractVersion)) {
-                isVirtualInvalid = true
-            }
-        }
+        // VIRTUAL_CLUSTER_THEME is UI bookkeeping. Invalid when it names something other
+        // than Default that is not among the compatible local themes (legacy / missing).
+        val isVirtualInvalid =
+            !virtualTheme.equals("Default", ignoreCase = true) &&
+                getLocalThemes().none { it.name.equals(virtualTheme, ignoreCase = true) }
 
         if (isFolderInvalid || isVirtualInvalid) {
-            Log.w(TAG, "Active theme (folder='$activeFolder', virtual='$virtualTheme') is incompatible with contract $CURRENT_CONTRACT_VERSION. Falling back to Default.")
+            Log.w(
+                TAG,
+                "Active theme (folder='$activeFolder', virtual='$virtualTheme') is legacy or " +
+                    "incompatible with contract $CURRENT_CONTRACT_VERSION. Falling back to Default."
+            )
             applyBundledDefaultTheme(bumpReloadNonce = true)
         }
     }
