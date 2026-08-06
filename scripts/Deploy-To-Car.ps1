@@ -25,7 +25,7 @@ if (Test-Path $avgTrust) {
     $env:GRADLE_OPTS = if ($env:GRADLE_OPTS) { "$env:GRADLE_OPTS $sslOpts" } else { $sslOpts }
     Write-Host "Using AVG-aware Java truststore: $avgTrust" -ForegroundColor DarkGray
 } else {
-    Write-Host "[!] AVG truststore missing — if build fails with PKIX, run scripts\Setup-JavaSslForAvg.ps1" -ForegroundColor Yellow
+    Write-Host "[!] AVG truststore missing - if build fails with PKIX, run scripts\Setup-JavaSslForAvg.ps1" -ForegroundColor Yellow
 }
 & $gradlew assembleDebug
 

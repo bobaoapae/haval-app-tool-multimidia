@@ -1829,6 +1829,76 @@ canvas.regen-chart {
   text-align: center;
 }
 
+/*
+ * Reduzido / Clean only: primary matches secondary size; both sit on the right,
+ * stacked just below the 0 line. Padrão keeps the larger centered primary above.
+ */
+body.nav-mask-reduced .dynamic-tooltip,
+#app.nav-mask-reduced .dynamic-tooltip,
+body.nav-mask-clean .dynamic-tooltip,
+#app.nav-mask-clean .dynamic-tooltip {
+  align-items: flex-end;
+  justify-content: flex-start;
+  width: auto;
+  height: auto;
+  transition: opacity 0.4s ease-in-out;
+  top: 52%;
+  left: auto;
+  right: 10px;
+}
+
+body.nav-mask-reduced .tooltip-value,
+#app.nav-mask-reduced .tooltip-value,
+body.nav-mask-clean .tooltip-value,
+#app.nav-mask-clean .tooltip-value {
+  font-size: 40px;
+  text-align: right;
+}
+
+body.nav-mask-reduced .tooltip-unity,
+#app.nav-mask-reduced .tooltip-unity,
+body.nav-mask-clean .tooltip-unity,
+#app.nav-mask-clean .tooltip-unity {
+  min-width: 0;
+  font-size: 16px;
+  text-align: right;
+  transform: translateY(-16px);
+}
+
+body.nav-mask-reduced .dynamic-tooltip.primary,
+#app.nav-mask-reduced .dynamic-tooltip.primary,
+body.nav-mask-clean .dynamic-tooltip.primary,
+#app.nav-mask-clean .dynamic-tooltip.primary {
+  top: 52%;
+}
+
+body.nav-mask-reduced .dynamic-tooltip.primary .tooltip-unity,
+#app.nav-mask-reduced .dynamic-tooltip.primary .tooltip-unity,
+body.nav-mask-clean .dynamic-tooltip.primary .tooltip-unity,
+#app.nav-mask-clean .dynamic-tooltip.primary .tooltip-unity {
+  text-align: right;
+}
+
+body.nav-mask-reduced .dynamic-tooltip.secondary,
+#app.nav-mask-reduced .dynamic-tooltip.secondary,
+body.nav-mask-clean .dynamic-tooltip.secondary,
+#app.nav-mask-clean .dynamic-tooltip.secondary {
+  top: calc(52% + 52px);
+  left: auto;
+  right: 10px;
+  justify-content: flex-start;
+  align-items: flex-end;
+  font-weight: 700;
+}
+
+body.nav-mask-reduced .dynamic-tooltip.secondary .tooltip-value,
+#app.nav-mask-reduced .dynamic-tooltip.secondary .tooltip-value,
+body.nav-mask-clean .dynamic-tooltip.secondary .tooltip-value,
+#app.nav-mask-clean .dynamic-tooltip.secondary .tooltip-value {
+  font-size: 40px;
+  font-weight: 500;
+}
+
 .graph-tooltip-mask {
   position: absolute;
   bottom: 0;
@@ -4267,13 +4337,27 @@ body.nav-mask-reduced .mask-panel.right,
    left edge (RPM badge landed at -77..-5, fully off screen) and crush the graph
    against the right one.
 
-   40px is the outward budget: the dial is 456 wide and centred on --mask-left-x
-   (290), and the RPM badge sits flush with its left edge, so 290-40-228 = 22px
-   of clearance. The right side mirrors it: 1630+40+226 = 1896, 24px clear. */
+   Reduzido black masks are 560px. Dial (456) centred at mask-left-x (290) + left
+   offset: -55 → centre 235, left edge ≈ 7 (inside the solid black half).
+   Right side: +75 pulls the graph into the right mask; regen ignores that offset
+   (see .dashboard-bottom-regen — fixed at mask-right-x - 40). */
 body.nav-mask-reduced,
 #app.nav-mask-reduced {
-  --display-left-offset: -40px;
-  --display-right-offset: 40px;
+  --display-left-offset: -55px;
+  --display-right-offset: 75px;
+}
+
+/* Narrower power bar so the dial cluster reads inside the left black mask. */
+body.nav-mask-reduced .speed-power-bar-container,
+#app.nav-mask-reduced .speed-power-bar-container {
+  width: 200px !important;
+}
+
+/* Keep regen at its default (offset=0) anchor so Reduzido's --display-right-offset
+   does not slide it. Default formula was mask-right-x + offset - 40. */
+body.nav-mask-reduced .dashboard-bottom-regen,
+#app.nav-mask-reduced .dashboard-bottom-regen {
+  left: calc(var(--mask-right-x) - 40px) !important;
 }
 
 /* The badge keeps its normal horizontal anchor (19px past the dial's left edge) so
@@ -4281,8 +4365,7 @@ body.nav-mask-reduced,
    Instead it moves up out of the bottom-left corner and sits directly on top of the
    power bar band: the dial is 456 tall, the bar's track starts at y=395, and the
    badge is 72 tall, so bottom:58px lands it at y 326..398. Raising it is what frees
-   the corner — with the anchor unchanged, -40px is the whole outward budget, which
-   leaves the badge 3px clear of the left edge. */
+   the corner. */
 body.nav-mask-reduced .dashboard-rpm-container,
 #app.nav-mask-reduced .dashboard-rpm-container {
   bottom: 58px !important;
@@ -4426,14 +4509,44 @@ body.native-mock-enabled .dashboard-fixed-overlay {
     pointer-events: none !important;
 }
 
-/* Reduzido narrows the panel to 400px. `left` stays anchored, so the 52px comes off
-   the RIGHT edge and pulls the ruler labels — which are inset from that edge
-   (.ruler-val.primary right:48px, .secondary right:12px) — away from the screen
-   boundary: the panel ends at 1844 instead of 1896. The chart is
-   responsive/maintainAspectRatio:false, so the canvas follows the container. */
+/* Reduzido: narrower panel + recentre so it sits inside the 560px right black mask.
+   left = mask-right-x + right-offset − halfWidth → 1630+75−175 = 1530, ends at 1880. */
 body.nav-mask-reduced .graph-screen,
 #app.nav-mask-reduced .graph-screen {
-    width: 400px !important;
+    width: 350px !important;
+    left: calc(var(--mask-right-x) + var(--display-right-offset) - 175px) !important;
+}
+
+/* Settings / Informações: nudge right and slim to the right mask column.
+   Keep the box inside 1920 (prior layouts overflowed past the right edge). */
+body.nav-mask-reduced .ajustes-screen,
+body.nav-mask-reduced .info-screen,
+#app.nav-mask-reduced .ajustes-screen,
+#app.nav-mask-reduced .info-screen {
+    left: calc(var(--mask-right-x) + var(--display-right-offset) - 760px) !important;
+    width: 260px !important;
+}
+
+body.nav-mask-reduced .ajustes-item,
+#app.nav-mask-reduced .ajustes-item {
+    max-width: 240px;
+}
+
+body.nav-mask-reduced .info-list,
+#app.nav-mask-reduced .info-list {
+    max-width: 250px;
+}
+
+body.nav-mask-reduced .info-item-label,
+#app.nav-mask-reduced .info-item-label {
+    width: 110px;
+    flex: 0 0 110px;
+    font-size: 22px;
+}
+
+body.nav-mask-reduced .info-item-val,
+#app.nav-mask-reduced .info-item-val {
+    font-size: 28px;
 }
 
 /* Ajustes Sub-Menu Styles — minimalist list (aligned with regen) */
@@ -5083,10 +5196,12 @@ body.nav-mask-reduced .graph-screen,
   text-shadow: 0 0 10px rgba(0, 0, 0, 0.95), 0 2px 5px rgba(0, 0, 0, 0.9), 0 4px 12px rgba(0, 0, 0, 0.8) !important;
 }
 
-/* Bottom Bar Persistent Regen Indicator */
+/* Bottom Bar Persistent Regen Indicator.
+   Intentionally ignores --display-right-offset so mask modes (Reduzido/Clean)
+   never slide this icon; only the graph/menus ride that offset. */
 .dashboard-bottom-regen {
   position: absolute;
-  left: calc(var(--mask-right-x) + var(--display-right-offset) - 40px);
+  left: calc(var(--mask-right-x) - 40px);
   bottom: 22px;
   display: flex;
   flex-direction: column;

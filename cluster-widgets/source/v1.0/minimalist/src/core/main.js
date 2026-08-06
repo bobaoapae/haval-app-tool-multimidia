@@ -136,11 +136,11 @@ function isBarVisible(stateVar, fallback) {
 }
 
 function isTopBarVisible() {
-    return isBarVisible('topBarVisibility', BAR_ALWAYS);
+    return isBarVisible('topBarVisibility', BAR_NEVER);
 }
 
 function isBottomBarVisible() {
-    return isBarVisible('bottomBarVisibility', BAR_WITH_PROJECTION);
+    return isBarVisible('bottomBarVisibility', BAR_NEVER);
 }
 
 // The top notch is mandatory whenever the top bar is hidden — the menu needs a backdrop
@@ -233,7 +233,7 @@ function getEffectiveMaskMode() {
     const appInDashVal = get('appInDash');
     const isAppActive = appInDashVal === true || appInDashVal === 'left' || appInDashVal === 'right';
     if (isAppActive) {
-        return normalizeMaskMode(get('appDisplayMode') ?? get('app_display_mode'), 'Padrão');
+        return normalizeMaskMode(get('appDisplayMode') ?? get('app_display_mode'), 'Reduzido');
     }
     return 'Padrão';
 }
@@ -384,9 +384,8 @@ function render() {
             classes.push('native-mock-enabled');
         }
 
-        // theme.xml settings. Only the "off" side gets a class, so the boot frame
-        // that renders before bindThemeSetting resolves already matches the defaults
-        // (bars shown, regen and RPM indicators shown).
+        // theme.xml settings. Only the "off" side gets a class. Boot-frame fallbacks
+        // match theme.xml defaults (bars hidden / Nunca, regen and RPM shown).
         if (!isBottomBarVisible()) {
             classes.push('hide-bottom-bar');
         }
@@ -1095,15 +1094,15 @@ async function initMinimalistBridge() {
 
     // Defaults must mirror theme.xml, otherwise the boot frame renders the wrong mask
     // until the host delivers the stored value.
-    bindSetting('topBarVisibility', 'Sempre');
-    bindSetting('bottomBarVisibility', 'Só com Projeção');
+    bindSetting('topBarVisibility', 'Nunca');
+    bindSetting('bottomBarVisibility', 'Nunca');
     bindSetting('bottomBarNotch', true);
 
     bindSetting('projectionKeepVisible', 'Gauges, Hora, Marcha, HEV, Regen');
     bindSetting('showRegenIcon', true);
     bindSetting('showRpmIcon', true);
     bindSetting('navigationDisplayMode', 'Clean');
-    bindSetting('appDisplayMode', 'Padrão');
+    bindSetting('appDisplayMode', 'Reduzido');
     bindSetting('display', 'Normal');
 
     migrateLegacyBarSettings();

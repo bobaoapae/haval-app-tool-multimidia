@@ -918,6 +918,21 @@ export function createGraphScreen() {
 
                 const yAxis = chartInstance.scales.y;
                 const y1Axis = chartInstance.scales.y1;
+                // Reduzido/Clean only: pin live values just below the 0 line on the right.
+                // Padrão keeps the CSS defaults (large centered primary / bottom-right secondary).
+                const compactGraphValues = document.body.classList.contains('nav-mask-reduced')
+                    || document.body.classList.contains('nav-mask-clean')
+                    || document.getElementById('app')?.classList.contains('nav-mask-reduced')
+                    || document.getElementById('app')?.classList.contains('nav-mask-clean');
+                const zeroScale = yAxis || y1Axis;
+                if (compactGraphValues && zeroScale && typeof zeroScale.getPixelForValue === 'function') {
+                    const belowZero = `${Math.round(zeroScale.getPixelForValue(0) + 8)}px`;
+                    dynamicTooltip.style.top = belowZero;
+                    secondaryTooltip.style.top = `calc(${belowZero} + 52px)`;
+                } else {
+                    dynamicTooltip.style.top = '';
+                    secondaryTooltip.style.top = '';
+                }
 
                 if (primaryDS) {
                     const activeVal = activeValue !== undefined ? activeValue : 0;

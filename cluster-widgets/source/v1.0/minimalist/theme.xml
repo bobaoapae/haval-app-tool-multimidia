@@ -1,7 +1,7 @@
 <theme>
     <name>Minimalist</name>
     <description>Clean, square edges, flat menu, and minimalist typography.</description>
-    <version>1.6.4</version>
+    <version>1.6.5</version>
     <minBridgeVersion>1.0.0</minBridgeVersion>
     <contractVersion>v1.0</contractVersion>
     <thumbnail>thumbnail.png</thumbnail>
@@ -17,15 +17,6 @@
         <width>1920</width>
         <height>596</height>
     </AppDefaultPosition>
-
-    <!-- Native cluster mask overlays rendered on Display 3 by Android host -->
-    <nativeMasks>
-        <fuelMask enabled="true" x="0" y="653" width="730" height="67" />
-        <batteryMask enabled="true" x="1190" y="653" width="730" height="67" />
-        <topCenterMask enabled="true" x="710" y="0" width="500" height="67" />
-        <!-- <speedMask enabled="false" x="0" y="0" width="600" height="720" /> -->
-        <!-- <infoMask enabled="false" x="1320" y="0" width="600" height="720" /> -->
-    </nativeMasks>
 
     <configurations>
         <configuration>
@@ -55,7 +46,7 @@
             <label>Modo de Exibição de Outros Apps</label>
             <type>combo</type>
             <options>Padrão, Reduzido, Clean</options>
-            <default>Padrão</default>
+            <default>Reduzido</default>
             <stateVariable>appDisplayMode</stateVariable>
         </configuration>
         <configuration>
@@ -63,7 +54,7 @@
             <label>Exibir Barra Superior</label>
             <type>combo</type>
             <options>Sempre, Só com Projeção, Só sem Projeção, Nunca</options>
-            <default>Sempre</default>
+            <default>Nunca</default>
             <stateVariable>topBarVisibility</stateVariable>
         </configuration>
         <configuration>
@@ -71,7 +62,7 @@
             <label>Exibir Barra Inferior</label>
             <type>combo</type>
             <options>Sempre, Só com Projeção, Só sem Projeção, Nunca</options>
-            <default>Só com Projeção</default>
+            <default>Nunca</default>
             <stateVariable>bottomBarVisibility</stateVariable>
         </configuration>
         <configuration>
