@@ -18,15 +18,6 @@
         <height>596</height>
     </AppDefaultPosition>
 
-    <!-- Native cluster mask overlays rendered on Display 3 by Android host -->
-    <nativeMasks>
-        <fuelMask enabled="true" x="0" y="653" width="730" height="67" />
-        <batteryMask enabled="true" x="1190" y="653" width="730" height="67" />
-        <topCenterMask enabled="true" x="710" y="0" width="500" height="67" />
-        <!-- <speedMask enabled="false" x="0" y="0" width="600" height="720" /> -->
-        <!-- <infoMask enabled="false" x="1320" y="0" width="600" height="720" /> -->
-    </nativeMasks>
-
     <configurations>
         <configuration>
             <id>show_regen_icon</id>
