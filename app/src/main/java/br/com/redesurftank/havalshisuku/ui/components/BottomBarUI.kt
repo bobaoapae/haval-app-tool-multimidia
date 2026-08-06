@@ -10,6 +10,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -69,6 +70,11 @@ private const val recycleOut = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAD
 private const val BOTTOM_BAR_TAG = "BottomBarUI"
 private const val BOTTOM_BAR_CARPLAY_PACKAGE = "com.ts.carplay.app"
 private const val BOTTOM_BAR_ANDROID_AUTO_PACKAGE = "com.ts.androidauto.app"
+/**
+ * When Android Auto owns display 0, leave this many pixels at the left of the bottom bar clear so
+ * the AA rail icon that sits under the bar stays visible and tappable.
+ */
+internal const val ANDROID_AUTO_BOTTOM_BAR_LEFT_PASSTHROUGH_PX = 100
 internal const val DASHBOARD_FUEL_TANK_CAPACITY_LITERS = 55f
 private const val DASHBOARD_MEDIA_VOLUME_MIN = 0
 private const val DASHBOARD_MEDIA_VOLUME_MAX = 30
@@ -125,17 +131,61 @@ internal fun mergeBottomBarProjectionConfigs(
         return savedConfigs + projectionDefaults.filter { savedPackages.add(it.packageName) }
 }
 
+/**
+ * The package the bar's centre icon stands for: whatever is on display 0 right now.
+ *
+ * A projection running on the cluster deliberately does not take part. The icon answers "what am I
+ * looking at on the main screen", so claiming Android Auto while it is on display 3 - and the user
+ * is on some other app on display 0 - is exactly the confusion this avoids.
+ */
 internal fun resolveBottomBarEffectivePackage(
         projectionPackageOnMain: String?,
-        projectionPackageOnCluster: String?,
         selectedPackage: String,
         firstConfiguredPackage: String
 ): String {
         return projectionPackageOnMain
-                ?: projectionPackageOnCluster
                 ?: selectedPackage.takeIf { it.isNotEmpty() }
                 ?: firstConfiguredPackage
 }
+
+/** True when the top package on display 0 is Android Auto (not merely AA on the cluster). */
+internal fun isAndroidAutoShownOnMainDisplay(currentPackage: String): Boolean {
+        return br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                .resolveProjectionPackageOrNull(currentPackage) == BOTTOM_BAR_ANDROID_AUTO_PACKAGE
+}
+
+/** Transparent/click-through width at the left of the bar while AA owns display 0; 0 otherwise. */
+internal fun resolveAndroidAutoBottomBarCutoutPx(
+        androidAutoOnMainDisplay: Boolean,
+        androidAutoPassthroughPx: Int = ANDROID_AUTO_BOTTOM_BAR_LEFT_PASSTHROUGH_PX
+): Int = if (androidAutoOnMainDisplay) androidAutoPassthroughPx.coerceAtLeast(0) else 0
+
+/**
+ * Left edge of the bar window's touchable region. When AA is on screen, pass through the AA rail
+ * cutout; otherwise leave the SystemUI gutter alone (the pane draws above us there).
+ */
+internal fun resolveBottomBarTouchableLeftPx(
+        overlayLeftGutterPx: Int,
+        androidAutoOnMainDisplay: Boolean,
+        androidAutoPassthroughPx: Int = ANDROID_AUTO_BOTTOM_BAR_LEFT_PASSTHROUGH_PX
+): Int {
+        val cutout =
+                resolveAndroidAutoBottomBarCutoutPx(
+                        androidAutoOnMainDisplay = androidAutoOnMainDisplay,
+                        androidAutoPassthroughPx = androidAutoPassthroughPx
+                )
+        if (cutout > 0) return cutout
+        return overlayLeftGutterPx.coerceAtLeast(0)
+}
+
+/**
+ * Start padding for the button Row inside a Surface that already has [surfaceCutoutPx] start
+ * padding. Keeps content anchored at the SystemUI gutter so AA on/off does not reflow the bar.
+ */
+internal fun resolveBottomBarRowStartPadPx(
+        overlayLeftGutterPx: Int,
+        surfaceCutoutPx: Int
+): Int = (overlayLeftGutterPx.coerceAtLeast(0) - surfaceCutoutPx.coerceAtLeast(0)).coerceAtLeast(0)
 
 private fun getBottomBarAppConfigs(): List<DisplayAppConfig> {
         return mergeBottomBarProjectionConfigs(
@@ -144,9 +194,18 @@ private fun getBottomBarAppConfigs(): List<DisplayAppConfig> {
         )
 }
 
+/**
+ * The projection app on display 0, or null when display 0 is showing something else.
+ *
+ * Read off [BottomBarState.currentPackage] - the top package the service polls - instead of
+ * `resolveActiveProjectionPackageForDisplay(0)`, which also reports a projection that is only
+ * parked in display 0's task stack. That is what left the bar stuck on the Android Auto icon after
+ * AA came back from the cluster and another app was opened on top of it. Reading state also means
+ * the icon actually recomposes when display 0 changes.
+ */
 private fun getProjectionPackageOnMainForBottomBar(): String? {
         return br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-                .resolveActiveProjectionPackageForDisplay(0)
+                .resolveProjectionPackageOrNull(BottomBarState.currentPackage)
 }
 
 private val commonTextStyle =
@@ -174,6 +233,45 @@ private fun String?.toComposeColor(): Color {
         } catch (_: Exception) {
                 Color.White
         }
+}
+
+/**
+ * Runs whatever the user configured for a swipe up on the bar. Defaults to opening Impulse Drive,
+ * which was the only behaviour before this became configurable.
+ */
+private fun performSwipeUpAction(context: Context) {
+        val action = BottomBarState.SwipeUpAction.fromKey(BottomBarState.swipeUpAction)
+
+        // Any action first collapses whatever the bar had open.
+        BottomBarState.isVisible = true
+        BottomBarState.isMenuExpanded = false
+        BottomBarState.isSettingsMenuExpanded = false
+        BottomBarState.isOverrideMenuExpanded = false
+
+        val packageToLaunch =
+                when (action) {
+                        BottomBarState.SwipeUpAction.DASHBOARD -> null
+                        BottomBarState.SwipeUpAction.HAVAL_HOME ->
+                                BottomBarState.SwipeUpAction.HAVAL_HOME_PACKAGE
+                        BottomBarState.SwipeUpAction.APP_LAUNCHER ->
+                                BottomBarState.SwipeUpAction.APP_LAUNCHER_PACKAGE
+                        BottomBarState.SwipeUpAction.CUSTOM_APP ->
+                                BottomBarState.swipeUpPackage.takeIf { it.isNotBlank() }
+                }
+
+        if (packageToLaunch == null) {
+                // Either the dashboard was chosen, or "specific app" was chosen without ever picking
+                // one - fall back to the dashboard rather than swallowing the gesture.
+                BottomBarState.isDashboardExpanded = true
+                return
+        }
+
+        BottomBarState.isDashboardExpanded = false
+        BottomBarState.selectedPackage = packageToLaunch
+        br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyAppDetached(
+                context,
+                packageToLaunch
+        )
 }
 
 @Composable
@@ -301,6 +399,27 @@ fun BottomBarContent() {
                 onDispose { serviceManager.removeDataChangedListener(listener) }
         }
 
+        // The window spans the physical display, so inset the content past the left navigation pane
+        // (which draws above us). Constant at runtime, so the bar never reflows when a fullscreen app
+        // hides the pane.
+        val leftGutterPx = BottomBarState.overlayLeftGutterPx
+        val androidAutoOnMain = isAndroidAutoShownOnMainDisplay(BottomBarState.currentPackage)
+        val aaCutoutPx = resolveAndroidAutoBottomBarCutoutPx(androidAutoOnMain)
+        val density = LocalDensity.current
+        // Punch only the AA rail hole in the black strip; keep the button Row at the same physical
+        // gutter as when AA is off so weights/positions do not jump.
+        val surfaceStartPad = with(density) { aaCutoutPx.toDp() }
+        val rowStartPad =
+                with(density) {
+                        resolveBottomBarRowStartPadPx(leftGutterPx, aaCutoutPx).toDp()
+                }
+        val barContext = LocalContext.current
+
+        // Note the gutter is applied to the content Row below, NOT here: the black Surface has to span
+        // the whole window so the bar reads as one continuous strip. Padding it here leaves the left
+        // 128px transparent, which shows through as a gap whenever the app behind is not dark.
+        // Exception: when Android Auto owns display 0 we pad the Surface by the AA cutout only (not
+        // the full gutter) so the rail icon stays visible without reflowing the buttons.
         Box(
                 modifier = Modifier.fillMaxWidth().height(60.dp),
                 contentAlignment = Alignment.BottomCenter
@@ -309,6 +428,7 @@ fun BottomBarContent() {
                         Surface(
                                 modifier =
                                         Modifier.fillMaxWidth()
+                                                .padding(start = surfaceStartPad)
                                                 .height(60.dp)
                                                 // Swipe-down gesture: if user drags down > 20dp,
                                                 // hide the bar.
@@ -366,21 +486,9 @@ fun BottomBarContent() {
                                                                                                         it.pressed
                                                                                                 })
                                                                                         if (shouldExpand) {
-                                                                                                BottomBarState
-                                                                                                        .isDashboardExpanded =
-                                                                                                        true
-                                                                                                BottomBarState
-                                                                                                        .isVisible =
-                                                                                                        true
-                                                                                                BottomBarState
-                                                                                                        .isMenuExpanded =
-                                                                                                        false
-                                                                                                BottomBarState
-                                                                                                        .isSettingsMenuExpanded =
-                                                                                                        false
-                                                                                                BottomBarState
-                                                                                                        .isOverrideMenuExpanded =
-                                                                                                        false
+                                                                                                performSwipeUpAction(
+                                                                                                        barContext
+                                                                                                )
                                                                                         } else {
                                                                                                 BottomBarState
                                                                                                         .isDashboardExpanded =
@@ -405,43 +513,19 @@ fun BottomBarContent() {
                                 shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp),
                                 tonalElevation = 0.dp
                         ) {
-                                // Use BoxWithConstraints to get actual measured width
-                                androidx.compose.foundation.layout.BoxWithConstraints(
+                                // The window is a fixed physical width now, so the layout no longer has
+                                // to compensate for a measured width that changed with the left
+                                // navigation pane - the constant gutter below does that job.
+                                Box(
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.CenterEnd
                                 ) {
-                                        val density =
-                                                androidx.compose.ui.platform.LocalDensity.current
-                                                        .density
-                                        val actualWidthPx = constraints.maxWidth
-
-                                        // Dynamic padding: 150px when full 1920px, reduced when
-                                        // narrower
-                                        // Threshold: 1820px (= 1920 - 100). Below this, no padding.
-                                        val thresholdPx = (1820 * density).toInt()
-                                        val compensationPx =
-                                                (actualWidthPx - thresholdPx).coerceAtLeast(0)
-                                        val horizontalOffsetCompensation =
-                                                (compensationPx / density).dp
-
-                                        // Troubleshoot logging
-                                        android.util.Log.d(
-                                                "BottomBarUI",
-                                                "Width - " +
-                                                        "ActualWidthPx: $actualWidthPx, " +
-                                                        "Density: $density, " +
-                                                        "ThresholdPx: $thresholdPx, " +
-                                                        "CompensationPx: $compensationPx, " +
-                                                        "PaddingDp: $horizontalOffsetCompensation"
-                                        )
-
                                         Row(
                                                 modifier =
                                                         Modifier.fillMaxWidth()
                                                                 .fillMaxHeight()
                                                                 .padding(
-                                                                        start =
-                                                                                horizontalOffsetCompensation,
+                                                                        start = rowStartPad,
                                                                         end = 8.dp
                                                                 ),
                                                 verticalAlignment = Alignment.CenterVertically
@@ -792,7 +876,7 @@ fun BottomBarContent() {
                                                                                                 true
                                                                                         BottomBarState
                                                                                                 .isDashboardExpanded =
-                                                                                                true
+                                                                                                false
                                                                                         break
                                                                                 }
                                                                         } while (event.changes.any {
@@ -839,14 +923,9 @@ fun AppSwitcherSection() {
         val selectedPackage = br.com.redesurftank.havalshisuku.models.BottomBarState.selectedPackage
         val showMenu = br.com.redesurftank.havalshisuku.models.BottomBarState.isMenuExpanded
         val projectionPackageOnMain = getProjectionPackageOnMainForBottomBar()
-        val projectionPackageOnCluster =
-                br.com.redesurftank.havalshisuku.models.BottomBarState
-                        .activeClusterProjectionPackage
-                        .takeIf { it.isNotEmpty() }
         val effectiveSelectedPackage =
                 resolveBottomBarEffectivePackage(
                         projectionPackageOnMain = projectionPackageOnMain,
-                        projectionPackageOnCluster = projectionPackageOnCluster,
                         selectedPackage = selectedPackage,
                         firstConfiguredPackage = configs.firstOrNull()?.packageName ?: ""
                 )
@@ -1766,9 +1845,27 @@ fun BottomBarMenus() {
 
         val dashboardExpanded = BottomBarState.isDashboardExpanded
 
+        // The window hosting these menus is resized from 0x0 to full screen when one opens, and it is
+        // anchored to the bottom, so the scrim and the menu would otherwise appear to sweep up from the
+        // bottom edge as the window grows. Fade in instead. (Closing stays instant - the window is
+        // collapsed straight away, so there is nothing left to animate out.)
+        val anyExpanded =
+                dashboardExpanded ||
+                        BottomBarState.isMenuExpanded ||
+                        BottomBarState.isSettingsMenuExpanded ||
+                        BottomBarState.isOverrideMenuExpanded ||
+                        BottomBarState.activeSliderType != null
+        val contentAlpha by
+                animateFloatAsState(
+                        targetValue = if (anyExpanded) 1f else 0f,
+                        animationSpec = tween(durationMillis = 120),
+                        label = "menuFade"
+                )
+
         Box(
                 modifier =
                         Modifier.fillMaxSize()
+                                .alpha(contentAlpha)
                                 .background(
                                         if (dashboardExpanded) Color(0xFF05070A)
                                         else Color.Black.copy(alpha = 0.4f)
@@ -1812,55 +1909,74 @@ fun BottomBarMenus() {
                         Box(
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 60.dp),
                         ) {
-                                // Custom Vertical Slider Overlay
+                                // Custom Vertical Slider Overlay. Deliberately outside the gutter
+                                // inset below: it positions itself from an absolute root coordinate
+                                // captured in the bar window, so an extra inset would double-count.
                                 if (BottomBarState.activeSliderType != null) {
                                         VerticalSliderOverlay()
                                 }
 
-                                // App Menu (Left side)
-                                if (br.com.redesurftank.havalshisuku.models.BottomBarState
-                                                .isMenuExpanded
-                                ) {
-                                        Box(
-                                                modifier =
-                                                        Modifier.padding(start = 16.dp)
-                                                                .align(Alignment.BottomStart)
-                                                                .onGloballyPositioned {
-                                                                        appMenuBounds =
-                                                                                it.boundsInRoot()
-                                                                }
-                                        ) { AppMenuContent() }
-                                }
+                                // The window spans the physical display; inset the menus past the
+                                // left navigation pane, which draws above us. This also makes the
+                                // menus measure against the app width, so their proportional widths
+                                // are unchanged by the pin.
+                                val leftGutter =
+                                        with(LocalDensity.current) {
+                                                BottomBarState.overlayLeftGutterPx.toDp()
+                                        }
 
-                                // Settings/Override Menu
-                                if (BottomBarState.isSettingsMenuExpanded ||
-                                                BottomBarState.isOverrideMenuExpanded
-                                ) {
-                                        Box(
-                                                modifier =
-                                                        Modifier.align(
-                                                                        if (BottomBarState
-                                                                                        .isSettingsMenuExpanded
-                                                                        )
-                                                                                Alignment
-                                                                                        .BottomStart
-                                                                        else Alignment.BottomEnd
-                                                                )
-                                                                .padding(horizontal = 16.dp)
-                                                                .onGloballyPositioned {
-                                                                        secondaryMenuBounds =
-                                                                                it.boundsInRoot()
-                                                                }
+                                Box(modifier = Modifier.fillMaxWidth().padding(start = leftGutter)) {
+                                        // App Menu (Left side)
+                                        if (br.com.redesurftank.havalshisuku.models.BottomBarState
+                                                        .isMenuExpanded
                                         ) {
-                                                if (BottomBarState.isSettingsMenuExpanded) {
-                                                        SettingsMenuContent(
-                                                                driveMode,
-                                                                powerModel,
-                                                                energyRecovery,
-                                                                steeringMode
-                                                        )
-                                                } else if (BottomBarState.isOverrideMenuExpanded) {
-                                                        OverrideMenuContent()
+                                                Box(
+                                                        modifier =
+                                                                Modifier.padding(start = 16.dp)
+                                                                        .align(
+                                                                                Alignment.BottomStart
+                                                                        )
+                                                                        .onGloballyPositioned {
+                                                                                appMenuBounds =
+                                                                                        it.boundsInRoot()
+                                                                        }
+                                                ) { AppMenuContent() }
+                                        }
+
+                                        // Settings/Override Menu
+                                        if (BottomBarState.isSettingsMenuExpanded ||
+                                                        BottomBarState.isOverrideMenuExpanded
+                                        ) {
+                                                Box(
+                                                        modifier =
+                                                                Modifier.align(
+                                                                                if (BottomBarState
+                                                                                                .isSettingsMenuExpanded
+                                                                                )
+                                                                                        Alignment
+                                                                                                .BottomStart
+                                                                                else
+                                                                                        Alignment
+                                                                                                .BottomEnd
+                                                                        )
+                                                                        .padding(horizontal = 16.dp)
+                                                                        .onGloballyPositioned {
+                                                                                secondaryMenuBounds =
+                                                                                        it.boundsInRoot()
+                                                                        }
+                                                ) {
+                                                        if (BottomBarState.isSettingsMenuExpanded) {
+                                                                SettingsMenuContent(
+                                                                        driveMode,
+                                                                        powerModel,
+                                                                        energyRecovery,
+                                                                        steeringMode
+                                                                )
+                                                        } else if (BottomBarState
+                                                                        .isOverrideMenuExpanded
+                                                        ) {
+                                                                OverrideMenuContent()
+                                                        }
                                                 }
                                         }
                                 }
@@ -4115,51 +4231,6 @@ private fun DashboardArtworkFallback(
 }
 
 @Composable
-private fun DashboardQuickActionsPanel(
-        context: Context,
-        scope: CoroutineScope,
-        effectivePackage: String?,
-        modifier: Modifier
-) {
-        DashboardPanel(modifier = modifier) {
-                Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                        DashboardPanelTitle(Icons.Default.Apps, "Atalhos")
-                        DashboardActionButton(
-                                text = "Enviar ao cluster",
-                                icon = Icons.Default.KeyboardArrowLeft,
-                                enabled = effectivePackage != null
-                        ) {
-                                val pkg = effectivePackage ?: return@DashboardActionButton
-                                scope.launch {
-                                        DisplayAppLauncher.getOrCreateDefaultConfig(context, pkg)
-                                                ?.let { DisplayAppLauncher.sendToDisplay(it) }
-                                }
-                        }
-                        DashboardActionButton(
-                                text = "Trazer para D0",
-                                icon = Icons.Default.KeyboardArrowRight
-                        ) {
-                                scope.launch { DisplayAppLauncher.bringAllToMainDisplay() }
-                        }
-                        DashboardActionButton(
-                                text = "Menu de apps",
-                                icon = Icons.Default.GridView
-                        ) {
-                                BottomBarState.isDashboardExpanded = false
-                                BottomBarState.isMenuExpanded = true
-                        }
-                        DashboardActionButton(
-                                text = "Ocultar painel",
-                                icon = Icons.Default.KeyboardDoubleArrowDown
-                        ) {
-                                BottomBarState.isDashboardExpanded = false
-                                BottomBarState.isVisible = false
-                        }
-                }
-        }
-}
-
-@Composable
 private fun DashboardHvacPanel(
         snapshot: DashboardVehicleSnapshot,
         serviceManager: ServiceManager,
@@ -5082,53 +5153,6 @@ private fun DashboardIconButton(
                                 contentDescription = contentDescription,
                                 tint = Color.White,
                                 modifier = Modifier.size((size.value * 0.48f).dp)
-                        )
-                }
-        }
-}
-
-@Composable
-private fun DashboardActionButton(
-        text: String,
-        icon: ImageVector,
-        enabled: Boolean = true,
-        modifier: Modifier = Modifier.fillMaxWidth(),
-        height: Dp = 58.dp,
-        onClick: () -> Unit
-) {
-        Surface(
-                onClick = onClick,
-                enabled = enabled,
-                color =
-                        if (enabled) Color.White.copy(alpha = 0.07f)
-                        else Color.White.copy(alpha = 0.03f),
-                shape = RoundedCornerShape(8.dp),
-                border =
-                        BorderStroke(
-                                1.dp,
-                                if (enabled) Color.White.copy(alpha = 0.12f)
-                                else Color.White.copy(alpha = 0.05f)
-                        ),
-                modifier = modifier.height(height)
-        ) {
-                Row(
-                        modifier = Modifier.padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                        Icon(
-                                icon,
-                                contentDescription = null,
-                                tint = if (enabled) Color(0xFF66E3FF) else Color.White.copy(alpha = 0.3f),
-                                modifier = Modifier.size(24.dp)
-                        )
-                        Text(
-                                text = text,
-                                color = if (enabled) Color.White else Color.White.copy(alpha = 0.35f),
-                                fontSize = 14.sp,
-                                fontFamily = DashboardReadableFont,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
                         )
                 }
         }
@@ -6348,12 +6372,16 @@ fun AppGridItem(
                                                         onClick()
                                                         // Update shared selection state
                                                         BottomBarState.selectedPackage = pkg
-                                                        // Launch immediately on selection
-                                                        scope.launch {
-                                                                br.com.redesurftank.havalshisuku
-                                                                        .managers.DisplayAppLauncher
-                                                                        .launchAnyApp(context, pkg)
-                                                        }
+                                                        // Launch on the manager's own scope, not this
+                                                        // composition's - closing the drawer below
+                                                        // disposes it and would cancel the launch.
+                                                        br.com.redesurftank.havalshisuku.managers
+                                                                .DisplayAppLauncher
+                                                                .launchAnyAppDetached(context, pkg)
+                                                        // Close now instead of lingering until the
+                                                        // launched app reaches the foreground and a
+                                                        // monitor collapses the menu for us.
+                                                        BottomBarState.isMenuExpanded = false
                                                 }
                                         },
                                         onLongClick = { BottomBarState.isDeleteModeEnabled = true }
@@ -6670,8 +6698,18 @@ fun VerticalSliderOverlay() {
         val density = LocalDensity.current
         val sliderWidthDp = 80.dp
         val sliderWidthPx = with(density) { sliderWidthDp.toPx() }
-        val screenWidthPx = LocalConfiguration.current.screenWidthDp * density.density
-        val finalX = (positionX - sliderWidthPx / 2f).coerceIn(0f, screenWidthPx - sliderWidthPx)
+        // positionX is a root coordinate from the bar window, which is pinned to the physical display
+        // - so clamp against the window width, not the (inset) app width, and keep the slider out of
+        // the left navigation pane's gutter.
+        val windowWidthPx =
+                BottomBarState.overlayWindowWidthPx
+                        .takeIf { it > 0 }
+                        ?.toFloat()
+                        ?: (LocalConfiguration.current.screenWidthDp * density.density)
+        val gutterPx = BottomBarState.overlayLeftGutterPx.toFloat()
+        val finalX =
+                (positionX - sliderWidthPx / 2f)
+                        .coerceIn(gutterPx, (windowWidthPx - sliderWidthPx).coerceAtLeast(gutterPx))
         val finalXDp = with(density) { finalX.toDp() }
 
         Box(

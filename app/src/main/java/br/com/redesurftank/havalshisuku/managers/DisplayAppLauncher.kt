@@ -45,6 +45,9 @@ data class ResolvedAppInfo(
 
 object DisplayAppLauncher {
 
+    @Volatile
+    var dynamicThemeBounds: IntArray? = null
+
     /**
      * Attempts to launch Android Auto using common system package names.
      */
@@ -830,6 +833,41 @@ object DisplayAppLauncher {
         Log.w(TAG, "[$reason] Desired Android Auto display set to $displayId")
     }
 
+    fun isAutoMoveProjectionToClusterEnabled(): Boolean {
+        return getPrefs().getBoolean(
+            br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.AUTO_MOVE_PROJECTION_TO_CLUSTER.key,
+            true
+        )
+    }
+
+    /**
+     * Gate for the startup auto-launch only (InstrumentProjector2.triggerAutoLaunch).
+     *
+     * Android Auto and CarPlay are declared with displayId = 3 in PREDEFINED_APPS, and
+     * getOrCreateDefaultConfig() also defaults new configs to 3, so the config-driven
+     * launch path put projection on the cluster without ever reading the
+     * "move projection to cluster" setting - which is why turning it off changed nothing.
+     *
+     * Deliberately NOT applied inside launchApp(): an explicit send-to-display from the
+     * UI must still be able to put projection on the cluster. The setting only covers the
+     * automatic move at start.
+     *
+     * Coerces a copy instead of rewriting the stored config, so switching the setting back
+     * on restores cluster launch with no reconfiguration.
+     */
+    fun resolveAutoLaunchConfig(config: DisplayAppConfig): DisplayAppConfig {
+        if (config.displayId != 3) return config
+        if (normalizeProjectionPackage(config.packageName) == null) return config
+        if (isAutoMoveProjectionToClusterEnabled()) return config
+
+        Log.w(
+            TAG,
+            "[AUTO_LAUNCH_CLUSTER_GATE] ${config.packageName} configured for D3 but " +
+                    "autoMoveProjectionToCluster is off; auto-launching on D0 instead"
+        )
+        return config.copy(displayId = 0)
+    }
+
     fun isAndroidAutoDesiredOnCluster(): Boolean {
         return getPrefs().getInt(PREF_DESIRED_ANDROID_AUTO_DISPLAY_ID, -1) == 3
     }
@@ -1253,6 +1291,17 @@ object DisplayAppLauncher {
             else -> null
         }
     }
+
+    /**
+     * Maps an already-observed package name onto the projection package the rest of the app keys
+     * configs off, or null when it is not a projection package.
+     *
+     * Unlike [resolveActiveProjectionPackageForDisplay] this never searches the task stack, so a
+     * caller that already knows what is on top of a display can classify it without a projection
+     * that is merely parked in the background winning.
+     */
+    fun resolveProjectionPackageOrNull(packageName: String?): String? =
+        normalizeProjectionPackage(packageName)
 
     internal fun resolveProjectionDisplayToggleDecisionForTest(
         mainProjectionPackage: String?,
@@ -2387,6 +2436,8 @@ object DisplayAppLauncher {
         val displayId = config.displayId
         val bounds = getEffectiveBounds(config)
         val previousDisplay = findTaskForPackage(ANDROID_AUTO_PACKAGE)?.displayId
+
+        prepareDisplay3MaskHoleBeforeMove(displayId, bounds, reason)
 
         rememberAndroidAutoDisplayTarget(displayId, reason)
         AndroidAutoPatchManager.ensureMounted()
@@ -7469,6 +7520,9 @@ object DisplayAppLauncher {
         Log.w(TAG, "CMD: $cmd")
         val out = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "$cmd 2>&1"))
         Log.w(TAG, "OUT: [$out]")
+        // Everything that moves, resizes or starts a task goes through here, so any
+        // cached `am stack list` snapshot is stale the moment this returns.
+        invalidateStackListCache()
         return out
     }
 
@@ -7488,21 +7542,35 @@ object DisplayAppLauncher {
         var width = config.width
         var height = config.height
 
-        if (!config.overrideThemeDimensions && virtualClusterEnabled && config.displayId == 3) {
-            val themeFolderName = prefs.getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Básico") ?: "Básico"
-            if (themeFolderName == "Default" || themeFolderName == "Básico" || themeFolderName == "Light") {
-                x = 0
-                y = 62
-                width = 1920
-                height = 596
+        // Displays 1 and 3 are both the instrument cluster: 1 renders behind the
+        // ADAS/theme layer, 3 above it (see the display picker in TelasScreen).
+        // Both need the theme's mask insets — an app on display 1 sits *under*
+        // the masks, so it needs them most. overrideThemeDimensions stays the
+        // opt-out for users who want their raw configured bounds.
+        val onClusterDisplay = config.displayId == 1 || config.displayId == 3
+        if (!config.overrideThemeDimensions && virtualClusterEnabled && onClusterDisplay) {
+            val dynamicBounds = dynamicThemeBounds
+            if (dynamicBounds != null && dynamicBounds.size == 4) {
+                x = dynamicBounds[0]
+                y = dynamicBounds[1]
+                width = dynamicBounds[2]
+                height = dynamicBounds[3]
             } else {
-                val themeManager = ThemeManager.getInstance(App.getContext())
-                val metadata = themeManager.getThemeMetadata(themeFolderName)
-                if (metadata != null && metadata.x != null && metadata.y != null && metadata.width != null && metadata.height != null) {
-                    x = metadata.x!!
-                    y = metadata.y!!
-                    width = metadata.width!!
-                    height = metadata.height!!
+                val themeFolderName = prefs.getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Básico") ?: "Básico"
+                if (themeFolderName == "Default" || themeFolderName == "Básico" || themeFolderName == "Light") {
+                    x = 0
+                    y = 62
+                    width = 1920
+                    height = 596
+                } else {
+                    val themeManager = ThemeManager.getInstance(App.getContext())
+                    val metadata = themeManager.getThemeMetadata(themeFolderName)
+                    if (metadata != null && metadata.x != null && metadata.y != null && metadata.width != null && metadata.height != null) {
+                        x = metadata.x!!
+                        y = metadata.y!!
+                        width = metadata.width!!
+                        height = metadata.height!!
+                    }
                 }
             }
         }
@@ -7533,10 +7601,14 @@ object DisplayAppLauncher {
     suspend fun launchApp(config: DisplayAppConfig) {
         withContext(Dispatchers.IO) {
             if (isCarPlayPackage(config.packageName)) {
+                val bounds = getEffectiveBounds(config)
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "LAUNCH_APP_CARPLAY")
                 CarPlayDisplayOrchestrator.start(config, "LAUNCH_APP")
                 return@withContext
             }
             if (isAndroidAutoPackage(config.packageName)) {
+                val bounds = getEffectiveBounds(config)
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "LAUNCH_APP_AA")
                 startAndroidAutoOnDisplay(config, "LAUNCH_APP")
                 return@withContext
             }
@@ -7553,6 +7625,8 @@ object DisplayAppLauncher {
                 val y = bounds[1]
                 val right = bounds[2]
                 val bottom = bounds[3]
+
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "LAUNCH_APP")
 
                 val escapedActivity = config.activityName.replace("$", "\\$")
                 val isOwnPackage = config.packageName == App.getContext().packageName
@@ -7744,6 +7818,17 @@ object DisplayAppLauncher {
      * Uses am display move-stack + resize to fullscreen.
      */
     suspend fun launchOnMainDisplay(config: DisplayAppConfig) = launchAnyApp(App.getContext(), config.packageName, config.activityName)
+
+    /**
+     * Fire-and-forget [launchAnyApp] on this manager's own scope.
+     *
+     * The bottom bar drawer closes itself in the same tap that launches an app, which tears down its
+     * composition and cancels anything started from `rememberCoroutineScope()`. The launch has to
+     * outlive that, so it runs here instead.
+     */
+    fun launchAnyAppDetached(context: Context, packageName: String, activityName: String? = null) {
+        scope.launch { launchAnyApp(context, packageName, activityName) }
+    }
 
     /**
      * More robust launch for the main display using package manager intents.
@@ -8002,15 +8087,20 @@ object DisplayAppLauncher {
     suspend fun sendToDisplay(config: DisplayAppConfig) = withContext(Dispatchers.IO) {
         try {
             if (isCarPlayPackage(config.packageName)) {
+                val bounds = getEffectiveBounds(config)
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "SEND_TO_DISPLAY_CARPLAY")
                 CarPlayDisplayOrchestrator.start(config, "SEND_TO_DISPLAY")
                 return@withContext
             }
             if (isAndroidAutoPackage(config.packageName)) {
+                val bounds = getEffectiveBounds(config)
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "SEND_TO_DISPLAY_AA")
                 startAndroidAutoOnDisplay(config, "SEND_TO_DISPLAY")
                 return@withContext
             }
 
             val bounds = getEffectiveBounds(config)
+            prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "SEND_TO_DISPLAY")
 
             // Already on target display — just resize
             val existing = findStackIdForPackage(config.packageName, config.displayId)
@@ -8304,6 +8394,30 @@ object DisplayAppLauncher {
         return null
     }
 
+    /**
+     * Ask InstrumentProjector2 to punch the native-mask hole for [bounds] on display 3
+     * *before* the activity is moved/started, so the first composed frame is already open.
+     * No-op for other displays. Brief sleep lets the UI thread apply the bitmap.
+     */
+    private fun prepareDisplay3MaskHoleBeforeMove(displayId: Int, bounds: IntArray, reason: String) {
+        if (displayId != 3 || bounds.size < 4) return
+        try {
+            Log.w(
+                TAG,
+                "[$reason] Preparing D3 native-mask hole before move: " +
+                    "[${bounds[0]},${bounds[1]}][${bounds[2]},${bounds[3]}]"
+            )
+            ServiceManager.getInstance().dispatchServiceManagerEvent(
+                br.com.redesurftank.havalshisuku.models.ServiceManagerEventType.PREPARE_DISPLAY3_APP_HOLE,
+                bounds
+            )
+            // One-ish frame for updateNativeMaskViews to land before the activity appears.
+            Thread.sleep(48)
+        } catch (e: Exception) {
+            Log.w(TAG, "[$reason] Failed to prepare D3 mask hole before move", e)
+        }
+    }
+
     fun notifyDisplayStateChanged(displayId: Int) {
         scope.launch {
             // Check multiple times with increasing delays to ensure system has updated stack state
@@ -8328,8 +8442,56 @@ object DisplayAppLauncher {
         }
     }
 
+    /**
+     * `am stack list` costs ~150-200ms over Shizuku, and a single high-level
+     * operation fans out into several independent readers (findTaskForPackage,
+     * findTaskMatching, getTopPackageOnDisplay, findFirstTasksForPackages...),
+     * each of which used to spawn its own shell. On the cluster projector that
+     * whole burst runs on the UI thread inside ensureUi{}, so it stalled the
+     * theme WebView for seconds whenever an app entered or left display 1/3.
+     *
+     * A short TTL collapses one burst into a single shell call while staying
+     * far below the interval at which the system stack state realistically
+     * changes on its own. Anything that *mutates* stack state goes through
+     * sh(), which drops the cache, so a read after a move/resize is never
+     * served a stale snapshot.
+     */
+    private const val STACK_LIST_CACHE_TTL_MS = 250L
+
+    @Volatile private var cachedStackList: String? = null
+    @Volatile private var cachedStackListAtMs = 0L
+    private val stackListCacheLock = Any()
+
+    private fun invalidateStackListCache() {
+        synchronized(stackListCacheLock) {
+            cachedStackList = null
+            cachedStackListAtMs = 0L
+        }
+    }
+
     private fun getStackList(): String {
-        return ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "am stack list 2>&1"))
+        val cached = cachedStackList
+        if (cached != null &&
+            SystemClock.elapsedRealtime() - cachedStackListAtMs < STACK_LIST_CACHE_TTL_MS
+        ) {
+            return cached
+        }
+
+        synchronized(stackListCacheLock) {
+            // Re-check inside the lock: a concurrent caller may have just refreshed it,
+            // which is the common case when a burst of readers arrives together.
+            val fresh = cachedStackList
+            if (fresh != null &&
+                SystemClock.elapsedRealtime() - cachedStackListAtMs < STACK_LIST_CACHE_TTL_MS
+            ) {
+                return fresh
+            }
+
+            val out = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "am stack list 2>&1"))
+            cachedStackList = out
+            cachedStackListAtMs = SystemClock.elapsedRealtime()
+            return out
+        }
     }
 
     private data class StackInfo(val stackId: Int, val windowingMode: String, val isFreeform: Boolean)

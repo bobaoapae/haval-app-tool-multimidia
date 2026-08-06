@@ -12,5 +12,8 @@ public enum ServiceManagerEventType {
     DISPLAY_1_APP_STATE_CHANGED,
     DISPLAY_3_APP_STATE_CHANGED,
     APP_GEOMETRY_CHANGED,
-    DISMISS_WARNING
+    /** IntArray[4] = l,t,r,b — punch native-mask hole on D3 before an app/projection lands. */
+    PREPARE_DISPLAY3_APP_HOLE,
+    DISMISS_WARNING,
+    RAW_KEY_EVENT
 }

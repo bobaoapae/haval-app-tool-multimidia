@@ -29,14 +29,15 @@ import br.com.redesurftank.havalshisuku.managers.VehiclePropertyReader
 import br.com.redesurftank.havalshisuku.listeners.IDataChanged
 import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.CarConstants
+import br.com.redesurftank.havalshisuku.models.ClusterKey
 import br.com.redesurftank.havalshisuku.models.MainUiManager
-import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
+import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType
 import br.com.redesurftank.havalshisuku.models.SteeringWheelAcControlType
 import br.com.redesurftank.havalshisuku.models.screens.GraphicsScreen
 import br.com.redesurftank.havalshisuku.models.screens.MainMenu
 import br.com.redesurftank.havalshisuku.models.screens.RegenScreen
-import br.com.redesurftank.havalshisuku.models.screens.Screen
+import br.com.redesurftank.havalshisuku.bridge.IBridgeContext
 import java.io.File
 import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
@@ -47,9 +48,10 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 
 class InstrumentProjector2(private val outerContext: Context, display: Display) :
-        BaseProjector(outerContext, display) {
+        BaseProjector(outerContext, display), IBridgeContext {
 
     private val TAG = "InstrumentProjector2"
+    private val CURRENT_BRIDGE_VERSION = 1
     private val DEBUG_EXTERNAL_APP_HTML = "/data/local/tmp/app.html"
     private val FORCE_MAP_DISPLAY_AS_DEFAULT_FOR_TESTS = false
     private val MAP_DISPLAY_TEST_VALUE = "Mapa"
@@ -57,6 +59,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private val PROJECTION_PROJECTOR_WARMUP_BYPASS_MS = 1600L
     private val PROJECTION_D3_FALSE_NEGATIVE_HOLD_MS = 12_000L
     private val PERF_HEARTBEAT_INTERVAL_MS = 60_000L
+    /** How long a warning must have been standing before BACK is allowed to dismiss it, so
+     *  a BACK press already in flight cannot swallow a warning the driver never saw. */
+    private val WARNING_DISMISS_LOCKOUT_MS = 2500L
+    /** Grace period before the layout follows a warning that cleared by itself, so it does
+     *  not snap back while the car's own popup is still finishing its own close. */
+    private val WARNING_CLEAR_HOLDOFF_MS = 2000L
     private val MAX_PENDING_JS_COMMANDS = 250
     private val vehiclePropertyReader = VehiclePropertyReader()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -77,10 +85,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     }
                 }
             }
-    private val preferences: SharedPreferences =
+    override val preferences: SharedPreferences =
             App.getDeviceProtectedContext()
                     .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
-    private var webView: WebView? = null
+    override var webView: WebView? = null
     private val webViewsLoaded = mutableMapOf<WebView, Boolean>()
     private val pendingJsQueues = mutableMapOf<WebView, MutableList<String>>()
     private lateinit var root: FrameLayout
@@ -104,18 +112,31 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     // DOM mutations + Chrome compositor renders. Cleared on full bootstrap
     // syncs where we intentionally re-establish the whole JS state.
     private val lastSentValues = java.util.concurrent.ConcurrentHashMap<String, String>()
+    override val subscribedKeys: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     // Cached EV power values for kW calculation
     private var batteryVoltage = 0f
     private var batteryCurrent = 0f
     private var isAnyAppOnDisplay3 = false
     private var isAnyAppOnDisplay1 = false
-    private var currentCard = 0
-    private var isWarningActive = false
+    // Seeded from the host-side cache rather than assumed to be 0. ServiceManager tracks
+    // the card the car last reported and outlives this projector, so a restart or a
+    // projector re-creation while the cluster sits on card 1/3 starts from the real card
+    // instead of believing card 0 until the next msgId=133 happens to arrive.
+    private var currentCard = ServiceManager.getInstance().clusterCardView
+    override var isWarningActive = false
     private var testDefaultDisplayOverrideActive = FORCE_MAP_DISPLAY_AS_DEFAULT_FOR_TESTS
     private val dismissedWarnings = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private var isWarningDismissed = false
+    override var isWarningDismissed = false
     private var lastWarningActiveTime = 0L
+    /** Last value seen per monitored warning key, so a re-emission of an unchanged value
+     *  can be told apart from a genuinely new warning. */
+    private val lastWarningValues = java.util.concurrent.ConcurrentHashMap<String, String>()
+    /** When each currently-active warning started. BACK dismisses the newest one and the
+     *  lockout is measured against that warning, not against whichever fired first. */
+    private val warningOnsetTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /** Pending hold-off before the layout follows a warning that cleared on its own. */
+    private var warningClearRunnable: Runnable? = null
     private var projectionOverlayBypassActive: Boolean? = null
     private var hvacNativePanelActive = false
     private var avmNativePreviewActive = false
@@ -132,10 +153,52 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private val lastAppliedConfigs =
             mutableMapOf<String, br.com.redesurftank.havalshisuku.models.DisplayAppConfig>()
 
+    private var activeThemeMetadata: br.com.redesurftank.havalshisuku.models.ThemeMetadata? = null
+    private var nativeMaskContainer: FrameLayout? = null
+    private var fuelMaskView: android.widget.ImageView? = null
+    private var batteryMaskView: android.widget.ImageView? = null
+    private var speedMaskView: android.widget.ImageView? = null
+    private var infoMaskView: android.widget.ImageView? = null
+    private var topCenterMaskView: android.widget.ImageView? = null
+    private var globalMaskView: android.widget.ImageView? = null
+
+    /**
+     * Where an app currently sits on display 3, in display pixels, or null when none does.
+     *
+     * This Presentation is a TYPE_PRESENTATION window, so it is unconditionally above every
+     * activity on the same display — an app moved to display 3 can never be brought out in
+     * front of it. The native mask layer is opaque wherever d3_mask.png is, which is most of
+     * the panel, so the app ended up buried under the cluster wallpaper. Punching the app's
+     * own rectangle out of that layer (mask only — not the WebView) gives the same result as
+     * the app being on top, while the masks keep covering the car's native gauges everywhere
+     * the app is not.
+     *
+     * Display 1 does not need a matching hole: InstrumentProjector already hides its wallpaper
+     * when an app is on D1, and when the app is on D3 the D1 wallpaper should stay for continuity.
+     *
+     * Recomputed by updateVirtualClusterVisibility(), which already walks these bounds for
+     * appInDash, so knowing this costs no extra Shizuku round trip.
+     */
+    private var display3AppRect: android.graphics.Rect? = null
+
+    /**
+     * Cached wallpaper × d3_mask composite with no app hole. App-rect changes copy this and
+     * CLEAR the hole instead of reloading assets and re-running DST_IN every time.
+     */
+    private var cachedGlobalMaskBase: android.graphics.Bitmap? = null
+    private var cachedGlobalMaskKey: String? = null
+    /** Last bitmap handed to [globalMaskView]; recycled when replaced. */
+    private var displayedGlobalMaskBitmap: android.graphics.Bitmap? = null
+
+    private val maskVisibilityOverrides = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    private var themeBridge: br.com.redesurftank.havalshisuku.bridge.ThemeBridgeImpl? = null
+    private var bridgePrefsListener: br.com.redesurftank.havalshisuku.bridge.PreferencePushListener? = null
+
     private var lastHeartbeatTime = System.currentTimeMillis()
     private var lastCarPlayInDash: Boolean? = null
     private var lastProjectionMirrorInDash: Boolean? = null
     private var lastProjectionPreparingD3: Boolean? = null
+    private var lastProjectionCardOverlayAllowed: Boolean? = null
     private var lastHealthyCarPlayD3AtMs = 0L
     private var lastCarPlayD3HoldLogAtMs = 0L
     private var lastProjectionVisibilityLog = ""
@@ -196,7 +259,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     CarConstants.CAR_BASIC_COOLANT_TEMP_WARNING.value,
                     CarConstants.CAR_BASIC_ENGINE_OIL_LOW_PRESSURE_WARNING.value,
                     CarConstants.CAR_BASIC_FATIGUE_WARNING.value,
-                    // CarConstants.CAR_BASIC_MAINTENANCE_WARNING.value,
+                    CarConstants.CAR_BASIC_MAINTENANCE_WARNING.value,
                     CarConstants.CAR_BASIC_OIL_LOW_WARNING.value,
                     CarConstants.CAR_BASIC_SEAT_BELT_WARNING.value,
                     CarConstants.CAR_BASIC_TIREPRESS_WARNING.value,
@@ -204,14 +267,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     CarConstants.CAR_BASIC_TPMS_WARNING.value,
                     CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQLEFT.value,
                     CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQRIGHT.value,
-                    // CarConstants.CAR_IPK_INFO_DOW_WARNING_REQLEFT.value,
-                    // CarConstants.CAR_IPK_INFO_DOW_WARNING_REQRIGHT.value,
-                    // CarConstants.CAR_IPK_INFO_FCTA_WARNING.value,
-                    // CarConstants.CAR_IPK_INFO_FCW_WARNING.value,
+                    CarConstants.CAR_IPK_INFO_DOW_WARNING_REQLEFT.value,
+                    CarConstants.CAR_IPK_INFO_DOW_WARNING_REQRIGHT.value,
+                    CarConstants.CAR_IPK_INFO_FCTA_WARNING.value,
+                    CarConstants.CAR_IPK_INFO_FCW_WARNING.value,
                     CarConstants.CAR_IPK_INFO_WARNING_TTS_NOTIFY.value,
                     CarConstants.CAR_IPK_LIGHT_DOOR_WARNING.value,
                     CarConstants.CAR_IPK_LIGHT_ENGINE_OIL_LOW_PRESSURE_WARNING.value,
-                    // CarConstants.CAR_IPK_LIGHT_SEAT_BELT_WARNING_INDICATOR.value,
+                    CarConstants.CAR_IPK_LIGHT_SEAT_BELT_WARNING_INDICATOR.value,
                     CarConstants.CAR_IPK_LIGHT_TPMS_WARNING.value,
                     CarConstants.CAR_IPK_LIGHT_FUEL_LOW.value
             )
@@ -227,8 +290,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                         SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key,
                                         SharedPreferencesKeys.VIRTUAL_CLUSTER_DISPLAY_ID.key,
                                         SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key,
+                                        SharedPreferencesKeys.THEME_RELOAD_NONCE.key,
                                         SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key,
                                         SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key,
+                                        // Background keys: the theme needs to know
+                                        // whether anything opaque is painted behind
+                                        // it, so re-push clusterBackground via the
+                                        // PREFS_CHANGED visibility pass below.
+                                        SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key,
+                                        SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key,
+                                        SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key,
                                         SharedPreferencesKeys.CLUSTER_HIDE_SPEEDOMETER_ON_MAPS.key,
                                         SharedPreferencesKeys.CLUSTER_V2_TRIP_INFO.key,
                                         SharedPreferencesKeys.TRIP_CONSISTENCY_CLUSTER_ACTIVE.key,
@@ -254,12 +325,19 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     "control('enableRevisionWarning', ${enabled && nextKm > 0})"
                             )
                         }
-                        if (key == SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key ||
-                                        key == SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key
-                        ) {
-                            Log.d(TAG, "Theme changed, reloading WebView")
+                        if (key == SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key || key == SharedPreferencesKeys.THEME_RELOAD_NONCE.key) {
+                            // ACTIVE_CUSTOM_THEME is the sole source of truth for what
+                            // content loads (see getActiveCustomThemeName()); it's also
+                            // the only key some flows (e.g. download-then-activate) write.
+                            // VIRTUAL_CLUSTER_THEME is UI-display bookkeeping only (Telas'
+                            // selectedTheme) and is always written in the same transaction
+                            // as ACTIVE_CUSTOM_THEME when switching via the theme picker, so
+                            // reacting to it too only double-fired this reload per switch.
+                            Log.w(TAG, "Theme changed, reloading WebView (key=$key)")
+                            invalidateGlobalMaskCache()
                             nowPlayingResyncPending = true
                             updateSportFeaturePolling()
+                            br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.dynamicThemeBounds = null
                             webView?.let { wv ->
                                 markWebViewLoading(wv, "THEME_CHANGED")
                                 wv.loadDataWithBaseURL(
@@ -275,6 +353,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             val unit = getClusterFuelDisplayUnit()
                             Log.d(TAG, "[HavalDev] Cluster fuel display unit changed: $unit")
                             evaluateJsIfReady(webView, "control('fuelDisplayUnit', '$unit')")
+                        }
+                        if (key == SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key ||
+                            key == SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key ||
+                            key == SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key) {
+                            invalidateGlobalMaskCache()
+                            updateNativeMaskViews()
                         }
                         if (key == SharedPreferencesKeys.CLUSTER_HIDE_SPEEDOMETER_ON_MAPS.key) {
                             evaluateJsIfReady(
@@ -344,6 +428,49 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.key,
                         false
                 )
+    }
+
+    /**
+     * Whether InstrumentProjector actually paints something opaque behind this
+     * WebView. Mirrors the branches of InstrumentProjector.applyCustomBackground:
+     * PRESET/FILE/IMAGE_URL/COLOR always end up covering (black at worst), while
+     * THEME only covers when the active theme package declares a wallpaper — the
+     * Default theme never does, so it stays transparent and the car's native dash
+     * shows through.
+     *
+     * The theme uses this to decide whether the no-app masks may shrink with the
+     * dials in reduzido, or must stay full size to keep the native dash hidden.
+     */
+    private fun isClusterBackgroundApplied(): Boolean {
+        val enabled =
+                preferences.getBoolean(
+                        SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key,
+                        true
+                )
+        if (!enabled) return false
+
+        val type =
+                preferences.getString(
+                        SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key,
+                        "THEME"
+                )
+                        ?: "THEME"
+        val value =
+                preferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "")
+                        ?: ""
+
+        return when (type) {
+            "THEME" ->
+                    br.com.redesurftank.havalshisuku.managers.ThemeManager
+                            .getInstance(outerContext)
+                            .getActiveThemeBackgroundFile(value.ifBlank { null }) != null
+            "PRESET",
+            "FILE",
+            "IMAGE_URL",
+            br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec.TYPE -> true
+            "WEB_URL" -> value.isNotEmpty()
+            else -> false
+        }
     }
 
     private fun isCarPlayInDash(): Boolean {
@@ -553,6 +680,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         lastCarPlayInDash = null
         lastProjectionMirrorInDash = null
         lastProjectionPreparingD3 = null
+        lastProjectionCardOverlayAllowed = null
     }
 
     private fun isProjectionActive(
@@ -661,13 +789,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun getManagedSecondaryDisplayConfigs(
-            displayIds: Set<Int>
+            displayIds: Set<Int>,
+            requireKnownActive: Boolean = true
     ): List<br.com.redesurftank.havalshisuku.models.DisplayAppConfig> {
         if (displayIds.isEmpty()) return emptyList()
         return br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.getAllConfigs()
                 .filter { config ->
                     displayIds.any { displayId ->
-                        isDisplayKnownActive(displayId) && shouldInspectConfigForDisplay(config, displayId)
+                        shouldInspectConfigForDisplay(config, displayId) &&
+                                (!requireKnownActive || isDisplayKnownActive(displayId))
                     }
                 }
     }
@@ -687,6 +817,68 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             1 -> isAnyAppOnDisplay1
             3 -> isAnyAppOnDisplay3
             else -> false
+        }
+    }
+
+    /**
+     * Live bounds for AA/CarPlay on display 3. Those packages are filtered out of
+     * [getManagedSecondaryDisplayConfigs], so the normal hole walk never sees them.
+     */
+    private fun resolveProjectionDisplay3AppRect(): android.graphics.Rect? {
+        val launcher = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+        val pkg =
+                launcher.resolveActiveProjectionPackageForDisplay(3)
+                        ?: return null
+        val task = launcher.findFirstTasksForPackages(listOf(pkg))[pkg] ?: return null
+        if (task.displayId != 3) return null
+        val live = task.bounds
+        return if (live != null && live.size >= 4) {
+            android.graphics.Rect(live[0], live[1], live[2], live[3])
+        } else {
+            // Full cluster panel fallback — projection activities are normally fullscreen.
+            val res = launcher.getDisplayResolution(3)
+            if (res.first <= 0 || res.second <= 0) null
+            else android.graphics.Rect(0, 0, res.first, res.second)
+        }
+    }
+
+    /**
+     * Punch the native-mask hole using the bounds we are about to place on D3,
+     * before the activity is moved/started — avoids a frame of the app buried under
+     * the opaque mask.
+     */
+    fun prepareDisplay3AppHole(bounds: IntArray, reason: String = "PREPARE_DISPLAY3_APP_HOLE") {
+        if (bounds.size < 4) return
+        ensureUi {
+            val res =
+                    br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                            .getDisplayResolution(3)
+            val fullWidth = res.first
+            val baseX = bounds[0]
+            val baseY = bounds[1]
+            val baseRight = bounds[2]
+            val baseBottom = bounds[3]
+            val baseWidth = baseRight - baseX
+            val actualWidth =
+                    if (fullWidth > 0 &&
+                                    !isWarningDismissed &&
+                                    (currentCard == ClusterCardIds.NATIVE_CARD || isWarningActive)
+                    ) {
+                        (fullWidth * 0.7f).toInt() - baseX
+                    } else {
+                        baseWidth
+                    }
+            val appliedWidth = kotlin.math.max(100, kotlin.math.min(baseWidth, actualWidth))
+            val rect =
+                    android.graphics.Rect(baseX, baseY, baseX + appliedWidth, baseBottom)
+            if (rect != display3AppRect) {
+                display3AppRect = rect
+                Log.w(TAG, "display3AppRect hole prepare reason=$reason rect=$rect")
+                updateNativeMaskViews()
+            } else {
+                // Same rect, but force a redraw in case the mask was rebuilt without the hole.
+                updateNativeMaskViews()
+            }
         }
     }
 
@@ -755,6 +947,24 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             evaluateJsIfReady(webView, "control('projectionPreparingD3', $projectionPreparingD3)")
             lastProjectionPreparingD3 = projectionPreparingD3
         }
+
+        // May the card menu be drawn over the projection? Only a card-backed menu has
+        // anything to draw — card 0 is the car's own content and must stay clear.
+        //
+        // getAvailableKeys() has always advertised this key and the Default theme has
+        // always subscribed to it, but nothing here ever sent a value, so it sat on its
+        // `false` default for the theme's whole lifetime. The theme reads that as "never
+        // overlay", which is why the right-hand circle went blank for the entire time a
+        // map was in the dash: every rule meant to bring the menu back is written against
+        // .projection-card-overlay-active.
+        val cardOverlayAllowed = ClusterCardFlowPolicy.isCardBackedMenu(currentCard)
+        if (force || lastProjectionCardOverlayAllowed != cardOverlayAllowed) {
+            evaluateJsIfReady(
+                    webView,
+                    "control('projectionCardOverlayAllowed', $cardOverlayAllowed)"
+            )
+            lastProjectionCardOverlayAllowed = cardOverlayAllowed
+        }
         if (carPlayInDash || projectionMirrorInDash || projectionPreparingD3 || force) {
             scheduleProjectionDomDiagnostic("PROJECTION_STATE_PUSH")
         }
@@ -800,6 +1010,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val startedAt = SystemClock.uptimeMillis()
         val previousCard = currentCard
         currentCard = nextCard
+        updateNativeMaskViews()
         updateKnownScreenForCard(nextCard)
 
         val snapshot = readProjectionSnapshotForCardChange()
@@ -837,7 +1048,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 snapshot.active
         )
 
-        evaluateJsIfReady(webView, "control('cardId', $currentCard)")
+        // Contract (THEME_GUIDE): backend owns the active card and informs the frontend
+        // via window.onCardChanged(cardId) — the single canonical channel. No legacy
+        // control('cardId', ...) push: two channels means two code paths and ambiguity
+        // about which one a theme is actually honouring.
+        //
+        // The call is feature-detected, so a theme that predates the contract would
+        // silently no-op and sit on whatever card it last rendered (observed on-car with
+        // a stale installed theme: card 0 never painted). Fail loudly instead — the fix
+        // for that case is redeploying the theme, not a second channel.
+        pushActiveCardToTheme(currentCard)
 
         if (decision.updateVirtualClusterVisibility) {
             updateVirtualClusterVisibility(
@@ -852,7 +1072,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             syncSecondaryDisplayApps(3)
         }
 
-        MainUiManager.getInstance().handleCardChange(currentCard)
+        if (isSportThemeActive()) {
+            MainUiManager.getInstance().handleCardChange(currentCard)
+        }
+
         if (ClusterCardFlowPolicy.isCardBackedMenu(currentCard)) {
             isWarningDismissed = false
         }
@@ -909,18 +1132,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                             "screen" to currentClusterScreenName
                                     )
                             )
-                            if (action is SteeringWheelAcControlType) {
-                                when (action) {
-                                    SteeringWheelAcControlType.FAN_SPEED ->
-                                            evaluateJsIfReady(webView, "focus('fan')")
-                                    SteeringWheelAcControlType.TEMPERATURE ->
-                                            evaluateJsIfReady(webView, "focus('temp')")
-                                    SteeringWheelAcControlType.POWER ->
-                                            evaluateJsIfReady(webView, "focus('power')")
-                                }
-                            } else if (action is String) {
-                                evaluateJsIfReady(webView, "control('acAction', '$action')")
-                            }
+                            // Focus injections removed. Frontend is the single source of truth for navigation.
                             br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
                                     .preserveCarPlayClusterContract("STEERING_WHEEL_AC_CONTROL")
                             br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
@@ -931,16 +1143,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             if (screen is String) {
                                 currentGraphName = screen
                                 logClusterPerfEvent("graph_navigation", mapOf("targetGraph" to screen))
-                                evaluateJsIfReady(webView, "control('currentGraph','$screen')")
+                                // control injection removed. Frontend is the single source of truth for navigation.
                             }
                         }
                         ServiceManagerEventType.UPDATE_SCREEN -> {
                             val arg0 = args[0]
-                            if (arg0 is Screen) {
-                                currentClusterScreenName = arg0.jsName
-                                logClusterPerfEvent("screen_update", mapOf("targetScreen" to arg0.jsName))
-                                evaluateJsIfReady(webView, "showScreen('${arg0.jsName}')")
-                                if (arg0.jsName == "aircon") {
+                            if (arg0 is String) {
+                                currentClusterScreenName = arg0
+                                logClusterPerfEvent("screen_update", mapOf("targetScreen" to arg0))
+                                // showScreen injection removed. Frontend is the single source of truth for navigation.
+                                if (arg0 == "aircon") {
                                     br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
                                             .preserveCarPlayClusterContract("UPDATE_SCREEN_AIRCON")
                                     br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
@@ -953,10 +1165,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         ServiceManagerEventType.MENU_ITEM_NAVIGATION -> {
                             val menuNav = args[0] as String
                             logMenuNavigationPerfEventIfNeeded(menuNav)
-                            evaluateJsIfReady(
-                                    webView,
-                                    "(function(){control('menuNav', '$menuNav');focus('$menuNav');})()"
-                            )
+                            // focus injection removed. Frontend is the single source of truth for navigation.
                         }
                         ServiceManagerEventType.MAX_AUTO_AC_STATUS_CHANGED -> {
                             val status = args[0]
@@ -990,8 +1199,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             if (!isAnyAppOnDisplay3) {
                                 lastAppliedConfigs.clear()
                             }
-                            updateVirtualClusterVisibility(reason = "DISPLAY_3_APP_STATE_CHANGED")
+                            // Force hole refresh even when the rect object compares equal:
+                            // the flag flip is the authoritative "app arrived/left" signal.
+                            updateVirtualClusterVisibility(
+                                    reason = "DISPLAY_3_APP_STATE_CHANGED",
+                                    forceNativeMaskRefresh = true
+                            )
                             syncSecondaryDisplayApps(3)
+                            pushVirtualDisplayState(3)
                         }
                         ServiceManagerEventType.DISPLAY_1_APP_STATE_CHANGED -> {
                             isAnyAppOnDisplay1 = args[0] as Boolean
@@ -1004,34 +1219,35 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     mapOf("active" to isAnyAppOnDisplay1)
                             )
                             updateVirtualClusterVisibility(reason = "DISPLAY_1_APP_STATE_CHANGED")
+                            pushVirtualDisplayState(1)
                         }
                         ServiceManagerEventType.DISMISS_WARNING -> {
-                            val timeSinceWarning = System.currentTimeMillis() - lastWarningActiveTime
-                            Log.d(TAG, "Received DISMISS_WARNING event. timeSinceWarning=${timeSinceWarning}ms (onset=${lastWarningActiveTime})")
-                            logClusterPerfEvent(
-                                    "dismiss_warning",
-                                    mapOf("timeSinceWarningMs" to timeSinceWarning)
-                            )
-                            if (timeSinceWarning >= 2500) {
-                                evaluateJsIfReady(webView, "clearWarnings()")
-                                updateWarningUI(false)
-                                isWarningDismissed = true
-
-                                val sm = ServiceManager.getInstance()
-                                for (key in monitoredWarningKeys) {
-                                    val value = sm.getData(key)
-                                    if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, value)) {
-                                        dismissedWarnings[key] = value!!
-                                    }
-                                }
-                            } else {
-                                Log.w(TAG, "DISMISS_WARNING ignored: timeSinceWarning=${timeSinceWarning}ms < 2500ms lockout")
-                            }
+                            dismissWarnings()
                         }
                         ServiceManagerEventType.APP_GEOMETRY_CHANGED -> {
                             logClusterPerfEvent("app_geometry_changed")
-                            updateVirtualClusterVisibility(reason = "APP_GEOMETRY_CHANGED")
+                            updateVirtualClusterVisibility(
+                                    reason = "APP_GEOMETRY_CHANGED",
+                                    forceNativeMaskRefresh = true
+                            )
                             syncSecondaryDisplayApps(3)
+                        }
+                        ServiceManagerEventType.PREPARE_DISPLAY3_APP_HOLE -> {
+                            val bounds = args.getOrNull(0) as? IntArray
+                            if (bounds != null && bounds.size >= 4) {
+                                prepareDisplay3AppHole(bounds, reason = "PREPARE_DISPLAY3_APP_HOLE")
+                            }
+                        }
+                        ServiceManagerEventType.RAW_KEY_EVENT -> {
+                            val key = args[0] as br.com.redesurftank.havalshisuku.models.ClusterKey
+                            // LEFT/RIGHT are the cluster card-navigation keys. Card changes are
+                            // backend-driven (native msgId=133 -> onCardChanged), so we do NOT forward
+                            // them to the theme; doing so lets a theme consume them and the card
+                            // change gets lost. Matches the THEME_GUIDE contract (UP/DOWN/ENTER/BACK...).
+                            if (key != br.com.redesurftank.havalshisuku.models.ClusterKey.LEFT &&
+                                    key != br.com.redesurftank.havalshisuku.models.ClusterKey.RIGHT) {
+                                evaluateJsIfReady(webView, "if (window.onKeyEvent) window.onKeyEvent('${key.name}');")
+                            }
                         }
                         else -> {}
                     }
@@ -1043,6 +1259,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         handler.post(clockRunnable)
         handler.post(watchdogRunnable)
         preferences.registerOnSharedPreferenceChangeListener(prefsListener)
+        bridgePrefsListener = br.com.redesurftank.havalshisuku.bridge.PreferencePushListener(this@InstrumentProjector2) { virtualKey, value ->
+            themeBridge?.pushOnDataChanged(virtualKey, value)
+        }
+        preferences.registerOnSharedPreferenceChangeListener(bridgePrefsListener)
         ServiceManager.getInstance().addServiceManagerEventListener(eventListener)
         window?.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
         window?.addFlags(
@@ -1078,6 +1298,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         logClusterPerfEvent("projector_on_stop")
         handler.removeCallbacks(clockRunnable)
         handler.removeCallbacks(watchdogRunnable)
+        cancelPendingWarningClear()
         handler.removeCallbacks(mediaRunnable)
         tsrJob?.cancel()
         tsrJob = null
@@ -1087,6 +1308,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         artworkEncodingJob = null
         scope.cancel()
         preferences.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        bridgePrefsListener?.let {
+            preferences.unregisterOnSharedPreferenceChangeListener(it)
+        }
         ServiceManager.getInstance().removeServiceManagerEventListener(eventListener)
         dataChangedListener?.let { ServiceManager.getInstance().removeDataChangedListener(it) }
         dataChangedListener = null
@@ -1115,6 +1339,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         pendingJsQueues.clear()
         lastSentValues.clear()
         lastAppliedConfigs.clear()
+
+        setDisplayedGlobalMask(null)
+        invalidateGlobalMaskCache()
 
         super.onStop()
     }
@@ -1158,6 +1385,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             lastSentValues[key] = value
 
             ensureUi {
+                // Symmetrical bridge push
+                val themeBridge = this.themeBridge
+                if (themeBridge != null) {
+                    val themeKey = br.com.redesurftank.havalshisuku.bridge.BridgeContractTranslator.translateCanonicalToThemeKey(key)
+                    if (subscribedKeys.contains(themeKey)) {
+                        themeBridge.pushOnDataChanged(themeKey, value)
+                    } else if (subscribedKeys.contains(key)) {
+                        themeBridge.pushOnDataChanged(key, value)
+                    }
+                }
                 when (key) {
                     CarConstants.CAR_BASIC_VEHICLE_SPEED.value -> {
                         val speedStr = getAdjustedSpeed(value)
@@ -1320,22 +1557,33 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
                 // --- Warning Management Logic ---
                 if (key in monitoredWarningKeys) {
-                    val currentValue = value
+                    val currentValue = value?.toString() ?: "0"
+                    val isNewOnset = trackWarningOnset(key, currentValue)
+
+                    // A new warning re-opens the car's own warning popup, and that popup
+                    // lists *every* warning currently active — so the car has just put the
+                    // driver's previously dismissed warnings back on screen. Their
+                    // acknowledgements no longer describe what is being displayed, and
+                    // holding on to them would collapse our layout out from under a popup
+                    // that is still up (dismiss the belt, open a door, close it again, and
+                    // the belt warning is still sitting there on the car's popup).
+                    if (isNewOnset &&
+                            ClusterWarningPolicy.raisesWarningBadge(key, currentValue) &&
+                            dismissedWarnings.isNotEmpty()) {
+                        Log.d(TAG, "New warning $key voids ${dismissedWarnings.size} prior acknowledgement(s)")
+                        dismissedWarnings.clear()
+                    }
                     if (dismissedWarnings[key] != currentValue) {
                         dismissedWarnings.remove(key)
-                        if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, currentValue)) {
-                            isWarningDismissed = false
-                            if (!isWarningActive) {
-                                lastWarningActiveTime = System.currentTimeMillis()
-                                Log.d(TAG, "Warning onset detected in telemetry: key=$key value=$currentValue")
-                            } else {
-                                Log.d(TAG, "Telemetry warning update for key=$key value=$currentValue (already active, preserving onset)")
-                            }
-                            dismissedWarnings.clear()
-                            syncInitialWarnings()
-                        }
+                        // Informational only — the theme renders from the warningActive
+                        // boolean below, not from this. Kept so a theme that wants to list
+                        // individual warnings has the raw material.
                         evaluateJsIfReady(webView, "updateWarning('$key', '$currentValue')")
                     }
+                    if (key in ClusterWarningPolicy.bsdIndicatorKeys) {
+                        pushBsdIndicatorsToTheme()
+                    }
+                    recomputeWarningState("TELEMETRY:$key")
                 }
             }
     }
@@ -1348,8 +1596,17 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             if (defaultPackage.isNotEmpty()) {
                 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.getAllConfigs()
                         .find { it.packageName == defaultPackage }
-                        ?.let { config ->
-                            Log.d(TAG, "Auto-launching default app: $defaultPackage")
+                        ?.let { storedConfig ->
+                            // Startup auto-launch is the one path the
+                            // "move projection to cluster" setting gates; an explicit
+                            // send-to-display from the UI stays honoured.
+                            val config =
+                                    br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                                            .resolveAutoLaunchConfig(storedConfig)
+                            Log.d(
+                                    TAG,
+                                    "Auto-launching default app: $defaultPackage on display ${config.displayId}"
+                            )
                             scope.launch {
                                 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
                                         .launchApp(config)
@@ -1361,6 +1618,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupControlView(parent: FrameLayout) {
+        initNativeMaskViews(parent)
         if (webView == null) {
             webView =
                     WebView(this@InstrumentProjector2.context).apply {
@@ -1401,12 +1659,19 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                             lastHeartbeatTime = System.currentTimeMillis()
                                             webViewsLoaded[wv] = true
 
-                                            // Discard all stale, redundant telemetry updates queued during page load
-                                            pendingJsQueues.remove(wv)
+                                            // Replay any JS queued while the page was loading instead of
+                                            // discarding it silently — it may include one-off, authoritative
+                                            // calls (e.g. window.onCardChanged) that have no other delivery
+                                            // path. Stale telemetry values it also contains get overwritten
+                                            // by the full-state sync below, so replaying first is harmless.
+                                            pendingJsQueues.remove(wv)?.forEach { queuedJs ->
+                                                wv.evaluateJavascript(queuedJs, null)
+                                            }
 
                                             // Perform a single, consolidated, full-state synchronization
                                             // using the latest car metrics to guarantee perfect UI consistency.
                                             updateValuesWebView()
+                                            updateNativeMaskViews()
                                             nowPlayingResyncPending = true
                                             updateSportFeaturePolling()
 
@@ -1423,6 +1688,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                                     "(function(){if(window.__havalHeartbeatTimer){clearInterval(window.__havalHeartbeatTimer);}window.__havalHeartbeatTimer=setInterval(function(){if(window.Android&&typeof window.Android.heartbeat==='function'){window.Android.heartbeat();}},2000);})()",
                                                     null
                                             )
+                                            // Inject polyfills if necessary
+                                            br.com.redesurftank.havalshisuku.bridge.CompatTranslationLayer.injectPolyfillsIfNecessary(wv, activeThemeMetadata)
                                         }
                                     }
                                 }
@@ -1455,6 +1722,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                         return super.onConsoleMessage(consoleMessage)
                                     }
                                 }
+                        // addJavascriptInterface MUST run before the page load starts: WebView
+                        // only guarantees window.Android is visible to a page's own scripts
+                        // (including deferred <script type="module">) if the interface is
+                        // registered before loadDataWithBaseURL kicks off loading. Registering
+                        // after is a race — themes' bridge.init()/Android.subscribe() calls can
+                        // silently no-op if they run before the interface actually attaches.
+                        themeBridge = br.com.redesurftank.havalshisuku.bridge.ThemeBridgeImpl(this@InstrumentProjector2)
+                        addJavascriptInterface(themeBridge!!, "Android")
                         loadDataWithBaseURL(
                                 getThemeBaseUrl(),
                                 readAppContent(outerContext),
@@ -1462,7 +1737,6 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                 "UTF-8",
                                 null
                         )
-                        addJavascriptInterface(WebAppInterface(), "Android")
                     }
             parent.addView(webView)
         }
@@ -1486,7 +1760,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         updates["carPlayInDash"] = carPlayInDash.toString()
         updates["projectionMirrorInDash"] = projectionMirrorInDash.toString()
         updates["projectionPreparingD3"] = projectionPreparingD3.toString()
-        updates["cardId"] = currentCard.toString()
+        updates["warningActive"] = isWarningActive.toString()
+        updates["warningDismissed"] = isWarningDismissed.toString()
+        // cardId is deliberately NOT in this map: batchEvaluateJs would emit it as
+        // control('cardId', ...), the legacy channel. The card goes out via
+        // window.onCardChanged below so the contract has exactly one channel on both the
+        // per-change and the page-load path.
         updates["display"] = getSavedClusterDisplay()
         updates["colorTheme"] = getSavedClusterColor()
         Log.w(
@@ -1582,7 +1861,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         // Speed and Engine
         val speedStr = getAdjustedSpeed(sm.getData(CarConstants.CAR_BASIC_VEHICLE_SPEED.value))
-        updates[GraphicsScreen.GraphOptions.CAR_SPEED] = speedStr
+        updates["carSpeed"] = speedStr
         updates["engineRPM"] = sm.getData(CarConstants.CAR_BASIC_ENGINE_SPEED.value) ?: "0"
 
         // Modes and Settings
@@ -1602,14 +1881,13 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         val regenLevel = sm.getData(CarConstants.CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL.value)
         updates["regenMode"] = RegenScreen.RegenOptions.getLabel(regenLevel)
-
         // Power and Regen Graph
         val outputPower =
                 sm.getData(CarConstants.CAR_EV_INFO_ENERGY_OUTPUT_PERCENTAGE.value)?.toFloatOrNull()
                         ?: 0.0f
         val regenValue = kotlin.math.max(0.0f, -1 * outputPower)
-        updates[GraphicsScreen.GraphOptions.EV_POWER_FACTOR] = outputPower.toString()
-        updates[RegenScreen.RegenOptions.REGEN_GRAPH_STATE_NAME] = regenValue.toString()
+        updates["evPowerFactor"] = outputPower.toString()
+        updates["evPowerRegen"] = regenValue.toString()
 
         // Battery KW Calculation
         batteryVoltage =
@@ -1618,7 +1896,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         batteryCurrent =
                 sm.getData(CarConstants.CAR_EV_INFO_CUR_CHARGE_CURRENT.value)?.toFloatOrNull() ?: 0f
         val kw = batteryVoltage * batteryCurrent / 1000f
-        updates[GraphicsScreen.GraphOptions.EV_POWER_KW] = kw.toString()
+        updates["evPowerKw"] = kw.toString()
 
         // Consumption initial values
         updateGasConsumption(
@@ -1634,6 +1912,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         lastSentValues.clear()
 
         batchEvaluateJs(webView, updates)
+        // The active card, on the canonical channel. Must come after the batch above so
+        // projection state is already in place — otherwise a card such as AC can paint an
+        // opaque menu over a native CarPlay surface for a frame. pushActiveCardToTheme
+        // reports "missing" if the theme has not defined onCardChanged yet, which makes an
+        // ordering problem on this path visible instead of silent.
+        pushActiveCardToTheme(currentCard)
         if (isSportThemeActive()) {
             publishTsrVisibility(lastTsrPayload?.isNotEmpty() == true && !isTsrExplicitlyInactive())
         }
@@ -1709,32 +1993,190 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     /**
-     * Fire current warning values into the WebView once, on freshly-loaded
-     * JS state only (init / page-finished). Intentionally NOT called from
-     * CLUSTER_CARD_CHANGED: card changes preserve the WebView's JS state,
-     * including the user's "dismissed" flag per warning (set when they press
-     * back). Re-pushing the same value would make the JS see "value changed
-     * from undefined -> X" again and re-show an alert the user already
-     * acknowledged. The car may still have the underlying warning active —
-     * we keep tracking it via the per-change listener — but we don't
-     * artificially re-trigger it on UI state transitions.
+     * Prime a freshly-loaded theme (init / page-finished / theme switch).
+     *
+     * This is the case the whole dismissal mechanism exists for: a theme starts with an
+     * empty warning state, so without the backend replaying what it knows, a warning the
+     * driver already dismissed would pop straight back up. [recomputeWarningState] decides
+     * the badge from the backend's own record, and a key still sitting at the value it was
+     * acknowledged at is withheld below so the theme never even hears about it.
      */
     private fun syncInitialWarnings() {
-        val sm = ServiceManager.getInstance()
         val webView = this.webView ?: return
+
         for (key in monitoredWarningKeys) {
-            val value = sm.getData(key) ?: "0"
-            if (dismissedWarnings[key] == value) {
-                continue
-            }
+            // Momentary alerts reach the theme from live telemetry only — never replayed
+            // from ServiceManager's cache, which still holds whatever the last event left
+            // behind. See ClusterWarningPolicy.transientWarningKeys.
+            if (key in ClusterWarningPolicy.transientWarningKeys) continue
+            // On a theme switch the projector has been running and already has a live view
+            // that is fresher than the cache; on a genuine first load this falls through to
+            // the cache. Either way it is the same value the badge is computed from.
+            val value = currentWarningValue(key) ?: "0"
+            trackWarningOnset(key, value)
+            if (dismissedWarnings[key] == value) continue
             evaluateJsIfReady(webView, "updateWarning('$key', '$value')")
         }
+
+        recomputeWarningState("THEME_LOAD")
+    }
+
+    /**
+     * Single source of truth for the warning badge.
+     *
+     * The badge used to be computed inside each theme and pushed *back* here via
+     * `Android.setWarningActive()`, which left a downloadable theme deciding a value the
+     * backend uses for cluster visibility and app widths — and left two "which keys count"
+     * lists to drift apart. The backend owns it now; themes render what they are told.
+     */
+    private fun recomputeWarningState(reason: String, immediate: Boolean = false) {
+        val active = unacknowledgedBadgeWarnings().isNotEmpty()
+
+        if (active) {
+            cancelPendingWarningClear()
+            applyWarningState(true, reason)
+            return
+        }
+
+        // Raising is instant; clearing is not. When the last warning goes inactive the car's
+        // own popup lingers for a moment before it closes, and dropping the layout out from
+        // under it looks like the same mismatch as leaving it up too long — just in the other
+        // direction. A BACK press is exempt: the popup closes with it, so the layout should
+        // follow immediately.
+        if (isWarningActive && !immediate) {
+            scheduleWarningClear(reason)
+            return
+        }
+
+        cancelPendingWarningClear()
+        applyWarningState(false, reason)
+    }
+
+    private fun scheduleWarningClear(reason: String) {
+        if (warningClearRunnable != null) return // a hold-off is already running
+        val runnable = Runnable {
+            warningClearRunnable = null
+            // Re-check rather than trusting the decision made when this was queued: a warning
+            // may have arrived, or been acknowledged, during the hold-off.
+            if (unacknowledgedBadgeWarnings().isEmpty()) {
+                applyWarningState(false, "$reason+holdoff")
+            }
+        }
+        warningClearRunnable = runnable
+        handler.postDelayed(runnable, WARNING_CLEAR_HOLDOFF_MS)
+        Log.d(TAG, "Warning clear held off ${WARNING_CLEAR_HOLDOFF_MS}ms ($reason)")
+    }
+
+    private fun cancelPendingWarningClear() {
+        warningClearRunnable?.let { handler.removeCallbacks(it) }
+        warningClearRunnable = null
+    }
+
+    private fun applyWarningState(active: Boolean, reason: String) {
+        val dismissed = !active && dismissedWarnings.isNotEmpty()
+        val changed = active != isWarningActive || dismissed != isWarningDismissed
+
+        if (active && !isWarningActive) {
+            lastWarningActiveTime = System.currentTimeMillis()
+            Log.w(TAG, "Warning onset ($reason). currentCard=$currentCard")
+        }
+
+        isWarningActive = active
+        isWarningDismissed = dismissed
+
+        if (changed) {
+            lastAppliedConfigs.clear() // Invalidate cache on warning toggle to force re-sync
+            logClusterPerfEvent(
+                    "warning_state_changed",
+                    mapOf("active" to active, "dismissed" to dismissed, "reason" to reason)
+            )
+            updateVirtualClusterVisibility(
+                    reason = "WARNING_STATE_CHANGED",
+                    forceNativeMaskRefresh = true
+            )
+            syncSecondaryDisplayApps(3)
+        }
+
+        pushWarningStateToTheme()
+    }
+
+    private fun pushWarningStateToTheme() {
+        // control() delivers real booleans. pushOnDataChanged() would deliver the string
+        // "false", which is truthy in JS and would pin the badge on — see the note beside
+        // keysToSubscribe in the themes' main.js.
+        evaluateJsIfReady(
+                webView,
+                "control('warningActive', $isWarningActive); control('warningDismissed', $isWarningDismissed);"
+        )
+    }
+
+    private fun pushBsdIndicatorsToTheme() {
+        // Same live-view rule as the badge: this runs from the telemetry listener, where the
+        // cache may not yet reflect the event that triggered it — reading it here would latch
+        // an arrow on after the alert had already passed.
+        val left = ClusterWarningPolicy.isWarningValueActive(
+                currentWarningValue(CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQLEFT.value))
+        val right = ClusterWarningPolicy.isWarningValueActive(
+                currentWarningValue(CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQRIGHT.value))
+        evaluateJsIfReady(
+                webView,
+                "control('bsdLeft', $left); control('bsdRight', $right);"
+        )
+    }
+
+    /**
+     * Per-key onset bookkeeping, feeding both the dismissal lockout and the "newest
+     * warning wins" pick in [dismissWarnings]. Must see every telemetry event, including
+     * a warning re-arriving at a value the driver already acknowledged.
+     */
+    private fun trackWarningOnset(key: String, value: String): Boolean {
+        val previous = lastWarningValues.put(key, value)
+        if (!ClusterWarningPolicy.isWarningValueActive(value)) {
+            warningOnsetTimes.remove(key)
+            return false
+        }
+        // A repeat of the same value is the same warning still standing, not a new one.
+        // The car re-emits these while they are active, so re-arming the lockout on every
+        // emission would keep pushing it into the future and make BACK permanently inert.
+        if (previous != value || !warningOnsetTimes.containsKey(key)) {
+            warningOnsetTimes[key] = System.currentTimeMillis()
+            return true
+        }
+        return false
+    }
+
+    /**
+     * The value this projector believes a warning key currently holds.
+     *
+     * Deliberately NOT ServiceManager.getData(). The telemetry listener hands us the new
+     * value directly, and ServiceManager's cache is not guaranteed to have caught up by the
+     * time the listener runs — so a warning that had just cleared could still read as active
+     * here, leaving the badge latched on with no further event coming to clear it. It also
+     * kept dismissal fragile: an acknowledgement recorded from the getData form of a value
+     * would stop matching the listener form of the same value, and the warning would come
+     * back on its next re-emission.
+     *
+     * [lastWarningValues] is fed from the live event before the state is recomputed, and
+     * seeded from the cache at theme load, so it is both the freshest and the only view the
+     * comparisons here are made against.
+     */
+    private fun currentWarningValue(key: String): String? =
+            lastWarningValues[key] ?: ServiceManager.getInstance().getData(key)
+
+    /** Warnings the driver can currently see and has not acknowledged, newest first. */
+    private fun unacknowledgedBadgeWarnings(): List<Pair<String, String>> {
+        return monitoredWarningKeys
+                .mapNotNull { key -> currentWarningValue(key)?.let { key to it } }
+                .filter { (key, value) ->
+                    ClusterWarningPolicy.raisesWarningBadge(key, value) &&
+                            dismissedWarnings[key] != value
+                }
+                .sortedByDescending { (key, _) -> warningOnsetTimes[key] ?: 0L }
     }
 
     private fun hasCriticalTelemetryWarning(): Boolean {
-        val sm = ServiceManager.getInstance()
         for (key in monitoredWarningKeys) {
-            val value = sm.getData(key)
+            val value = currentWarningValue(key)
             if (ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(key, value)) {
                 Log.w(TAG, "Critical telemetry warning active: key=$key value=$value")
                 return true
@@ -2023,48 +2465,42 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             carPlayInDash: Boolean = isCarPlayInDash(),
             projectionMirrorInDash: Boolean = isProjectionMirrorInDash(),
             reason: String = "UPDATE_VIRTUAL_CLUSTER_VISIBILITY",
-            projectionPreparingD3: Boolean = isProjectionPreparingD3()
+            projectionPreparingD3: Boolean = isProjectionPreparingD3(),
+            forceNativeMaskRefresh: Boolean = false
     ) {
         val clusterEnabled =
                 preferences.getBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key, true)
         val projectorVisible =
                 shouldShowProjector() && ServiceManager.getInstance().isMainScreenOn
-        val androidAutoInDash =
-                br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-                        .isAndroidAutoOnDisplay(3)
-        val overlayBypassActive =
-                isProjectionOverlayBypassActive(carPlayInDash, androidAutoInDash)
         var isLeftCovered = false
         var isRightCovered = false
 
-        logProjectionVisibility(
-                reason,
-                carPlayInDash,
-                projectionMirrorInDash,
-                projectionPreparingD3,
-                clusterEnabled,
-                projectorVisible,
-                overlayBypassActive
-        )
-
-        applyProjectionOverlayBypass(overlayBypassActive)
-        applyProjectorViewVisibility(
-                projectorVisible,
-                overlayBypassActive,
-                carPlayInDash || projectionMirrorInDash || projectionPreparingD3
-        )
-
+        // NOTE ON ORDERING: everything down to the appInDash push below is cheap
+        // (prefs + one cached `am stack list`). The Android Auto probe further
+        // down is not — it fans out into several stack queries and only feeds the
+        // overlay-bypass decision, never appInDash. This whole method runs on the
+        // UI thread via ensureUi{}, which is the same thread that paints the theme
+        // WebView, so doing the expensive probe first made the theme wait seconds
+        // to learn that an app had left the cluster. Compute coverage and tell the
+        // theme first; do the projection/overlay bookkeeping afterwards.
         if (projectionMirrorInDash || projectionPreparingD3) {
             isLeftCovered = true
             isRightCovered = true
         }
 
+        // Always include display 3 when resolving the native-mask hole so a stale
+        // isAnyAppOnDisplay3 flag cannot leave the app buried under d3_mask. Configs
+        // without a live task on D3 still yield no hole (filtered below).
         val displayIdsToInspect =
                 buildSet {
                     if (isAnyAppOnDisplay1) add(1)
-                    if (isAnyAppOnDisplay3 || projectionMirrorInDash || projectionPreparingD3) add(3)
+                    add(3)
                 }
-        val configs = getManagedSecondaryDisplayConfigs(displayIdsToInspect)
+        val configs =
+                getManagedSecondaryDisplayConfigs(
+                        displayIdsToInspect,
+                        requireKnownActive = false
+                )
         val tasksByPackage =
                 if (configs.isEmpty()) {
                     emptyMap()
@@ -2072,6 +2508,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
                             .findFirstTasksForPackages(configs.map { it.packageName })
                 }
+
+        var appRectOnDisplay3: android.graphics.Rect? = null
 
         for (displayId in listOf(1, 3)) {
             val res =
@@ -2087,11 +2525,20 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     }
 
             for (app in appsOnDisplay) {
+                val task = tasksByPackage[app.packageName]
+                val liveBounds = task?.bounds
                 val bounds =
-                        br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-                                .getEffectiveBounds(app)
+                        if (liveBounds != null && liveBounds.size >= 4) {
+                            liveBounds
+                        } else {
+                            br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                                    .getEffectiveBounds(app)
+                        }
                 val baseX = bounds[0]
-                val baseWidth = bounds[2] - bounds[0]
+                val baseY = bounds[1]
+                val baseRight = bounds[2]
+                val baseBottom = bounds[3]
+                val baseWidth = baseRight - baseX
 
                 if (baseX <= (fullWidth * 0.1f).toInt()) {
                     isLeftCovered = true
@@ -2111,7 +2558,48 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 if (baseX + actualWidth >= (fullWidth * 0.7f).toInt()) {
                     isRightCovered = true
                 }
+
+                if (displayId == 3) {
+                    // Same clamp syncSecondaryDisplayApps() applies, so the hole matches the
+                    // window that was actually resized rather than the unsqueezed request.
+                    val appliedWidth =
+                            kotlin.math.max(100, kotlin.math.min(baseWidth, actualWidth))
+                    val rect =
+                            android.graphics.Rect(
+                                    baseX,
+                                    baseY,
+                                    baseX + appliedWidth,
+                                    baseBottom
+                            )
+                    appRectOnDisplay3 =
+                            appRectOnDisplay3?.apply { union(rect) } ?: rect
+                }
             }
+        }
+
+        // AA/CarPlay are intentionally excluded from managed secondary configs (resize/
+        // sync paths), but they still need a native-mask hole on D3 — otherwise the
+        // opaque d3_mask wallpaper stays on top of the projection.
+        if (appRectOnDisplay3 == null) {
+            val projectionHole = resolveProjectionDisplay3AppRect()
+            if (projectionHole != null) {
+                appRectOnDisplay3 = projectionHole
+                isLeftCovered = true
+                isRightCovered = true
+            }
+        }
+
+        val rectChanged = appRectOnDisplay3 != display3AppRect
+        if (rectChanged) {
+            display3AppRect = appRectOnDisplay3?.let { android.graphics.Rect(it) }
+        }
+        if (rectChanged || forceNativeMaskRefresh) {
+            Log.w(
+                    TAG,
+                    "display3AppRect hole update reason=$reason rect=$display3AppRect " +
+                            "force=$forceNativeMaskRefresh"
+            )
+            updateNativeMaskViews()
         }
 
         val appInDashValue =
@@ -2122,10 +2610,38 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     else -> "false"
                 }
 
+        val clusterBackground = isClusterBackgroundApplied()
+
         evaluateJsIfReady(
                 webView,
-                "(function(){control('clusterEnabled', $clusterEnabled);control('appInDash', $appInDashValue);})()"
+                "(function(){control('clusterEnabled', $clusterEnabled);control('clusterBackground', $clusterBackground);control('appInDash', $appInDashValue);})()"
         )
+
+        // Deferred until after the theme has been told: the AA probe is the
+        // expensive part of this method and nothing above depends on it.
+        val androidAutoInDash =
+                br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                        .isAndroidAutoOnDisplay(3)
+        val overlayBypassActive =
+                isProjectionOverlayBypassActive(carPlayInDash, androidAutoInDash)
+
+        logProjectionVisibility(
+                reason,
+                carPlayInDash,
+                projectionMirrorInDash,
+                projectionPreparingD3,
+                clusterEnabled,
+                projectorVisible,
+                overlayBypassActive
+        )
+
+        applyProjectionOverlayBypass(overlayBypassActive)
+        applyProjectorViewVisibility(
+                projectorVisible,
+                overlayBypassActive,
+                carPlayInDash || projectionMirrorInDash || projectionPreparingD3
+        )
+
         pushProjectionStateToWebView(carPlayInDash, projectionMirrorInDash, projectionPreparingD3)
     }
 
@@ -2262,6 +2778,41 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         }
     }
 
+    /**
+     * Deliver the active card to the theme and report what actually happened.
+     *
+     * The card is the one piece of state with no periodic re-push: telemetry is resent
+     * constantly via onDataChanged, but a dropped card leaves the theme rendering a
+     * different card from the one the cluster is on, with nothing to correct it. The
+     * result callback distinguishes "delivered", "theme has no handler" and "the handler
+     * threw" — which is otherwise invisible from the Kotlin side.
+     */
+    private fun pushActiveCardToTheme(cardId: Int) {
+        val wv = webView ?: return
+        val js =
+                "(function(){ try {" +
+                        " if (!window.onCardChanged) return 'missing';" +
+                        " window.onCardChanged($cardId); return 'ok';" +
+                        " } catch (e) { return 'threw:' + e; } })()"
+        if (webViewsLoaded.getOrDefault(wv, false)) {
+            wv.evaluateJavascript(js) { result ->
+                if (result == null || !result.contains("ok")) {
+                    Log.e(TAG, "[CARD_PUSH] card=$cardId not delivered to theme: $result")
+                    ClusterPersistentEventLogger.log(
+                            "card_push_failed",
+                            mapOf("card" to cardId, "result" to (result ?: "null"))
+                    )
+                } else {
+                    Log.w(TAG, "[CARD_PUSH] card=$cardId delivered")
+                }
+            }
+        } else {
+            Log.w(TAG, "[CARD_PUSH] card=$cardId queued (webview not loaded)")
+            ClusterPersistentEventLogger.log("card_push_queued", mapOf("card" to cardId))
+            evaluateJsIfReady(wv, js)
+        }
+    }
+
     private fun evaluateJsIfReady(webView: WebView?, js: String) {
         if (webView == null) return
         if (webViewsLoaded.getOrDefault(webView, false)) {
@@ -2296,7 +2847,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val customThemeName = getActiveCustomThemeName()
         if (customThemeName.isNotEmpty()) {
             val themeDir = File(File(outerContext.filesDir, "themes"), customThemeName)
-            if (themeDir.exists()) {
+            val themeManager =
+                    br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(
+                            outerContext
+                    )
+            val metadata = themeManager.getThemeMetadata(customThemeName)
+            if (themeDir.exists() && metadata != null && themeManager.isThemeSupported(metadata)) {
                 return "file://${themeDir.absolutePath}/"
             }
         }
@@ -2318,7 +2874,22 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                 outerContext
                         )
                 val metadata = themeManager.getThemeMetadata(customThemeName)
-                val mainFile = metadata?.mainFile ?: "index.html"
+                if (metadata == null || !themeManager.isThemeSupported(metadata)) {
+                    Log.w(
+                            TAG,
+                            "Theme '$customThemeName' is missing, untrusted, contract-incompatible, " +
+                                    "or requires a newer bridge. Falling back to default raw asset."
+                    )
+                    activeThemeMetadata = null
+                    return context.resources.openRawResource(R.raw.app).bufferedReader().use {
+                        it.readText()
+                    }
+                }
+
+                activeThemeMetadata = metadata
+                Log.d(TAG, "Theme $customThemeName isThemeDecentralized = ${metadata.decentralized}")
+
+                val mainFile = metadata.mainFile.ifBlank { "index.html" }
 
                 val themeFile = themeManager.getThemeFile(customThemeName, mainFile)
                 if (themeFile != null && themeFile.exists()) {
@@ -2355,6 +2926,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             } catch (e: Exception) {
                 Log.e(TAG, "Error reading custom theme file, falling back to raw asset", e)
             }
+        } else {
+            activeThemeMetadata = null
+
         }
 
         Log.d(TAG, "Loading base HTML from resource: app.html")
@@ -2472,21 +3046,21 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         }
 
         if (updates != null) {
-            updates[GraphicsScreen.GraphOptions.GAS_CONSUMPTION_MODE] = mode
-            updates[GraphicsScreen.GraphOptions.GAS_CONSUMPTION_IDLE] = adjustedValueIdle.toString()
-            updates[GraphicsScreen.GraphOptions.GAS_CONSUMPTION] = adjustedValue.toString()
+            updates["gasConsumptionMode"] = mode
+            updates["gasConsumptionIdle"] = adjustedValueIdle.toString()
+            updates["gasConsumption"] = adjustedValue.toString()
         } else {
             evaluateJsIfReady(
                     view,
-                    "control('${GraphicsScreen.GraphOptions.GAS_CONSUMPTION_MODE}', '$mode')"
+                    "control('gasConsumptionMode', '$mode')"
             )
             evaluateJsIfReady(
                     view,
-                    "control('${GraphicsScreen.GraphOptions.GAS_CONSUMPTION_IDLE}', $adjustedValueIdle)"
+                    "control('gasConsumptionIdle', $adjustedValueIdle)"
             )
             evaluateJsIfReady(
                     view,
-                    "control('${GraphicsScreen.GraphOptions.GAS_CONSUMPTION}', $adjustedValue)"
+                    "control('gasConsumption', $adjustedValue)"
             )
         }
     }
@@ -2568,115 +3142,530 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         Log.d(TAG, "Cluster color saved: $normalizedColor")
     }
 
-    private fun saveClusterDisplay(display: String) {
+    override fun saveClusterDisplay(value: String) {
         testDefaultDisplayOverrideActive = false
-        val normalizedDisplay = normalizeClusterDisplay(display)
+        val normalizedDisplay = normalizeClusterDisplay(value)
         preferences.edit()
                 .putString(SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key, normalizedDisplay)
                 .apply()
         Log.d(TAG, "Cluster display saved: $normalizedDisplay")
     }
 
-    private fun updateWarningUI(anyWarningActive: Boolean) {
-        // State-change guard. The WebView's JS bridge (setWarningActive)
-        // was observed firing every ~580ms while a warning is active,
-        // producing a hot loop of cache invalidations, visibility
-        // recomputes, syncSecondaryDisplayApps() calls, and JS round-trips
-        // that pegged Impulse's main thread (~87% CPU). Doing real work
-        // only on the actual boolean flip eliminates the loop without
-        // changing semantics — the JS bridge can stay chatty; we no-op.
-        if (anyWarningActive == isWarningActive) return
-
-        if (anyWarningActive && !isWarningActive) {
-            lastWarningActiveTime = System.currentTimeMillis()
-            Log.w(TAG, "updateWarningUI: warning transition to active, setting onset time")
+    /**
+     * Legacy bridge entry point: themes built before the backend owned the badge compute
+     * `warningActive` themselves and push it here. Advisory only now — acting on it would
+     * let a downloadable theme override cluster visibility and app widths, and would fight
+     * [recomputeWarningState]. Older themes are unaffected: they still receive the
+     * authoritative value through `control('warningActive', …)` and render that.
+     *
+     * Deliberately does no work at all. This used to fire every ~580ms while a warning was
+     * standing, and each call invalidated caches, recomputed visibility and called
+     * syncSecondaryDisplayApps(), which pegged Impulse's main thread at ~87% CPU.
+     */
+    override fun updateWarningUI(isActive: Boolean) {
+        if (isActive != isWarningActive) {
+            Log.d(TAG, "updateWarningUI($isActive) ignored; backend computed $isWarningActive")
         }
-
-        isWarningActive = anyWarningActive
-        lastAppliedConfigs.clear() // Invalidate cache on warning toggle to force re-sync
-        if (anyWarningActive) {
-            Log.w(TAG, "Warning detected. currentCard=$currentCard. Triggering visibility update.")
-        } else {
-            Log.w(TAG, "Warnings cleared.")
-        }
-        logClusterPerfEvent(
-                "warning_state_changed",
-                mapOf("active" to anyWarningActive)
-        )
-
-        updateVirtualClusterVisibility(reason = "WARNING_STATE_CHANGED")
-        syncSecondaryDisplayApps(3)
-
-        // Propagate current warning state
-        evaluateJsIfReady(webView, "control('warningActive', $anyWarningActive)")
     }
 
-    inner class WebAppInterface {
-        @JavascriptInterface
-        fun getInitialClusterColor(): String = getSavedClusterColor()
+    /**
+     * BACK closes the car's warning popup, which acknowledges everything listed in it.
+     *
+     * Acknowledging only the newest was tried and is wrong: the car's popup shows every
+     * active warning at once, so one BACK dismisses the lot from the driver's point of view.
+     * Holding back the others left our layout collapsed under a popup that was still up, and
+     * meant one physical condition reported over several CAN keys (tyres are four, oil is
+     * three) needed a BACK press each.
+     *
+     * The lockout is still measured per-warning, against the most recent onset, so a warning
+     * that has only just appeared cannot be swallowed by a BACK press already in flight —
+     * that part of the per-warning work was worth keeping.
+     */
+    override fun dismissWarnings() {
+        ensureUi {
+            val showing = unacknowledgedBadgeWarnings()
+            if (showing.isEmpty()) {
+                Log.d(TAG, "dismissWarnings: nothing un-acknowledged to dismiss")
+                return@ensureUi
+            }
 
-        @JavascriptInterface
-        fun getInitialClusterDisplay(): String = getSavedClusterDisplay()
-
-        @JavascriptInterface
-        fun heartbeat() {
-            lastHeartbeatTime = System.currentTimeMillis()
-            logPerfHeartbeatIfNeeded()
-        }
-
-        @JavascriptInterface
-        fun perfEvent(name: String, details: String?) {
+            // Sorted newest-first, so the head is the warning that most recently appeared.
+            val newestKey = showing.first().first
+            val onset = warningOnsetTimes[newestKey] ?: lastWarningActiveTime
+            val timeSinceWarning = System.currentTimeMillis() - onset
+            Log.d(TAG, "dismissWarnings called. newest=$newestKey timeSinceWarning=${timeSinceWarning}ms (onset=$onset)")
             logClusterPerfEvent(
-                    "js_$name",
-                    mapOf("details" to (details ?: ""))
+                    "dismiss_warning",
+                    mapOf("newest" to newestKey, "count" to showing.size, "timeSinceWarningMs" to timeSinceWarning)
             )
-        }
+            if (timeSinceWarning < WARNING_DISMISS_LOCKOUT_MS) {
+                Log.w(TAG, "DISMISS_WARNING ignored: newest=$newestKey timeSinceWarning=${timeSinceWarning}ms < ${WARNING_DISMISS_LOCKOUT_MS}ms lockout")
+                return@ensureUi
+            }
 
-        @JavascriptInterface
-        fun setWarningActive(isActive: Boolean) {
-            ensureUi {
-                val effectiveActive = isActive && hasCriticalTelemetryWarning()
-                if (isActive && !effectiveActive) {
-                    Log.d(TAG, "Ignoring JS warningActive=true without critical telemetry")
+            for ((key, value) in showing) {
+                dismissedWarnings[key] = value
+            }
+            Log.d(TAG, "dismissWarnings: acknowledged ${showing.size} warning(s): ${showing.map { it.first }}")
+            // No hold-off here: the car's popup closes with the same BACK press.
+            recomputeWarningState("DISMISS", immediate = true)
+        }
+    }
+
+    override fun runOnUiThread(action: Runnable) {
+        ensureUi { action.run() }
+    }
+
+    // setCardId is intentionally gone. The theme used to echo the card back here, which
+    // made currentCard writable from JS and let a theme's stale view overwrite the card
+    // the car had reported. Card state flows one way: car -> backend -> theme.
+
+    override fun updateHeartbeat() {
+        lastHeartbeatTime = System.currentTimeMillis()
+    }
+
+    override fun refreshDisplayBounds() {
+        Log.d(TAG, "refreshDisplayBounds: Triggering display app sync from frontend")
+        ensureUi {
+            lastAppliedConfigs.clear()
+            listOf(1, 3).forEach { displayId ->
+                if (hasManagedSecondaryDisplayWork(displayId)) {
+                    syncSecondaryDisplayApps(displayId)
                 }
-                updateWarningUI(effectiveActive)
             }
         }
+    }
 
-        @JavascriptInterface
-        fun setCardId(cardId: Int) {
-            if (currentCard == cardId) {
-                Log.d(TAG, "Card ID bridge echo ignored: $cardId")
-                logClusterPerfEvent("js_card_echo", mapOf("cardId" to cardId))
+    private fun pushVirtualDisplayState(displayId: Int) {
+        val themeBridge = this.themeBridge ?: return
+        val contextApp = outerContext.applicationContext
+
+        val activeAppKey = "app.display.$displayId.active_app"
+        val activeAppLabelKey = "app.display.$displayId.active_app_label"
+        val activeAppIconKey = "app.display.$displayId.active_app_icon"
+
+        if (subscribedKeys.contains(activeAppKey)) {
+            val value = br.com.redesurftank.havalshisuku.bridge.VirtualTelemetryManager.getVirtualValue(contextApp, activeAppKey)
+            themeBridge.pushOnDataChanged(activeAppKey, value)
+        }
+        if (subscribedKeys.contains(activeAppLabelKey)) {
+            val value = br.com.redesurftank.havalshisuku.bridge.VirtualTelemetryManager.getVirtualValue(contextApp, activeAppLabelKey)
+            themeBridge.pushOnDataChanged(activeAppLabelKey, value)
+        }
+        if (subscribedKeys.contains(activeAppIconKey)) {
+            val value = br.com.redesurftank.havalshisuku.bridge.VirtualTelemetryManager.getVirtualValue(contextApp, activeAppIconKey)
+            themeBridge.pushOnDataChanged(activeAppIconKey, value)
+        }
+    }
+
+    private fun initNativeMaskViews(parent: FrameLayout) {
+        if (nativeMaskContainer != null) return
+        val container = FrameLayout(outerContext).apply {
+            layoutParams = FrameLayout.LayoutParams(1920, 720)
+            isClickable = false
+        }
+
+        fuelMaskView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            visibility = View.GONE
+        }
+        batteryMaskView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            visibility = View.GONE
+        }
+        speedMaskView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            visibility = View.GONE
+        }
+        infoMaskView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            visibility = View.GONE
+        }
+        topCenterMaskView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            visibility = View.GONE
+        }
+        globalMaskView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            layoutParams = FrameLayout.LayoutParams(1920, 720)
+            visibility = View.GONE
+        }
+
+        container.addView(globalMaskView)
+        container.addView(fuelMaskView)
+        container.addView(batteryMaskView)
+        container.addView(speedMaskView)
+        container.addView(infoMaskView)
+        container.addView(topCenterMaskView)
+
+        nativeMaskContainer = container
+        parent.addView(container, 0)
+    }
+
+    fun updateNativeMaskViews() {
+        val customThemeDir = getActiveCustomThemeName()
+        val themeMgr = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext)
+        val metadata = activeThemeMetadata ?: if (customThemeDir.isNotEmpty()) {
+            themeMgr.getThemeMetadata(customThemeDir)
+        } else {
+            themeMgr.getEmbeddedDefaultTheme()
+        }
+        val config = metadata?.nativeMasks
+        Log.d(TAG, "updateNativeMaskViews: customThemeDir='$customThemeDir' metadata='${metadata?.name}' hasConfig=${config != null && config.hasAnyActiveMask()} hole=$display3AppRect")
+        if (config == null || !config.hasAnyActiveMask()) {
+            nativeMaskContainer?.isVisible = false
+            setDisplayedGlobalMask(null)
+            return
+        }
+
+        nativeMaskContainer?.isVisible = true
+        val folderName = metadata?.folderName ?: customThemeDir
+        val isCard0 = (currentCard == 0)
+
+        val cacheKey = buildGlobalMaskCacheKey(folderName)
+        val base = obtainGlobalMaskBase(folderName, cacheKey, themeMgr)
+        if (base != null) {
+            val framed = applyDisplay3AppHoleToBase(base)
+            setDisplayedGlobalMask(framed)
+            globalMaskView?.isVisible = true
+
+            fuelMaskView?.isVisible = false
+            batteryMaskView?.isVisible = false
+            speedMaskView?.isVisible = false
+            infoMaskView?.isVisible = false
+            topCenterMaskView?.isVisible = false
+            return
+        }
+
+        setDisplayedGlobalMask(null)
+        globalMaskView?.isVisible = false
+
+        fun bindMask(
+            view: android.widget.ImageView?,
+            spec: br.com.redesurftank.havalshisuku.models.NativeMaskSpec,
+            name: String,
+            forceHide: Boolean = false
+        ) {
+            if (view == null) return
+            val overrideVisible = maskVisibilityOverrides[name] ?: true
+            val shouldShow = spec.enabled && overrideVisible && !forceHide
+
+            if (!shouldShow) {
+                view.isVisible = false
                 return
             }
-            val previousCard = currentCard
-            currentCard = cardId
-            updateKnownScreenForCard(cardId)
-            Log.d(TAG, "Card ID updated to $cardId")
-            logClusterPerfEvent(
-                    "js_card_update",
-                    mapOf("from" to previousCard, "to" to cardId)
-            )
-            if (
-                    hasManagedSecondaryDisplayWork(3) &&
-                            ClusterCardFlowPolicy.cardCanAffectManagedAppBounds(
-                                    previousCard,
-                                    cardId
+
+            val params = (view.layoutParams as? FrameLayout.LayoutParams) ?: FrameLayout.LayoutParams(spec.width, spec.height)
+            params.width = spec.width
+            params.height = spec.height
+            params.leftMargin = spec.x
+            params.topMargin = spec.y
+            view.layoutParams = params
+            view.alpha = spec.opacity
+
+            val artwork: android.graphics.drawable.Drawable =
+                    if (spec.image.isNotBlank()) {
+                        val themeFile = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext).getThemeFile(folderName, spec.image)
+                        if (themeFile != null && themeFile.exists()) {
+                            android.graphics.drawable.BitmapDrawable(
+                                    outerContext.resources,
+                                    android.graphics.BitmapFactory.decodeFile(themeFile.absolutePath)
                             )
-            ) {
-                lastAppliedConfigs.clear()
-                syncSecondaryDisplayApps(3)
+                        } else {
+                            getThemeMaskFallbackDrawable(folderName, spec)
+                        }
+                    } else {
+                        getThemeMaskFallbackDrawable(folderName, spec)
+                    }
+
+            view.setImageDrawable(withDisplay3AppHole(artwork, spec))
+            view.isVisible = true
+        }
+
+        bindMask(fuelMaskView, config.fuelMask, "fuel")
+        bindMask(batteryMaskView, config.batteryMask, "battery")
+        bindMask(speedMaskView, config.speedMask, "speed")
+        // Mask 2.2 Info Mask: ALWAYS hidden by backend when card = 0
+        bindMask(infoMaskView, config.infoMask, "info", forceHide = isCard0)
+        bindMask(topCenterMaskView, config.topCenterMask, "topcenter")
+    }
+
+    private fun buildGlobalMaskCacheKey(folderName: String): String {
+        val bgEnabled = preferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+        val bgType = preferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME"
+        val bgValue = preferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: ""
+        return "folder=$folderName|bgEnabled=$bgEnabled|bgType=$bgType|bgValue=$bgValue"
+    }
+
+    /**
+     * Returns the cached wallpaper × d3_mask composite (no app hole), rebuilding only when
+     * the theme/background identity changes.
+     */
+    private fun obtainGlobalMaskBase(
+            folderName: String,
+            cacheKey: String,
+            themeMgr: br.com.redesurftank.havalshisuku.managers.ThemeManager
+    ): android.graphics.Bitmap? {
+        val cached = cachedGlobalMaskBase
+        if (cached != null && !cached.isRecycled && cachedGlobalMaskKey == cacheKey) {
+            return cached
+        }
+
+        invalidateGlobalMaskCache()
+
+        val assetMaskBitmap: android.graphics.Bitmap? = try {
+            outerContext.assets.open("d3_mask.png").use { stream ->
+                android.graphics.BitmapFactory.decodeStream(stream)
+            }
+        } catch (e: Exception) {
+            null
+        }
+
+        val globalMaskFile = themeMgr.getThemeFile(folderName, "d3_mask.png")
+        val maskBitmap = assetMaskBitmap ?: if (globalMaskFile != null && globalMaskFile.exists()) {
+            android.graphics.BitmapFactory.decodeFile(globalMaskFile.absolutePath)
+        } else null
+
+        if (maskBitmap == null) return null
+
+        return try {
+            val bgBitmap = getBackgroundBitmap(folderName) ?: return null
+            val scaledBg = getCoverScaledBitmap(bgBitmap, 1920, 720)
+            val scaledMask = getCoverScaledBitmap(maskBitmap, 1920, 720)
+            val alphaMask = convertLuminanceToAlpha(scaledMask)
+
+            val result = android.graphics.Bitmap.createBitmap(1920, 720, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(result)
+            canvas.drawBitmap(scaledBg, 0f, 0f, null)
+
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+            }
+            canvas.drawBitmap(alphaMask, 0f, 0f, paint)
+
+            cachedGlobalMaskBase = result
+            cachedGlobalMaskKey = cacheKey
+            result
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to compose global d3_mask.png", e)
+            null
+        }
+    }
+
+    /** Copy [base] and CLEAR [display3AppRect], or return [base] itself when there is no hole. */
+    private fun applyDisplay3AppHoleToBase(base: android.graphics.Bitmap): android.graphics.Bitmap {
+        val hole = display3AppRect ?: return base
+        return try {
+            val framed = base.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+            val canvas = android.graphics.Canvas(framed)
+            clearDisplay3AppRect(canvas, 0, 0)
+            framed
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to punch display-3 app hole out of global mask", e)
+            base
+        }
+    }
+
+    private fun setDisplayedGlobalMask(bitmap: android.graphics.Bitmap?) {
+        val previous = displayedGlobalMaskBitmap
+        globalMaskView?.setImageBitmap(bitmap)
+        displayedGlobalMaskBitmap = bitmap
+        // Recycle the previous framed copy, but never the cached base.
+        if (previous != null &&
+                        previous !== bitmap &&
+                        previous !== cachedGlobalMaskBase &&
+                        !previous.isRecycled
+        ) {
+            previous.recycle()
+        }
+    }
+
+    private fun invalidateGlobalMaskCache() {
+        val base = cachedGlobalMaskBase
+        cachedGlobalMaskBase = null
+        cachedGlobalMaskKey = null
+        if (base != null && base !== displayedGlobalMaskBitmap && !base.isRecycled) {
+            base.recycle()
+        }
+    }
+
+    /**
+     * Erase whatever the display-3 app covers from a mask being composed onto [canvas],
+     * whose top-left corner sits at ([originX], [originY]) in display coordinates.
+     *
+     * PorterDuff.CLEAR rather than skipping the mask outright: an app rarely spans the whole
+     * panel, and the parts of the car's native cluster it does not reach still need covering.
+     * Does not touch the WebView — only native mask pixels.
+     */
+    private fun clearDisplay3AppRect(
+            canvas: android.graphics.Canvas,
+            originX: Int,
+            originY: Int
+    ) {
+        val hole = display3AppRect ?: return
+        val clearPaint =
+                android.graphics.Paint().apply {
+                    xfermode =
+                            android.graphics.PorterDuffXfermode(
+                                    android.graphics.PorterDuff.Mode.CLEAR
+                            )
+                }
+        canvas.drawRect(
+                (hole.left - originX).toFloat(),
+                (hole.top - originY).toFloat(),
+                (hole.right - originX).toFloat(),
+                (hole.bottom - originY).toFloat(),
+                clearPaint
+        )
+    }
+
+    /**
+     * Same hole, for the per-mask views. Each one is laid out at its spec's position and
+     * scaled FIT_XY, so rendering into a bitmap of exactly the spec's size keeps display
+     * coordinates and drawable coordinates in step and the cut lands where the app is.
+     */
+    private fun withDisplay3AppHole(
+            drawable: android.graphics.drawable.Drawable,
+            spec: br.com.redesurftank.havalshisuku.models.NativeMaskSpec
+    ): android.graphics.drawable.Drawable {
+        val hole = display3AppRect ?: return drawable
+        if (spec.width <= 0 || spec.height <= 0) return drawable
+        val maskRect =
+                android.graphics.Rect(
+                        spec.x,
+                        spec.y,
+                        spec.x + spec.width,
+                        spec.y + spec.height
+                )
+        if (!android.graphics.Rect.intersects(maskRect, hole)) return drawable
+
+        return try {
+            val bitmap =
+                    android.graphics.Bitmap.createBitmap(
+                            spec.width,
+                            spec.height,
+                            android.graphics.Bitmap.Config.ARGB_8888
+                    )
+            val canvas = android.graphics.Canvas(bitmap)
+            drawable.setBounds(0, 0, spec.width, spec.height)
+            drawable.draw(canvas)
+            clearDisplay3AppRect(canvas, spec.x, spec.y)
+            android.graphics.drawable.BitmapDrawable(outerContext.resources, bitmap)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to punch display-3 app hole out of mask", e)
+            drawable
+        }
+    }
+
+    private fun getBackgroundBitmap(folderName: String): android.graphics.Bitmap? {
+        val isEnabled = preferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+        if (!isEnabled) return null
+
+        val type = preferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME"
+        val value = preferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: ""
+        val themeMgr = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext)
+
+        try {
+            when (type) {
+                "THEME" -> {
+                    val bgFile = themeMgr.getActiveThemeBackgroundFile(value.ifBlank { null })
+                        ?: themeMgr.getThemeFile(folderName, "car-bg.png")
+                    if (bgFile != null && bgFile.exists()) {
+                        return android.graphics.BitmapFactory.decodeFile(bgFile.absolutePath)
+                    }
+                }
+                "FILE" -> {
+                    val file = File(value)
+                    if (file.exists()) {
+                        return android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                    }
+                }
+                "PRESET" -> {
+                    val inputStream = outerContext.assets.open("backgrounds/$value")
+                    return android.graphics.BitmapFactory.decodeStream(inputStream)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load custom background for mask fallback", e)
+        }
+        return null
+    }
+
+    private fun getCoverScaledBitmap(bitmap: android.graphics.Bitmap, targetW: Int, targetH: Int): android.graphics.Bitmap {
+        if (bitmap.width == targetW && bitmap.height == targetH) return bitmap
+
+        val scale = Math.max(targetW.toFloat() / bitmap.width, targetH.toFloat() / bitmap.height)
+        val scaledW = Math.round(bitmap.width * scale)
+        val scaledH = Math.round(bitmap.height * scale)
+
+        val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(bitmap, scaledW, scaledH, true)
+
+        val x = ((scaledW - targetW) / 2).coerceIn(0, Math.max(0, scaledW - targetW))
+        val y = ((scaledH - targetH) / 2).coerceIn(0, Math.max(0, scaledH - targetH))
+
+        return android.graphics.Bitmap.createBitmap(scaledBitmap, x, y, targetW, targetH)
+    }
+
+    private fun getThemeMaskFallbackDrawable(folderName: String, spec: br.com.redesurftank.havalshisuku.models.NativeMaskSpec): android.graphics.drawable.Drawable {
+        val fullBitmap = getBackgroundBitmap(folderName)
+
+        if (fullBitmap != null) {
+            try {
+                val scaledBitmap = getCoverScaledBitmap(fullBitmap, 1920, 720)
+
+                val cropX = spec.x.coerceIn(0, scaledBitmap.width - 1)
+                val cropY = spec.y.coerceIn(0, scaledBitmap.height - 1)
+                val cropW = spec.width.coerceAtMost(scaledBitmap.width - cropX)
+                val cropH = spec.height.coerceAtMost(scaledBitmap.height - cropY)
+                if (cropW > 0 && cropH > 0) {
+                    val cropped = android.graphics.Bitmap.createBitmap(scaledBitmap, cropX, cropY, cropW, cropH)
+                    return android.graphics.drawable.BitmapDrawable(outerContext.resources, cropped)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to crop theme background for mask fallback", e)
             }
         }
 
-        @JavascriptInterface
-        fun saveSetting(key: String, value: String) {
-            when (key) {
-                SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key -> saveClusterDisplay(value)
-                SharedPreferencesKeys.CURRENT_CLUSTER_COLOR.key -> saveClusterColor(value)
-                else -> Log.w(TAG, "Ignoring unsupported WebView setting: $key")
-            }
+        // Return TRANSPARENT for large side mask fallbacks to avoid black side bars
+        return if (spec.width >= 500 && spec.height >= 500) {
+            android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+        } else {
+            android.graphics.drawable.ColorDrawable(Color.BLACK)
         }
+    }
+
+    private fun convertLuminanceToAlpha(mask: android.graphics.Bitmap): android.graphics.Bitmap {
+        val width = mask.width
+        val height = mask.height
+        val result = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(width * height)
+        mask.getPixels(pixels, 0, width, 0, 0, width, height)
+        for (i in pixels.indices) {
+            val p = pixels[i]
+            val a = (p ushr 24) and 0xFF
+            val r = (p ushr 16) and 0xFF
+            val g = (p ushr 8) and 0xFF
+            val b = p and 0xFF
+            val lum = (0.299f * r + 0.587f * g + 0.114f * b).toInt().coerceIn(0, 255)
+            val newAlpha = (lum * (a / 255f)).toInt().coerceIn(0, 255)
+            pixels[i] = (newAlpha shl 24) or 0x00FFFFFF
+        }
+        result.setPixels(pixels, 0, width, 0, 0, width, height)
+        return result
+    }
+
+    override fun setNativeMaskState(maskName: String, visible: Boolean) {
+        maskVisibilityOverrides[maskName.lowercase(Locale.ROOT)] = visible
+        ensureUi { updateNativeMaskViews() }
+    }
+
+    override fun setNativeMasksConfig(jsonConfig: String) {
+        ensureUi { updateNativeMaskViews() }
     }
 }

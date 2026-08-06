@@ -52,6 +52,8 @@ import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.ui.components.BottomBarContent
 import br.com.redesurftank.havalshisuku.ui.components.BottomBarMenus
+import br.com.redesurftank.havalshisuku.ui.components.isAndroidAutoShownOnMainDisplay
+import br.com.redesurftank.havalshisuku.ui.components.resolveBottomBarTouchableLeftPx
 import br.com.redesurftank.havalshisuku.ui.theme.HavalShisukuTheme
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import com.beantechs.mediacenter.core_common.data.MediaInfo
@@ -231,6 +233,197 @@ class BottomBarService : LifecycleService() {
 
     private val BOTTOM_BAR_BASE_HEIGHT_DP = 60f
     private val REFERENCE_OVERSCAN = 20
+    private val MAX_HOLD_CORRECTIONS = 4
+    private val HOLD_SETTLE_MS = 250L
+    private val LEFT_NAV_PANE_REHIDE_DELAY_MS = 5_000L
+
+    /**
+     * Physical width of the left navigation pane, in px: the largest on-screen offset our bar window
+     * has ever been given. Only ever grows, so the content gutter stays put once a fullscreen app
+     * hides the pane.
+     */
+    private var cachedLeftGutterPx = 0
+    private var lastLoggedGutterPx = -1
+
+    /**
+     * Consecutive failed attempts to pull a window back to physical x=0, per window. Guards against
+     * relayout looping forever if WindowManager ever refuses the offset we ask for.
+     */
+    private val holdAttempts = java.util.WeakHashMap<android.view.View, Int>()
+
+    /**
+     * Windows with a correction in flight. Without this, a second layout pass reads the old position
+     * and corrects again on top of a correction already applied, which made x oscillate -128/-256.
+     */
+    private val holdPending = java.util.WeakHashMap<android.view.View, Boolean>()
+
+    /**
+     * Whether starting a projection on the cluster (display 1/3) should bring the Impulse Drive
+     * dashboard up on the main display. Read live rather than cached, so toggling it in settings takes
+     * effect without restarting the service.
+     */
+    private fun isClusterProjectionDashboardEnabled(): Boolean =
+            br.com.redesurftank.App.getDeviceProtectedContext()
+                    .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+                    .getBoolean(SharedPreferencesKeys.CLUSTER_PROJECTION_OPENS_DASHBOARD.key, true)
+
+    private var leftNavPaneRehideJob: Job? = null
+
+    /**
+     * Re-hides the left navigation pane [LEFT_NAV_PANE_REHIDE_DELAY_MS] after it is swiped back in,
+     * while the user preference asks for it to stay hidden.
+     *
+     * `policy_control` is already set to the hiding value at this point, and re-writing the same
+     * value is a no-op that SettingsProvider will not broadcast - so clear it first to force
+     * PolicyControl to re-read and re-apply the flags.
+     */
+    private fun scheduleLeftNavPaneRehide() {
+        if (leftNavPaneRehideJob?.isActive == true) return
+
+        leftNavPaneRehideJob =
+                lifecycleScope.launch(Dispatchers.IO) {
+                    delay(LEFT_NAV_PANE_REHIDE_DELAY_MS)
+                    if (!BottomBarState.leftNavPaneHidden) return@launch
+                    Log.w("BottomBarService", "[NAV_PANE] re-hiding after swipe reveal")
+                    ShizukuUtils.runCommandAndGetOutput(
+                            arrayOf("settings", "delete", "global", "policy_control")
+                    )
+                    ShizukuUtils.runCommandAndGetOutput(
+                            arrayOf(
+                                    "settings",
+                                    "put",
+                                    "global",
+                                    "policy_control",
+                                    "immersive.navigation=*"
+                            )
+                    )
+                }
+    }
+
+    /** Real display width in px (1920 here) - the width both overlay windows are held at. */
+    private fun realDisplayWidth(): Int {
+        val metrics = android.util.DisplayMetrics()
+        mWindowManager?.defaultDisplay?.getRealMetrics(metrics)
+        return metrics.widthPixels
+    }
+
+    /**
+     * Holds an overlay window at physical x=0 across the full display width, so it never resizes when
+     * the left navigation pane appears.
+     *
+     * The windows are anchored to the frame's RIGHT edge, which the pane never moves (it is 1920 in
+     * both states) - so with an explicit full-display width they already span [0,1920] at all times,
+     * and nothing has to be corrected when the pane appears. That is what keeps the bar from visibly
+     * resizing on the transition.
+     *
+     * This is only a safety net for the case where the right edge does move after all. It corrects
+     * from where the window actually landed (getLocationOnScreen is authoritative, unlike
+     * `resources.displayMetrics`, which lags the live frame and put the window at [-128,1792] once and
+     * [128,2048] after a restart). With RIGHT gravity a positive `x` moves the window left, hence the
+     * sign here.
+     */
+    private fun holdWindowAtPhysicalLeft(view: android.view.View, lp: WindowManager.LayoutParams) {
+        if (view.width <= 0) return
+        if (holdPending[view] == true) return
+
+        val location = IntArray(2)
+        view.getLocationOnScreen(location)
+        val physicalLeft = location[0]
+        if (physicalLeft == 0) {
+            holdAttempts.remove(view)
+            return
+        }
+
+        val attempts = (holdAttempts[view] ?: 0) + 1
+        holdAttempts[view] = attempts
+        if (attempts > MAX_HOLD_CORRECTIONS) {
+            if (attempts == MAX_HOLD_CORRECTIONS + 1) {
+                Log.e(
+                        "BottomBarService",
+                        "[HOLD] giving up after $MAX_HOLD_CORRECTIONS tries; window stuck at left=$physicalLeft"
+                )
+            }
+            return
+        }
+
+        lp.x += physicalLeft
+        realDisplayWidth().takeIf { it > 0 }?.let { lp.width = it }
+        Log.w(
+                "BottomBarService",
+                "[HOLD] observedLeft=$physicalLeft -> x=${lp.x} w=${lp.width} (try $attempts)"
+        )
+        // Deferred: this runs from a layout/insets pass, which is not a safe point to relayout.
+        holdPending[view] = true
+        view.post {
+            try {
+                mWindowManager?.updateViewLayout(view, lp)
+            } catch (e: Exception) {
+                Log.e("BottomBarService", "Error holding window at physical left", e)
+            } finally {
+                // Let the new frame settle before trusting another observation.
+                view.postDelayed({ holdPending.remove(view) }, HOLD_SETTLE_MS)
+            }
+        }
+    }
+
+    /**
+     * Publishes the geometry the Compose layer needs. With the windows held at physical 0 spanning the
+     * whole display, the content gutter is simply the pane's width - a constant, so nothing reflows.
+     */
+    private fun syncOverlayMetrics(view: android.view.View) {
+        // The app frame inset lags the live frame, but it only ever needs to be seen once: the cache
+        // keeps the largest value, so the gutter is stable from then on.
+        val observedPaneWidth = realDisplayWidth() - resources.displayMetrics.widthPixels
+        if (observedPaneWidth > cachedLeftGutterPx) {
+            cachedLeftGutterPx = observedPaneWidth
+        }
+
+        // The pane can be swiped back in from the left edge even while the user has asked for it to
+        // stay hidden. Its frame inset reappearing is the only signal we get, so use that to re-arm
+        // the hide.
+        if (BottomBarState.leftNavPaneHidden && observedPaneWidth > 0) {
+            scheduleLeftNavPaneRehide()
+        }
+
+        // With the pane hidden on purpose there is nothing to stay clear of, so hand the content the
+        // full width instead of leaving a permanent empty gutter.
+        val gutter = if (BottomBarState.leftNavPaneHidden) 0 else cachedLeftGutterPx
+        if (BottomBarState.overlayLeftGutterPx != gutter) {
+            BottomBarState.overlayLeftGutterPx = gutter
+        }
+        val width = view.width
+        if (width > 0 && BottomBarState.overlayWindowWidthPx != width) {
+            BottomBarState.overlayWindowWidthPx = width
+        }
+
+        if (gutter != lastLoggedGutterPx) {
+            lastLoggedGutterPx = gutter
+            // Log.w: this device drops Log.d for our tags.
+            Log.w(
+                    "BottomBarService",
+                    "[GUTTER] width=$width paneWidth=$cachedLeftGutterPx gutter=$gutter"
+            )
+        }
+    }
+
+    private fun isAnyMenuExpanded(): Boolean =
+            BottomBarState.isMenuExpanded ||
+                    BottomBarState.isDashboardExpanded ||
+                    BottomBarState.isSettingsMenuExpanded ||
+                    BottomBarState.isOverrideMenuExpanded ||
+                    BottomBarState.activeSliderType != null
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // The pane showing/hiding resizes our windows; recompute the content gutter from the new
+        // frame. The layout pass that follows also calls syncOverlayMetrics, this just makes the
+        // update immediate.
+        Log.w(
+                "BottomBarService",
+                "onConfigurationChanged screenWidthDp=${newConfig.screenWidthDp}"
+        )
+        composeView?.let { syncOverlayMetrics(it) }
+    }
 
     override fun onCreate() {
         android.util.Log.e("BottomBarService", "SERVICE ONCREATE - STARTING")
@@ -243,6 +436,13 @@ class BottomBarService : LifecycleService() {
                         .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
         BottomBarState.autoHideEnabled =
                 prefs.getBoolean(SharedPreferencesKeys.BOTTOM_BAR_AUTO_HIDE.key, false)
+        BottomBarState.leftNavPaneHidden =
+                prefs.getBoolean(SharedPreferencesKeys.HIDE_LEFT_NAV_PANE.key, false)
+        BottomBarState.swipeUpAction =
+                prefs.getString(SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_ACTION.key, null)
+                        ?: BottomBarState.SwipeUpAction.DASHBOARD.key
+        BottomBarState.swipeUpPackage =
+                prefs.getString(SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_PACKAGE.key, null) ?: ""
 
         BottomBarState.isVisible = true
         usbMediaInfoReader = UsbMediaInfoReader(applicationContext)
@@ -618,20 +818,15 @@ class BottomBarService : LifecycleService() {
                                     DisplayAppLauncher.resolveActiveProjectionPackageForDisplay(3)
                             if (currentPackage != null) {
                                 withContext(Dispatchers.Main) {
+                                    // Published for the projection logic, but deliberately not fed
+                                    // into selectedPackage: the bar's icon tracks display 0, and a
+                                    // projection sitting on the cluster is not what display 0 shows.
                                     BottomBarState.activeClusterProjectionPackage =
                                             activeClusterProjectionPackage ?: ""
-                                    if (activeClusterProjectionPackage != null &&
-                                                    BottomBarState.selectedPackage !=
-                                                            activeClusterProjectionPackage
-                                    ) {
-                                        BottomBarState.selectedPackage =
-                                                activeClusterProjectionPackage
-                                    }
                                     if (BottomBarState.currentPackage != currentPackage) {
                                         BottomBarState.currentPackage = currentPackage
                                         // Auto-select the current app if it's not a launcher or in the ignore list
-                                        if (activeClusterProjectionPackage == null &&
-                                                        !IGNORE_PACKAGES.contains(currentPackage) &&
+                                        if (!IGNORE_PACKAGES.contains(currentPackage) &&
                                                         !isLauncher(currentPackage)
                                         ) {
                                             BottomBarState.selectedPackage = currentPackage
@@ -644,10 +839,6 @@ class BottomBarService : LifecycleService() {
                                 withContext(Dispatchers.Main) {
                                     BottomBarState.activeClusterProjectionPackage =
                                             activeClusterProjectionPackage ?: ""
-                                    if (activeClusterProjectionPackage != null) {
-                                        BottomBarState.selectedPackage =
-                                                activeClusterProjectionPackage
-                                    }
                                     BottomBarState.currentPackage =
                                             this@BottomBarService.packageName
                                 }
@@ -3457,6 +3648,13 @@ class BottomBarService : LifecycleService() {
     }
 
     private fun restoreDashboardAfterProjectionHandoff(reason: String) {
+        if (!isClusterProjectionDashboardEnabled()) {
+            Log.w(
+                    "BottomBarService",
+                    "[$reason] Skipping dashboard reopen - disabled by preference"
+            )
+            return
+        }
         if (!shouldAutoOpenDashboardAfterProjectionHandoffForTest(
                         isVisible = BottomBarState.isVisible,
                         isDashboardExpanded = BottomBarState.isDashboardExpanded
@@ -3588,16 +3786,36 @@ class BottomBarService : LifecycleService() {
         val displayMetrics = android.util.DisplayMetrics()
         wm.defaultDisplay?.getRealMetrics(displayMetrics)
 
+        // The window keeps a constant full-screen size for its whole life. It used to be collapsed to
+        // 0x0 while hidden, but growing it back from the bottom edge is what made the scrim and the
+        // menus appear to sweep up from the bottom - the content is drawn while the window is still
+        // expanding, so no amount of fading hides it. Toggle transparency and touchability instead:
+        // geometry never changes, so there is nothing to animate.
+        // Explicit real width anchored right - same as the bar, so the two share one coordinate space
+        // (the menus and the sliders rely on that). Height is explicit too, so the dashboard bleeds
+        // past the bottom overscan.
+        mp.width = realDisplayWidth().takeIf { it > 0 } ?: WindowManager.LayoutParams.MATCH_PARENT
+        mp.height =
+                displayMetrics.heightPixels.takeIf { it > 0 }
+                        ?: WindowManager.LayoutParams.MATCH_PARENT
+        mp.y = 0
+        mp.gravity = Gravity.BOTTOM or Gravity.RIGHT
+
+        if (show) {
+            mp.alpha = 1f
+            mp.flags = mp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        } else {
+            // alpha 0 lets the compositor skip the layer entirely, so an always-present full-screen
+            // overlay costs nothing while no menu is open.
+            mp.alpha = 0f
+            mp.flags = mp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        }
+
         if (!isMenuWindowAdded) {
             try {
-                // Initialize as hidden if first added
-                if (!show) {
-                    mp.width = 0
-                    mp.height = 0
-                    mp.flags = mp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                }
                 wm.addView(mv, mp)
                 isMenuWindowAdded = true
+                return
             } catch (e: Exception) {
                 Log.e("BottomBarService", "Error adding menu window", e)
                 return
@@ -3605,23 +3823,6 @@ class BottomBarService : LifecycleService() {
         }
 
         try {
-            if (show) {
-                val realWidth = displayMetrics.widthPixels.takeIf { it > 0 }
-                val realHeight = displayMetrics.heightPixels.takeIf { it > 0 }
-                val appWidth = resources.displayMetrics.widthPixels.takeIf { it > 0 }
-                val leftInset = ((realWidth ?: 0) - (appWidth ?: 0)).coerceAtLeast(0)
-
-                mp.width = realWidth ?: WindowManager.LayoutParams.MATCH_PARENT
-                mp.height = realHeight ?: WindowManager.LayoutParams.MATCH_PARENT
-                mp.x = -leftInset
-                mp.y = 0
-                mp.gravity = Gravity.TOP or Gravity.START
-                mp.flags = mp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-            } else {
-                mp.width = 0
-                mp.height = 0
-                mp.flags = mp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-            }
             wm.updateViewLayout(mv, mp)
         } catch (e: Exception) {
             Log.e("BottomBarService", "Error updating menu window layout", e)
@@ -3682,7 +3883,10 @@ class BottomBarService : LifecycleService() {
                                                     .SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
                                             android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION)
 
-                            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                            // RIGHT, not START: the left navigation pane moves the frame's left edge
+                            // but never its right edge, so anchoring right makes the window's position
+                            // independent of the pane - no resize when it shows or hides.
+                            gravity = Gravity.BOTTOM or Gravity.RIGHT
                             // On show, we derive y from the currently applied overscan value if
                             // possible,
                             // but setting it to -defaultOverscan below in show logic.
@@ -3700,9 +3904,11 @@ class BottomBarService : LifecycleService() {
                                 WindowManager.LayoutParams.MATCH_PARENT,
                                 WindowManager.LayoutParams.MATCH_PARENT,
                                 layoutType,
+                                // No FLAG_FULLSCREEN: it changes which frame MATCH_PARENT resolves
+                                // against, and the bar proves NO_LIMITS alone is enough to bleed past
+                                // the bottom overscan.
                                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                                        WindowManager.LayoutParams.FLAG_FULLSCREEN or
                                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                                         WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
                                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -3720,14 +3926,32 @@ class BottomBarService : LifecycleService() {
                                                     .SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
                                             android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION)
 
-                            gravity = Gravity.TOP or Gravity.START
+                            gravity = Gravity.BOTTOM or Gravity.RIGHT
                             y = 0
+                            // No system animation: this window is resized from 0x0 to full screen to
+                            // show a menu, and any enter/resize animation on a bottom-anchored window
+                            // reads as the content sweeping up from the bottom edge. The fade lives in
+                            // BottomBarMenus instead.
+                            windowAnimations = 0
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                                 layoutInDisplayCutoutMode =
                                         WindowManager.LayoutParams
                                                 .LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
                             }
                         }
+
+        // Seed the pane width and the full-display width so the very first layout is already right,
+        // even if the service starts while a fullscreen app has the pane hidden.
+        run {
+            val realWidth = realDisplayWidth()
+            val seeded = realWidth - resources.displayMetrics.widthPixels
+            if (seeded > cachedLeftGutterPx) {
+                cachedLeftGutterPx = seeded
+            }
+            if (realWidth > 0) {
+                params?.width = realWidth
+            }
+        }
 
         if (android.provider.Settings.canDrawOverlays(this)) {
             try {
@@ -3798,16 +4022,23 @@ class BottomBarService : LifecycleService() {
                             val density = resources.displayMetrics.density
                             val displayMetrics = android.util.DisplayMetrics()
                             mWindowManager?.defaultDisplay?.getRealMetrics(displayMetrics)
-                            val windowWidth = displayMetrics.widthPixels
+                            // Regions are window-local, so measure the window, not the display.
+                            val windowWidth =
+                                    composeView.width.takeIf { it > 0 } ?: displayMetrics.widthPixels
+
+                            // Fires on every layout, which is exactly when the frame may have moved
+                            // under us. Both windows are held at physical 0 so they share one
+                            // coordinate space - the menus and the sliders depend on that.
+                            if (isMenuWindow) {
+                                menuParams?.let { holdWindowAtPhysicalLeft(composeView, it) }
+                            } else {
+                                params?.let { holdWindowAtPhysicalLeft(composeView, it) }
+                                syncOverlayMetrics(composeView)
+                            }
 
                             if (isMenuWindow) {
-                                // Menu window is MATCH_PARENT (full screen height)
-                                val anyMenuExpanded =
-                                        BottomBarState.isMenuExpanded ||
-                                                BottomBarState.isDashboardExpanded ||
-                                                BottomBarState.isSettingsMenuExpanded ||
-                                                BottomBarState.isOverrideMenuExpanded ||
-                                                BottomBarState.activeSliderType != null
+                                // Menu window covers the full pinned display
+                                val anyMenuExpanded = isAnyMenuExpanded()
                                 Log.d(
                                         "BottomBarService",
                                         "TouchRegion[MENU] anyMenuExpanded=$anyMenuExpanded"
@@ -3833,23 +4064,37 @@ class BottomBarService : LifecycleService() {
                                         "TouchRegion[BAR] isVisible=${BottomBarState.isVisible}, windowWidth=$windowWidth, windowHeight=$windowHeight, visibleBarTouchHeight=$visibleBarTouchHeight"
                                 )
 
+                                // The left navigation pane draws above us and owns the gutter, so
+                                // there is nothing of ours to touch there. When Android Auto owns
+                                // display 0, also clear the AA left-rail cutout (see
+                                // resolveBottomBarTouchableLeftPx).
+                                val left =
+                                        resolveBottomBarTouchableLeftPx(
+                                                overlayLeftGutterPx =
+                                                        BottomBarState.overlayLeftGutterPx,
+                                                androidAutoOnMainDisplay =
+                                                        isAndroidAutoShownOnMainDisplay(
+                                                                BottomBarState.currentPackage
+                                                        )
+                                        )
+
                                 if (BottomBarState.isVisible) {
                                     // Main Bar touchable area - full width, bottom 80dp
                                     region.union(
                                             Rect(
-                                                    0,
+                                                    left,
                                                     windowHeight - visibleBarTouchHeight,
                                                     windowWidth,
                                                     windowHeight
                                             )
                                     )
                                     // Top Handle for swipe gesture
-                                    region.union(Rect(0, 0, windowWidth, topHandleHeight))
+                                    region.union(Rect(left, 0, windowWidth, topHandleHeight))
                                 } else {
                                     // Hidden: only a small trigger zone at the bottom for swipe-up
                                     region.union(
                                             Rect(
-                                                    0,
+                                                    left,
                                                     windowHeight - hiddenTriggerHeight,
                                                     windowWidth,
                                                     windowHeight

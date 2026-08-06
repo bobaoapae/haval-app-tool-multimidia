@@ -1,0 +1,121 @@
+<theme>
+    <name>Minimalist</name>
+    <description>Clean, square edges, flat menu, and minimalist typography.</description>
+    <version>1.0.1</version>
+    <minBridgeVersion>1.0.0</minBridgeVersion>
+    <contractVersion>v1.0</contractVersion>
+    <thumbnail>thumbnail.png</thumbnail>
+    <mainFile>app.html</mainFile>
+    <!-- Cluster Display-1 wallpaper shipped with the theme (used when bg mode = THEME).
+         Pre-baked at 1920x720 with the .mask-panel L/R gradients burned in, so the
+         "integrated" edges survive on card 0 where the display-3 masks must be hidden.
+         Regenerate with: python scripts/bake-cluster-bg.py -->
+    <background>car-bg.png</background>
+    <AppDefaultPosition>
+        <x>0</x>
+        <y>62</y>
+        <width>1920</width>
+        <height>596</height>
+    </AppDefaultPosition>
+
+    <!--
+      nativeMasks — Purpose: sections of the background are drawn as rectangles directly on
+      Display 3 so we can cover OEM telemetry graphism (fuel / battery gauges, top-center
+      strip, speedometer) so a custom theme can own those regions.
+
+      Each child: enabled + x/y/width/height in the 1920×720 cluster space. Optional
+      attrs (parsed by ThemeManager): image, opacity. speedMask / infoMask are reserved
+      full-height side covers; leave commented unless you need them.
+
+      Omit the whole <nativeMasks> block (or disable every child) to leave OEM chrome
+      visible. Geometry below is tuned for Minimalist's bottom / top strips.
+
+      NOTE: this would malfunction without a wallpaper, so it is recommended to add a theme background image.
+    -->
+    <nativeMasks>
+        <fuelMask enabled="true" x="0" y="653" width="730" height="67" />
+        <batteryMask enabled="true" x="1190" y="653" width="730" height="67" />
+        <topCenterMask enabled="true" x="710" y="0" width="500" height="67" />
+        <!-- <speedMask enabled="false" x="0" y="0" width="600" height="720" /> -->
+        <!-- <infoMask enabled="false" x="1320" y="0" width="600" height="720" /> -->
+    </nativeMasks>
+
+    <!--
+      <group> names the tab in the Telas settings dialog. First-seen order below
+      becomes tab order (after Geral, unused here): Barras, Exibição, Projeção.
+    -->
+    <configurations>
+        <configuration>
+            <id>top_bar_visibility</id>
+            <label>Exibir Barra Superior</label>
+            <type>combo</type>
+            <options>Sempre, Só com Projeção, Só sem Projeção, Nunca</options>
+            <default>Nunca</default>
+            <stateVariable>topBarVisibility</stateVariable>
+            <group>Barras</group>
+        </configuration>
+        <configuration>
+            <id>bottom_bar_visibility</id>
+            <label>Exibir Barra Inferior</label>
+            <type>combo</type>
+            <options>Sempre, Só com Projeção, Só sem Projeção, Nunca</options>
+            <default>Nunca</default>
+            <stateVariable>bottomBarVisibility</stateVariable>
+            <group>Barras</group>
+        </configuration>
+        <configuration>
+            <id>bottom_bar_notch</id>
+            <label>Recorte da Barra Inferior</label>
+            <type>boolean</type>
+            <default>true</default>
+            <stateVariable>bottomBarNotch</stateVariable>
+            <group>Barras</group>
+        </configuration>
+        <configuration>
+            <id>navigation_display_mode</id>
+            <label>Modo de Exibição na Navegação</label>
+            <type>combo</type>
+            <options>Padrão, Reduzido, Clean</options>
+            <default>Clean</default>
+            <stateVariable>navigationDisplayMode</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+        <configuration>
+            <id>app_display_mode</id>
+            <label>Modo de Exibição de Outros Apps</label>
+            <type>combo</type>
+            <options>Padrão, Reduzido, Clean</options>
+            <default>Reduzido</default>
+            <stateVariable>appDisplayMode</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+        <configuration>
+            <id>show_regen_icon</id>
+            <label>Exibir Indicador de Regen</label>
+            <type>boolean</type>
+            <default>true</default>
+            <stateVariable>showRegenIcon</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+        <configuration>
+            <id>show_rpm_icon</id>
+            <label>Exibir Indicador de RPM</label>
+            <type>boolean</type>
+            <default>true</default>
+            <stateVariable>showRpmIcon</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+        <!-- Multiple selection, stored as a comma separated list. On app builds that do
+             not know the "multi" type the settings dialog shows the label with no
+             control and the theme keeps this default, so the theme stays usable. -->
+        <configuration>
+            <id>projection_keep_visible</id>
+            <label>Manter Visível na Projeção</label>
+            <type>multi</type>
+            <options>Gauges, Hora, Marcha, HEV, Regen</options>
+            <default>Gauges, Hora, Marcha, HEV, Regen</default>
+            <stateVariable>projectionKeepVisible</stateVariable>
+            <group>Projeção</group>
+        </configuration>
+    </configurations>
+</theme>

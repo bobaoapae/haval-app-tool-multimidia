@@ -65,7 +65,7 @@ class TripConsistencyManager private constructor() : IDataChanged {
             currentClassification = TripConsistencyClassification.SMOOTH,
             createdAt = now,
             updatedAt = now,
-            telemetryWarning = !ServiceManager.getInstance().isServicesInitialized
+            telemetryWarning = !ServiceManager.getInstance().isServicesInitialized()
         )
         saveSession()
         setClusterIndicator(true, currentSession?.currentScore)

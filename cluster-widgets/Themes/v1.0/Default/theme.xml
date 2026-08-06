@@ -1,0 +1,153 @@
+<theme>
+    <name>Default</name>
+    <description>Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.</description>
+    <version>1.4.41</version>
+    <thumbnail>thumbnail.png</thumbnail>
+    <mainFile>index.html</mainFile>
+    <decentralized>true</decentralized>
+    <minBridgeVersion>1.0.0</minBridgeVersion>
+    <contractVersion>v1.0</contractVersion>
+    <AppDefaultPosition>
+        <x>0</x>
+        <y>62</y>
+        <width>1920</width>
+        <height>596</height>
+    </AppDefaultPosition>
+
+    <!--
+      Per-display-mode app bounds (optional).
+
+      Each "name" MUST match one of this theme's display mode names exactly as
+      they appear in the <options> of navigation_display_mode / app_display_mode
+      below (matched case-insensitively): Normal, Reduzido, Clean, Mapa.
+      An unknown name is ignored and logged.
+
+      A mode listed here uses its rect verbatim and IGNORES the "Ocultar Barras"
+      / "Ocultar Barras na Projeção" (hiddenBars / hiddenBarsOnProjection) adjustment,
+      because the rect already says exactly how much of the panel the app should get.
+      Any mode NOT listed here falls back to <AppDefaultPosition> above, still
+      adjusted by the active hide-bars setting.
+
+      Clean and Mapa hide the cluster dials, so the app is given the full panel.
+    -->
+    <DisplayModes>
+        <DisplayMode name="Clean" x="0" y="0" width="1920" height="720"/>
+        <DisplayMode name="Mapa" x="0" y="0" width="1920" height="720"/>
+    </DisplayModes>
+
+
+    <!--
+      <group> is optional. It names the tab this setting appears under in the app's
+      theme settings dialog. Omit it and the setting lands in "Geral", which is what
+      every theme written before groups existed gets. "Geral" is always the first tab;
+      the rest follow the order they first appear below.
+    -->
+    <configurations>
+        <configuration>
+            <id>theme_mode</id>
+            <label>Modo Visual</label>
+            <type>combo</type>
+            <options>Dark, Light</options>
+            <default>Dark</default>
+            <stateVariable>mode</stateVariable>
+            <group>Geral</group>
+        </configuration>
+        <configuration>
+            <id>gauge_style</id>
+            <label>Estilo dos Marcadores</label>
+            <type>combo</type>
+            <options>Esportivo, Clássico</options>
+            <default>Esportivo</default>
+            <stateVariable>gaugeStyle</stateVariable>
+            <group>Geral</group>
+        </configuration>
+        <configuration>
+            <id>accent_color</id>
+            <label>Cor de Destaque</label>
+            <type>color</type>
+            <options>#00A0FF, #FF0033, #00E676, #FF6D00, #0033CC, #000000, #FFFFFF, #808080</options>
+            <default>#00A0FF</default>
+            <stateVariable>accentColor</stateVariable>
+            <group>Cores</group>
+        </configuration>
+        <configuration>
+            <id>icon_color</id>
+            <label>Cor dos Ícones</label>
+            <type>color</type>
+            <options>#00A0E0, #FF0033, #00E676, #FF6D00, #FFC400, #B388FF, #FFFFFF, #808080</options>
+            <default>#00A0E0</default>
+            <stateVariable>iconColor</stateVariable>
+            <group>Cores</group>
+        </configuration>
+        <configuration>
+            <id>drive_mode_colors</id>
+            <label>Cor por Modo de Condução</label>
+            <type>boolean</type>
+            <default>false</default>
+            <stateVariable>driveModeColors</stateVariable>
+            <group>Cores</group>
+        </configuration>
+        <configuration>
+            <id>fuel_color</id>
+            <label>Cor do Medidor de Combustível</label>
+            <type>color</type>
+            <options>#3B82F6, #00A0FF, #00E676, #FFC400, #FF6D00, #FF0033, #FFFFFF, #808080</options>
+            <default>#3B82F6</default>
+            <stateVariable>fuelColor</stateVariable>
+            <group>Cores</group>
+        </configuration>
+        <configuration>
+            <id>battery_color</id>
+            <label>Cor do Medidor de Bateria</label>
+            <type>color</type>
+            <options>#10B981, #00E676, #00A0FF, #FFC400, #FF6D00, #FF0033, #FFFFFF, #808080</options>
+            <default>#10B981</default>
+            <stateVariable>batteryColor</stateVariable>
+            <group>Cores</group>
+        </configuration>
+        <configuration>
+            <id>bar_images</id>
+            <label>Imagens das Barras</label>
+            <type>boolean</type>
+            <default>true</default>
+            <stateVariable>barImages</stateVariable>
+            <group>Barras</group>
+        </configuration>
+        <configuration>
+            <id>hidden_bars</id>
+            <label>Ocultar Barras</label>
+            <type>combo</type>
+            <options>Nenhuma, Superior, Inferior, Ambas</options>
+            <default>Nenhuma</default>
+            <stateVariable>hiddenBars</stateVariable>
+            <group>Barras</group>
+        </configuration>
+        <configuration>
+            <id>hidden_bars_on_projection</id>
+            <label>Ocultar Barras na Projeção</label>
+            <type>combo</type>
+            <options>Nenhuma, Superior, Inferior, Ambas</options>
+            <default>Nenhuma</default>
+            <stateVariable>hiddenBarsOnProjection</stateVariable>
+            <group>Barras</group>
+        </configuration>
+        <configuration>
+            <id>navigation_display_mode</id>
+            <label>Modo de Exibição na Navegação</label>
+            <type>combo</type>
+            <options>Normal, Reduzido, Clean, Mapa</options>
+            <default>Mapa</default>
+            <stateVariable>navigationDisplayMode</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+        <configuration>
+            <id>app_display_mode</id>
+            <label>Modo de Exibição de Outros Apps</label>
+            <type>combo</type>
+            <options>Normal, Reduzido, Clean, Mapa</options>
+            <default>Normal</default>
+            <stateVariable>appDisplayMode</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+    </configurations>
+</theme>

@@ -1,41 +1,51 @@
 # WebView Flow
 
-Atualizado em: 2026-06-15
+Updated: 2026-08-06
 
-## Fluxo Identificado
+## Flow
 
-`InstrumentProjector2` cria uma WebView transparente fullscreen no display 3.
+`InstrumentProjector2` creates a transparent fullscreen WebView on the cluster presentation display.
 
-1. `onCreate` registra callbacks/listeners e chama `setupControlView`.
-2. `setupControlView` configura WebView com JavaScript e DOM storage.
-3. `readAppContent` carrega HTML de:
-   - `/data/local/tmp/app.html` em app debuggable, se válido;
-   - tema customizado em `files/themes`;
-   - `R.raw.app` como fallback.
-4. `loadDataWithBaseURL` injeta o HTML.
-5. `onPageFinished` marca a WebView como carregada, sincroniza estado e injeta heartbeat JS.
-6. `evaluateJsIfReady` envia JS imediatamente ou coloca em fila.
-7. `WebChromeClient.onConsoleMessage` captura `console.log/warn/error` do WebView e grava eventos
-   `webview_console` no log persistente debug-only do dia quando a captura persistente esta ativa.
-8. `onStop` remove callbacks/listeners e destrói WebView.
+1. `onCreate` registers callbacks/listeners and calls `setupControlView`.
+2. `setupControlView` enables JavaScript and DOM storage.
+3. `readAppContent` loads HTML from (priority order):
+   - `/data/local/tmp/app.html` when debuggable and valid (hot deploy);
+   - selected/custom theme under app `files/themes` only after contract/bridge validation
+     (or exact hash validation for the trusted legacy Sport compatibility packages);
+   - bundled Default: `R.raw.app` (+ assets metadata).
+4. `loadDataWithBaseURL` injects the HTML.
+5. `onPageFinished` marks the WebView loaded, syncs state, starts heartbeat.
+6. `evaluateJsIfReady` runs JS immediately or queues until ready.
+7. `WebChromeClient.onConsoleMessage` may record `webview_console` into the debug-only
+   persistent day log when capture is enabled.
+8. `onStop` invokes the theme cleanup hook, removes callbacks/listeners, clears bounded JS
+   queues/caches and destroys the WebView.
 
-## Arquivos Relacionados
+`window.Android` is registered before any HTML is loaded. A theme swap invalidates dynamic
+viewport bounds so the next compatible theme must declare its own geometry. Geometry
+refresh synchronizes managed work on D1 and D3 without changing either display's physical
+resolution.
+
+Theme package layout and OTA vs APK: [`themes-contract-v1.md`](themes-contract-v1.md).
+Bridge surface: [`kotlin-js-bridge.md`](kotlin-js-bridge.md).
+
+## Related files
 
 - `InstrumentProjector2.kt`
+- `ThemeManager.kt`
 - `app/src/main/res/raw/app.html`
-- `cluster-widgets/default/src/core/main.js`
-- `cluster-widgets/default/inline.js`
+- `cluster-widgets/source/v1.0/default/`
+- `cluster-widgets/Themes/v1.0/`
 
-## Riscos
+## Risks
 
-- Chamar JS antes de load sem fila.
-- Recarregar WebView em loop.
-- Não destruir WebView em `onStop`.
-- HTML em `/data/local/tmp/app.html` inválido afetar debug.
-- Console do WebView pode ficar ruidoso em tema com erro em loop; por isso a captura fica restrita
-  a builds debug/internal e cada campo e truncado pelo logger persistente.
+- Calling JS before load without queuing.
+- WebView reload loops.
+- Failing to destroy the WebView in `onStop`.
+- Invalid `/data/local/tmp/app.html` poisoning debug hot-deploy.
+- Noisy theme console loops — capture stays debug/internal and fields are truncated.
 
-## A Confirmar
+## Open
 
-- Política desejada para `WebView.setWebContentsDebuggingEnabled(true)` em release.
-- Se todos os temas customizados usam o mesmo contrato JS.
+- Whether `WebView.setWebContentsDebuggingEnabled(true)` should remain in release.
+- Confirm all active OTA themes stay on contract `v1.0` (see themes-contract doc).

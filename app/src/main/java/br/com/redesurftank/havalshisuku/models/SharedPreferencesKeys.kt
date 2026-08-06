@@ -302,7 +302,18 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     CUSTOM_THEME_REPO_URL_DEV("customThemeRepoUrlDev", "URL do Repositório de Temas (Dev)"),
     CUSTOM_THEME_REPO_ENV("customThemeRepoEnv", "Ambiente do Repositório (Prod/Dev)"),
     ACTIVE_CUSTOM_THEME("activeCustomTheme", "Tema Dinâmico Ativo"),
+    THEME_RELOAD_NONCE("themeReloadNonce", "Nonce para recarregar WebView do tema"),
     BOTTOM_BAR_AUTO_HIDE("bottomBarAutoHide", "Esconder barra automaticamente após 30s"),
+    HIDE_LEFT_NAV_PANE("hideLeftNavPane", "Manter o painel lateral esquerdo oculto"),
+    BOTTOM_BAR_SWIPE_UP_ACTION("bottomBarSwipeUpAction", "Ação ao deslizar a barra para cima"),
+    BOTTOM_BAR_SWIPE_UP_PACKAGE(
+            "bottomBarSwipeUpPackage",
+            "Pacote do app aberto ao deslizar a barra para cima"
+    ),
+    CLUSTER_PROJECTION_OPENS_DASHBOARD(
+            "clusterProjectionOpensDashboard",
+            "Abrir o Impulse Drive quando a projeção inicia no cluster"
+    ),
     BOTTOM_BAR_OVERRIDES("bottomBarOverrides", "Overrides de aplicativos salvos (JSON)"),
     DASHBOARD_CARD_ORDER("dashboardCardOrder", "Ordem dos cards do dashboard"),
     ENABLE_SPEED_ADJUSTMENT("enableSpeedAdjustment", "Habilitar ajuste de velocidade no painel"),
@@ -372,6 +383,13 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ),
     ENABLE_PERSIST_HEV_SOC_TARGET("enablePersistHevSocTarget", "Manter o % de bateria escolhido no HEV Prioritário"),
     HEV_SOC_TARGET_VALUE("hevSocTargetValue", "% de bateria a manter no HEV Prioritário (20-80)"),
+    ENABLE_CUSTOM_BACKGROUND_D1("enableCustomBackgroundD1", "Habilitar fundo personalizado no Display 1"),
+    CUSTOM_BACKGROUND_TYPE_D1("customBackgroundTypeD1", "Tipo de fundo do Display 1"),
+    CUSTOM_BACKGROUND_VALUE_D1("customBackgroundValueD1", "Valor do fundo do Display 1"),
+    AUTO_MOVE_PROJECTION_TO_CLUSTER(
+            "autoMoveProjectionToCluster",
+            "Mover AA/CarPlay para o cluster (D3) no auto-start — só se AA/CarPlay for o app inicial na tela Telas"
+    ),
     ENABLE_HOT_ROUTER("enableHotRouter", "Roteia o hotspot pelo 4G ou WLAN (Starlink) quando disponível"),
     // ===== Controle de dados móveis do carro =====
     MOBILE_DATA_CONTROL_ENABLED("mobileDataControlEnabled", "Master: ativa o controle de dados móveis do carro"),

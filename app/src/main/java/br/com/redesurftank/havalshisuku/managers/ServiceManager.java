@@ -59,6 +59,7 @@ import br.com.redesurftank.havalshisuku.listeners.IDataChanged;
 import br.com.redesurftank.havalshisuku.listeners.IServiceManagerEvent;
 import br.com.redesurftank.havalshisuku.models.CarConstants;
 import br.com.redesurftank.havalshisuku.models.CarInfo;
+import br.com.redesurftank.havalshisuku.models.ClusterKey;
 import br.com.redesurftank.havalshisuku.models.MainUiManager;
 import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
@@ -79,6 +80,19 @@ public class ServiceManager {
             CarConstants.CAR_BASIC_GEAR_STATUS,
             CarConstants.CAR_BASIC_DOOR_STATUS,
             CarConstants.CAR_BASIC_DOOR_LOCK_STATUS,
+            CarConstants.CAR_BASIC_FRONT_FOG_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_HAZARD_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_HEAD_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_HIGH_BEAM_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_LEFT_TURN_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_LEFT_TURN_INDICATOR_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_LOW_BEAM_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_LOW_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_REAR_FOG_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_RIGHT_TURN_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_RIGHT_TURN_INDICATOR_LIGHT_STATUS,
+            CarConstants.CAR_DRIVE_SETTING_OUTSIDE_LAMPS_STATE,
+            CarConstants.CAR_BASIC_HAND_BRAKE_STATUS,
             CarConstants.CAR_BASIC_DRIVING_READY_STATE,
             CarConstants.CAR_BASIC_INSIDE_TEMP,
             CarConstants.CAR_BASIC_MAINTENANCE_WARNING,
@@ -214,6 +228,8 @@ public class ServiceManager {
             CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG,
     };
     private static ServiceManager instance;
+
+    private final Set<String> dynamicallyRegisteredKeys = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final List<IDataChanged> dataChangedListeners;
     private final List<IServiceManagerEvent> serviceManagerEventListeners;
     private final Map<String, String> dataCache;
@@ -235,6 +251,7 @@ public class ServiceManager {
     private IInputListener.Stub inputListener;
     private IClusterCallback.Stub clusterCallback;
     private boolean servicesInitialized = false;
+    private boolean hasRunStartupCurtainAutomation = false;
     private boolean isFridaInitialized = false;
     private final List<Runnable> pendingTasks = new ArrayList<>();
     private static long timeBootReceived;
@@ -246,6 +263,11 @@ public class ServiceManager {
     // Estado atual do hotspot (Wi-Fi AP), alimentado pelo receiver WIFI_AP_STATE_CHANGED e
     // semeado no init via getWifiApState(); usado pra saber se o hotspot estava ligado ao recolher/desligar.
     private volatile boolean wifiTetherEnabled = false;
+    // No init a leitura de outside_temp ainda volta null por alguns segundos (fetchData roda logo
+    // depois do servicesInitialized). Como a temperatura é condição obrigatória p/ abrir a cortina,
+    // sem retry ela simplesmente nunca abriria. 6 tentativas x 5s = 30s cobre o boot deste OEM.
+    private static final long CURTAIN_TEMP_RETRY_MS = 5000L;
+    private static final int CURTAIN_TEMP_MAX_ATTEMPTS = 6;
     private static final long RADIO_RESTORE_RETRY_MS = 4000L;
     // 8 tentativas x 4s ≈ 28s: o tether (hotspot) pode demorar a subir no boot deste OEM.
     // O loop para assim que o rádio liga, então tentativas extras são de graça p/ o BT (rápido).
@@ -289,6 +311,21 @@ public class ServiceManager {
     private long lastSyntheticClusterCardNavigationAtMs = 0L;
     private int lastSyntheticClusterCardTarget = -1;
     private volatile boolean syntheticAirconCardOwned = false;
+    // Cluster callback liveness. The car's ClusterService keeps callbacks registered by
+    // previous instances of this process; when it hits a dead one it throws
+    // DeadObjectException while dispatching (seen in its own logs), after which card
+    // reports can stop arriving even though the cluster still navigates normally. There
+    // is no signal for this on our side other than the reports going quiet, so we detect
+    // staleness and re-register.
+    private volatile long lastClusterCardReportAtMs = 0L;
+    private long lastClusterCallbackRefreshAtMs = 0L;
+    // Measured on-car: re-registering restores delivery within ~35ms, every time, and
+    // the callback itself is not slow (fan-out timing showed no overruns). The
+    // registration simply stops being dispatched to after a while; the cause is not yet
+    // understood. Recover reactively and rarely — a proactive re-register loop was tried
+    // and only added churn without fixing the navigation defect it was mistaken for.
+    private static final long CLUSTER_CALLBACK_STALE_MS = 8000L;
+    private static final long CLUSTER_CALLBACK_REFRESH_COOLDOWN_MS = 15000L;
     private static final long STEERING_WHEEL_PROJECTION_TOGGLE_DEDUP_WINDOW_MS = 800L;
     private static final long STEERING_WHEEL_DASHBOARD_TOGGLE_DEDUP_WINDOW_MS = 800L;
     private static final long STEERING_WHEEL_CLIMATE_COMMAND_DEDUP_WINDOW_MS = 800L;
@@ -304,6 +341,105 @@ public class ServiceManager {
     private final Map<String, String> previousAcState = new HashMap<>();
     private boolean isMaxAcActive = false;
     private Runnable maxAcTimeoutRunnable;
+
+    /**
+     * Dispatch a ServiceManager event without holding the caller's thread.
+     *
+     * Used from the cluster service's binder callback: the listener fan-out is
+     * synchronous and can touch the projector/WebView, so running it inline would keep
+     * com.autolink.clusterservice blocked on us for the duration.
+     */
+    private void dispatchClusterEventOffBinderThread(ServiceManagerEventType event, Object... args) {
+        Handler handler = backgroundHandler;
+        if (handler == null) {
+            dispatchServiceManagerEvent(event, args);
+            return;
+        }
+        handler.post(() -> {
+            long startedAt = SystemClock.uptimeMillis();
+            dispatchServiceManagerEvent(event, args);
+            long elapsedMs = SystemClock.uptimeMillis() - startedAt;
+            if (elapsedMs > 50L) {
+                Log.w(TAG, "Cluster event fan-out slow: " + event + " took " + elapsedMs + "ms");
+            }
+        });
+    }
+
+    /**
+     * Re-register the cluster callback when the car has stopped reporting card changes.
+     *
+     * Called on cluster wheel input: if the user is navigating but no msgId=133 has
+     * arrived recently, our registration is very likely no longer being dispatched to,
+     * and re-registering is the only way to recover short of a head-unit reboot.
+     * Rate-limited so normal use (where reports do arrive) never triggers it.
+     */
+    private void refreshClusterCallbackIfStale() {
+        long now = SystemClock.uptimeMillis();
+        if (lastClusterCardReportAtMs != 0L
+                && now - lastClusterCardReportAtMs < CLUSTER_CALLBACK_STALE_MS) {
+            return;
+        }
+        if (lastClusterCallbackRefreshAtMs != 0L
+                && now - lastClusterCallbackRefreshAtMs < CLUSTER_CALLBACK_REFRESH_COOLDOWN_MS) {
+            return;
+        }
+        final IClusterService service = clusterService;
+        final IClusterCallback.Stub callback = clusterCallback;
+        if (service == null || callback == null) return;
+        lastClusterCallbackRefreshAtMs = now;
+        final long staleMs = lastClusterCardReportAtMs == 0L ? -1L : now - lastClusterCardReportAtMs;
+        backgroundHandler.post(() -> {
+            try {
+                service.unregisterCallback(callback);
+            } catch (Exception ignored) {
+                // Already gone on the car side; re-registering below is what matters.
+            }
+            try {
+                service.registerCallback(callback);
+                Log.w(TAG, "Re-registered cluster callback after stale reporting (staleMs=" + staleMs + ")");
+                logPersistentClusterEvent(
+                        "cluster_callback_refreshed",
+                        "staleMs=" + staleMs + " card=" + clusterCardView
+                );
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to re-register cluster callback", e);
+            }
+        });
+    }
+
+    /**
+     * Drop our cluster callback registration on shutdown. Without this the car's
+     * ClusterService keeps a reference to this process's callback after we die, and
+     * dispatching to it throws DeadObjectException on the car side.
+     */
+    /**
+     * Drop our key-event listener on shutdown, for the same reason as the cluster
+     * callback: the input service keeps its binder reference after we die, so the next
+     * process adds a second listener rather than replacing the first.
+     */
+    public void releaseInputListener() {
+        final IInputService service = inputService;
+        final IInputListener listener = inputListener;
+        if (service == null || listener == null) return;
+        try {
+            service.unregisterKeyEventListener(INPUT_LISTENER_KEY_CODES, listener);
+            Log.w(TAG, "Input listener unregistered on shutdown");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to unregister input listener on shutdown", e);
+        }
+    }
+
+    public void releaseClusterCallback() {
+        final IClusterService service = clusterService;
+        final IClusterCallback.Stub callback = clusterCallback;
+        if (service == null || callback == null) return;
+        try {
+            service.unregisterCallback(callback);
+            Log.w(TAG, "Cluster callback unregistered on shutdown");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to unregister cluster callback on shutdown", e);
+        }
+    }
 
     private void logPersistentClusterEvent(String event, String detail) {
         ClusterPersistentEventLogger.logText(event, detail);
@@ -371,6 +507,33 @@ public class ServiceManager {
         return instance;
     }
 
+    public synchronized boolean initializeServicesSimulated(Context context) {
+        timeStartInitialization = SystemClock.uptimeMillis();
+        Log.w(TAG, "Initializing services (Simulator Mode)");
+        sharedPreferences = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
+        handlerThread = new HandlerThread("ServiceManagerHandlerThread");
+        handlerThread.start();
+        backgroundHandler = new Handler(handlerThread.getLooper());
+
+        servicesInitialized = true;
+        timeInitialized = SystemClock.uptimeMillis();
+
+        Log.w(TAG, "Starting SimulatorGateway");
+        try {
+            // Instantiate using reflection or direct call since it's in the same project but different source set
+            Object simulator = Class.forName("br.com.redesurftank.havalshisuku.simulator.SimulatorGateway")
+                    .getConstructor(ServiceManager.class)
+                    .newInstance(this);
+            simulator.getClass().getMethod("start").invoke(simulator);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start SimulatorGateway", e);
+        }
+
+        Log.w(TAG, "Services initialized successfully (Simulator Mode)");
+        new Handler(Looper.getMainLooper()).post(() -> ProjectorManager.getInstance().initialize());
+        return true;
+    }
+
     public synchronized boolean initializeServices(Context context) {
         if (timeBootReceived <= 0) {
             timeBootReceived = SystemClock.uptimeMillis();
@@ -410,6 +573,19 @@ public class ServiceManager {
             if (clusterServiceConnection != null) {
                 context.unbindService(clusterServiceConnection);
             }
+            // Unbinding does NOT drop the key-event listener: the input service holds its
+            // own binder reference, so every re-init used to leave the previous listener
+            // registered and add another. Observed on-car: after one re-init each press
+            // was dispatched to us twice, and the car stopped acting on exactly those
+            // doubled presses (single-dispatch presses still worked). Drop ours first.
+            if (inputService != null && inputListener != null) {
+                try {
+                    inputService.unregisterKeyEventListener(INPUT_LISTENER_KEY_CODES, inputListener);
+                    Log.w(TAG, "InputService listener unregistered");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to unregister input listener", e);
+                }
+            }
             if (inputServiceConnection != null) {
                 context.unbindService(inputServiceConnection);
             }
@@ -419,6 +595,10 @@ public class ServiceManager {
             }
             handlerThread = null;
             backgroundHandler = null;
+            // The heartbeat runnable lived on the handler we just destroyed. Without
+            // clearing this flag startClusterHeartbeat() short-circuits forever, so the
+            // 1s msgId=134 "Android is alive" signal never resumes after a re-init.
+            isClusterHeartbeatRunning = false;
         } catch (Exception e) {
             Log.e(TAG, "Error during service cleanup", e);
         }
@@ -485,6 +665,13 @@ public class ServiceManager {
             clusterCallback = new IClusterCallback.Stub() {
                 @Override
                 public void callbackMsg(int msgId, ClusterMsgData data) {
+                    // Only the cluster-protocol messages we care about. Logging every
+                    // msgId floods logcat: registering the callback makes the car dump
+                    // ~100 messages at once, which rotates the buffer and destroys the
+                    // window around a failure (happened twice while investigating).
+                    if (msgId == 133 || msgId == 134 || msgId == 135 || msgId == 75) {
+                        Log.w(TAG, "[CLUSTER_RX] msgId=" + msgId + " value=" + data.getIntValue());
+                    }
                     if (DisplayAppLauncher.INSTANCE.shouldLogAndroidAutoClusterCallbackProbe(msgId)) {
                         Log.w(
                                 TAG,
@@ -498,6 +685,10 @@ public class ServiceManager {
                         int whichCard = data.getIntValue();
                         int previousCard = clusterCardView;
                         long now = SystemClock.uptimeMillis();
+                        // Liveness marker for the cluster callback: the car reached us.
+                        // Used to detect a silently-dropped registration (see
+                        // refreshClusterCallbackIfStale).
+                        lastClusterCardReportAtMs = now;
                         long sinceInputMs =
                                 lastClusterInputAtMs == 0L
                                         ? -1L
@@ -522,28 +713,18 @@ public class ServiceManager {
                             Log.w(
                                     TAG,
                                     "Ignoring stale native cluster card change: "
-                                            + previousCard
-                                            + " -> "
-                                            + whichCard
-                                            + " lastInputKey="
-                                            + lastClusterInputKeyName
-                                            + "("
-                                            + lastClusterInputKeyCode
-                                            + ") sinceInputMs="
-                                            + sinceInputMs
-                                            + " syntheticTarget="
-                                            + lastSyntheticClusterCardTarget
-                                            + " sinceSyntheticMs="
-                                            + sinceSyntheticMs
-                                            + " protectAirconProjectionExit="
-                                            + protectAirconProjectionExit
-                                            + " protectSyntheticAirconExit="
-                                            + protectSyntheticAirconExit
+                                            + previousCard + " -> " + whichCard
+                                            + " lastInputKey=" + lastClusterInputKeyName
+                                            + "(" + lastClusterInputKeyCode + ")"
+                                            + " sinceInputMs=" + sinceInputMs
+                                            + " syntheticTarget=" + lastSyntheticClusterCardTarget
+                                            + " sinceSyntheticMs=" + sinceSyntheticMs
+                                            + " protectAirconProjectionExit=" + protectAirconProjectionExit
+                                            + " protectSyntheticAirconExit=" + protectSyntheticAirconExit
                             );
                             logPersistentClusterEvent(
                                     "native_cluster_card_ignored",
-                                    "from=" + previousCard
-                                            + " to=" + whichCard
+                                    "from=" + previousCard + " to=" + whichCard
                                             + " lastInputKey=" + lastClusterInputKeyName
                                             + "(" + lastClusterInputKeyCode + ")"
                                             + " sinceInputMs=" + sinceInputMs
@@ -558,7 +739,15 @@ public class ServiceManager {
                         if (previousCard == 3 && whichCard != 3) {
                             syntheticAirconCardOwned = false;
                         }
-                        dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, clusterCardView);
+                        // Fan-out runs off the car's binder thread. dispatchServiceManagerEvent
+                        // notifies every listener synchronously, and this callback is invoked by
+                        // com.autolink.clusterservice — holding its thread risks it treating the
+                        // callback as unresponsive and dropping it (the symptom being card
+                        // reports going silent until we re-register).
+                        dispatchClusterEventOffBinderThread(
+                                ServiceManagerEventType.CLUSTER_CARD_CHANGED,
+                                clusterCardView
+                        );
                         Log.w(
                                 TAG,
                                 "Cluster card changed: "
@@ -589,8 +778,19 @@ public class ServiceManager {
                     } else if (msgId == 134) {
                         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
                             if (data.getIntValue() == 2) {
-                                sendHeartBeatToCluster();
-                                startClusterHeartbeat();
+                                // sendHeartBeatToCluster() calls back into the cluster service
+                                // via binder. Doing that from inside its own callback keeps its
+                                // thread blocked on us; run it off-thread.
+                                Handler heartbeatHandler = backgroundHandler;
+                                if (heartbeatHandler != null) {
+                                    heartbeatHandler.post(() -> {
+                                        sendHeartBeatToCluster();
+                                        startClusterHeartbeat();
+                                    });
+                                } else {
+                                    sendHeartBeatToCluster();
+                                    startClusterHeartbeat();
+                                }
                             }
                         }
                     } else if (msgId == 135) {
@@ -600,13 +800,19 @@ public class ServiceManager {
                                 "cluster_media_command",
                                 "msgId=135 value=" + val
                         );
-                        if (DisplayAppLauncher.INSTANCE.handleAndroidAutoClusterMediaCommand(val)) {
-                            Log.w(TAG, "Android Auto handled cluster media command msgId=135 value=" + val);
-                            return;
-                        }
+                        // Answer the car FIRST, exactly as v6 does. Captured v6 trace shows a
+                        // setMsg(135, val) reply within 1-9ms of every card change; v7 returned
+                        // early whenever Android Auto was considered active and never replied.
+                        // The reply is the car-facing protocol obligation, so it must not be
+                        // conditional on Android Auto state.
                         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
                             if (val == 1) sendClusterIntMsg(135, 1);
                             else if (val == 2) sendClusterIntMsg(135, 2);
+                        }
+                        // Android Auto media handling is a separate concern layered on top, and
+                        // must not suppress the reply above.
+                        if (DisplayAppLauncher.INSTANCE.handleAndroidAutoClusterMediaCommand(val)) {
+                            Log.w(TAG, "Android Auto handled cluster media command msgId=135 value=" + val);
                         }
                     }
                 }
@@ -629,6 +835,9 @@ public class ServiceManager {
             inputListener = new IInputListener.Stub() {
                 @Override
                 public void dispatchKeyEvent(KeyEvent keyEvent) {
+                    final long dispatchStartedAt = SystemClock.uptimeMillis();
+                    final int dispatchKeyCode = keyEvent.getKeyCode();
+                    try {
                     Log.w(
                             TAG,
                             "InputService dispatch key="
@@ -660,64 +869,47 @@ public class ServiceManager {
                         }
                     }
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_MENU.getKey(), false)) {
-                        Screen.Key key = null;
+                        ClusterKey key = null;
                         switch (keyEvent.getKeyCode()) {
                             case 1024:
-                                key = Screen.Key.UP;
+                                key = ClusterKey.UP;
                                 break;
                             case 1025:
-                                key = Screen.Key.DOWN;
+                                key = ClusterKey.DOWN;
                                 break;
                             case 1026:
-                                key = Screen.Key.LEFT;
+                                key = ClusterKey.LEFT;
                                 break;
                             case 1027:
-                                key = Screen.Key.RIGHT;
+                                key = ClusterKey.RIGHT;
                                 break;
                             case 1028:
-                                key = Screen.Key.ENTER;
+                                key = ClusterKey.ENTER;
                                 break;
                             case 1029:
-                                key = Screen.Key.HOME;
+                                key = ClusterKey.HOME;
                                 break;
                             case 1030:
-                                key = Screen.Key.BACK;
+                                key = ClusterKey.BACK;
                                 break;
                             case 1033:
-                                key = Screen.Key.UP_LONG;
+                                key = ClusterKey.UP_LONG;
                                 break;
                             case 1034:
-                                key = Screen.Key.DOWN_LONG;
+                                key = ClusterKey.DOWN_LONG;
                                 break;
                             case 1037:
-                                key = Screen.Key.ENTER_LONG;
+                                key = ClusterKey.ENTER_LONG;
                                 break;
                             case 1039:
-                                key = Screen.Key.BACK_LONG;
+                                key = ClusterKey.BACK_LONG;
                                 break;
                         }
                         if (key != null) {
                             int inputCardBeforeHandling = clusterCardView;
-                            long now = SystemClock.uptimeMillis();
-                            lastClusterInputAtMs = now;
+                            lastClusterInputAtMs = SystemClock.uptimeMillis();
                             lastClusterInputKeyCode = keyEvent.getKeyCode();
                             lastClusterInputKeyName = key.name();
-                            boolean duplicateClusterInput =
-                                    lastHandledClusterInputKeyCode == keyEvent.getKeyCode()
-                                            && now - lastHandledClusterInputAtMs <= CLUSTER_INPUT_DEDUP_WINDOW_MS;
-                            if (!duplicateClusterInput) {
-                                lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
-                                lastHandledClusterInputAtMs = now;
-                                if (key == Screen.Key.LEFT || key == Screen.Key.RIGHT) {
-                                    handleClusterCardNavigationKey(key);
-                                } else if (ClusterCardSyncPolicy.shouldReleaseSyntheticAirconOwnershipForInput(
-                                        lastClusterInputKeyCode
-                                )) {
-                                    syntheticAirconCardOwned = false;
-                                    lastSyntheticClusterCardNavigationAtMs = 0L;
-                                    lastSyntheticClusterCardTarget = -1;
-                                }
-                            }
                             Log.w(
                                     TAG,
                                     "Cluster input key: "
@@ -740,14 +932,42 @@ public class ServiceManager {
                                     lastClusterInputKeyCode,
                                     keyEvent.getAction()
                             );
-                            if (!duplicateClusterInput) {
-                                if (key != Screen.Key.LEFT && key != Screen.Key.RIGHT) {
-                                    MainUiManager.getInstance().handleGeneralKeyEvents(key);
-                                    if (key == Screen.Key.BACK) {
+                            long now = SystemClock.uptimeMillis();
+                            boolean duplicateClusterInput =
+                                    lastHandledClusterInputKeyCode == keyEvent.getKeyCode()
+                                            && now - lastHandledClusterInputAtMs <= CLUSTER_INPUT_DEDUP_WINDOW_MS;
+                            boolean isPhysicalClusterAction =
+                                    ClusterCardNavigationPolicy.shouldHandleInputAction(
+                                            keyEvent.getAction()
+                                    );
+                            if (!duplicateClusterInput && isPhysicalClusterAction) {
+                                lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
+                                lastHandledClusterInputAtMs = now;
+                                // refreshClusterCallbackIfStale(); // Disabled: unregistering/re-registering callback drops native 133 events
+                                if (ClusterCardNavigationPolicy.isCardNavigationKey(key)) {
+                                    // Keep the v301 immediate synthetic transition while the car's
+                                    // msgId=133 echo remains the eventual source of confirmation.
+                                    handleClusterCardNavigationKey(key);
+                                } else {
+                                    if (ClusterCardSyncPolicy.shouldReleaseSyntheticAirconOwnershipForInput(
+                                            lastClusterInputKeyCode
+                                    )) {
+                                        syntheticAirconCardOwned = false;
+                                        lastSyntheticClusterCardNavigationAtMs = 0L;
+                                        lastSyntheticClusterCardTarget = -1;
+                                    }
+                                    if (key == ClusterKey.BACK) {
                                         dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
                                     }
+                                    if (isLegacySportThemeActive()) {
+                                        MainUiManager.getInstance().handleGeneralKeyEvents(
+                                                Screen.Key.valueOf(key.name())
+                                        );
+                                    } else {
+                                        dispatchServiceManagerEvent(ServiceManagerEventType.RAW_KEY_EVENT, key);
+                                    }
                                 }
-                            } else {
+                            } else if (duplicateClusterInput) {
                                 Log.w(
                                         TAG,
                                         "Cluster input duplicate ignored: "
@@ -765,6 +985,16 @@ public class ServiceManager {
                                                 + " currentCard=" + inputCardBeforeHandling
                                 );
                             }
+                        }
+                    }
+                    } finally {
+                        long heldMs = SystemClock.uptimeMillis() - dispatchStartedAt;
+                        if (heldMs > 15L) {
+                            Log.e(
+                                    TAG,
+                                    "[INPUT_HOLD] held inputservice thread " + heldMs
+                                            + "ms for key=" + dispatchKeyCode
+                            );
                         }
                     }
                 }
@@ -901,12 +1131,18 @@ public class ServiceManager {
             for (Runnable task : pendingTasks) backgroundHandler.post(task);
             pendingTasks.clear();
         }
-        MainUiManager.getInstance().updateScreen();
+
         timeInitialized = SystemClock.uptimeMillis();
         // Semeia o estado atual do hotspot (o receiver WIFI_AP só dispara em MUDANÇA; se já estava
         // ligado antes do serviço subir, a flag ficaria falsa).
         wifiTetherEnabled = currentWifiTetherState();
         Log.w(TAG, "Services initialized successfully");
+        boolean curtainOnStartEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
+        traceCurtain("sunroof_curtain_init", "enabled", curtainOnStartEnabled, "hasRun", hasRunStartupCurtainAutomation);
+        if (curtainOnStartEnabled && !hasRunStartupCurtainAutomation) {
+            hasRunStartupCurtainAutomation = true;
+            autoOpenSunroofCurtain(0);
+        }
         scheduleStartupReportReconciliations();
         // HEV Prioritário: no boot o carro costuma resetar o % (ex.: 45->80) e o app pode subir
         // depois do evento -> reaplica o valor salvo no init e depois monitora continuamente.
@@ -1035,7 +1271,11 @@ public class ServiceManager {
         }, STEERING_LONG_OPEN_DELAY_MS);
     }
 
-    private void handleSteeringWheelCustomButton(String string, int button, String tapType) {
+    public void handleSteeringWheelCustomButton(String string, int button) {
+        handleSteeringWheelCustomButton(string, button, "SHORT");
+    }
+
+    public void handleSteeringWheelCustomButton(String string, int button, String tapType) {
         SteeringWheelCustomActionType action = SteeringWheelCustomActionType.Companion.fromKey(string);
         if (action == null || action == SteeringWheelCustomActionType.DEFAULT) {
             return;
@@ -1235,9 +1475,20 @@ public class ServiceManager {
         Log.w(TAG, label + " state changed to: " + !enabled);
     }
 
-    private void handleClusterCardNavigationKey(Screen.Key key) {
+    private boolean isLegacySportThemeActive() {
+        String activeTheme = sharedPreferences == null
+                ? ""
+                : sharedPreferences.getString(
+                        SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.getKey(),
+                        ""
+                );
+        return "SportRed".equalsIgnoreCase(activeTheme)
+                || "SportRedLite".equalsIgnoreCase(activeTheme);
+    }
+
+    private void handleClusterCardNavigationKey(ClusterKey key) {
         int currentCard = clusterCardView;
-        if (!isKnownClusterCard(currentCard)) {
+        if (!isKnownClusterCard(currentCard) && isLegacySportThemeActive()) {
             currentCard = MainUiManager.getInstance().getCurrentCard();
         }
         if (!isKnownClusterCard(currentCard)) {
@@ -1245,8 +1496,10 @@ public class ServiceManager {
         }
 
         int currentIndex = indexOfClusterCard(currentCard);
-        int direction = key == Screen.Key.RIGHT ? 1 : -1;
-        int nextIndex = (currentIndex + direction + CLUSTER_CARD_SEQUENCE.length) % CLUSTER_CARD_SEQUENCE.length;
+        int direction = key == ClusterKey.RIGHT ? 1 : -1;
+        int nextIndex =
+                (currentIndex + direction + CLUSTER_CARD_SEQUENCE.length)
+                        % CLUSTER_CARD_SEQUENCE.length;
         int nextCard = CLUSTER_CARD_SEQUENCE[nextIndex];
         int previousCard = clusterCardView;
         clusterCardView = nextCard;
@@ -1257,13 +1510,9 @@ public class ServiceManager {
         Log.w(
                 TAG,
                 "Synthetic cluster card navigation: "
-                        + currentCard
-                        + " -> "
-                        + nextCard
-                        + " key="
-                        + key
-                        + " previousServiceCard="
-                        + previousCard
+                        + currentCard + " -> " + nextCard
+                        + " key=" + key
+                        + " previousServiceCard=" + previousCard
         );
         logPersistentClusterEvent(
                 "synthetic_cluster_card_navigation",
@@ -1272,7 +1521,10 @@ public class ServiceManager {
                         + " key=" + key
                         + " previousServiceCard=" + previousCard
         );
-        dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, clusterCardView);
+        dispatchClusterEventOffBinderThread(
+                ServiceManagerEventType.CLUSTER_CARD_CHANGED,
+                clusterCardView
+        );
     }
 
     private boolean isKnownClusterCard(int card) {
@@ -1281,9 +1533,7 @@ public class ServiceManager {
 
     private int indexOfClusterCard(int card) {
         for (int i = 0; i < CLUSTER_CARD_SEQUENCE.length; i++) {
-            if (CLUSTER_CARD_SEQUENCE[i] == card) {
-                return i;
-            }
+            if (CLUSTER_CARD_SEQUENCE[i] == card) return i;
         }
         return -1;
     }
@@ -1429,43 +1679,63 @@ public class ServiceManager {
 
     private void sendClusterIntMsg(int type, int value) {
         if (clusterService == null) {
-            Log.e(TAG, "ClusterService not initialized");
+            Log.e(TAG, "[CLUSTER_TX] setMsg(" + type + ", " + value + ") dropped: service null");
             return;
         }
         ClusterMsgData msg = new ClusterMsgData();
         msg.setIntValue(value);
         try {
             clusterService.setMsg(type, msg);
+            Log.w(TAG, "[CLUSTER_TX] setMsg(" + type + ", " + value + ")");
         } catch (RemoteException e) {
-            Log.e(TAG, "Error sending message to cluster service", e);
+            Log.e(TAG, "[CLUSTER_TX] setMsg(" + type + ", " + value + ") failed", e);
         }
     }
 
     private void sendAndroidReadyToCluster() {
         try {
+            // Required: this is what registers our Android-owned cards (1 and 3) with the
+            // car. With it disabled the cluster falls back to card 0 plus a single
+            // "loading" card and never reports 133 for our cards at all.
             ClusterMsgData msg = new ClusterMsgData();
             msg.setIntValue(1);
             clusterService.setMsg(75, msg);
+            Log.w(TAG, "[CLUSTER_TX] setMsg(75, 1) android-ready");
         } catch (Exception e) {
-            Log.e(TAG, "Error setting cluster service message", e);
+            Log.e(TAG, "[CLUSTER_TX] setMsg(75, 1) android-ready failed", e);
         }
     }
 
     public synchronized void startClusterHeartbeat() {
-        if (isClusterHeartbeatRunning)
+        if (isClusterHeartbeatRunning) {
+            Log.w(TAG, "[HEARTBEAT] start skipped: already running");
             return;
+        }
+        Handler handler = backgroundHandler;
+        if (handler == null) {
+            // Previously this NPE'd silently out of the caller; the loop just never began.
+            Log.e(TAG, "[HEARTBEAT] start failed: backgroundHandler null");
+            return;
+        }
         isClusterHeartbeatRunning = true;
+        Log.w(TAG, "[HEARTBEAT] loop starting");
         sendAndroidReadyToCluster();
-        backgroundHandler.postDelayed(new Runnable() {
+        handler.postDelayed(new Runnable() {
             @Override
             public void run() {
                 if (!sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
+                    Log.e(TAG, "[HEARTBEAT] loop exiting: media-integration pref is off");
                     isClusterHeartbeatRunning = false;
                     return;
                 }
                 sendHeartBeatToCluster();
-                backgroundHandler.postDelayed(this, 1000);
-
+                Handler h = backgroundHandler;
+                if (h != null) {
+                    h.postDelayed(this, 1000);
+                } else {
+                    Log.e(TAG, "[HEARTBEAT] loop exiting: backgroundHandler gone");
+                    isClusterHeartbeatRunning = false;
+                }
             }
         }, 1000);
     }
@@ -1475,11 +1745,21 @@ public class ServiceManager {
             clusterHeartBeatCount = 0; // Reset to avoid overflow
         }
         ClusterMsgData msg = new ClusterMsgData();
-        msg.setIntValue(clusterHeartBeatCount++);
+        int beat = clusterHeartBeatCount++;
+        msg.setIntValue(beat);
         try {
-            clusterService.setMsg(134, msg);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Error sending heartbeat to cluster service", e);
+            IClusterService service = clusterService;
+            if (service == null) {
+                // Was an uncaught NPE that killed the handler thread silently.
+                Log.e(TAG, "[HEARTBEAT] beat=" + beat + " dropped: service null");
+                return;
+            }
+            service.setMsg(134, msg);
+            if (beat % 10 == 0) {
+                Log.w(TAG, "[HEARTBEAT] alive beat=" + beat);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "[HEARTBEAT] beat=" + beat + " failed", e);
         }
     }
 
@@ -1489,8 +1769,12 @@ public class ServiceManager {
         try {
             String[] allKeys = getCombinedKeys();
             String[] currentValues = svc.fetchDatas(allKeys);
-            for (int i = 0; i < currentValues.length; i++) {
-                OnDataChanged(allKeys[i], currentValues[i]);
+            if (currentValues != null) {
+                for (int i = 0; i < allKeys.length && i < currentValues.length; i++) {
+                    if (currentValues[i] != null && !currentValues[i].isEmpty()) {
+                        dispatchTelemetryOnly(allKeys[i], currentValues[i]);
+                    }
+                }
             }
         } catch (Exception e) {
             Log.e(TAG, "Error dispatching data", e);
@@ -1808,6 +2092,10 @@ public class ServiceManager {
     }
 
     public void updateData(String key, String value) {
+        if (br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE) {
+            OnDataChanged(key, value);
+            return;
+        }
         boolean isHvacCommand = hvacKeysToSuspend.contains(key);
         if (!isControlServiceAlive()) {
             Log.e(TAG, "ControlService not initialized");
@@ -1940,14 +2228,25 @@ public class ServiceManager {
         return new HashMap<>(dataCache);
     }
 
-    private void OnDataChanged(String key, String value) {
+    public void dispatchTelemetryOnly(String key, String value) {
+        if (key == null || value == null) return;
+        // Internal package-scoped broadcasts for havalshisuku UI components
         Intent broadcastIntent = new Intent("android.intent.haval." + key);
+        broadcastIntent.putExtra("key", key);
         broadcastIntent.putExtra("value", value);
         broadcastIntent.setPackage(App.getContext().getPackageName());
         App.getContext().sendBroadcast(broadcastIntent);
-        broadcastIntent = new Intent("android.intent.haval." + key + "_" + value);
-        broadcastIntent.setPackage(App.getContext().getPackageName());
-        App.getContext().sendBroadcast(broadcastIntent);
+
+        Intent broadcastValueIntent = new Intent("android.intent.haval." + key + "_" + value);
+        broadcastValueIntent.setPackage(App.getContext().getPackageName());
+        App.getContext().sendBroadcast(broadcastValueIntent);
+
+        // Public broadcast for external apps (e.g. 3D Viewer)
+        Intent publicIntent = new Intent("com.haval.vehicle.EVENT_CHANGED");
+        publicIntent.putExtra("key", key);
+        publicIntent.putExtra("value", value);
+        App.getContext().sendBroadcast(publicIntent);
+
         for (IDataChanged listener : new ArrayList<>(dataChangedListeners)) {
             try {
                 listener.onDataChanged(key, value);
@@ -1956,6 +2255,13 @@ public class ServiceManager {
             }
         }
         dataCache.put(key, value);
+    }
+
+    public void OnDataChanged(String key, String value) {
+        if (key != null && key.contains("door")) {
+            Log.w(TAG, "[DOOR_DEBUG] key=" + key + " value=" + value);
+        }
+        dispatchTelemetryOnly(key, value);
         if (!servicesInitialized) {
             return;
         }
@@ -1981,9 +2287,9 @@ public class ServiceManager {
                     DisplayAppLauncher.INSTANCE.preserveAndroidAutoNativePanelContract("HVAC_PANEL_DISPLAY_" + value);
                 }
             }
-            if (key.equals(CarConstants.BEAN_PUI_SCENE_NOTIFY.getValue())) {
-                maybeCounterPulseSceneNotify(value);
-            }
+            // if (key.equals(CarConstants.BEAN_PUI_SCENE_NOTIFY.getValue())) {
+            //     maybeCounterPulseSceneNotify(value);
+            // }
             if (key.equals(CarConstants.CAR_FRS_SETTING_DISTRACTION_DETECTION_ENABLE.getValue()) && value.equals("1")) {
                 boolean isForceDisableMonitoring = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_MONITORING.getKey(), false);
                 if (isForceDisableMonitoring) {
@@ -2081,9 +2387,6 @@ public class ServiceManager {
                     restoreWifiTetherIfWasDisabled();
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), false)) {
                         if (!isMaxAcActive) enableMaxAcOn();
-                    }
-                    if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false)) {
-                        autoOpenSunroofCurtain();
                     }
                     // Ao ligar o carro, reaplica o % de bateria do HEV Prioritario (o carro costuma resetar).
                     applyHevSocTargetIfActive("POWER_ON");
@@ -2223,19 +2526,37 @@ public class ServiceManager {
         }
     }
 
+    /**
+     * Trace durável do fluxo da cortina. O logcat deste device não serve p/ pós-mortem:
+     * não há logd persistente e o buffer compartilhado rola em ~5min, então a decisão
+     * tomada no boot já sumiu quando o problema é percebido. Vai p/ cluster-diagnostics.
+     */
+    private void traceCurtain(String event, Object... keyValues) {
+        Map<String, Object> details = new HashMap<>();
+        for (int i = 0; i + 1 < keyValues.length; i += 2) {
+            details.put(String.valueOf(keyValues[i]), keyValues[i + 1]);
+        }
+        ClusterPersistentEventLogger.log(event, details);
+    }
+
     public void openSunRoofShade() {
         try {
             int sunRoofBlockStatus = vehicle.getShadeScreensLevel(0);
             if (sunRoofBlockStatus != 100) {
                 vehicle.setShadeScreensLevel(100);
                 Log.w(TAG, "Opening sunroof curtain");
+                traceCurtain("sunroof_curtain_actuate", "levelBefore", sunRoofBlockStatus, "action", "set_100");
+            } else {
+                Log.w(TAG, "Sunroof curtain already open, nothing to do");
+                traceCurtain("sunroof_curtain_actuate", "levelBefore", sunRoofBlockStatus, "action", "already_open");
             }
         } catch (Exception e) {
             Log.e(TAG, "Error opening shade screens", e);
+            traceCurtain("sunroof_curtain_actuate_error", "error", String.valueOf(e));
         }
     }
 
-    private void autoOpenSunroofCurtain() {
+    private void autoOpenSunroofCurtain(int attempt) {
         Calendar now = Calendar.getInstance();
         float outsideTemp = 99;
         int currentHour = now.get(Calendar.HOUR_OF_DAY);
@@ -2258,28 +2579,67 @@ public class ServiceManager {
             isTimeInRange = currentTime >= startTime || currentTime < endTime;
         }
 
-        float maxTemp = sharedPreferences.getFloat(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_MAX_TEMP.getKey(), -1f);
-        if (maxTemp != -1f) {
-            String outsideTempStr = getUpdatedData(CarConstants.CAR_BASIC_OUTSIDE_TEMP.getValue());
-            if (outsideTempStr != null) {
-                try {
-                    outsideTemp = Float.parseFloat(outsideTempStr);
-                } catch (NumberFormatException e) {
-                    Log.e(TAG, "Error parsing outside temp for curtain check. Aborting curtain opening. ", e);
-                    return;
-                }
-            }
+        String window = startHour + ":" + startMinute + "-" + endHour + ":" + endMinute;
+        traceCurtain("sunroof_curtain_check", "attempt", attempt, "now", currentHour + ":" + currentMinute,
+                "window", window, "timeInRange", isTimeInRange);
+
+        // Horário fora da janela é definitivo: não adianta esperar leitura de temperatura.
+        if (!isTimeInRange) {
+            Log.w(TAG, "Current time " + currentHour + ":" + currentMinute + " not in range (" + startHour + ":" + startMinute + " - " + endHour + ":" + endMinute + "), not opening curtain");
+            traceCurtain("sunroof_curtain_skip", "reason", "time_out_of_range", "now", currentHour + ":" + currentMinute, "window", window);
+            return;
         }
 
-        if ((isTimeInRange) || (outsideTemp <= maxTemp)) {
+        // maxTemp == -1 => checagem de temperatura "Desabilitada" na UI: só o horário manda.
+        float maxTemp = sharedPreferences.getFloat(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_MAX_TEMP.getKey(), -1f);
+        boolean isTempInRange = true;
+        if (maxTemp != -1f) {
+            Float reading = readOutsideTempForCurtain();
+            if (reading == null) {
+                // Dado ainda não disponível: reagenda em vez de desistir (ver CURTAIN_TEMP_*).
+                boolean willRetry = attempt + 1 < CURTAIN_TEMP_MAX_ATTEMPTS;
+                traceCurtain("sunroof_curtain_temp_unavailable", "attempt", attempt, "willRetry", willRetry);
+                if (willRetry) {
+                    backgroundHandler.postDelayed(() -> autoOpenSunroofCurtain(attempt + 1), CURTAIN_TEMP_RETRY_MS);
+                } else {
+                    Log.w(TAG, "Outside temp still unavailable after " + CURTAIN_TEMP_MAX_ATTEMPTS + " attempts, not opening curtain");
+                    traceCurtain("sunroof_curtain_skip", "reason", "temp_unavailable", "attempts", CURTAIN_TEMP_MAX_ATTEMPTS);
+                }
+                return;
+            }
+            outsideTemp = reading;
+            isTempInRange = outsideTemp <= maxTemp;
+        }
+
+        // Ambas as condições precisam valer (horário E temperatura); temperatura desabilitada = neutra.
+        if (isTempInRange) {
+            Log.w(TAG, "Opening curtain: time " + currentHour + ":" + currentMinute + " in range, outside temp " + outsideTemp + " <= " + maxTemp + " (attempt " + attempt + ")");
+            traceCurtain("sunroof_curtain_open", "attempt", attempt, "now", currentHour + ":" + currentMinute,
+                    "outsideTemp", outsideTemp, "maxTemp", maxTemp);
             // Delay slightly to ensure services are fully ready or just triggering command
             backgroundHandler.postDelayed(this::openSunRoofShade, 2000);
         } else {
-            if (!isTimeInRange) {
-                Log.d(TAG, "Current time " + currentHour + ":" + currentMinute + " not in range for opening curtain");
-            } else if (outsideTemp > maxTemp) {
-                Log.w(TAG, "Outside temp " + outsideTemp + " > max configured " + maxTemp + ", not opening curtain");
-            }
+            Log.w(TAG, "Outside temp " + outsideTemp + " > max configured " + maxTemp + ", not opening curtain");
+            traceCurtain("sunroof_curtain_skip", "reason", "temp_above_max", "outsideTemp", outsideTemp, "maxTemp", maxTemp);
+        }
+    }
+
+    /** Leitura de outside_temp p/ a cortina; null quando o dado ainda não veio ou não parseia. */
+    private Float readOutsideTempForCurtain() {
+        String raw = getUpdatedData(CarConstants.CAR_BASIC_OUTSIDE_TEMP.getValue());
+        if (raw == null || raw.trim().isEmpty()) {
+            Log.w(TAG, "Outside temp not available yet for curtain check (raw=" + raw + ")");
+            traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "unavailable");
+            return null;
+        }
+        try {
+            float parsed = Float.parseFloat(raw.trim());
+            traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "ok", "parsed", parsed);
+            return parsed;
+        } catch (NumberFormatException e) {
+            Log.w(TAG, "Outside temp unparseable for curtain check (raw=" + raw + ")");
+            traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "unparseable");
+            return null;
         }
     }
 
@@ -2933,6 +3293,8 @@ public class ServiceManager {
         }
     }
 
+
+
     public void executeWithServicesRunning(Runnable task) {
         Runnable wrapperWithCatch = () -> {
             try {
@@ -3074,11 +3436,48 @@ public class ServiceManager {
         });
     }
 
+
+
+
+
     public String[] getCombinedKeys() {
         List<String> keys = new ArrayList<>();
         keys.addAll(List.of(CarConstants.FromArray(DEFAULT_KEYS)));
         keys.addAll(sharedPreferences.getStringSet(SharedPreferencesKeys.CAR_MONITOR_PROPERTIES.getKey(), new HashSet<>()));
+        keys.addAll(dynamicallyRegisteredKeys);
         return keys.toArray(new String[0]);
+    }
+
+    public void ensureKeysMonitored(java.util.Collection<String> keys) {
+        if (keys == null || keys.isEmpty()) return;
+        if (!isControlServiceAlive()) {
+            Log.e(TAG, "ControlService not initialized; cannot add listener keys");
+            return;
+        }
+        try {
+            List<String> newKeys = new ArrayList<>();
+            String[] currentKeys = getCombinedKeys();
+            Set<String> currentKeysSet = new HashSet<>(Arrays.asList(currentKeys));
+            for (String key : keys) {
+                if (!currentKeysSet.contains(key)) {
+                    newKeys.add(key);
+                    dynamicallyRegisteredKeys.add(key);
+                }
+            }
+            if (!newKeys.isEmpty()) {
+                controlService.addListenerKey(App.getContext().getPackageName(), newKeys.toArray(new String[0]));
+                Log.d(TAG, "Added dynamic listener keys: " + newKeys);
+
+                String[] fetchValues = controlService.fetchDatas(newKeys.toArray(new String[0]));
+                if (fetchValues != null) {
+                    for (int i = 0; i < newKeys.size() && i < fetchValues.length; i++) {
+                        dataCache.put(newKeys.get(i), fetchValues[i]);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "ensureKeysMonitored failed", e);
+        }
     }
 
     public void initializeFrida() {

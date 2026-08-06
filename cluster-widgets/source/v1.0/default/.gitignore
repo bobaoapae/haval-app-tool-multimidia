@@ -1,0 +1,39 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+.parcel-cache
+
+# Parcel build intermediates (hashed filenames)
+basic.*.css
+basic.*.css.map
+basic.*.js
+basic.*.js.map
+testing-utils.*.js
+testing-utils.*.js.map
+
+# Temp build outputs
+inline_output.txt
+refactor.js
+bun.lock
+app.html
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

@@ -346,6 +346,10 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE) {
+            return onStartCommandSimulated(intent, flags, startId);
+        }
+
         var sharedPreferences = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
 
 
@@ -487,6 +491,30 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
         }
 
         return START_STICKY; // Garante que o serviço seja reiniciado se for morto
+    }
+
+    private int onStartCommandSimulated(Intent intent, int flags, int startId) {
+        synchronized (lifecycleLock) {
+            if (isServiceRunning) {
+                Log.w(TAG, "Service is already running (Simulator), skipping start.");
+                return START_STICKY;
+            }
+            isServiceRunning = true;
+        }
+        Log.w(TAG, "Simulator Service started");
+
+        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Haval App (Simulator)")
+                .setContentText("Simulador em execução")
+                .setSmallIcon(android.R.drawable.ic_notification_overlay)
+                .build();
+
+        startForeground(NOTIFICATION_ID, notification);
+
+        // We can safely initialize services immediately in simulator mode
+        ServiceManager.getInstance().initializeServicesSimulated(getApplicationContext());
+
+        return START_STICKY;
     }
 
     private void shizukuBinderReceived() {
@@ -716,6 +744,19 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     @Override
     public void onDestroy() {
         ServiceManager.getInstance().stopManagedBackgroundGuards(getApplicationContext());
+        // Drop our cluster callback before the process goes away. The car's
+        // ClusterService otherwise keeps dispatching to a dead binder and throws
+        // DeadObjectException, which can stop card reports reaching the next instance.
+        try {
+            ServiceManager.getInstance().releaseClusterCallback();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to release cluster callback on destroy", e);
+        }
+        try {
+            ServiceManager.getInstance().releaseInputListener();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to release input listener on destroy", e);
+        }
         if (handlerThread != null) {
             handlerThread.quitSafely();
         }
