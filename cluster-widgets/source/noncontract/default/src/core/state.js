@@ -12,6 +12,34 @@ function StateManager(initialState) {
     this._listeners = new Map();
 }
 
+function formatStateListenerValue(value) {
+    try {
+        if (value === undefined) return 'undefined';
+        if (value === null) return 'null';
+        if (typeof value === 'object') {
+            return JSON.stringify(value).slice(0, 240);
+        }
+        return String(value).slice(0, 240);
+    } catch (error) {
+        return '[unserializable value]';
+    }
+}
+
+function formatStateListenerError(error) {
+    if (!error) return 'unknown error';
+    var details = [];
+    if (error.name) details.push(error.name);
+    if (error.message) details.push(error.message);
+    if (error.code !== undefined) details.push('code=' + error.code);
+    if (error.stack) {
+        details.push('stack=' + String(error.stack).split('\n').slice(0, 2).join(' | '));
+    }
+    if (details.length > 0) {
+        return details.join(' ');
+    }
+    return String(error);
+}
+
 StateManager.prototype.get = function (key) {
     return this._state[key];
 };
@@ -56,7 +84,11 @@ StateManager.prototype._notifyListeners = function (key, value) {
             try {
                 callback(value, key);
             } catch (error) {
-                console.error('Error in state listener:', error);
+                console.error(
+                    'Error in state listener key=' + key +
+                    ' value=' + formatStateListenerValue(value) +
+                    ': ' + formatStateListenerError(error)
+                );
             }
         });
     }

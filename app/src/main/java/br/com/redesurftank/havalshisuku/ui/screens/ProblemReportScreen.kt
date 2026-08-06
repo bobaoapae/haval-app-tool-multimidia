@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -27,15 +29,26 @@ import br.com.redesurftank.havalshisuku.diagnostics.ProblemReportBuilder
 import br.com.redesurftank.havalshisuku.diagnostics.ProblemReportInput
 import br.com.redesurftank.havalshisuku.diagnostics.ProblemReportSubmitResult
 import br.com.redesurftank.havalshisuku.diagnostics.ProblemReportSubmitter
+import br.com.redesurftank.havalshisuku.models.ReleaseInfo
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
 import br.com.redesurftank.havalshisuku.ui.components.AppDimensions
+import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
+import br.com.redesurftank.havalshisuku.ui.theme.Michroma
+import br.com.redesurftank.havalshisuku.utils.ApkUpdateInstaller
 import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private enum class ProblemReportAction {
+    SUBMIT,
+    COPY
+}
 
 @Composable
 fun ProblemReportTab() {
@@ -46,14 +59,25 @@ fun ProblemReportTab() {
     var description by remember { mutableStateOf("") }
     var isCreating by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
+    var latestPreviewRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
     var latestPreviewVersion by remember { mutableStateOf<String?>(null) }
     var isCheckingLatestPreview by remember { mutableStateOf(false) }
     var latestPreviewCheckFailed by remember { mutableStateOf(false) }
+    var pendingReportAction by remember { mutableStateOf<ProblemReportAction?>(null) }
+    var showOutdatedVersionDialog by remember { mutableStateOf(false) }
+    var showUpdateImportanceDialog by remember { mutableStateOf(false) }
+    var showPermissionDialog by remember { mutableStateOf(false) }
+    var isDownloadingUpdate by remember { mutableStateOf(false) }
+    var updateDownloadProgress by remember { mutableFloatStateOf(0f) }
+    var updateDownloadError by remember { mutableStateOf<String?>(null) }
+    var updateDownloadJob by remember { mutableStateOf<Job?>(null) }
     var logCaptureStatus by remember {
         mutableStateOf(
                 ClusterPersistentEventLogger.getTodayLogCaptureStatus(context.applicationContext)
         )
     }
+    val requestPermissionLauncher =
+            rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
 
     val isCurrentVersionOutdated =
             latestPreviewVersion?.let {
@@ -66,6 +90,7 @@ fun ProblemReportTab() {
             isCheckingLatestPreview = true
             latestPreviewCheckFailed = false
             val result = ReleaseUpdateChecker.getAllReleaseInfo()
+            latestPreviewRelease = result.latestPreview
             latestPreviewVersion = result.latestPreview?.tag
             latestPreviewCheckFailed = result.latestPreview == null
             isCheckingLatestPreview = false
@@ -82,6 +107,106 @@ fun ProblemReportTab() {
         }
     }
 
+    fun buildCurrentReportInput(): ProblemReportInput {
+        return buildProblemReportInput(
+                description = description,
+                latestPreviewVersion = latestPreviewVersion,
+                currentVersionOutdated = isCurrentVersionOutdated,
+                latestPreviewCheckFailed = latestPreviewCheckFailed
+        )
+    }
+
+    fun submitProblemReport() {
+        val input = buildCurrentReportInput()
+        isCreating = true
+        statusMessage = null
+        scope.launch {
+            try {
+                val appContext = context.applicationContext
+                val report =
+                        withContext(Dispatchers.IO) {
+                            ClusterPersistentEventLogger.log(
+                                    "problem_report_created",
+                                    mapOf("descriptionChars" to description.trim().length)
+                            )
+                            ProblemReportBuilder.build(appContext, input)
+                        }
+                val result =
+                        withContext(Dispatchers.IO) {
+                            ProblemReportSubmitter.submit(appContext, report)
+                        }
+                val message = handleSubmitResult(context, report.fullBody, result)
+                statusMessage = message
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            } finally {
+                isCreating = false
+            }
+        }
+    }
+
+    fun copyProblemReport() {
+        val input = buildCurrentReportInput()
+        scope.launch {
+            val report =
+                    withContext(Dispatchers.IO) {
+                        ProblemReportBuilder.build(context.applicationContext, input)
+                    }
+            copyReportToClipboard(context, report.fullBody)
+            val message = "Relatório copiado para a área de transferência."
+            statusMessage = message
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun runReportAction(action: ProblemReportAction) {
+        when (action) {
+            ProblemReportAction.SUBMIT -> submitProblemReport()
+            ProblemReportAction.COPY -> copyProblemReport()
+        }
+    }
+
+    fun requestReportAction(action: ProblemReportAction) {
+        if (isCurrentVersionOutdated == true) {
+            pendingReportAction = action
+            showOutdatedVersionDialog = true
+            return
+        }
+        runReportAction(action)
+    }
+
+    fun startUpdateDownload(release: ReleaseInfo) {
+        showOutdatedVersionDialog = false
+        showUpdateImportanceDialog = false
+        pendingReportAction = null
+        isDownloadingUpdate = true
+        updateDownloadProgress = 0f
+        updateDownloadError = null
+        updateDownloadJob =
+                scope.launch {
+                    try {
+                        val file =
+                                ApkUpdateInstaller.downloadUpdateApk(
+                                        context,
+                                        release.downloadUrl
+                                ) { progress ->
+                                    updateDownloadProgress = progress
+                                }
+                        isDownloadingUpdate = false
+                        if (!ApkUpdateInstaller.canRequestPackageInstalls(context)) {
+                            showPermissionDialog = true
+                            return@launch
+                        }
+                        context.startActivity(ApkUpdateInstaller.buildInstallIntent(context, file))
+                    } catch (e: CancellationException) {
+                        isDownloadingUpdate = false
+                        throw e
+                    } catch (e: Exception) {
+                        isDownloadingUpdate = false
+                        updateDownloadError = e.message ?: "Erro desconhecido"
+                    }
+                }
+    }
+
     LaunchedEffect(Unit) { refreshLatestPreviewVersion() }
 
     Column(
@@ -94,7 +219,7 @@ fun ProblemReportTab() {
         Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-                shape = RoundedCornerShape(AppDimensions.CardCornerRadius)
+                shape = RoundedCornerShape(20.dp)
         ) {
             Column(
                     modifier = Modifier.fillMaxWidth().padding(20.dp),
@@ -122,8 +247,8 @@ fun ProblemReportTab() {
                         Text(
                                 text = "Reportar problema",
                                 color = AppColors.TextPrimary,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold
+                                fontFamily = Michroma,
+                                fontSize = 17.sp
                         )
                         Text(
                                 text = "Inclua no relato a data, hora e minutos aproximados do incidente.",
@@ -179,42 +304,9 @@ fun ProblemReportTab() {
 
                 Button(
                         onClick = {
-                            val input =
-                                    buildProblemReportInput(
-                                            description = description,
-                                            latestPreviewVersion = latestPreviewVersion,
-                                            currentVersionOutdated = isCurrentVersionOutdated,
-                                            latestPreviewCheckFailed = latestPreviewCheckFailed
-                                    )
-                            isCreating = true
-                            statusMessage = null
-                            scope.launch {
-                                try {
-                                    val appContext = context.applicationContext
-                                    val report =
-                                            withContext(Dispatchers.IO) {
-                                                ClusterPersistentEventLogger.log(
-                                                        "problem_report_created",
-                                                        mapOf(
-                                                                "descriptionChars" to
-                                                                        description.trim().length
-                                                        )
-                                                )
-                                                ProblemReportBuilder.build(appContext, input)
-                                            }
-                                    val result =
-                                            withContext(Dispatchers.IO) {
-                                                ProblemReportSubmitter.submit(appContext, report)
-                                            }
-                                    val message = handleSubmitResult(context, report.fullBody, result)
-                                    statusMessage = message
-                                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-                                } finally {
-                                    isCreating = false
-                                }
-                            }
+                            requestReportAction(ProblemReportAction.SUBMIT)
                         },
-                        enabled = canCreateIssue && !isCreating,
+                        enabled = canCreateIssue && !isCreating && !isCheckingLatestPreview,
                         colors =
                                 ButtonDefaults.buttonColors(
                                         containerColor = AppColors.Primary,
@@ -239,7 +331,8 @@ fun ProblemReportTab() {
                         Spacer(modifier = Modifier.width(10.dp))
                     }
                     Text(
-                            if (isCurrentVersionOutdated == true) "Enviar relatório mesmo assim"
+                            if (isCheckingLatestPreview) "Verificando versão..."
+                            else if (isCurrentVersionOutdated == true) "Enviar relatório mesmo assim"
                             else "Enviar relatório",
                             color = Color.White
                     )
@@ -282,7 +375,7 @@ fun ProblemReportTab() {
         Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-                shape = RoundedCornerShape(AppDimensions.CardCornerRadius)
+                shape = RoundedCornerShape(20.dp)
         ) {
             Column(
                     modifier = Modifier.fillMaxWidth().padding(20.dp),
@@ -290,25 +383,9 @@ fun ProblemReportTab() {
             ) {
                 OutlinedButton(
                         onClick = {
-                            val input =
-                                    buildProblemReportInput(
-                                            description = description,
-                                            latestPreviewVersion = latestPreviewVersion,
-                                            currentVersionOutdated = isCurrentVersionOutdated,
-                                            latestPreviewCheckFailed = latestPreviewCheckFailed
-                                    )
-                            scope.launch {
-                                val report =
-                                        withContext(Dispatchers.IO) {
-                                            ProblemReportBuilder.build(context.applicationContext, input)
-                                        }
-                                copyReportToClipboard(context, report.fullBody)
-                                val message = "Relatório copiado para a área de transferência."
-                                statusMessage = message
-                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-                            }
+                            requestReportAction(ProblemReportAction.COPY)
                         },
-                        enabled = canCreateIssue && !isCreating,
+                        enabled = canCreateIssue && !isCreating && !isCheckingLatestPreview,
                         shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius),
                         modifier = Modifier.height(48.dp)
                 ) {
@@ -316,6 +393,143 @@ fun ProblemReportTab() {
                 }
             }
         }
+    }
+
+    if (showOutdatedVersionDialog) {
+        val release = latestPreviewRelease
+        AlertDialog(
+                onDismissRequest = {
+                    showOutdatedVersionDialog = false
+                    pendingReportAction = null
+                },
+                title = { Text("Versão desatualizada") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                                "Você está usando a versão ${BuildConfig.VERSION_NAME}. A versão atual é ${latestPreviewVersion ?: "não verificada"}."
+                        )
+                        Text(
+                                "Atualize antes de reportar se possível; este problema pode já ter sido corrigido."
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                            enabled = release != null,
+                            onClick = {
+                                release?.let { startUpdateDownload(it) }
+                            }
+                    ) {
+                        Text("Atualizar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                            onClick = {
+                                showOutdatedVersionDialog = false
+                                showUpdateImportanceDialog = true
+                            }
+                    ) {
+                        Text("Cancelar")
+                    }
+                }
+        )
+    }
+
+    if (showUpdateImportanceDialog) {
+        AlertDialog(
+                onDismissRequest = {
+                    showUpdateImportanceDialog = false
+                    pendingReportAction = null
+                },
+                title = { Text("Mantenha o Impulse atualizado") },
+                text = {
+                    Text(
+                            "É importante manter o app atualizado para receber correções de bugs, melhorias e ajustes de estabilidade."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                            onClick = {
+                                showUpdateImportanceDialog = false
+                                val action = pendingReportAction
+                                pendingReportAction = null
+                                action?.let { runReportAction(it) }
+                            }
+                    ) {
+                        Text("Reportar mesmo assim")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                            onClick = {
+                                showUpdateImportanceDialog = false
+                                pendingReportAction = null
+                            }
+                    ) {
+                        Text("Fechar")
+                    }
+                }
+        )
+    }
+
+    if (isDownloadingUpdate) {
+        AlertDialog(
+                onDismissRequest = {},
+                title = { Text("Baixando atualização") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LinearProgressIndicator(progress = { updateDownloadProgress })
+                        Text("${(updateDownloadProgress * 100).toInt()}%")
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                            onClick = {
+                                updateDownloadJob?.cancel()
+                                isDownloadingUpdate = false
+                            }
+                    ) {
+                        Text("Cancelar")
+                    }
+                }
+        )
+    }
+
+    if (updateDownloadError != null) {
+        AlertDialog(
+                onDismissRequest = { updateDownloadError = null },
+                title = { Text("Erro no download") },
+                text = { Text(updateDownloadError ?: "Erro desconhecido") },
+                confirmButton = {
+                    TextButton(onClick = { updateDownloadError = null }) { Text("OK") }
+                }
+        )
+    }
+
+    if (showPermissionDialog) {
+        AlertDialog(
+                onDismissRequest = { showPermissionDialog = false },
+                title = { Text("Permissão necessária") },
+                text = { Text("Permita a instalação de apps de fontes desconhecidas.") },
+                confirmButton = {
+                    TextButton(
+                            onClick = {
+                                showPermissionDialog = false
+                                requestPermissionLauncher.launch(
+                                        ApkUpdateInstaller.buildUnknownSourcesIntent(context)
+                                )
+                            }
+                    ) {
+                        Text("Configurações")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showPermissionDialog = false }) {
+                        Text("Cancelar")
+                    }
+                }
+        )
     }
 }
 
@@ -355,7 +569,7 @@ private fun ProblemReportVersionStatus(
                                     "Não foi possível verificar a última preview agora. Se possível, confira Atualizações em Informações antes de enviar."
                             else -> "Verificando se existe preview mais recente antes do envio."
                         },
-                color = if (isOutdated == true) Color(0xFFFF9800) else AppColors.TextSecondary,
+                color = if (isOutdated == true) ImpTokens.Attention else AppColors.TextSecondary,
                 fontSize = 13.sp
         )
         OutlinedButton(
@@ -408,10 +622,10 @@ private fun LogCaptureStatusCard(
                         onCheckedChange = onEnabledChange,
                         colors =
                                 SwitchDefaults.colors(
-                                        checkedThumbColor = Color.White,
-                                        checkedTrackColor = AppColors.Primary,
-                                        uncheckedThumbColor = AppColors.TextSecondary,
-                                        uncheckedTrackColor = AppColors.SurfaceVariant
+                                        checkedThumbColor = ImpTokens.OnAccent,
+                                        checkedTrackColor = ImpTokens.Accent,
+                                        uncheckedThumbColor = ImpTokens.ThumbOff,
+                                        uncheckedTrackColor = ImpTokens.TrackOff
                                 )
                 )
             }

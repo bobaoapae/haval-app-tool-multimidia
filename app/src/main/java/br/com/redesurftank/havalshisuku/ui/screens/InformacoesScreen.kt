@@ -4,8 +4,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
-import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,7 +34,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import androidx.core.content.edit
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.TAG
@@ -45,13 +43,11 @@ import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.UpdateCheckResult
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
 import br.com.redesurftank.havalshisuku.ui.components.AppDimensions
+import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
+import br.com.redesurftank.havalshisuku.ui.theme.Michroma
+import br.com.redesurftank.havalshisuku.utils.ApkUpdateInstaller
 import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import kotlinx.coroutines.*
-import java.io.BufferedInputStream
-import java.io.File
-import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
 
 
@@ -148,7 +144,10 @@ fun InformacoesTab() {
                                 } else {
                                         "Não inicializado"
                                 }
-                        delay(100)
+                        // Estes tempos são gravados uma vez na inicialização e não mudam mais;
+                        // para de pollar quando tudo estiver pronto (evita o loop a 10Hz eterno).
+                        if (isActive && timeBoot > 0 && timeStart > 0 && timeInit > 0) break
+                        delay(1000)
                 }
         }
 
@@ -156,34 +155,15 @@ fun InformacoesTab() {
                 isDownloading = true
                 downloadProgress = 0f
                 downloadJob =
-                        scope.launch(Dispatchers.IO) {
+                        scope.launch {
                                 try {
                                         val file =
-                                                File(
-                                                        context.getExternalFilesDir(null),
-                                                        "update.apk"
-                                                )
-                                        withContext(Dispatchers.IO) {
-                                                val dlUrl = URL(url)
-                                                val conn =
-                                                        dlUrl.openConnection() as HttpURLConnection
-                                                val length = conn.contentLength
-                                                val input = BufferedInputStream(conn.inputStream)
-                                                val output = FileOutputStream(file)
-                                                val buffer = ByteArray(4096)
-                                                var bytesRead: Int
-                                                var total = 0
-                                                while (input.read(buffer).also { bytesRead = it } !=
-                                                        -1) {
-                                                        output.write(buffer, 0, bytesRead)
-                                                        total += bytesRead
-                                                        if (length > 0)
-                                                                downloadProgress =
-                                                                        total.toFloat() / length
+                                                ApkUpdateInstaller.downloadUpdateApk(
+                                                        context,
+                                                        url
+                                                ) { progress ->
+                                                        downloadProgress = progress
                                                 }
-                                                output.close()
-                                                input.close()
-                                        }
                                         isDownloading = false
 
                                         if (resetTargetVersion != null) {
@@ -197,34 +177,16 @@ fun InformacoesTab() {
                                                         .apply()
                                         }
 
-                                        withContext(Dispatchers.Main) {
-                                                if (!context.packageManager
-                                                                .canRequestPackageInstalls()
-                                                ) {
-                                                        showPermissionDialog = true
-                                                        return@withContext
-                                                }
-                                                val uri =
-                                                        FileProvider.getUriForFile(
-                                                                context,
-                                                                "${context.packageName}.provider",
-                                                                file
-                                                        )
-                                                val intent =
-                                                        Intent(Intent.ACTION_VIEW).apply {
-                                                                setDataAndType(
-                                                                        uri,
-                                                                        "application/vnd.android.package-archive"
-                                                                )
-                                                                addFlags(
-                                                                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                                                )
-                                                                addFlags(
-                                                                        Intent.FLAG_ACTIVITY_NEW_TASK
-                                                                )
-                                                        }
-                                                context.startActivity(intent)
+                                        if (!ApkUpdateInstaller.canRequestPackageInstalls(context)) {
+                                                showPermissionDialog = true
+                                                return@launch
                                         }
+                                        context.startActivity(
+                                                ApkUpdateInstaller.buildInstallIntent(context, file)
+                                        )
+                                } catch (e: CancellationException) {
+                                        isDownloading = false
+                                        throw e
                                 } catch (e: Exception) {
                                         Log.e(TAG, "Download failed", e)
                                         isDownloading = false
@@ -242,8 +204,8 @@ fun InformacoesTab() {
                 // Seção de Status
                 Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A)),
-                        shape = RoundedCornerShape(12.dp)
+                        colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
+                        shape = RoundedCornerShape(20.dp)
                 ) {
                         Column(
                                 modifier = Modifier.padding(20.dp),
@@ -251,12 +213,12 @@ fun InformacoesTab() {
                         ) {
                                 Text(
                                         "Status do Sistema",
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = Michroma,
+                                        fontSize = 17.sp,
                                         color = Color.White
                                 )
 
-                                HorizontalDivider(color = Color(0xFF1D2430))
+                                HorizontalDivider(color = ImpTokens.Hairline)
 
                                 if (!bypassSelfInstallationCheck) {
                                         Row(
@@ -265,7 +227,7 @@ fun InformacoesTab() {
                                         ) {
                                                 Text(
                                                         "Instalado corretamente:",
-                                                        color = Color(0xFFB0B8C4)
+                                                        color = ImpTokens.TextSecondary
                                                 )
                                                 Text(
                                                         if (selfInstallationCheck) "Sim" else "Não",
@@ -281,7 +243,7 @@ fun InformacoesTab() {
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                        Text("Estado:", color = Color(0xFFB0B8C4))
+                                        Text("Estado:", color = ImpTokens.TextSecondary)
                                         Text(
                                                 if (isActive) "Ativo" else "Inativo",
                                                 color =
@@ -298,7 +260,7 @@ fun InformacoesTab() {
                                         ) {
                                                 Text(
                                                         "Boot Completed:",
-                                                        color = Color(0xFFB0B8C4),
+                                                        color = ImpTokens.TextSecondary,
                                                         fontSize = 14.sp
                                                 )
                                                 Text(
@@ -313,7 +275,7 @@ fun InformacoesTab() {
                                         ) {
                                                 Text(
                                                         "Início:",
-                                                        color = Color(0xFFB0B8C4),
+                                                        color = ImpTokens.TextSecondary,
                                                         fontSize = 14.sp
                                                 )
                                                 Text(
@@ -328,7 +290,7 @@ fun InformacoesTab() {
                                         ) {
                                                 Text(
                                                         "Inicialização:",
-                                                        color = Color(0xFFB0B8C4),
+                                                        color = ImpTokens.TextSecondary,
                                                         fontSize = 14.sp
                                                 )
                                                 Text(
@@ -339,7 +301,7 @@ fun InformacoesTab() {
                                         }
                                 }
 
-                                HorizontalDivider(color = Color(0xFF1D2430))
+                                HorizontalDivider(color = ImpTokens.Hairline)
 
                                 Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -349,7 +311,7 @@ fun InformacoesTab() {
                                         Column {
                                                 Text(
                                                         "Versão",
-                                                        color = Color(0xFFB0B8C4),
+                                                        color = ImpTokens.TextSecondary,
                                                         fontSize = 14.sp
                                                 )
                                                 Text(
@@ -401,7 +363,8 @@ fun InformacoesTab() {
                                         }
                                 }
 
-                                HorizontalDivider(color = Color(0xFF1D2430))
+                                HorizontalDivider(color = ImpTokens.Hairline)
+
 
                                 Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -447,8 +410,8 @@ fun InformacoesTab() {
                 // Seção de Contribuição
                 Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A)),
-                        shape = RoundedCornerShape(12.dp)
+                        colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
+                        shape = RoundedCornerShape(20.dp)
                 ) {
                         Column(
                                 modifier = Modifier.padding(20.dp),
@@ -457,18 +420,18 @@ fun InformacoesTab() {
                         ) {
                                 Text(
                                         "Contribua para o Desenvolvimento",
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = Michroma,
+                                        fontSize = 16.sp,
                                         color = Color.White,
                                         textAlign = TextAlign.Center
                                 )
 
-                                HorizontalDivider(color = Color(0xFF1D2430))
+                                HorizontalDivider(color = ImpTokens.Hairline)
 
                                 Text(
                                         "Ajude a manter este projeto ativo! Sua contribuição é muito importante para o desenvolvimento contínuo do app.",
                                         fontSize = 14.sp,
-                                        color = Color(0xFFB0B8C4),
+                                        color = ImpTokens.TextSecondary,
                                         textAlign = TextAlign.Center,
                                         lineHeight = 20.sp
                                 )
@@ -484,7 +447,7 @@ fun InformacoesTab() {
                                 Text(
                                         "Escaneie o QR Code ou use a chave PIX: joaovitorbor@gmail.com",
                                         fontSize = 16.sp,
-                                        color = Color(0xFFB0B8C4),
+                                        color = ImpTokens.TextSecondary,
                                         textAlign = TextAlign.Center
                                 )
 
@@ -836,7 +799,7 @@ fun InformacoesTab() {
                                                 }
 
                                                 // Toggle beta
-                                                HorizontalDivider(color = Color(0xFF1D2430))
+                                                HorizontalDivider(color = ImpTokens.Hairline)
                                                 Row(
                                                         modifier = Modifier.fillMaxWidth(),
                                                         horizontalArrangement =
@@ -909,7 +872,7 @@ fun InformacoesTab() {
                                                         Text(
                                                                 "Versões beta são para entusiastas e usuários com conhecimento técnico. Podem conter bugs, instabilidades e funcionalidades incompletas. Use por sua conta e risco.",
                                                                 fontSize = 11.sp,
-                                                                color = Color(0xFFFF9800),
+                                                                color = ImpTokens.Attention,
                                                                 lineHeight = 14.sp
                                                         )
                                                         Card(
@@ -1053,9 +1016,10 @@ fun InformacoesTab() {
                                 TextButton(
                                         onClick = {
                                                 showPermissionDialog = false
-                                                val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
-                                                intent.setData(Uri.parse("package:${context.packageName}"))
-                                                requestPermissionLauncher.launch(intent)
+                                                requestPermissionLauncher.launch(
+                                                        ApkUpdateInstaller
+                                                                .buildUnknownSourcesIntent(context)
+                                                )
                                         }
                                 ) { Text("Configurações") }
                         },

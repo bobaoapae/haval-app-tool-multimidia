@@ -36,7 +36,9 @@ data class SettingItem(
     val sliderLabel: String? = null,
     val hideSwitch: Boolean = false,
     val customContent: (@Composable () -> Unit)? = null,
-    val alwaysShowCustomContent: Boolean = false
+    val alwaysShowCustomContent: Boolean = false,
+    /** Grupo/categoria do redesign (Rodada 15). null = cai no bucket "Outros" (nada some da tela). */
+    val group: String? = null
 )
 
 // Cores do tema

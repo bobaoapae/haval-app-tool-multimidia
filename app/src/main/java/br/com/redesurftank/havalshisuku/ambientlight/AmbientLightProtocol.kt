@@ -232,6 +232,12 @@ object AmbientLightProtocol {
             AmbientLightOutput.BOTH -> listOf(setDmxLedLampSpeedPayload(speed), setBleLedLampSpeedPayload(speed))
         }
 
+    fun ledLampNativeEffectPayloads(
+        modeId: Int,
+        speed: Int,
+        output: AmbientLightOutput
+    ): List<ByteArray> = ledLampModePayloads(modeId, output) + ledLampSpeedPayloads(speed, output)
+
     fun setRgbHex(
         r: Int,
         g: Int,

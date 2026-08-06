@@ -168,9 +168,19 @@ Decisao de implementacao no Haval Tool v277/v284:
   nativo do firmware pode trocar para as cores fixas do LED Lamp e perder a cor base da capa;
 - o caminho DMX tem frame nativo custom com `RGB + modo + speed`, mas o caminho BLE do `LEDCAR-01`
   nao carrega cor base no mesmo frame;
-- a partir da v284, quando `DMX` esta em `Animado` e o preset possui `modeId`, o app envia o frame
-  custom DMX `7B 00 07 RR GG BB MM SS BF` com a cor base do album, modo e speed;
-- o caminho BLE continua usando simulacao RGB app-side para preservar a cor do album;
+- a partir da correcao DMX de 2026-07-08 v289, quando `DMX` esta em `Animado` e o preset possui
+  `modeId`, o app envia os comandos nativos do LED Lamp para fita DMX: modo
+  `7B FF 03 MM FF FF FF FF BF` e speed `7B FF 02 SS FF 00 FF FF BF`, reproduzindo melhor o
+  movimento espacial do app LED Car;
+- a partir da v290, o DMX animado nao usa mais diretamente a cor fixa do preset escolhido. O app
+  classifica a cor base do album na familia DMX mais proxima e troca o `modeId` pelo equivalente
+  nativo dessa familia, preservando o movimento: `Run >` usa `97/99/101/103/105/107/109`,
+  `Run <` usa `98/100/102/104/106/108/110`, `6 Colors` usa `9..22` e `Flow` usa `125..136`;
+- o frame custom DMX `7B 00 07 RR GG BB MM SS BF` continua documentado/testado, mas nao e mais o
+  caminho principal da `Onda do album` para presets DMX nativos porque nao reproduz o movimento
+  espacial do app LED Car na fita;
+- o caminho BLE continua sem alteracao nesta correcao e segue usando simulacao RGB app-side para
+  preservar a cor do album;
 - `BLE` e `DMX` podem ser configurados separadamente como `Animado` ou `Estatico`. `Estatico` fixa
   a cor base do album; `Animado` segue o preset selecionado quando a saida estiver incluida em
   `Aplicar em`.

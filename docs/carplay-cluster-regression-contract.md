@@ -47,6 +47,10 @@ permanente, sem buffer cinza/sujo e sem exigir tirar/recolocar o cabo.
     fallback opaco/fullscreen. Depois de armada por tecla fisica real, essa sessao pode permanecer
     visivel ao passar por cards neutros/originais, desde que nao mova, nao reinicie e nao pause o
     CarPlay.
+    Quando o app abrir sinteticamente o card AC por `LEFT`/`RIGHT`, callbacks OEM tardios
+    `msgId=133` com `3 -> 1`/`3 -> 0` nao podem encerrar esse card sem uma nova intencao fisica de
+    saida. O ownership termina em `LEFT`, `RIGHT`, `BACK` ou `HOME` e vale com CarPlay no D0 ou D3;
+    nao deve depender de timeout nem tocar Surface, foco, bounds ou handoff CarPlay.
 11. Camera, AVM, RVC, ar-condicionado/HVAC e UI nativa nao podem reiniciar, mover ou forcar stop
     do CarPlay.
 12. Tocar no icone do CarPlay no display 0 significa recriar CarPlay no display 0.
@@ -74,31 +78,28 @@ permanente, sem buffer cinza/sujo e sem exigir tirar/recolocar o cabo.
     fluxo deve trazer um app nao-projecao do display 0 para frente e repetir o start no cluster,
     sem mover ou remover a stack antiga antes da nova Surface existir.
 21. Abrir app, camera/AVM ou HVAC no display 0 enquanto o alvo desejado do CarPlay e cluster 3 pode
-    acionar apenas um guardiao pontual, atrasado e com cooldown. O pos-start D0 -> D3 e as primeiras
-    passes apos handoff devem ficar em verify-only: sem `VIDEO_FOCUS_CHANGE`, sem
-    `view_state foreground`, sem `startservice` e sem `am stack resize`. Depois da validacao de
-    2026-06-03 18:58, a tela suja foi sanada, mas o usuario confirmou regressao diferente:
-    AC/app no display 0 pode deixar o D3 preto e pressionar o icone do CarPlay no D0 restaura o
-    video no D3. Portanto, se o CarPlay continua **realmente** no display 3, com fullscreen correto
-    `[0,0][1920,720]`, sem duplicata sustentada no display 0 e sem Surface stale, o guardiao pode
-    fazer **uma tentativa tardia e isolada de `VIDEO_FOCUS_CHANGE` lite**. Essa tentativa nao pode
-    enviar `view_state foreground`, `REFRESH_RENDER`, `startservice`, resize, move-stack ou
-    `force-stop`. Se a Surface estiver stale (`1x1`/`0x0`), usar o reassert de Surface em vez de
-    foco de video. Se a Activity realmente saiu para o display 0, o guardiao confirma a saida com
-    double-check antes de disparar o restore `0 -> 3` permitido. Nao pode haver loop nem disputa
-    imediata com a transicao nativa.
+    acionar apenas um guardiao pontual, atrasado e com cooldown. Se a task real do CarPlay continua
+    viva no display 3, esse guardiao fica verify-only: sem `VIDEO_FOCUS_CHANGE`, sem
+    `REFRESH_RENDER`, sem `view_state foreground`, sem `startservice`, sem `am start --display 3` e
+    sem `am stack resize`. A validacao fisica de 2026-07-08 mostrou que pulsos app-side de
+    `VIDEO_FOCUS_CHANGE` e reassert self-D0 podem reacender `requestVideoFocus` nativo e gerar
+    `CarPlayDisplayActivity.onPause/onResume`. Se a Activity realmente saiu para o display 0, o
+    guardiao confirma a saida com double-check antes de disparar o restore `0 -> 3` permitido. Nao
+    pode haver loop nem disputa imediata com a transicao nativa.
 22. Mudanca de janela nativa no display 0 (Accessibility `TYPE_WINDOW_STATE_CHANGED`), incluindo
     camera/AVM/HVAC que nao aparecem em `DisplayAppConfig`, deve passar pelo guardiao pontual do
     CarPlay antes de qualquer `return` por app nao configurado. O guardiao deve ser debounced para
     nao brigar com a animacao/transicao da UI nativa. Na central real o caminho de janela nativa
-    deve permanecer verify-only durante o grace inicial do D3; depois disso, se a task real do
-    CarPlay esta viva no cluster 3, o pulso lite da Regra 37 pode ser usado para recuperar foco
-    nativo. A partir de 2026-06-07, evento generico de janela de pacote nao-projecao usa apenas
-    foco lite em cluster existente: nao roda `dumpsys SurfaceFlinger` e nao faz restore/recreate se
-    a task D3 nao existir. Restore `0 -> 3` fica reservado ao watchdog/guards explicitos, com
-    double-check de que a Activity realmente settou no display 0. Esse caminho segue proibido de
-    enviar `view_state foreground`, `force-stop`, resize parcial, `REFRESH_RENDER` quando a Surface
-    esta saudavel e `move-stack` no sentido proibido.
+    deve permanecer verify-only enquanto a task real do CarPlay esta viva no cluster 3. Foco
+    passivo/transitorio de D0 (`com.android.systemui`, MediaCenter nativo e
+    VehicleCenter) nao deve acionar pulso de video CarPlay; esses pacotes sao ruido de barra,
+    volume/toque ou container nativo, nao um app funcional tomando a rota de video. A partir de
+    2026-07-08, evento generico de janela de pacote nao-projecao tambem fica verify-only em cluster
+    existente: nao roda `dumpsys SurfaceFlinger`, nao envia foco e nao faz restore/recreate se a task
+    D3 existe. Restore `0 -> 3` fica reservado ao watchdog/guards explicitos, com double-check de que
+    a Activity realmente settou no display 0. Esse caminho segue proibido de enviar
+    `view_state foreground`, `force-stop`, resize parcial, `REFRESH_RENDER` quando a Surface esta
+    saudavel e `move-stack` no sentido proibido.
 23. O frontend do cluster deve manter classes de projecao (`theme-mirror-cluster`,
     `projection-mirror-in-dash`, `projection-map-display-active`) sempre sincronizadas com a
     realidade do display 3. O `InstrumentProjector2` deve forcar push (bypass do dedup cache) do
@@ -117,23 +118,21 @@ permanente, sem buffer cinza/sujo e sem exigir tirar/recolocar o cabo.
     se a task real continua no display 3; ele so pode remover duplicata no display 0 quando tambem
     existe stack viva no cluster, ou restaurar `0 -> 3` apos confirmar que o CarPlay ficou
     sustentado no display 0. Durante reconexao USB recente, D0 limpo e staging protegido: o
-    watchdog preserva o alvo D3 salvo, mas nao restaura automaticamente para D3 dentro da janela de
-    grace da reconexao. O watchdog nao substitui eventos manuais nem altera Android Auto.
+    watchdog preserva o alvo D3 salvo, mas nao restaura automaticamente para D3 dentro da quarentena
+    nativa de D0. Se a task visual sumir durante USB desconectado/reconectado recentemente, o
+    watchdog tambem deve preservar o alvo D3 e nao limpar/recriar/restaurar ate a janela de
+    instabilidade expirar. O watchdog nao substitui eventos manuais nem altera Android Auto.
 25. Quando CarPlay esta realmente no display 3 e um painel nativo do display 0 esta ativo
     (`sys.avm.preview_status` ou `car.hvac.panel_display_notify`), o app principal deve manter sua
     `Presentation`/WebView visivel e transparente para preservar o display efetivo `Mapa`. O bypass
     antigo por `windowAlpha=0` nao deve ser usado durante camera/AVM/HVAC, porque remove os widgets
     protegidos do `Mapa` mesmo quando a Surface do CarPlay continua saudavel no D3.
 26. Quando o proprio app Haval/Impulse ganha foco no display 0 e o CarPlay continua realmente no
-    display 3, existe uma excecao conservadora para Surface stale: se o `dumpsys SurfaceFlinger`
-    confirmar `SurfaceView - com.ts.carplay.app/...CarPlayDisplayActivity` com
-    `activeBuffer=1x1`, o guardiao pode enviar `REFRESH_RENDER` e um `am start --display 3`
-    idempotente para reassertar a Activity existente no D3. Essa excecao nao pode enviar
-    `VIDEO_FOCUS_CHANGE`, nao pode enviar `view_state foreground`, nao pode redimensionar stack,
-    nao pode remover stack e nao pode usar `force-stop`. Se o `activeBuffer` estiver saudavel
-    (`1904x704`, `1920x720` ou equivalente), o foco do proprio app fica sem acao. Camera/AVM/HVAC
-    e apps nativos do display 0 seguem a excecao separada da Regra 37 quando a falha for perda de
-    foco com buffer saudavel.
+    display 3, o guardiao fica verify-only enquanto a task D3 existe. A excecao antiga de Surface
+    stale com `REFRESH_RENDER` + `am start --display 3` foi desativada em 2026-07-08 porque o log
+    fisico mostrou que ela gerava o mesmo ciclo de `onPause/onResume` percebido como perda de foco.
+    Recuperacao automatica continua permitida somente quando a task visual some ou fica sustentada
+    no display 0 depois de double-check; nao quando a Activity D3 segue viva.
 27. Antes de qualquer prova funcional de envio D0 -> D3, o CarPlay deve ser preparado no D0. O
     preflight minimo e: patch/mount e propriedades confirmados, servicos CarPlay vivos, Activity
     nativa aberta no D0 pelo icone/fluxo nativo, feed D0 fisicamente limpo, cluster em estado
@@ -147,18 +146,23 @@ permanente, sem buffer cinza/sujo e sem exigir tirar/recolocar o cabo.
     `Display Overlays#4` ou `Background for -SurfaceView` com `activeBuffer=0x0`. Se a layer real do
     `SurfaceView` do CarPlay esta em `1904x704`/`1920x720`, o guardiao deve ficar sem acao; falso
     stale nao pode disparar `REFRESH_RENDER` nem `am start --display 3`.
-29. Apos uma reconexao USB observada pelo watchdog, D0 limpo deve ser tratado como staging protegido.
+29. Apos uma reconexao USB observada pelo watchdog, D0 limpo deve ser tratado como rota nativa
+    protegida.
     A mitigacao anterior que permitia restore automatico imediato `NONE -> D0 -> D3` foi revertida
     em 2026-06-07 porque o usuario confirmou D0 limpo apos reconectar o cabo e, em seguida, D3 sujo
     quando o watchdog restaurou automaticamente. O log mostrou `surface hide from ShowProjection`,
     `jsurface is NULL`, `CARPLAY_CLUSTER_WATCHDOG_DIRECT_RECONNECT_START_CLUSTER` e varios
     `AMediaCodec_dequeueInputBuffer invalid bufidx-1`. Portanto, enquanto o CarPlay aparecer
-    primeiro no display 0 dentro da janela de grace da reconexao USB e o alvo desejado ainda for D3,
-    o app preserva o alvo D3, mas nao executa `am start --display 3`, `move-stack`,
+    primeiro no display 0 dentro da quarentena nativa de `5min` apos reconexao USB e o alvo desejado
+    ainda for D3, o app preserva o alvo D3, mas nao executa `am start --display 3`, `move-stack`,
     `VIDEO_FOCUS_CHANGE`, `REFRESH_RENDER` nem `view_state foreground`. Fora da janela de reconexao,
-    a restauracao automatica continua sem broadcasts de video. Se D0 ja estiver sujo, a investigacao
-    deve mirar startup/decoder/buffer nativo do CarPlay no display 0 antes de novas mudancas no
-    handoff D3.
+    a restauracao automatica continua sem broadcasts de video e deve preferir `move-stack` apenas
+    quando a stack D0 for elegivel/exclusiva, preservando a Surface nativa antes de cair para
+    recriacao controlada. Se D0 ja estiver sujo, a investigacao deve mirar startup/decoder/buffer
+    nativo do CarPlay no display 0 antes de novas mudancas no handoff D3. Em 2026-07-30, uma
+    ocorrencia real as `14:55-14:56` confirmou novamente USB `true -> false -> true`, D0 nativo,
+    eco HVAC e restore D3 sujo; esse caso reforca que D0 pos-flap nao deve ser "corrigido"
+    automaticamente para D3.
 30. Quando uma stack viva do CarPlay estiver no D3 e o usuario/estado desejado pedir retorno ao D0,
     o movimento `am display move-stack <stack> 0` deve preservar a rota nativa de video. O ajuste
     permitido nesse caminho e apenas garantir fullscreen quando os bounds reais divergirem; nao
@@ -573,7 +577,7 @@ no D0, mas nao toma a rota de video quando o alvo desejado do CarPlay e D3.
 - `TsCarPlayApp.apk` embarcado deve manter MD5 `9d48c33f49dbeeb020c2fdc7e16bbc53`;
 - `TsCarPlayService.apk` embarcado deve manter MD5 `f0269fc640778825843762dcf55a8b83`;
 - `ForegroundService` deve manter a versao de auto-mount
-  `app_visual_d0_focus_service_conditional_camera_native1904x704_v13`;
+  `app_visual_d0_focus_service_conditional_camera_native1904x704_v14`;
 - `CarPlayPatchManager` deve montar app + service e, quando o mount muda com CarPlay visual ativo,
   pode recarregar `com.ts.carplay.app` e `com.ts.carplay` para carregar o dex patchado, reabrindo a
   Activity no display onde ela estava; esse caminho e exclusivo de patch load, nao de handoff
@@ -583,9 +587,9 @@ no D0, mas nao toma a rota de video quando o alvo desejado do CarPlay e D3.
 - `DisplayAppLauncher` deve manter `persist.haval.carplay.desired_display` sincronizado com a
   preferencia `desiredCarPlayDisplayId` para que o APK nativo saiba, apos reboot, que apps normais
   no D0 nao devem tomar a rota de video quando o alvo desejado e D3;
-- `DisplayAppLauncher` deve manter verify-only no pos-start D3 e durante o grace inicial do
-  handoff. Eventos posteriores de HVAC/camera/app podem usar somente o pulso lite tardio da
-  Regra 37 quando a task real do CarPlay continua viva no D3 e a Surface esta saudavel;
+- `DisplayAppLauncher` deve manter verify-only no pos-start D3, durante o grace inicial do handoff
+  e em eventos D0 posteriores de HVAC/camera/app enquanto a task real do CarPlay continua viva no
+  D3;
 - se o alvo desejado e D3 e a central nativa remover a task visual ou recriar CarPlay no D0, o
   watchdog pode restaurar o visual no D3 com `am start --display 3 ... CarPlayDisplayActivity`,
   sem `force-stop`, defocando antes o D0 e removendo duplicata do D0 somente depois que a task do
@@ -762,27 +766,27 @@ mostrou `CarPlayDisplayActivity` no display 3, fullscreen `[0,0][1920,720]`, win
 e `SurfaceView` com `activeBuffer=1920x720`, sugerindo perda de foco/rota nativa com buffer
 saudavel, nao Surface stale.
 
-Contrato:
+Contrato atualizado em 2026-07-08:
 
-- `DisplayAppLauncher` pode disparar `ExistingClusterCarPlayAction.VIDEO_FOCUS_ONLY` somente para
-  eventos posteriores de foco do D0: `AVM_PREVIEW_STATUS_*`, `HVAC_PANEL_DISPLAY_*`,
-  `SERVICE_OPEN_APP_*`, `OPEN_AVM_ONCE_*`, `LAUNCH_MAIN_AFTER_*` e
-  `TYPE_WINDOW_STATE_CHANGED` de pacote nao-projecao. Para `TYPE_WINDOW_STATE_CHANGED` generico,
-  usar `EXISTING_CLUSTER_VIDEO_FOCUS_ONLY`: atuar apenas se a task real ja esta no D3, sem
-  `SurfaceFlinger` e sem restore/recreate;
-- o pulso deve esperar o D3 estabilizar: `CARPLAY_VIDEO_FOCUS_AFTER_D3_HANDOFF_GRACE_MS=2500`
-  depois de `notifyCarPlayDisplayHandoff(3, ...)`;
-- o pulso deve respeitar cooldown forte:
-  `CARPLAY_VIDEO_FOCUS_PULSE_COOLDOWN_MS=4500`;
-- antes do pulso dos guards explicitos, o app deve inspecionar somente a layer real
-  `+ BufferLayer (SurfaceView - com.ts.carplay.app/...CarPlayDisplayActivity...)`;
-- se a Surface estiver stale (`1x1`/`0x0`), usar o reassert de Surface, nao o foco lite;
-- se a Surface estiver saudavel, enviar apenas
-  `com.ts.carplay.action.VIDEO_FOCUS_CHANGE --es focus com.ts.carplay.app --ei displayId 3`;
-- esse caminho nao pode enviar `REFRESH_RENDER`, `ts.car.carplay.view_state foreground`,
-  `startservice`, resize, `move-stack`, recriar stack, remover stack ou `force-stop`;
+- `DisplayAppLauncher` nao deve mais disparar `ExistingClusterCarPlayAction.VIDEO_FOCUS_ONLY` para
+  eventos posteriores de foco do D0 enquanto a task real do CarPlay continua viva no D3:
+  `AVM_PREVIEW_STATUS_*`, `HVAC_PANEL_DISPLAY_*`, `SERVICE_OPEN_APP_*`, `OPEN_AVM_ONCE_*`,
+  `LAUNCH_MAIN_AFTER_*` e `TYPE_WINDOW_STATE_CHANGED` de pacote nao-projecao ficam
+  `VERIFY_ONLY`;
+- pacotes passivos de D0 (`com.android.systemui`, `com.beantechs.mediacenter`,
+  `com.beantechs.mediacenter.h5.core`, `com.beantechs.vehiclecenter`) devem retornar sem acao;
+- o watchdog self-D0 tambem fica verify-only quando a task D3 existe; nao deve sondar Surface nem
+  enviar `REFRESH_RENDER`/`am start --display 3` apenas porque o Impulse esta no topo do D0;
+- a validacao fisica de 2026-07-08 mostrou que `VIDEO_FOCUS_CHANGE` app-side e reassert self-D0
+  reativavam `CarPlayManager.requestVideoFocus`/`CarPlayDisplayActivity.onPause/onResume`, mantendo
+  a regressao de perda temporaria de foco;
+- se a Activity realmente saiu para o display 0 ou a task visual sumiu, os guards de restore ainda
+  podem restaurar `0 -> 3` apos double-check; esse caso e diferente de uma task D3 viva com foco D0;
+- este caminho nao pode enviar `VIDEO_FOCUS_CHANGE`, `REFRESH_RENDER`,
+  `ts.car.carplay.view_state foreground`, `startservice`, resize, `move-stack`, recriar stack,
+  remover stack ou `force-stop` enquanto a Activity D3 segue viva;
 - o pos-start D0 -> D3 normal, watchdog D0 -> D3 e restore automatico continuam proibidos de usar
-  esse pulso durante o grace inicial, porque essa foi a causa app-side confirmada do D3 sujo;
+  pulso de foco durante o grace inicial, porque essa foi causa app-side confirmada do D3 sujo;
 - Android Auto permanece fora desta regra.
 
 Logs esperados durante o teste fisico:

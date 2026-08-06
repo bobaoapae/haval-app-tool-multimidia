@@ -65,7 +65,7 @@ REQUIRED_TOKENS = {
         "Bundled CarPlay HVAC focus patches refreshed; re-applying mounts",
     ],
     "app/src/main/java/br/com/redesurftank/havalshisuku/services/ForegroundService.java": [
-        "app_visual_d0_focus_service_conditional_camera_native1904x704_v13",
+        "app_visual_d0_focus_service_conditional_camera_native1904x704_v14",
     ],
     "app/src/main/java/br/com/redesurftank/havalshisuku/managers/DisplayAppLauncher.kt": [
         "restoreCarPlayFromMainDisplayToCluster",

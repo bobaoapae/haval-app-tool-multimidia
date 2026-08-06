@@ -29,6 +29,11 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ENABLE_AUTO_BRIGHTNESS("enableAutoBrightness", "Habilitar ajuste automático de brilho"),
     AUTO_BRIGHTNESS_LEVEL_NIGHT("autoBrightnessLevelNight", "Nível de brilho automático à noite"),
     AUTO_BRIGHTNESS_LEVEL_DAY("autoBrightnessLevelDay", "Nível de brilho automático durante o dia"),
+    AUTO_BRIGHTNESS_USE_SUN("autoBrightnessUseSun", "Usar nascer/pôr do sol (transição suave) no brilho automático"),
+    AUTO_BRIGHTNESS_STEP_MIN("autoBrightnessStepMin", "Minutos por degrau de 1 nível na transição de brilho (nascer/pôr do sol)"),
+    AUTO_BRIGHTNESS_LAST_LAT("autoBrightnessLastLat", "Última latitude conhecida (cache p/ nascer/pôr do sol)"),
+    AUTO_BRIGHTNESS_LAST_LON("autoBrightnessLastLon", "Última longitude conhecida (cache p/ nascer/pôr do sol)"),
+    AUTO_BRIGHTNESS_CITY("autoBrightnessCity", "Cidade de referência (cache do GPS, p/ exibição)"),
     ENABLE_FRIDA_HOOKS("enableFridaHooks", "Habilitar hooks do Frida"),
     ENABLE_FRIDA_HOOK_SYSTEM_SERVER(
             "enableFridaHookSystemServer",
@@ -347,5 +352,20 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     AUTO_MOVE_PROJECTION_TO_CLUSTER(
             "autoMoveProjectionToCluster",
             "Mover projeção de navegação (Android Auto / CarPlay) automaticamente para o painel de instrumentos (Display 3)"
-    )
+    ),
+    ENABLE_HOT_ROUTER("enableHotRouter", "Roteia o hotspot pelo 4G ou WLAN (Starlink) quando disponível"),
+    // ===== Controle de dados móveis do carro =====
+    MOBILE_DATA_CONTROL_ENABLED("mobileDataControlEnabled", "Master: ativa o controle de dados móveis do carro"),
+    BLOCK_CAR_MOBILE_DATA("blockCarMobileData", "Bloquear dados móveis do carro (usar só WiFi/Starlink)"),
+    MOBILE_DATA_AUTOBLOCK("mobileDataAutoblock", "Bloquear dados móveis automaticamente perto do limite"),
+    MOBILE_DATA_AUTOBLOCK_CAP_MB("mobileDataAutoblockCapMb", "Teto de dados da multimídia p/ auto-bloqueio (MB)"),
+    MOBILE_DATA_BLOCK_ON_WIFI("mobileDataBlockOnWifi", "Bloquear dados móveis quando conectado ao WiFi"),
+    MOBILE_DATA_BLOCK_ON_PROJECTION("mobileDataBlockOnProjection", "Bloquear dados móveis quando no Android Auto/CarPlay"),
+    MOBILE_DATA_CYCLE_DAY("mobileDataCycleDay", "Dia de renovação do pacote de dados (1-31)"),
+    BLOCK_DATATRACK_TELEMETRY("blockDatatrackTelemetry", "Congelar telemetria OEM DataTrack (envio pra nuvem)"),
+    MOBILE_DATA_DISABLED_BY_APP("mobileDataDisabledByApp", "Controle interno: 4G desabilitado por este app"),
+    DATATRACK_DISABLED_BY_APP("datatrackDisabledByApp", "Controle interno: DataTrack desabilitado por este app"),
+    MOBILE_DATA_TRAFFIC_ACCUM_BYTES("mobileDataTrafficAccumBytes", "Acumulado de bytes móveis no ciclo (fallback TrafficStats)"),
+    MOBILE_DATA_TRAFFIC_LAST_READING("mobileDataTrafficLastReading", "Última leitura do TrafficStats móvel (controle interno)"),
+    MOBILE_DATA_TRAFFIC_CYCLE_TAG("mobileDataTrafficCycleTag", "Ciclo atual do acumulador de bytes (controle interno)")
 }

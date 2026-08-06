@@ -61,6 +61,7 @@ import br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec
 import br.com.redesurftank.havalshisuku.models.ThemeMetadata
 import br.com.redesurftank.havalshisuku.models.ThemeConfig
 import br.com.redesurftank.havalshisuku.ui.components.HsvColorPicker
+import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
 import br.com.redesurftank.havalshisuku.ui.components.StyledCard
 import br.com.redesurftank.havalshisuku.ui.components.StyledTextField
 import coil.compose.AsyncImage
@@ -117,8 +118,8 @@ fun CompactThemeCard(
         onUpdate: () -> Unit,
         onDelete: () -> Unit
 ) {
-    val borderColor = if (isSelected) Color(0xFF4A9EFF) else Color(0xFF2C3139)
-    val backgroundColor = if (isSelected) Color(0xFF1E2638) else Color(0xFF1E2228)
+    val borderColor = if (isSelected) ImpTokens.Accent else ImpTokens.TrackOff
+    val backgroundColor = if (isSelected) ImpTokens.Container else ImpTokens.Container
     val context = LocalContext.current
 
     Card(
@@ -135,7 +136,7 @@ fun CompactThemeCard(
                     modifier =
                             Modifier.fillMaxWidth()
                                     .height(106.dp)
-                                    .background(Color(0xFF13151A), RoundedCornerShape(8.dp)),
+                                    .background(ImpTokens.Container, RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
             ) {
                 val model =
@@ -176,12 +177,12 @@ fun CompactThemeCard(
                     Box(
                             modifier =
                                     Modifier.fillMaxSize()
-                                            .background(Color(0xFF4A9EFF).copy(alpha = 0.2f))
+                                            .background(ImpTokens.Accent.copy(alpha = 0.2f))
                     )
                     Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = null,
-                            tint = Color(0xFF4A9EFF),
+                            tint = ImpTokens.Accent,
                             modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(20.dp)
                     )
                 }
@@ -234,12 +235,12 @@ fun CompactThemeCard(
                         ) {
                             CircularProgressIndicator(
                                     modifier = Modifier.size(12.dp),
-                                    color = Color(0xFF4A9EFF),
+                                    color = ImpTokens.Accent,
                                     strokeWidth = 1.5.dp
                             )
                             Text(
                                 text = "Baixando...",
-                                color = Color(0xFF4A9EFF),
+                                color = ImpTokens.Accent,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -253,12 +254,12 @@ fun CompactThemeCard(
                             Icon(
                                     imageVector = Icons.Default.Download,
                                     contentDescription = null,
-                                    tint = Color(0xFF4A9EFF),
+                                    tint = ImpTokens.Accent,
                                     modifier = Modifier.size(14.dp)
                             )
                             Text(
                                     text = "Baixar",
-                                    color = Color(0xFF4A9EFF),
+                                    color = ImpTokens.Accent,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                             )
@@ -266,7 +267,7 @@ fun CompactThemeCard(
                     } else {
                         Text(
                                 text = if (theme.name == "Default") "Original" else if (theme.version.isNotBlank()) "Instalado v${theme.version}" else "Instalado",
-                                color = if (isSelected) Color(0xFF4A9EFF) else Color(0xFFB0B8C4),
+                                color = if (isSelected) ImpTokens.Accent else ImpTokens.TextSecondary,
                                 fontSize = 11.sp
                         )
                     }
@@ -562,7 +563,7 @@ fun TelasTab() {
                         )
                         Text(
                                 "Habilitar projeção de um menu customizado no cluster de instrumentos.",
-                                color = Color(0xFFB0B8C4),
+                                color = ImpTokens.TextSecondary,
                                 fontSize = 14.sp
                         )
                     }
@@ -632,7 +633,7 @@ fun TelasTab() {
                             colors =
                                     SwitchDefaults.colors(
                                             checkedThumbColor = Color.White,
-                                            checkedTrackColor = Color(0xFF4A9EFF)
+                                            checkedTrackColor = ImpTokens.Accent
                                     )
                     )
                 }
@@ -659,7 +660,7 @@ fun TelasTab() {
                         )
                         Text(
                                 "Extende as funções do cluster para renderizar um painel customizado com suporte a temas.",
-                                color = Color(0xFFB0B8C4),
+                                color = ImpTokens.TextSecondary,
                                 fontSize = 14.sp
                         )
                     }
@@ -681,13 +682,13 @@ fun TelasTab() {
                             colors =
                                     SwitchDefaults.colors(
                                             checkedThumbColor = Color.White,
-                                            checkedTrackColor = Color(0xFF4A9EFF)
+                                            checkedTrackColor = ImpTokens.Accent
                                     )
                     )
                 }
 
                 if (enableMask) {
-                    HorizontalDivider(color = Color(0xFF2C3139))
+                    HorizontalDivider(color = ImpTokens.TrackOff)
 
                     // Theme Selector - Horizontal compact carousel
                     Column {
@@ -698,7 +699,7 @@ fun TelasTab() {
                         ) {
                             Text(
                                     "Tema do Painel (Toque para selecionar)",
-                                    color = Color(0xFFB0B8C4),
+                                    color = ImpTokens.TextSecondary,
                                     fontSize = 12.sp
                             )
                             if (isFetchingThemes) {
@@ -709,12 +710,12 @@ fun TelasTab() {
                                 ) {
                                     CircularProgressIndicator(
                                             modifier = Modifier.size(16.dp),
-                                            color = Color(0xFF4A9EFF),
+                                            color = ImpTokens.Accent,
                                             strokeWidth = 2.dp
                                     )
                                     Text(
                                             text = "Buscando...",
-                                            color = Color(0xFF4A9EFF),
+                                            color = ImpTokens.Accent,
                                             fontSize = 12.sp
                                     )
                                 }
@@ -766,12 +767,12 @@ fun TelasTab() {
                                     Icon(
                                             imageVector = Icons.Default.Refresh,
                                             contentDescription = null,
-                                            tint = Color(0xFF4A9EFF),
+                                            tint = ImpTokens.Accent,
                                             modifier = Modifier.size(18.dp)
                                     )
                                     Text(
                                             text = "Buscar atualizações",
-                                            color = Color(0xFF4A9EFF),
+                                            color = ImpTokens.Accent,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium
                                     )
@@ -988,7 +989,7 @@ fun TelasTab() {
                         modifier = Modifier
                             .weight(0.40f)
                             .fillMaxHeight()
-                            .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
+                            .background(ImpTokens.TrackOff, RoundedCornerShape(8.dp))
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -1006,7 +1007,7 @@ fun TelasTab() {
                                 )
                                 Text(
                                     if (enableCustomBg) "Papel de parede do painel" else "Padrão do sistema",
-                                    color = Color(0xFFB0B8C4),
+                                    color = ImpTokens.TextSecondary,
                                     fontSize = 12.sp
                                 )
                             }
@@ -1199,7 +1200,7 @@ fun TelasTab() {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(42.dp)
-                                    .background(Color(0xFF1E2228), RoundedCornerShape(8.dp))
+                                    .background(ImpTokens.Container, RoundedCornerShape(8.dp))
                                     .clickable(enabled = allClusterFunctionsEnabled) {
                                         appExpanded = true
                                     }
@@ -1239,7 +1240,7 @@ fun TelasTab() {
                                             Icon(
                                                 imageVector = if (defaultApp.isEmpty()) Icons.Default.Block else Icons.Default.Apps,
                                                 contentDescription = null,
-                                                tint = if (defaultApp.isEmpty()) Color(0xFFB0B8C4) else Color(0xFF4A9EFF),
+                                                tint = if (defaultApp.isEmpty()) ImpTokens.TextSecondary else ImpTokens.Accent,
                                                 modifier = Modifier.size(22.dp)
                                             )
                                         }
@@ -1257,7 +1258,7 @@ fun TelasTab() {
                                     onDismissRequest = { appExpanded = false },
                                     modifier = Modifier
                                         .fillMaxWidth(0.45f)
-                                        .background(Color(0xFF1E2228))
+                                        .background(ImpTokens.Container)
                                 ) {
                                     DropdownMenuItem(
                                         text = { Text("Nenhum", color = Color.White, fontSize = 14.sp) },
@@ -1265,7 +1266,7 @@ fun TelasTab() {
                                             Icon(
                                                 imageVector = Icons.Default.Block,
                                                 contentDescription = null,
-                                                tint = Color(0xFFB0B8C4),
+                                                tint = ImpTokens.TextSecondary,
                                                 modifier = Modifier.size(20.dp)
                                             )
                                         },
@@ -1314,7 +1315,7 @@ fun TelasTab() {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
                                 "Unidade de Consumo",
-                                color = Color(0xFFB0B8C4),
+                                color = ImpTokens.TextSecondary,
                                 fontSize = 11.sp
                             )
                             Row(
@@ -1329,7 +1330,7 @@ fun TelasTab() {
                                             .weight(1f)
                                             .height(42.dp)
                                             .background(
-                                                if (isSelected) Color(0xFF4A9EFF) else Color(0xFF1E2228),
+                                                if (isSelected) ImpTokens.Accent else ImpTokens.Container,
                                                 RoundedCornerShape(8.dp)
                                             )
                                             .clickable(enabled = allClusterFunctionsEnabled) {
@@ -1354,7 +1355,7 @@ fun TelasTab() {
             }
 
                 Spacer(Modifier.height(16.dp))
-                HorizontalDivider(color = Color(0xFF2C3139))
+                HorizontalDivider(color = ImpTokens.TrackOff)
                 Spacer(Modifier.height(16.dp))
 
                 // Odômetro e Aviso de Revisão
@@ -1372,7 +1373,7 @@ fun TelasTab() {
                                     .weight(leftWeight)
                                     .height(104.dp)
                                     .background(
-                                        Color(0xFF2A2F37),
+                                        ImpTokens.TrackOff,
                                         RoundedCornerShape(8.dp)
                                     )
                                     .clickable(enabled = allClusterFunctionsEnabled) {
@@ -1400,7 +1401,7 @@ fun TelasTab() {
                                     )
                                     Text(
                                             "Exibir total do veículo e acompanhamento de próxima revisão no painel",
-                                            color = Color(0xFFB0B8C4),
+                                            color = ImpTokens.TextSecondary,
                                             fontSize = 12.sp
                                     )
                                 }
@@ -1411,7 +1412,7 @@ fun TelasTab() {
                                         colors =
                                                 SwitchDefaults.colors(
                                                         checkedThumbColor = Color.White,
-                                                        checkedTrackColor = Color(0xFF4A9EFF)
+                                                        checkedTrackColor = ImpTokens.Accent
                                                 ),
                                         modifier = Modifier
                                             .padding(start = 16.dp, end = 8.dp)
@@ -1421,14 +1422,14 @@ fun TelasTab() {
 
                             // Column 2 (Right Card): Next Revision inside card (60% width, always visible but disabled if toggle off)
                             val isCard2Enabled = enableOdometerAndRevision && allClusterFunctionsEnabled
-                            val textDisabledColor = Color(0xFF6B7280)
+                            val textDisabledColor = ImpTokens.ThumbOff
 
                             Row(
                                 modifier = Modifier
                                     .weight(0.60f)
                                     .height(104.dp)
                                     .background(
-                                        if (isCard2Enabled) Color(0xFF2A2F37) else Color(0xFF1E2229),
+                                        if (isCard2Enabled) ImpTokens.TrackOff else ImpTokens.Container,
                                         RoundedCornerShape(8.dp)
                                     )
                                     .clickable(enabled = isCard2Enabled) {
@@ -1453,8 +1454,8 @@ fun TelasTab() {
                                         },
                                         enabled = isCard2Enabled,
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color(0xFF4A9EFF),
-                                            disabledContainerColor = Color(0xFF2C3139)
+                                            containerColor = ImpTokens.Accent,
+                                            disabledContainerColor = ImpTokens.TrackOff
                                         ),
                                         shape = RoundedCornerShape(6.dp),
                                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
@@ -1477,7 +1478,7 @@ fun TelasTab() {
                                 ) {
                                     Text(
                                         "Próxima Revisão",
-                                        color = if (isCard2Enabled) Color(0xFFB0B8C4) else textDisabledColor,
+                                        color = if (isCard2Enabled) ImpTokens.TextSecondary else textDisabledColor,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium
                                     )
@@ -1511,7 +1512,7 @@ fun TelasTab() {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
+                                .background(ImpTokens.TrackOff, RoundedCornerShape(8.dp))
                                 .padding(horizontal = 20.dp, vertical = 16.dp)
                         ) {
                             // Header Row
@@ -1545,7 +1546,7 @@ fun TelasTab() {
                                     if (revisionHistory.isEmpty()) {
                                         Text(
                                             "Nenhuma revisão registrada",
-                                            color = Color(0xFF636D77),
+                                            color = ImpTokens.TextMuted,
                                             fontSize = 13.sp,
                                             modifier = Modifier.padding(vertical = 4.dp)
                                         )
@@ -1555,7 +1556,7 @@ fun TelasTab() {
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .background(
-                                                        Color(0xFF1E2228),
+                                                        ImpTokens.Container,
                                                         RoundedCornerShape(8.dp)
                                                     )
                                                     .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1597,7 +1598,7 @@ fun TelasTab() {
                                                 // Column 3: Date on the RIGHT - increased font size
                                                 Text(
                                                     text = dateFormatter.format(entry.date),
-                                                    color = Color(0xFFB0B8C4),
+                                                    color = ImpTokens.TextSecondary,
                                                     fontSize = 14.sp,
                                                     fontWeight = FontWeight.Medium
                                                 )
@@ -1626,7 +1627,7 @@ fun TelasTab() {
                         fontWeight = FontWeight.Bold
                 )
 
-                HorizontalDivider(color = Color(0xFF2C3139))
+                HorizontalDivider(color = ImpTokens.TrackOff)
 
                 Button(
                         onClick = {
@@ -1634,7 +1635,7 @@ fun TelasTab() {
                             showConfigDialog = true
                         },
                         enabled = allClusterFunctionsEnabled,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF)),
+                        colors = ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp)
                 ) {
@@ -1681,7 +1682,7 @@ fun TelasTab() {
                                                             .height(210.dp)
                                                             .border(
                                                                     1.5.dp,
-                                                                    Color(0xFF2C3139),
+                                                                    ImpTokens.TrackOff,
                                                                     RoundedCornerShape(12.dp)
                                                             )
                                                             .clickable(
@@ -1694,7 +1695,7 @@ fun TelasTab() {
                                             colors =
                                                     CardDefaults.cardColors(
                                                             containerColor =
-                                                                    Color(0xFF2A2F37)
+                                                                    ImpTokens.TrackOff
                                                                             .copy(alpha = 0.5f)
                                                     ),
                                             shape = RoundedCornerShape(12.dp)
@@ -1950,7 +1951,7 @@ fun TelasTab() {
                                                             Text(
                                                                     text =
                                                                             "Display: ${config.displayId}",
-                                                                    color = Color(0xFFB0B8C4),
+                                                                    color = ImpTokens.TextSecondary,
                                                                     fontSize = 11.sp
                                                             )
                                                         }
@@ -2085,7 +2086,7 @@ fun TelasTab() {
                                                 Box(
                                                         modifier =
                                                                 Modifier.background(
-                                                                                Color(0xFF13151A),
+                                                                                ImpTokens.Container,
                                                                                 RoundedCornerShape(
                                                                                         6.dp
                                                                                 )
@@ -2098,7 +2099,7 @@ fun TelasTab() {
                                                     Text(
                                                             text =
                                                                     "Pos: ${config.x},${config.y} | Dim: ${config.width}x${config.height}",
-                                                            color = Color(0xFFB0B8C4),
+                                                            color = ImpTokens.TextSecondary,
                                                             fontSize = 12.sp,
                                                             maxLines = 1,
                                                             overflow = TextOverflow.Ellipsis
@@ -2128,7 +2129,7 @@ fun TelasTab() {
                                                             border =
                                                                     BorderStroke(
                                                                             1.dp,
-                                                                            Color(0xFF4A9EFF)
+                                                                            ImpTokens.Accent
                                                                     ),
                                                             contentPadding =
                                                                     PaddingValues(
@@ -2230,7 +2231,7 @@ fun TelasTab() {
     if (showRegisterDialog) {
         AlertDialog(
                 onDismissRequest = { showRegisterDialog = false },
-                containerColor = Color(0xFF1E2228),
+                containerColor = ImpTokens.Container,
                 titleContentColor = Color.White,
                 textContentColor = Color.White,
                 title = {
@@ -2254,7 +2255,7 @@ fun TelasTab() {
                                 } else {
                                     "Informe os dados da revisão atual para calcular a próxima automaticamente."
                                 },
-                                color = Color(0xFFB0B8C4),
+                                color = ImpTokens.TextSecondary,
                                 fontSize = 14.sp
                         )
 
@@ -2276,7 +2277,7 @@ fun TelasTab() {
                                     } else {
                                         "Data de Revisão"
                                     },
-                                    color = Color(0xFFB0B8C4),
+                                    color = ImpTokens.TextSecondary,
                                     fontSize = 12.sp
                             )
                             Spacer(modifier = Modifier.height(8.dp))
@@ -2287,7 +2288,7 @@ fun TelasTab() {
                                             ButtonDefaults.outlinedButtonColors(
                                                     contentColor = Color.White
                                             ),
-                                    border = BorderStroke(1.dp, Color(0xFF3A3F47)),
+                                    border = BorderStroke(1.dp, ImpTokens.TrackOff),
                                     shape = RoundedCornerShape(8.dp)
                             ) {
                                 val displayDate =
@@ -2313,7 +2314,7 @@ fun TelasTab() {
                                 }
                             },
                             colors =
-                                    ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF)),
+                                    ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent),
                             enabled =
                                     tempKm.isNotBlank() &&
                                             tempKm.toIntOrNull() != null &&
@@ -2322,7 +2323,7 @@ fun TelasTab() {
                 },
                 dismissButton = {
                     TextButton(onClick = { showRegisterDialog = false }) {
-                        Text("Cancelar", color = Color(0xFFB0B8C4))
+                        Text("Cancelar", color = ImpTokens.TextSecondary)
                     }
                 }
         )
@@ -2355,7 +2356,7 @@ fun TelasTab() {
     if (showVirtualClusterWarningDialog) {
         AlertDialog(
                 onDismissRequest = { showVirtualClusterWarningDialog = false },
-                containerColor = Color(0xFF1E2228),
+                containerColor = ImpTokens.Container,
                 titleContentColor = Color.White,
                 textContentColor = Color.White,
                 title = {
@@ -2371,7 +2372,7 @@ fun TelasTab() {
                     ) {
                         Text(
                                 "Este painel virtual é renderizado pela multimidia, ficando sujeita a garglos de processamento causando eventuais discrepancias ou delays entre as informações reais e as disponibilizadas. Além disto, a velocidade informada pode ter uma pequena variação.",
-                                color = Color(0xFFB0B8C4),
+                                color = ImpTokens.TextSecondary,
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp
                         )
@@ -2392,7 +2393,7 @@ fun TelasTab() {
                                 }
                                 showVirtualClusterWarningDialog = false
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF))
+                            colors = ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent)
                     ) {
                         Text("Aceitar", fontWeight = FontWeight.Bold)
                     }
@@ -3939,18 +3940,18 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                 verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Aplicativo", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+                Text("Aplicativo", color = ImpTokens.TextSecondary, fontSize = 12.sp)
                 Spacer(Modifier.height(4.dp))
                 Box(
                         modifier =
                                 Modifier.fillMaxWidth()
-                                        .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
+                                        .background(ImpTokens.TrackOff, RoundedCornerShape(8.dp))
                                         .clickable { showAppPicker = true }
                                         .padding(horizontal = 12.dp, vertical = 12.dp)
                 ) {
                     Text(
                             selectedApp?.label ?: "Selecionar Aplicativo...",
-                            color = if (selectedApp != null) Color.White else Color(0xFF808080),
+                            color = if (selectedApp != null) Color.White else ImpTokens.TextMuted,
                             fontSize = 14.sp
                     )
                 }
@@ -3963,14 +3964,14 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                         modifier =
                                 Modifier.padding(top = 18.dp)
                                         .size(44.dp)
-                                        .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
+                                        .background(ImpTokens.TrackOff, RoundedCornerShape(8.dp))
                 ) {
                     Icon(
                             imageVector =
                                     if (customName.isBlank()) Icons.Default.EditNote
                                     else Icons.Default.Label,
                             contentDescription = "Nome Customizado",
-                            tint = if (customName.isBlank()) Color.White else Color(0xFF4A9EFF)
+                            tint = if (customName.isBlank()) Color.White else ImpTokens.Accent
                     )
                 }
             }
@@ -3978,13 +3979,13 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
 
         // Display Selection
         Column {
-            Text("Tela de Destino", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+            Text("Tela de Destino", color = ImpTokens.TextSecondary, fontSize = 12.sp)
             Spacer(Modifier.height(4.dp))
             Box {
                 Row(
                         modifier =
                                 Modifier.fillMaxWidth()
-                                        .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
+                                        .background(ImpTokens.TrackOff, RoundedCornerShape(8.dp))
                                         .clickable { displayExpanded = true }
                                         .padding(horizontal = 12.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -3996,7 +3997,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                 DropdownMenu(
                         expanded = displayExpanded,
                         onDismissRequest = { displayExpanded = false },
-                        modifier = Modifier.fillMaxWidth(0.5f).background(Color(0xFF1E2228))
+                        modifier = Modifier.fillMaxWidth(0.5f).background(ImpTokens.Container)
                 ) {
                     displays.forEach { disp ->
                         DropdownMenuItem(
@@ -4011,17 +4012,17 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
             }
         }
 
-        HorizontalDivider(color = Color(0xFF2C3139))
+        HorizontalDivider(color = ImpTokens.TrackOff)
 
         // Override Theme Dimensions
         Column(modifier = Modifier.fillMaxWidth()) {
-            Text("Dimensões", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+            Text("Dimensões", color = ImpTokens.TextSecondary, fontSize = 12.sp)
             Spacer(Modifier.height(4.dp))
             Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier =
                             Modifier.fillMaxWidth()
-                                    .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
+                                    .background(ImpTokens.TrackOff, RoundedCornerShape(8.dp))
                                     .clickable {
                                         overrideThemeDimensions = !overrideThemeDimensions
                                     }
@@ -4040,7 +4041,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                         colors =
                                 SwitchDefaults.colors(
                                         checkedThumbColor = Color.White,
-                                        checkedTrackColor = Color(0xFF4A9EFF)
+                                        checkedTrackColor = ImpTokens.Accent
                                 )
                 )
             }
@@ -4054,7 +4055,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                 // Resolution info
                 Text(
                         "Resolução: ${resolution.first} x ${resolution.second} | Pos: $posX,$posY",
-                        color = Color(0xFF808080),
+                        color = ImpTokens.TextMuted,
                         fontSize = 11.sp
                 )
 
@@ -4109,7 +4110,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
 
         // Substitute Icon Selection
         Column(modifier = Modifier.fillMaxWidth()) {
-            Text("Ícone Substituto", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+            Text("Ícone Substituto", color = ImpTokens.TextSecondary, fontSize = 12.sp)
             Spacer(Modifier.height(4.dp))
             LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -4121,8 +4122,8 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                                     Modifier.size(44.dp)
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(
-                                                    if (selectedSubIcon == null) Color(0xFF4A9EFF)
-                                                    else Color(0xFF2A2F37)
+                                                    if (selectedSubIcon == null) ImpTokens.Accent
+                                                    else ImpTokens.TrackOff
                                             )
                                             .clickable { selectedSubIcon = null }
                                             .padding(4.dp),
@@ -4143,8 +4144,8 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                                     Modifier.size(44.dp)
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(
-                                                    if (isSelected) Color(0xFF4A9EFF)
-                                                    else Color(0xFF2A2F37)
+                                                    if (isSelected) ImpTokens.Accent
+                                                    else ImpTokens.TrackOff
                                             )
                                             .clickable { selectedSubIcon = id }
                                             .padding(4.dp),
@@ -4199,7 +4200,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
 
         // Consolidated Color Selector
         Column(modifier = Modifier.fillMaxWidth()) {
-            Text("Cor de Destaque", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+            Text("Cor de Destaque", color = ImpTokens.TextSecondary, fontSize = 12.sp)
             Spacer(Modifier.height(6.dp))
             val colorOptions =
                     listOf(
@@ -4254,7 +4255,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
         if (previewActive && selectedApp != null) {
             Text(
                     "Preview ativo — ajuste os sliders e veja em tempo real",
-                    color = Color(0xFF4A9EFF),
+                    color = ImpTokens.Accent,
                     fontSize = 12.sp
             )
         }
@@ -4264,7 +4265,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
         Button(
                 onClick = { currentConfig()?.let { onSave(it) } },
                 enabled = selectedApp != null,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF)),
+                colors = ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent),
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp)
         ) { Text("Salvar", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
@@ -4313,7 +4314,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
 
         AlertDialog(
                 onDismissRequest = { showInterconnectionConfirmDialog = null },
-                containerColor = Color(0xFF1E2228),
+                containerColor = ImpTokens.Container,
                 titleContentColor = Color.White,
                 textContentColor = Color.White,
                 title = {
@@ -4354,7 +4355,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
 
                             Text(
                                     text = mainWarning,
-                                    color = Color(0xFFB0B8C4),
+                                    color = ImpTokens.TextSecondary,
                                     fontSize = 13.sp,
                                     lineHeight = 18.sp
                             )
@@ -4368,13 +4369,13 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                                 ) {
                                     Text(
                                             "•",
-                                            color = Color(0xFF4A9EFF),
+                                            color = ImpTokens.Accent,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp
                                     )
                                     Text(
                                             text = limit1,
-                                            color = Color(0xFFB0B8C4),
+                                            color = ImpTokens.TextSecondary,
                                             fontSize = 12.sp,
                                             lineHeight = 16.sp
                                     )
@@ -4385,13 +4386,13 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                                 ) {
                                     Text(
                                             "•",
-                                            color = Color(0xFF4A9EFF),
+                                            color = ImpTokens.Accent,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp
                                     )
                                     Text(
                                             text = limit2,
-                                            color = Color(0xFFB0B8C4),
+                                            color = ImpTokens.TextSecondary,
                                             fontSize = 12.sp,
                                             lineHeight = 16.sp
                                     )
@@ -4399,7 +4400,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                             }
                             Text(
                                     text = question,
-                                    color = Color(0xFFB0B8C4),
+                                    color = ImpTokens.TextSecondary,
                                     fontSize = 13.sp,
                                     lineHeight = 18.sp
                             )
@@ -4412,7 +4413,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                                     }
                             Text(
                                     text = carplayWarning,
-                                    color = Color(0xFFB0B8C4),
+                                    color = ImpTokens.TextSecondary,
                                     fontSize = 13.sp,
                                     lineHeight = 18.sp
                             )
@@ -4440,7 +4441,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                                 }
                             },
                             colors =
-                                    ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF)),
+                                    ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent),
                             shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
@@ -4471,14 +4472,14 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                 title = {
                     Text("Nome Customizado", color = Color.White, fontWeight = FontWeight.Bold)
                 },
-                containerColor = Color(0xFF1E2228),
+                containerColor = ImpTokens.Container,
                 titleContentColor = Color.White,
                 textContentColor = Color.White,
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                                 "Defina um nome customizado para este atalho:",
-                                color = Color(0xFFB0B8C4),
+                                color = ImpTokens.TextSecondary,
                                 fontSize = 14.sp
                         )
                         TextField(
@@ -4487,19 +4488,19 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                                 placeholder = {
                                     Text(
                                             selectedApp?.label ?: "Nome original",
-                                            color = Color(0xFF808080)
+                                            color = ImpTokens.TextMuted
                                     )
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 colors =
                                         TextFieldDefaults.colors(
-                                                focusedContainerColor = Color(0xFF2A2F37),
-                                                unfocusedContainerColor = Color(0xFF2A2F37),
+                                                focusedContainerColor = ImpTokens.TrackOff,
+                                                unfocusedContainerColor = ImpTokens.TrackOff,
                                                 focusedTextColor = Color.White,
                                                 unfocusedTextColor = Color.White,
-                                                focusedIndicatorColor = Color(0xFF4A9EFF),
-                                                unfocusedIndicatorColor = Color(0xFF3A3F47)
+                                                focusedIndicatorColor = ImpTokens.Accent,
+                                                unfocusedIndicatorColor = ImpTokens.TrackOff
                                         )
                         )
                         if (tempName.isNotBlank()) {
@@ -4522,12 +4523,12 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                                 customName = tempName
                                 showRenameDialog = false
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF))
+                            colors = ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent)
                     ) { Text("OK", fontWeight = FontWeight.Bold) }
                 },
                 dismissButton = {
                     TextButton(onClick = { showRenameDialog = false }) {
-                        Text("Cancelar", color = Color(0xFFB0B8C4))
+                        Text("Cancelar", color = ImpTokens.TextSecondary)
                     }
                 }
         )
@@ -4550,8 +4551,8 @@ fun DisplayAppConfigDialog(
                         Modifier.fillMaxWidth(0.5f)
                                 .fillMaxHeight(0.8f)
                                 .padding(16.dp)
-                                .border(1.dp, Color(0xFF2C3139), RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2228)),
+                                .border(1.dp, ImpTokens.TrackOff, RoundedCornerShape(12.dp)),
+                colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
                 shape = RoundedCornerShape(12.dp)
         ) {
             Column(
@@ -4576,7 +4577,7 @@ fun DisplayAppConfigDialog(
                     }
                 }
 
-                HorizontalDivider(color = Color(0xFF2C3139))
+                HorizontalDivider(color = ImpTokens.TrackOff)
 
                 Box(
                         modifier =
@@ -4600,7 +4601,7 @@ fun SliderWithLabel(
 ) {
     Column {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, color = Color(0xFFB0B8C4), fontSize = 12.sp)
+            Text(label, color = ImpTokens.TextSecondary, fontSize = 12.sp)
             Text("$value", color = Color.White, fontSize = 12.sp)
         }
         Slider(
@@ -4619,9 +4620,9 @@ fun SliderWithLabel(
                 modifier = Modifier.fillMaxWidth(),
                 colors =
                         SliderDefaults.colors(
-                                thumbColor = Color(0xFF4A9EFF),
-                                activeTrackColor = Color(0xFF4A9EFF),
-                                inactiveTrackColor = Color(0xFF2C3139)
+                                thumbColor = ImpTokens.Accent,
+                                activeTrackColor = ImpTokens.Accent,
+                                inactiveTrackColor = ImpTokens.TrackOff
                         )
         )
     }
@@ -4639,7 +4640,7 @@ fun ActionButton(
             verticalArrangement = Arrangement.Center,
             modifier =
                     Modifier.clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF2A2F37))
+                            .background(ImpTokens.TrackOff)
                             .clickable { onClick() }
                             .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
@@ -4771,8 +4772,8 @@ fun AppPickerDialog(
                 modifier =
                         Modifier.fillMaxWidth(0.30f)
                                 .wrapContentHeight()
-                                .border(1.dp, Color(0xFF1D2430), RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A)),
+                                .border(1.dp, ImpTokens.Hairline, RoundedCornerShape(12.dp)),
+                colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
                 shape = RoundedCornerShape(12.dp)
         ) {
             Column(
@@ -4810,14 +4811,14 @@ fun AppPickerDialog(
                                 value = manualLabel,
                                 onValueChange = { manualLabel = it },
                                 placeholder = {
-                                    Text("Nome do App (ex: YouTube)", color = Color(0xFF808080))
+                                    Text("Nome do App (ex: YouTube)", color = ImpTokens.TextMuted)
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 colors =
                                         TextFieldDefaults.colors(
-                                                focusedContainerColor = Color(0xFF2A2F37),
-                                                unfocusedContainerColor = Color(0xFF2A2F37),
+                                                focusedContainerColor = ImpTokens.TrackOff,
+                                                unfocusedContainerColor = ImpTokens.TrackOff,
                                                 focusedTextColor = Color.White,
                                                 unfocusedTextColor = Color.White
                                         )
@@ -4828,15 +4829,15 @@ fun AppPickerDialog(
                                 placeholder = {
                                     Text(
                                             "Pacote (ex: com.google.android.youtube)",
-                                            color = Color(0xFF808080)
+                                            color = ImpTokens.TextMuted
                                     )
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 colors =
                                         TextFieldDefaults.colors(
-                                                focusedContainerColor = Color(0xFF2A2F37),
-                                                unfocusedContainerColor = Color(0xFF2A2F37),
+                                                focusedContainerColor = ImpTokens.TrackOff,
+                                                unfocusedContainerColor = ImpTokens.TrackOff,
                                                 focusedTextColor = Color.White,
                                                 unfocusedTextColor = Color.White
                                         )
@@ -4845,14 +4846,14 @@ fun AppPickerDialog(
                                 value = manualActivity,
                                 onValueChange = { manualActivity = it },
                                 placeholder = {
-                                    Text("Atividade (opcional)", color = Color(0xFF808080))
+                                    Text("Atividade (opcional)", color = ImpTokens.TextMuted)
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 colors =
                                         TextFieldDefaults.colors(
-                                                focusedContainerColor = Color(0xFF2A2F37),
-                                                unfocusedContainerColor = Color(0xFF2A2F37),
+                                                focusedContainerColor = ImpTokens.TrackOff,
+                                                unfocusedContainerColor = ImpTokens.TrackOff,
                                                 focusedTextColor = Color.White,
                                                 unfocusedTextColor = Color.White
                                         )
@@ -4866,7 +4867,7 @@ fun AppPickerDialog(
                                     modifier = Modifier.weight(1f),
                                     colors =
                                             ButtonDefaults.buttonColors(
-                                                    containerColor = Color(0xFF2A2F37)
+                                                    containerColor = ImpTokens.TrackOff
                                             )
                             ) { Text("Cancelar", color = Color.White) }
                             Button(
@@ -4886,7 +4887,7 @@ fun AppPickerDialog(
                                     enabled = manualPkg.isNotBlank() && manualLabel.isNotBlank(),
                                     colors =
                                             ButtonDefaults.buttonColors(
-                                                    containerColor = Color(0xFF4A9EFF)
+                                                    containerColor = ImpTokens.Accent
                                             )
                             ) { Text("Adicionar", color = Color.White) }
                         }
@@ -4899,24 +4900,24 @@ fun AppPickerDialog(
                         TextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
-                                placeholder = { Text("Buscar...", color = Color(0xFF808080)) },
+                                placeholder = { Text("Buscar...", color = ImpTokens.TextMuted) },
                                 modifier = Modifier.weight(1f),
                                 singleLine = true,
                                 colors =
                                         TextFieldDefaults.colors(
-                                                focusedContainerColor = Color(0xFF2A2F37),
-                                                unfocusedContainerColor = Color(0xFF2A2F37),
+                                                focusedContainerColor = ImpTokens.TrackOff,
+                                                unfocusedContainerColor = ImpTokens.TrackOff,
                                                 focusedTextColor = Color.White,
                                                 unfocusedTextColor = Color.White,
-                                                focusedIndicatorColor = Color(0xFF4A9EFF),
-                                                unfocusedIndicatorColor = Color(0xFF3A3F47)
+                                                focusedIndicatorColor = ImpTokens.Accent,
+                                                unfocusedIndicatorColor = ImpTokens.TrackOff
                                         )
                         )
                         Button(
                                 onClick = { showManualInput = true },
                                 colors =
                                         ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFF2A2F37)
+                                                containerColor = ImpTokens.TrackOff
                                         ),
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)

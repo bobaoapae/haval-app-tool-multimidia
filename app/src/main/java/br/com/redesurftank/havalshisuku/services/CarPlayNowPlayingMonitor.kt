@@ -16,6 +16,8 @@ import android.os.SystemClock
 import android.util.Log
 import br.com.redesurftank.havalshisuku.BuildConfig
 import kotlin.math.roundToInt
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -38,6 +40,11 @@ class CarPlayNowPlayingMonitor(
     private var lastServiceBindAttemptAtMs = 0L
     private var lastSubscriptionAttemptAtMs = 0L
     private var lastUpdateAtMs = 0L
+    @Volatile private var lastValidNowPlayingAtMs = 0L
+    private val nowPlayingCleared = AtomicBoolean(false)
+    private val nowPlayingGeneration = AtomicLong(0L)
+    private val blankClearLock = Any()
+    private var blankClearJob: Job? = null
 
     private val connection =
             object : ServiceConnection {
@@ -79,6 +86,7 @@ class CarPlayNowPlayingMonitor(
     fun stop() {
         subscriptionWatchdogJob?.cancel()
         subscriptionWatchdogJob = null
+        cancelPendingBlankClear()
         stopNowPlayingUpdates()
         if (bound) {
             runCatching { appContext.unbindService(connection) }
@@ -315,11 +323,19 @@ class CarPlayNowPlayingMonitor(
                     if (update != null) {
                         lastUpdateAtMs = SystemClock.elapsedRealtime()
                         callbackRegistered = true
-                        publishNowPlaying(update)
+                        if (hasPotentialNowPlayingContent(update)) {
+                            markValidNowPlayingFrame()
+                            publishNowPlaying(update, nowPlayingGeneration.incrementAndGet())
+                        } else {
+                            scheduleBlankClear("blank stopped now playing update")
+                        }
                     } else {
                         lastUpdateAtMs = SystemClock.elapsedRealtime()
                         callbackRegistered = true
-                        publishClear("empty now playing update")
+                        // CarPlay interleaves EMPTY updates (readInt==0) with the real ones; treating
+                        // each as a clear made the media card flicker (cover <-> blank). Only clear if
+                        // the empty state persists beyond the grace window (= a real stop).
+                        scheduleBlankClear("empty now playing update")
                     }
                     true
                 }
@@ -361,7 +377,7 @@ class CarPlayNowPlayingMonitor(
         )
     }
 
-    private fun publishNowPlaying(info: RawNowPlayingInfo) {
+    private fun publishNowPlaying(info: RawNowPlayingInfo, generation: Long) {
         scope.launch(Dispatchers.IO) {
             val artwork =
                     decodeArtworkBytes(info.artworkData)
@@ -369,8 +385,12 @@ class CarPlayNowPlayingMonitor(
             val title = info.title?.takeIf { it.isNotBlank() }
             val artist = info.artist?.takeIf { it.isNotBlank() }
             val isPlaying = info.playbackStatus == PLAYBACK_STATE_PLAYING
+            if (generation != nowPlayingGeneration.get()) return@launch
             if (title == null && artist == null && artwork == null && !isPlaying) {
-                publishClear("blank stopped now playing update")
+                // CarPlay sends TRANSIENT blank frames between real ones; treating each as a "clear"
+                // made the media card flicker (cover <-> blank/icon). Only clear if the blank state
+                // persists beyond the grace window (= a real stop).
+                scheduleBlankClear("blank stopped now playing update")
                 return@launch
             }
             val update =
@@ -389,15 +409,64 @@ class CarPlayNowPlayingMonitor(
                         "path=${update.artworkPath ?: "-"} playing=${update.isPlaying}"
             }
             withContext(Dispatchers.Main) {
-                onUpdate(update)
+                if (generation == nowPlayingGeneration.get()) onUpdate(update)
             }
         }
     }
 
     private fun publishClear(reason: String) {
+        if (!nowPlayingCleared.compareAndSet(false, true)) return
+        nowPlayingGeneration.incrementAndGet()
+        lastValidNowPlayingAtMs = 0L
+        cancelPendingBlankClear()
         debugLog { "Clearing CarPlay now playing metadata: $reason" }
         scope.launch(Dispatchers.Main) {
             onUpdate(CarPlayNowPlayingUpdate(clear = true))
+        }
+    }
+
+    private fun hasPotentialNowPlayingContent(info: RawNowPlayingInfo): Boolean =
+        !info.title.isNullOrBlank() ||
+            !info.artist.isNullOrBlank() ||
+            !info.artworkPath.isNullOrBlank() ||
+            info.artworkData?.isNotEmpty() == true ||
+            info.playbackStatus == PLAYBACK_STATE_PLAYING
+
+    private fun markValidNowPlayingFrame() {
+        nowPlayingCleared.set(false)
+        lastValidNowPlayingAtMs = SystemClock.elapsedRealtime()
+        cancelPendingBlankClear()
+    }
+
+    private fun scheduleBlankClear(reason: String) {
+        val remainingMs = blankClearDelayForTest(
+            nowMs = SystemClock.elapsedRealtime(),
+            lastValidNowPlayingAtMs = lastValidNowPlayingAtMs
+        )
+        if (remainingMs <= 0L) {
+            publishClear(reason)
+            return
+        }
+        synchronized(blankClearLock) {
+            blankClearJob?.cancel()
+            blankClearJob = scope.launch(Dispatchers.Main) {
+                delay(remainingMs)
+                if (
+                    blankClearDelayForTest(
+                        nowMs = SystemClock.elapsedRealtime(),
+                        lastValidNowPlayingAtMs = lastValidNowPlayingAtMs
+                    ) <= 0L
+                ) {
+                    publishClear("$reason after grace")
+                }
+            }
+        }
+    }
+
+    private fun cancelPendingBlankClear() {
+        synchronized(blankClearLock) {
+            blankClearJob?.cancel()
+            blankClearJob = null
         }
     }
 
@@ -508,6 +577,8 @@ class CarPlayNowPlayingMonitor(
 
     companion object {
         private const val TAG = "CarPlayNowPlayingMonitor"
+        // Grace window to ignore CarPlay's transient blank now-playing frames.
+        private const val BLANK_NOW_PLAYING_GRACE_MS = 4_000L
         private const val CARPLAY_PACKAGE_NAME = "com.ts.carplay"
         private const val CARPLAY_SERVICE_CLASS_NAME = "com.ts.carplay.CarPlayService"
         private const val CARPLAY_SERVICE_ACTION = "com.ts.carplay.action.CarPlayService"
@@ -563,6 +634,15 @@ class CarPlayNowPlayingMonitor(
             if (lastUpdateAtMs <= 0L) return true
             val elapsedSinceUpdate = nowMs - lastUpdateAtMs
             return elapsedSinceUpdate >= NOW_PLAYING_UPDATE_STALE_MS
+        }
+
+        internal fun blankClearDelayForTest(
+            nowMs: Long,
+            lastValidNowPlayingAtMs: Long
+        ): Long {
+            if (lastValidNowPlayingAtMs <= 0L) return 0L
+            val elapsed = (nowMs - lastValidNowPlayingAtMs).coerceAtLeast(0L)
+            return (BLANK_NOW_PLAYING_GRACE_MS - elapsed).coerceAtLeast(0L)
         }
     }
 }

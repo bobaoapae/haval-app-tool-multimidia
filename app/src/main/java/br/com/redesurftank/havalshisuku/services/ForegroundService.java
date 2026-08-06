@@ -40,6 +40,7 @@ import br.com.redesurftank.havalshisuku.managers.AndroidAutoPatchManager;
 import br.com.redesurftank.havalshisuku.managers.CarPlayPatchManager;
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher;
 import br.com.redesurftank.havalshisuku.managers.ServiceManager;
+import br.com.redesurftank.havalshisuku.managers.HotRouterManager;
 import br.com.redesurftank.havalshisuku.models.CommandListener;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
 import br.com.redesurftank.havalshisuku.utils.IPTablesUtils;
@@ -57,7 +58,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     private static final long SHIZUKU_BINDER_RECEIVE_TIMEOUT_MS = 15000L;
     private static final int SHIZUKU_BINDER_TIMEOUTS_BEFORE_RESTART = 3;
     private static final String CARPLAY_PATCH_VERSION_KEY = "carPlayPatchAutoMountPatchVersion";
-    private static final String CARPLAY_HVAC_FOCUS_PATCH_VERSION = "app_visual_d0_focus_service_conditional_camera_native1904x704_v13";
+    private static final String CARPLAY_HVAC_FOCUS_PATCH_VERSION = "app_visual_d0_focus_service_conditional_camera_native1904x704_v14";
 
     private HandlerThread handlerThread;
     private Handler backgroundHandler;
@@ -708,6 +709,12 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
             }
         });
 
+        try {
+            HotRouterManager.getInstance().onServicesReady();
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting HotRouter: " + e.getMessage(), e);
+        }
+
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction("com.beantechs.intelligentvehiclecontrol.INIT_COMPLETED");
 
@@ -736,6 +743,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
 
     @Override
     public void onDestroy() {
+        ServiceManager.getInstance().stopManagedBackgroundGuards(getApplicationContext());
         // Drop our cluster callback before the process goes away. The car's
         // ClusterService otherwise keeps dispatching to a dead binder and throws
         // DeadObjectException, which can stop card reports reaching the next instance.

@@ -153,6 +153,22 @@ class AmbientLightAlbumWaveTest {
     }
 
     @Test
+    fun dmxRunPresetUsesAlbumColorFamilyInsteadOfFixedSevenColorMode() {
+        assertEquals(97, AmbientLightAlbumEffect.FORWARD_RUN_7.dmxModeIdForAlbumColor(LedColor(230, 30, 35)))
+        assertEquals(101, AmbientLightAlbumEffect.FORWARD_RUN_7.dmxModeIdForAlbumColor(LedColor(30, 50, 230)))
+        assertEquals(100, AmbientLightAlbumEffect.BACKWARD_RUN_7.dmxModeIdForAlbumColor(LedColor(40, 220, 70)))
+        assertEquals(109, AmbientLightAlbumEffect.FORWARD_RUN_7.dmxModeIdForAlbumColor(LedColor(220, 220, 220)))
+    }
+
+    @Test
+    fun dmxNativePresetsReanchorSixColorAndFlowModesToAlbumColorFamily() {
+        assertEquals(9, AmbientLightAlbumEffect.FORWARD_6_BU.dmxModeIdForAlbumColor(LedColor(230, 30, 35)))
+        assertEquals(16, AmbientLightAlbumEffect.BACKWARD_6_BU.dmxModeIdForAlbumColor(LedColor(30, 220, 230)))
+        assertEquals(127, AmbientLightAlbumEffect.FORWARD_FLOW_7.dmxModeIdForAlbumColor(LedColor(30, 50, 230)))
+        assertEquals(134, AmbientLightAlbumEffect.BACKWARD_FLOW_7.dmxModeIdForAlbumColor(LedColor(220, 40, 220)))
+    }
+
+    @Test
     fun albumEffectSpeedControlsStepDelayLikeLedLampSlider() {
         val slow = AlbumWaveColorMapper.stepDelayMs(1)
         val middle = AlbumWaveColorMapper.stepDelayMs(50)

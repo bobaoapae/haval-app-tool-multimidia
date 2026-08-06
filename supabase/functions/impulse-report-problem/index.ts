@@ -146,6 +146,9 @@ type ReportPayload = {
     versionCode?: number;
     buildType?: string;
     debug?: boolean;
+    latestPreviewVersionName?: string | null;
+    currentVersionOutdated?: boolean | null;
+    latestPreviewCheckFailed?: boolean;
   };
   generatedAt?: string;
   timeZone?: string;

@@ -2,9 +2,50 @@ package br.com.redesurftank.havalshisuku.services
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class CarPlayNowPlayingMonitorTest {
+    @Test
+    fun transientBlankWaitsOnlyForRemainderOfGraceWindow() {
+        assertEquals(
+                2_500L,
+                CarPlayNowPlayingMonitor.blankClearDelayForTest(
+                        nowMs = 11_500L,
+                        lastValidNowPlayingAtMs = 10_000L
+                )
+        )
+    }
+
+    @Test
+    fun terminalBlankClearsAfterGraceAndFirstBlankClearsImmediately() {
+        assertEquals(
+                0L,
+                CarPlayNowPlayingMonitor.blankClearDelayForTest(
+                        nowMs = 14_000L,
+                        lastValidNowPlayingAtMs = 10_000L
+                )
+        )
+        assertEquals(
+                0L,
+                CarPlayNowPlayingMonitor.blankClearDelayForTest(
+                        nowMs = 14_000L,
+                        lastValidNowPlayingAtMs = 0L
+                )
+        )
+    }
+
+    @Test
+    fun monotonicClockRollbackDoesNotClearEarly() {
+        assertEquals(
+                4_000L,
+                CarPlayNowPlayingMonitor.blankClearDelayForTest(
+                        nowMs = 9_000L,
+                        lastValidNowPlayingAtMs = 10_000L
+                )
+        )
+    }
+
     @Test
     fun carPlayServiceBindDoesNotRetryWhenBinderIsAlive() {
         assertFalse(

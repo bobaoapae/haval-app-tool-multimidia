@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightSettingsScreen
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
+import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 
 @Composable
 fun FeaturesHubScreen() {
@@ -73,7 +74,7 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Recursos", color = AppColors.TextPrimary, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+            Text("RECURSOS", color = AppColors.TextPrimary, fontFamily = Michroma, fontSize = 22.sp, letterSpacing = 1.sp)
             Text(
                 "Central para recursos inteligentes do Impulse.",
                 color = AppColors.TextSecondary,
@@ -131,7 +132,7 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
 
         StyledCard {
             Row(modifier = Modifier.padding(22.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Construction, contentDescription = null, tint = Color(0xFFFFC857), modifier = Modifier.size(30.dp))
+                Icon(Icons.Default.Construction, contentDescription = null, tint = ImpTokens.Attention, modifier = Modifier.size(30.dp))
                 Spacer(Modifier.width(12.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Padrão para próximas features", color = AppColors.TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
@@ -161,16 +162,16 @@ private fun FeatureCard(
             .height(210.dp)
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
         shape = RoundedCornerShape(18.dp),
-        color = if (enabled) Color(0xFF111B27) else Color(0xFF15171C),
-        border = CardDefaults.outlinedCardBorder()
+        color = ImpTokens.Container,
+        border = null
     ) {
         Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                Icon(icon, contentDescription = null, tint = if (enabled) Color(0xFF00D8FF) else AppColors.TextDisabled, modifier = Modifier.size(38.dp))
+                Icon(icon, contentDescription = null, tint = if (enabled) ImpTokens.Accent else ImpTokens.TextMuted, modifier = Modifier.size(38.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(status, color = if (enabled) Color(0xFF14FF5A) else AppColors.TextDisabled, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(status, color = if (enabled) ImpTokens.TextSecondary else ImpTokens.TextMuted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     if (enabled) {
-                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF00D8FF), modifier = Modifier.size(22.dp))
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = ImpTokens.Accent, modifier = Modifier.size(22.dp))
                     }
                 }
             }

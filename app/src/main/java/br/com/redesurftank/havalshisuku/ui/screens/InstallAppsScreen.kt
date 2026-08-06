@@ -39,6 +39,8 @@ import br.com.redesurftank.havalshisuku.managers.CarPlayPatchManager
 import br.com.redesurftank.havalshisuku.models.AppInfo
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.ui.components.*
+import br.com.redesurftank.havalshisuku.ui.theme.Michroma
+import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import java.io.BufferedInputStream
@@ -96,11 +98,21 @@ fun InstallAppsTab() {
 
     LaunchedEffect(Unit) {
         while (true) {
-            isPatchInstalled = AndroidAutoPatchManager.isPatchInstalled()
-            isMounted = AndroidAutoPatchManager.isMounted()
-            isCarPlayPatchInstalled = CarPlayPatchManager.isPatchInstalled()
-            isCarPlayMounted = CarPlayPatchManager.isMounted()
-            delay(2000)
+            // Estas checagens rodam shells Shizuku (ls/md5sum de APKs grandes). Rodar fora da
+            // main thread (IO) e num intervalo maior — o estado dos patches muda raramente.
+            val states = withContext(Dispatchers.IO) {
+                listOf(
+                    AndroidAutoPatchManager.isPatchInstalled(),
+                    AndroidAutoPatchManager.isMounted(),
+                    CarPlayPatchManager.isPatchInstalled(),
+                    CarPlayPatchManager.isMounted()
+                )
+            }
+            isPatchInstalled = states[0]
+            isMounted = states[1]
+            isCarPlayPatchInstalled = states[2]
+            isCarPlayMounted = states[3]
+            delay(4000)
         }
     }
 
@@ -151,16 +163,10 @@ fun InstallAppsTab() {
     }
 
     fun compareVersions(v1: String?, v2: String): Int {
+        // Delega pra impl canônica e testada (ReleaseUpdateChecker) — evita as semânticas
+        // divergentes de comparação de versão que existiam espalhadas.
         if (v1 == null) return -1
-        val clean1 = v1.removeSuffix("-preview")
-        val clean2 = v2.removeSuffix("-preview")
-        val parts1 = clean1.split(".").map { it.toIntOrNull() ?: 0 }
-        val parts2 = clean2.split(".").map { it.toIntOrNull() ?: 0 }
-        for (i in 0 until min(parts1.size, parts2.size)) {
-            if (parts1[i] > parts2[i]) return 1
-            if (parts1[i] < parts2[i]) return -1
-        }
-        return parts1.size.compareTo(parts2.size)
+        return ReleaseUpdateChecker.compareVersions(v1, v2)
     }
 
     fun startDownload(app: AppInfo) {
@@ -278,6 +284,16 @@ fun InstallAppsTab() {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item(span = { GridItemSpan(4) }) {
+            Text(
+                    "INSTALAR APPS",
+                    fontFamily = Michroma,
+                    fontSize = 15.sp,
+                    letterSpacing = 1.8.sp,
+                    color = ImpTokens.TextSecondary,
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp)
+            )
+        }
+        item(span = { GridItemSpan(4) }) {
             Card(
                     modifier =
                             Modifier.fillMaxWidth()
@@ -285,11 +301,11 @@ fun InstallAppsTab() {
                                     .border(
                                             width = 1.dp,
                                             color =
-                                                    if (isMounted) Color(0xFF4A9EFF)
-                                                    else Color(0xFF1D2430),
+                                                    if (isMounted) ImpTokens.Accent
+                                                    else ImpTokens.Hairline,
                                             shape = RoundedCornerShape(12.dp)
                                     ),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A)),
+                    colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
                     shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
@@ -299,13 +315,13 @@ fun InstallAppsTab() {
                 ) {
                     Box(
                             modifier =
-                                    Modifier.size(48.dp).background(Color(0xFF2A2F37), CircleShape),
+                                    Modifier.size(48.dp).background(ImpTokens.TrackOff, CircleShape),
                             contentAlignment = Alignment.Center
                     ) {
                         Icon(
                                 Icons.Default.Shield,
                                 contentDescription = null,
-                                tint = if (isMounted) Color(0xFF4A9EFF) else Color.White,
+                                tint = if (isMounted) ImpTokens.Accent else Color.White,
                                 modifier = Modifier.size(24.dp)
                         )
                     }
@@ -324,7 +340,7 @@ fun InstallAppsTab() {
                                                     "Status: Instalado (Pronto para ativar)"
                                             else -> "Status: Não instalado"
                                         },
-                                color = if (isMounted) Color(0xFF4A9EFF) else Color(0xFFB0B8C4),
+                                color = if (isMounted) ImpTokens.Accent else ImpTokens.TextSecondary,
                                 fontSize = 13.sp
                         )
                         if (isPatchInstalled) {
@@ -349,12 +365,12 @@ fun InstallAppsTab() {
                                         colors =
                                                 SwitchDefaults.colors(
                                                         checkedThumbColor = Color.White,
-                                                        checkedTrackColor = Color(0xFF4A9EFF)
+                                                        checkedTrackColor = ImpTokens.Accent
                                                 )
                                 )
                                 Text(
                                         "Auto-montar ao iniciar",
-                                        color = Color(0xFFB0B8C4),
+                                        color = ImpTokens.TextSecondary,
                                         fontSize = 12.sp,
                                         modifier = Modifier.padding(start = 4.dp)
                                 )
@@ -373,7 +389,7 @@ fun InstallAppsTab() {
                                     },
                                     colors =
                                             ButtonDefaults.buttonColors(
-                                                    containerColor = Color(0xFF4A9EFF)
+                                                    containerColor = ImpTokens.Accent
                                             ),
                                     shape = RoundedCornerShape(8.dp)
                             ) { Text("Instalar", color = Color.White) }
@@ -414,7 +430,7 @@ fun InstallAppsTab() {
                                 Icon(
                                         Icons.Default.Delete,
                                         contentDescription = "Remover Patch",
-                                        tint = Color.Gray
+                                        tint = ImpTokens.TextMuted
                                 )
                             }
                             IconButton(
@@ -426,7 +442,7 @@ fun InstallAppsTab() {
                                 Icon(
                                         Icons.Default.BugReport,
                                         contentDescription = "Diagnóstico",
-                                        tint = Color.Gray
+                                        tint = ImpTokens.TextMuted
                                 )
                             }
                         }
@@ -444,10 +460,10 @@ fun InstallAppsTab() {
                                             width = 1.dp,
                                             color =
                                                     if (isCarPlayMounted) Color(0xFF34C759)
-                                                    else Color(0xFF1D2430),
+                                                    else ImpTokens.Hairline,
                                             shape = RoundedCornerShape(12.dp)
                                     ),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A)),
+                    colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
                     shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
@@ -457,7 +473,7 @@ fun InstallAppsTab() {
                 ) {
                     Box(
                             modifier =
-                                    Modifier.size(48.dp).background(Color(0xFF2A2F37), CircleShape),
+                                    Modifier.size(48.dp).background(ImpTokens.TrackOff, CircleShape),
                             contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -484,7 +500,7 @@ fun InstallAppsTab() {
                                         },
                                 color =
                                         if (isCarPlayMounted) Color(0xFF34C759)
-                                        else Color(0xFFB0B8C4),
+                                        else ImpTokens.TextSecondary,
                                 fontSize = 13.sp
                         )
                         if (isCarPlayPatchInstalled) {
@@ -514,7 +530,7 @@ fun InstallAppsTab() {
                                 )
                                 Text(
                                         "Auto-montar ao iniciar",
-                                        color = Color(0xFFB0B8C4),
+                                        color = ImpTokens.TextSecondary,
                                         fontSize = 12.sp,
                                         modifier = Modifier.padding(start = 4.dp)
                                 )
@@ -574,7 +590,7 @@ fun InstallAppsTab() {
                                 Icon(
                                         Icons.Default.Delete,
                                         contentDescription = "Remover Patch CarPlay",
-                                        tint = Color.Gray
+                                        tint = ImpTokens.TextMuted
                                 )
                             }
                             IconButton(
@@ -586,7 +602,7 @@ fun InstallAppsTab() {
                                 Icon(
                                         Icons.Default.BugReport,
                                         contentDescription = "Diagnóstico CarPlay",
-                                        tint = Color.Gray
+                                        tint = ImpTokens.TextMuted
                                 )
                             }
                         }
@@ -608,10 +624,10 @@ fun InstallAppsTab() {
                             modifier = Modifier.weight(1f),
                             colors =
                                     TextFieldDefaults.colors(
-                                            focusedContainerColor = Color(0xFF2A2F37),
-                                            unfocusedContainerColor = Color(0xFF2A2F37),
+                                            focusedContainerColor = ImpTokens.TrackOff,
+                                            unfocusedContainerColor = ImpTokens.TrackOff,
                                             focusedTextColor = Color.White,
-                                            unfocusedTextColor = Color(0xFFB0B8C4)
+                                            unfocusedTextColor = ImpTokens.TextSecondary
                                     )
                     )
                     if (!downloadingUrl) {
@@ -621,7 +637,7 @@ fun InstallAppsTab() {
                                 },
                                 colors =
                                         ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFF4A9EFF)
+                                                containerColor = ImpTokens.Accent
                                         ),
                                 modifier = Modifier.height(56.dp),
                                 shape = RoundedCornerShape(8.dp)
@@ -632,7 +648,7 @@ fun InstallAppsTab() {
                     LinearProgressIndicator(
                             progress = { urlProgress },
                             modifier = Modifier.fillMaxWidth(),
-                            color = Color(0xFF4A9EFF)
+                            color = ImpTokens.Accent
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -650,7 +666,7 @@ fun InstallAppsTab() {
                 Box(
                         modifier = Modifier.fillMaxWidth().padding(32.dp),
                         contentAlignment = Alignment.Center
-                ) { CircularProgressIndicator(color = Color(0xFF4A9EFF)) }
+                ) { CircularProgressIndicator(color = ImpTokens.Accent) }
             }
         } else {
             val sortedApps =
@@ -686,8 +702,8 @@ fun InstallAppsTab() {
                                 Modifier.fillMaxWidth()
                                         .aspectRatio(1.2f)
                                         .padding(8.dp)
-                                        .border(1.dp, Color(0xFF1D2430), RoundedCornerShape(12.dp)),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A)),
+                                        .border(1.dp, ImpTokens.Hairline, RoundedCornerShape(12.dp)),
+                        colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
                         shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(
@@ -703,7 +719,7 @@ fun InstallAppsTab() {
                                 Surface(
                                         modifier = Modifier.fillMaxSize().padding(8.dp),
                                         shape = RoundedCornerShape(12.dp),
-                                        color = Color(0xFF2A2F37)
+                                        color = ImpTokens.TrackOff
                                 ) {
                                     if (!app.iconUrl.isNullOrEmpty()) {
                                         AsyncImage(
@@ -724,7 +740,7 @@ fun InstallAppsTab() {
                                             Icon(
                                                     Icons.Default.Build,
                                                     contentDescription = app.name,
-                                                    tint = Color(0xFF4A9EFF),
+                                                    tint = ImpTokens.Accent,
                                                     modifier = Modifier.size(32.dp)
                                             )
                                         }
@@ -740,13 +756,13 @@ fun InstallAppsTab() {
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                             )
-                            Text("v${app.version}", fontSize = 12.sp, color = Color(0xFFB0B8C4))
+                            Text("v${app.version}", fontSize = 12.sp, color = ImpTokens.TextSecondary)
                         }
                         if (downloadingApp == app.packageName) {
                             LinearProgressIndicator(
                                     progress = { progress },
                                     modifier = Modifier.fillMaxWidth().height(2.dp),
-                                    color = Color(0xFF4A9EFF)
+                                    color = ImpTokens.Accent
                             )
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

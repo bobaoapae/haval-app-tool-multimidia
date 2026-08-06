@@ -228,6 +228,13 @@ class AmbientLightBleController private constructor(context: Context) {
     ): Boolean =
         writePayloads(AmbientLightProtocol.brightnessPayloads(percent, output))
 
+    suspend fun setLedLampNativeEffect(
+        modeId: Int,
+        speed: Int,
+        output: AmbientLightOutput = AmbientLightOutput.DEFAULT
+    ): Boolean =
+        writePayloads(AmbientLightProtocol.ledLampNativeEffectPayloads(modeId, speed, output))
+
     suspend fun sendHex(hex: String): Boolean =
         runCatching { writePayload(AmbientLightProtocol.parseHex(hex)) }
             .getOrElse {
