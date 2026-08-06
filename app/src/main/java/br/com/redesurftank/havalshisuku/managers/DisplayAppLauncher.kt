@@ -847,25 +847,6 @@ object DisplayAppLauncher {
         return isAutoMoveProjectionToClusterEnabled()
     }
 
-    fun shouldProtectAirconCardDuringCarPlayClusterTransition(): Boolean {
-        if (!isCarPlayDesiredOnCluster()) return false
-
-        val now = System.currentTimeMillis()
-        if (CarPlayDisplayOrchestrator.isPreparingD3()) return true
-        if (
-            shouldDeferCarPlayReconnectRestoreForTest(
-                now = now,
-                lastDisconnectedAt = lastProjectionUsbDisconnectedAt,
-                lastConfiguredAt = lastProjectionUsbConfiguredAt,
-                graceMs = CARPLAY_RECONNECT_D0_NATIVE_QUARANTINE_MS
-            )
-        ) {
-            return true
-        }
-
-        return shouldDeferCarPlayD0NativeRestoreAfterUsbReconnect(now)
-    }
-
     fun isCarPlayOnDisplay(displayId: Int): Boolean {
         if (findTaskForPackageOnDisplay(CARPLAY_PACKAGE, displayId) != null) return true
         if (findTaskMatchingOnDisplay(displayId, ::isCarPlayLikePackage) != null) return true
