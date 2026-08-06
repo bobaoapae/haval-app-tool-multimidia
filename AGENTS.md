@@ -41,10 +41,15 @@ When working on cluster widgets or Android bridge code, distinguish between:
 3. **Dynamic Themes (e.g. Minimalist - Downloaded OTA)**:
    - Dynamic themes like `Minimalist` (`cluster-widgets/source/v1.0/minimalist/`) are downloaded on-demand by the app over-the-air from GitHub (`ThemeManager.kt`).
    - The target release branch is defined in app code (`ThemeManager.kt`, currently `feature/new-screen-enhancements-v7`).
+   - **Build output (unlike Default)**: `npm run build` in the theme source runs Parcel + `inline.js`, which:
+     1. Produces a self-contained minified `dist/app.html` (CSS/JS inlined).
+     2. Copies `dist/app.html` → `cluster-widgets/Themes/v1.0/<theme>/app.html`.
+     3. Copies `theme.xml` → `cluster-widgets/Themes/v1.0/<theme>/theme.xml` (must travel with `app.html` — the updater compares `<version>` here).
+   - Dynamic themes are **not** copied into the APK (`res/raw` / `assets/`). `Themes/` on the release branch is the only publish destination the in-app catalog crawls.
    - **Rule**: When requested to build or deploy a dynamic theme like Minimalist, agents **MUST**:
      1. Bump the theme version in `cluster-widgets/source/v1.0/minimalist/theme.xml`.
      2. Run `npm run build` in `cluster-widgets/source/v1.0/minimalist/`.
-     3. **Commit and push** the updated source and compiled `cluster-widgets/Themes/v1.0/minimalist/` assets to the designated release branch (currently `feature/new-screen-enhancements-v7`) so it appears for in-app download and update detection.
+     3. **Commit and push** the updated source **and** the compiled `cluster-widgets/Themes/v1.0/minimalist/` assets (`app.html`, `theme.xml`, and any other package files) to the designated release branch (currently `feature/new-screen-enhancements-v7`) so it appears for in-app download and update detection.
 
 ---
 
