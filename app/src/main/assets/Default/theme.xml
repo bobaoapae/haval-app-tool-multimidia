@@ -1,7 +1,7 @@
 <theme>
     <name>Default</name>
     <description>Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.</description>
-    <version>1.4.39</version>
+    <version>1.4.40</version>
     <thumbnail>thumbnail.png</thumbnail>
     <mainFile>index.html</mainFile>
     <decentralized>true</decentralized>
@@ -23,9 +23,10 @@
       An unknown name is ignored and logged.
 
       A mode listed here uses its rect verbatim and IGNORES the "Ocultar Barras"
-      (hiddenBars) adjustment, because the rect already says exactly how much of
-      the panel the app should get. Any mode NOT listed here falls back to
-      <AppDefaultPosition> above, still adjusted by hiddenBars.
+      / "Ocultar Barras na Projeção" (hiddenBars / hiddenBarsOnProjection) adjustment,
+      because the rect already says exactly how much of the panel the app should get.
+      Any mode NOT listed here falls back to <AppDefaultPosition> above, still
+      adjusted by the active hide-bars setting.
 
       Clean and Mapa hide the cluster dials, so the app is given the full panel.
     -->
@@ -122,12 +123,12 @@
             <group>Barras</group>
         </configuration>
         <configuration>
-            <id>do_not_hide_bars_on</id>
-            <label>Não Ocultar Barras Se Houver</label>
+            <id>hidden_bars_on_projection</id>
+            <label>Ocultar Barras na Projeção</label>
             <type>combo</type>
-            <options>Navegação, Aplicativo, Ambos, Ignorar</options>
-            <default>Ambos</default>
-            <stateVariable>doNotHideBarsOn</stateVariable>
+            <options>Nenhuma, Superior, Inferior, Ambas</options>
+            <default>Nenhuma</default>
+            <stateVariable>hiddenBarsOnProjection</stateVariable>
             <group>Barras</group>
         </configuration>
         <configuration>
@@ -137,7 +138,7 @@
             <options>Normal, Reduzido, Clean, Mapa</options>
             <default>Mapa</default>
             <stateVariable>navigationDisplayMode</stateVariable>
-            <group>Outros</group>
+            <group>Exibição</group>
         </configuration>
         <configuration>
             <id>app_display_mode</id>
@@ -146,7 +147,7 @@
             <options>Normal, Reduzido, Clean, Mapa</options>
             <default>Normal</default>
             <stateVariable>appDisplayMode</stateVariable>
-            <group>Outros</group>
+            <group>Exibição</group>
         </configuration>
     </configurations>
 </theme>

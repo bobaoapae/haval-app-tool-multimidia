@@ -318,31 +318,26 @@ function render() {
     logger.leave('render');
 }
 
-function isDoNotHideOverrideActive() {
-    const doNotHide = get('doNotHideBarsOn') || 'Ambos';
-    if (doNotHide === 'Ignorar' || doNotHide === 'Nunca') return false;
-
+function isProjectionInDashActive() {
     const isNavActive = isProjectionMapDisplayActive() || get('mapInDash') === true;
     const appInDashVal = get('appInDash');
     const isAppActive = appInDashVal === true || appInDashVal === 'left' || appInDashVal === 'right';
+    return isNavActive || isAppActive;
+}
 
-    if (doNotHide === 'Ambos' && (isNavActive || isAppActive)) return true;
-    if (doNotHide === 'Navegação' && isNavActive) return true;
-    if (doNotHide === 'Aplicativo' && isAppActive) return true;
-
-    return false;
+function effectiveHiddenBarsSetting() {
+    // Ocultar Barras = no projection; Ocultar Barras na Projeção = app/map in dash.
+    if (isProjectionInDashActive()) {
+        return get('hiddenBarsOnProjection') || 'Nenhuma';
+    }
+    return get('hiddenBars') || 'Nenhuma';
 }
 
 function shouldHideBar(barType) {
-    const hiddenBars = get('hiddenBars') || 'Nenhuma';
-    const configuredToHide = barType === 'Superior'
+    const hiddenBars = effectiveHiddenBarsSetting();
+    return barType === 'Superior'
         ? (hiddenBars === 'Superior' || hiddenBars === 'Ambas')
         : (hiddenBars === 'Inferior' || hiddenBars === 'Ambas');
-
-    if (!configuredToHide) return false;
-    if (isDoNotHideOverrideActive()) return false;
-
-    return true;
 }
 
 // <AppDefaultPosition> from theme.xml, i.e. the panel minus the top and bottom bars.
@@ -378,7 +373,7 @@ function resolveAppBounds(displayMode) {
     if (shouldHideBar('Inferior')) {
         height += 62;
     }
-    const hiddenBars = get('hiddenBars') || 'Nenhuma';
+    const hiddenBars = effectiveHiddenBarsSetting();
     return { x, y, width, height, source: `AppDefaultPosition (${hiddenBars})` };
 }
 
@@ -430,8 +425,8 @@ subscribe('hiddenBars', (val) => {
     console.log(`[STATE TRACE] hiddenBars changed to: ${val}`);
     render();
 });
-subscribe('doNotHideBarsOn', (val) => {
-    console.log(`[STATE TRACE] doNotHideBarsOn changed to: ${val}`);
+subscribe('hiddenBarsOnProjection', (val) => {
+    console.log(`[STATE TRACE] hiddenBarsOnProjection changed to: ${val}`);
     render();
 });
 subscribe('mode', render);
@@ -698,7 +693,7 @@ async function initDecentralizedBridge() {
     
     // Initialize preferences and initial states
     bridge.bindThemeSetting('hiddenBars', 'Nenhuma', setState);
-    bridge.bindThemeSetting('doNotHideBarsOn', 'Ambos', setState);
+    bridge.bindThemeSetting('hiddenBarsOnProjection', 'Nenhuma', setState);
     bridge.bindThemeSetting('mode', 'Dark', setState);
     bridge.bindThemeSetting('gaugeStyle', 'Esportivo', setState);
     bridge.bindThemeSetting('barImages', true, setState);
