@@ -166,6 +166,12 @@ try {
   } else {
     console.warn(`⚠️ theme.xml não encontrado em ${themeXmlSourcePath}`);
   }
+  var thumbSrc = path.join(__dirname, 'thumbnail.png');
+  var thumbDest = path.join(themesDir, 'thumbnail.png');
+  if (fs.existsSync(thumbSrc)) {
+    fs.copyFileSync(thumbSrc, thumbDest);
+    console.log(`✅ Copiado thumbnail.png para Themes: ${thumbDest}`);
+  }
 } catch (err) {
   console.error(`❌ Erro ao copiar para Themes: ${err.message}`);
 }

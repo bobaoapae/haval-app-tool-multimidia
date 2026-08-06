@@ -158,6 +158,12 @@ try {
     fs.copyFileSync(themeXmlSourcePath, androidAssetsThemeXmlPath);
     console.log(`✅ Copiado theme.xml para Android assets: ${androidAssetsThemeXmlPath}`);
   }
+  var thumbSrc = path.join(__dirname, 'thumbnail.png');
+  var androidAssetsThumbPath = path.join(__dirname, '..', '..', '..', '..', 'app', 'src', 'main', 'assets', 'Default', 'thumbnail.png');
+  if (fs.existsSync(thumbSrc)) {
+    fs.copyFileSync(thumbSrc, androidAssetsThumbPath);
+    console.log(`✅ Copiado thumbnail.png para Android assets: ${androidAssetsThumbPath}`);
+  }
 } catch (err) {
   console.error(`❌ Erro ao copiar para Android assets/res: ${err.message}`);
 }
@@ -173,6 +179,12 @@ try {
   if (fs.existsSync(themeXmlSourcePath)) {
     fs.copyFileSync(themeXmlSourcePath, themeXmlDestPath);
     console.log(`✅ Copiado theme.xml para Themes: ${themeXmlDestPath}`);
+  }
+  var thumbSrcThemes = path.join(__dirname, 'thumbnail.png');
+  var thumbDestThemes = path.join(__dirname, '..', '..', '..', 'Themes', 'v1.0', 'Default', 'thumbnail.png');
+  if (fs.existsSync(thumbSrcThemes)) {
+    fs.copyFileSync(thumbSrcThemes, thumbDestThemes);
+    console.log(`✅ Copiado thumbnail.png para Themes: ${thumbDestThemes}`);
   }
 } catch (err) {
   console.error(`❌ Erro ao copiar para Themes: ${err.message}`);

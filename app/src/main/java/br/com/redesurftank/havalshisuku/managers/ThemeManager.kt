@@ -44,6 +44,7 @@ class ThemeManager private constructor(val context: Context) {
         @Volatile
         private var instance: ThemeManager? = null
 
+        @JvmStatic
         fun getInstance(context: Context): ThemeManager {
             return instance ?: synchronized(this) {
                 instance ?: ThemeManager(context.applicationContext).also { instance = it }
@@ -101,11 +102,21 @@ class ThemeManager private constructor(val context: Context) {
     fun getEmbeddedDefaultTheme(): ThemeMetadata {
         return try {
             val inputStream = context.assets.open("Default/theme.xml")
+            // Embedded Default lives in assets/, not files/themes/Default/. Prefer the
+            // on-disk themes copy when present (sideload/debug), else the APK asset.
+            val localThumb = File(File(themesDir, "Default"), "thumbnail.png")
+            val thumbUrl = when {
+                localThumb.isFile -> localThumb.absolutePath
+                runCatching { context.assets.open("Default/thumbnail.png").close() }.isSuccess ->
+                    "file:///android_asset/Default/thumbnail.png"
+                else -> ""
+            }
             parseThemeXml(inputStream, "Default", true)?.copy(
                 isLocal = true,
                 isDownloaded = true,
-                hasUpdate = false
-            ) ?: fallbackDefaultTheme()
+                hasUpdate = false,
+                thumbnailUrl = thumbUrl
+            ) ?: fallbackDefaultTheme().copy(thumbnailUrl = thumbUrl)
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing embedded assets/Default/theme.xml resource, falling back", e)
             fallbackDefaultTheme()
