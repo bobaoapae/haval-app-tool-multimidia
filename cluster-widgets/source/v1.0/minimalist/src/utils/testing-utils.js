@@ -125,10 +125,10 @@ document.addEventListener('keydown', (e) => {
             if (window.onKeyEvent) window.onKeyEvent('DOWN');
             return;
         } else if (e.key === 'Enter') {
-            if (window.onKeyEvent) window.onKeyEvent('ENTER');
+            if (window.onKeyEvent) window.onKeyEvent(e.shiftKey ? 'ENTER_LONG' : 'ENTER');
             return;
         } else if (e.key === 'Backspace') {
-            if (window.onKeyEvent) window.onKeyEvent('BACK');
+            if (window.onKeyEvent) window.onKeyEvent(e.shiftKey ? 'BACK_LONG' : 'BACK');
             return;
         }
     } else if (currentScreen === 'aircon') {
@@ -139,10 +139,10 @@ document.addEventListener('keydown', (e) => {
             if (window.onKeyEvent) window.onKeyEvent('DOWN');
             return;
         } else if (e.key === 'Enter') {
-            if (window.onKeyEvent) window.onKeyEvent('ENTER');
+            if (window.onKeyEvent) window.onKeyEvent(e.shiftKey ? 'ENTER_LONG' : 'ENTER');
             return;
         } else if (e.key === 'Backspace') {
-            if (window.onKeyEvent) window.onKeyEvent('BACK');
+            if (window.onKeyEvent) window.onKeyEvent(e.shiftKey ? 'BACK_LONG' : 'BACK');
             return;
         } else if (e.key === ' ') {
             // Space — toggle AUTO

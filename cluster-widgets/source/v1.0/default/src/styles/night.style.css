@@ -62,6 +62,9 @@
   --menu-bg: #0a2345;
   --menu-glow-bg: #6788b58c;
   --menu-text: #A3AED0;
+  /* Used by .menu-label — were referenced but never defined (invalid → inherited gray). */
+  --menu-item-text: var(--menu-text);
+  --menu-item-text-focused: #ffffff;
   --text-cold-gray: #B0B8C4;
   --color-power-glow: #edbba8;
   --color-impulse: #9ac2ff;
@@ -1956,10 +1959,53 @@ canvas.graph-chart {
 
 .menu-label-status {
   font-weight: 300;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.1;
 }
 
-.menu-label-status.on {
-  color: var(--text-glow-blue);
+.menu-label-status.hev {
+  line-height: 1;
+  gap: 0;
+}
+
+.menu-label-hev-base {
+  line-height: 1;
+}
+
+.menu-label-hev-sub {
+  font-size: 0.48em;
+  font-weight: 300;
+  opacity: 0.85;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  margin-top: -0.35em;
+}
+
+.menu-label-status.on,
+.menu-label-status.on .menu-label-hev-base,
+.menu-label-status.on .menu-label-hev-sub {
+  color: #00beff !important;
+}
+
+/* HEV stays white like other menu values (inherits from .menu-label). */
+.menu-label-status.hev,
+.menu-label-status.hev .menu-label-hev-base,
+.menu-label-status.hev .menu-label-hev-sub {
+  color: inherit;
+}
+
+/* Keep EV status blue when the row is focused (parent .menu-label otherwise wins). */
+.menu-item.focused .menu-label .menu-label-status.on,
+.menu-item.focused .menu-label .menu-label-status.on .menu-label-hev-base,
+.menu-item.focused .menu-label .menu-label-status.on .menu-label-hev-sub {
+  color: #00beff !important;
+}
+
+.menu-item.focused .menu-label .menu-label-status.eco,
+.menu-item.focused .menu-label .menu-label-status.eco * {
+  color: var(--color-green-main) !important;
 }
 
 .menu-label-status.off {

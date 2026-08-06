@@ -88,10 +88,15 @@ var stateManager = new StateManager({
     outside_temp: '--',
     inside_temp: '--',
 
-    // Regen screen states
+    // Regen / HEV reserve states
     regenMode: 'Normal',
     lastRegenValue: 0,
     onepedal: false,
+    // Saved energy_recovery_level CAN value to restore when leaving One-Pedal.
+    regenBeforeOnePedal: '0',
+    // HEV energy reserve: '1' Inteligente, '2' Prioritário; SOC target 20–80.
+    hevReserve: '1',
+    hevSocTarget: 50,
 
     // Graph values
     currentGraph: 'evConsumption',

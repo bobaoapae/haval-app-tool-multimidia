@@ -1,6 +1,7 @@
 import { getState, subscribe } from '../state.js';
 import { div, img, span } from '../../../../shared/utils/createElement.js';
 import { registerIcon } from '../accent.js';
+import { formatHevReserveSublabel } from '../../../../shared/car/carConstants.js';
 
 
 const iconESP = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAADMklEQVR4nO1XS0hUURj+KKKCirKkVr2fix6rtEW5CXpQVqYFPXcFrYJqmQq1qCCtbGNRRkiLFkEbE2bOf9VME+xBtA0i0agWmW0yiC/+/547dxgfzIzjzg8uc+bc/5zz/c/zX2AK+SDBhWjjRjjuRZJ7bKxzk4oEV8KxFo7vIByGYx8cu/3T5+feQlhjsgVDB4shbIDjEIQPkeR+dHH2CDmdcyw3mVD2jq2dEBLcBsevED6G47Ks1wVcDsdmOA4gYGl+hztWQTiIgCfy28D2OOX3qMxH859Icnveh8ckdthewpLsFnSw2Mw+Ec1Hkjjp3bFodAHhDSR5yI8bzOeFRhgTt2ysZzleD1+0cB4cfyPgap9qQzkFXG6BOYR2rkAb19i4k3NV46Nw7PQsay2NJguOTRBW21jYZYEO4T04XvaT7xFwn417OQPCZ3BMpD2tSHApnnI6hBcgbEm9E54x7VQmlr9v8jGBcitW4Vk1EDbqoMfKqZZSrWZRkXnJBRDSWEaP+q6FMyE8B8cPcDyWeqdmDbgTwk9pa+6mDoyL1V+0ssgUdexWVj/guA4Bt0D4OSUcERgNwgdwvDhiPiTQm/Z/PoT/zJqxFb4gyU0IuB7Cb7rZMJJcbFYwRhkEHK+lPVeNfWjK7xDWQXgFwrIUAU3hSF7YAeHzjDh4jYC7EXAJhH9iAjqpL7MhEFqhzB9eZ2T0jhhJ4CwCzsqwXg+Eu2ICzrvAcbOZJxsXZMLxkrkl0wWjy/bZ9d3GDZELeuxezyUIE1ybmhMeh/Cj13Z8AulBqBZz6nJNwyg3NWLVv2On4QtLK025OP1akOR51HCaLzZhSo+GgAdTBMOa06iDIxC+8v6psWIxWXB8lKasNjJVymoOhL8sj8NCMmSaFBrR3uHvqrgUKxxvwrHCj2/bxVFoCJ9AWO/PqLAzx7mOB6yZKBSEpyHsz75xDVhqTYQ2E4VqSJLcmtvCgJXWTmkzMTHNByE8nO8GJd4dzTkFpgZa6PP+3DXPhLZR2smEjUqT1Ymx2nLhAS+jbXl9YT9W2k2ragjfWDXL/DDROX2nMio7qWhlkdVzvUGjT7PokpoCcsN/QF4Tpoju0DMAAAAASUVORK5CYII=";
@@ -36,10 +37,21 @@ export function createMainMenu() {
         let statusClass = String(stateValue).toLowerCase();
 
         if (itemData.stateKey === 'evMode') {
-            const val = String(stateValue).toUpperCase().replace(/'/g, "");
-            if (val === 'HEV') {
-                stateValue = "Modo HEV";
-                //statusClass = 'off';
+            const val = String(stateValue).toUpperCase().replace(/'/g, "").trim();
+            if (val === 'HEV' || val.startsWith('HEV ')) {
+                const sub = formatHevReserveSublabel(getState('hevReserve'), getState('hevSocTarget'));
+                // HEV stays neutral/white like other menu rows; only EV uses the blue `.on` style.
+                return [
+                    itemData.label,
+                    ' ',
+                    span({
+                        className: 'menu-label-status hev',
+                        children: [
+                            span({ className: 'menu-label-hev-base', children: ['Modo HEV'] }),
+                            span({ className: 'menu-label-hev-sub', children: [sub] })
+                        ]
+                    })
+                ];
             } else if (val === 'EVP') {
                 stateValue = "Prior. EV";
                 statusClass = 'eco';
@@ -121,6 +133,9 @@ export function createMainMenu() {
             subscriptions.push(subscribe(item.stateKey, updateValue));
         }
     });
+    // HEV sublabel depends on reserve + SOC target as well as evMode.
+    subscriptions.push(subscribe('hevReserve', () => updateValue(null, 'evMode')));
+    subscriptions.push(subscribe('hevSocTarget', () => updateValue(null, 'evMode')));
 
     const cleanup = () => {
         subscriptions.forEach(unsubscribe => unsubscribe());

@@ -323,6 +323,17 @@ Exposed globally in the window scope:
   navigation, which the vehicle performs itself; the host deliberately withholds them so a
   theme cannot fight the car for card control. A theme needing a two-way toggle should use
   `ENTER` (as the Default theme's AC screen does for fan/temp focus).
+
+  **Common `ENTER_LONG` patterns (v1.0 themes):**
+  - **One-Pedal** — `car.ev.setting.pedal_control_enable` (`0`/`1`). Long-press while focused
+    on Regeneração enables it; when active, short or long ENTER disables and restores the
+    previous `car.ev_setting.energy_recovery_level`. Subscribe + seed from card entry /
+    `getCarData` (there is no OEM push path outside `subscribe`).
+  - **HEV energy reserve** — only when `car.ev_setting.power_model_config == 0` (HEV).
+    Long-press on Modo EV toggles `car.ev_setting.power_reserve_config` (`1` Inteligente ↔
+    `2` Prioritário). Show SOC from `car.ev_setting.charge_soc_target_config` (20–80) in the
+    Prioritário sublabel. Compose the label in theme JS — do **not** expect the host to stuff
+    `"HEV Inteligente"` into the `evMode` friendly key (that stays raw `0`/`1`/`3`).
 * **`window.onDataChanged(key, value)`**: Triggered when a subscribed telemetry key emits a new value.
 * **`window.onCardChanged(cardId)`**: Fired when the active cluster card changes
   (0 = Hidden, 1 = Main Widgets, 3 = AC). **Required — every v1.0 theme must implement it.**
@@ -397,7 +408,9 @@ You don't need a real car or an Android device to build your themes. The local d
    * Desktop arrow keys automatically map to steering wheel inputs:
      * `ArrowUp` / `ArrowDown` &rarr; `UP` / `DOWN`
      * `Enter` &rarr; `ENTER`
-     * `Escape` &rarr; `BACK`
+     * `Shift+Enter` &rarr; `ENTER_LONG` (One-Pedal / HEV reserve, etc.)
+     * `Escape` / `Backspace` &rarr; `BACK`
+     * `Shift+Backspace` &rarr; `BACK_LONG`
    * Stubbed `Android.subscribe` and `updateCarData` APIs allow you to view data changes directly in your browser's Developer Tools Console in real-time.
 
 ---

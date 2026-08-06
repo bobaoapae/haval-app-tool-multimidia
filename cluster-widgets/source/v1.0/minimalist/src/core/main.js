@@ -676,7 +676,9 @@ window.control = function (key, value) {
         }
         logger.enter('window.control', { key, value });
         let val = value;
-        if (FRIENDLY_KEY_TO_CAN_KEY[key]) {
+        if (key === 'onepedal') {
+            val = value === true || value === '1' || value === 1 || value === 'true';
+        } else if (FRIENDLY_KEY_TO_CAN_KEY[key]) {
             // Raw CAN value pushed under a friendly display key (e.g. espStatus
             // '1') -> translate to its label via the shared car constants table.
             val = translateFriendlyValue(key, value);
@@ -771,6 +773,44 @@ function androidUpdateCarData(key, value) {
     }
 }
 
+function readCarDataRaw(carKey) {
+    try {
+        if (window.Android && typeof window.Android.getCarData === 'function') {
+            return String(window.Android.getCarData(carKey) ?? '');
+        }
+    } catch (e) {
+        /* fall through */
+    }
+    return '';
+}
+
+function enableOnePedalSavingRegen() {
+    const current = readCarDataRaw(KEYS.REGEN_LEVEL) || getCurrentCanValueFromState(KEYS.REGEN_LEVEL) || '0';
+    setState('regenBeforeOnePedal', current);
+    androidUpdateCarData(KEYS.PEDAL_CONTROL_ENABLE, '1');
+    setState('onepedal', true);
+}
+
+function disableOnePedalAndRestoreRegen() {
+    const restore = String(get('regenBeforeOnePedal') || '0');
+    androidUpdateCarData(KEYS.PEDAL_CONTROL_ENABLE, '0');
+    setState('onepedal', false);
+    if (restore === '0' || restore === '1' || restore === '2') {
+        androidUpdateCarData(KEYS.REGEN_LEVEL, restore);
+    }
+}
+
+function toggleHevReserveIfInHev() {
+    const power = readCarDataRaw(KEYS.POWER_MODEL_CONFIG);
+    const mode = String(get('evMode')).toUpperCase().replace(/'/g, '');
+    const isHev = power === '0' || (power === '' && mode === 'HEV');
+    if (!isHev) return;
+    const reserve = readCarDataRaw(KEYS.POWER_RESERVE_CONFIG) || String(get('hevReserve') || '1');
+    const next = String(reserve).trim() === '2' ? '1' : '2';
+    androidUpdateCarData(KEYS.POWER_RESERVE_CONFIG, next);
+    setState('hevReserve', next);
+}
+
 // Cycle a CAN setting by reading its current raw value from the bridge, so the
 // index stays correct even though the UI state may hold a translated label.
 function cycleCarSetting(carKey, values, direction) {
@@ -815,24 +855,31 @@ function handleMainMenuKey(keyName) {
     // Sub-focus: behaviour depends on which main item is active
     if (focused === 'option_ajustes') {
         const idx = Math.max(0, AJUSTES_ORDER.indexOf(get('focusedAjustesItem') || 'ajuste_driving'));
+        const ajustesId = get('focusedAjustesItem') || 'ajuste_driving';
         if (keyName === 'UP') {
             setState('focusedAjustesItem', AJUSTES_ORDER[(idx - 1 + AJUSTES_ORDER.length) % AJUSTES_ORDER.length]);
         } else if (keyName === 'DOWN') {
             setState('focusedAjustesItem', AJUSTES_ORDER[(idx + 1) % AJUSTES_ORDER.length]);
         } else if (keyName === 'ENTER') {
-            const cfg = AJUSTES_CAR_KEYS[get('focusedAjustesItem') || 'ajuste_driving'];
+            // Regeneração + One-Pedal ON: any ENTER disables One-Pedal and restores prior regen.
+            if (ajustesId === 'ajuste_regen' && get('onepedal')) {
+                disableOnePedalAndRestoreRegen();
+                return;
+            }
+            const cfg = AJUSTES_CAR_KEYS[ajustesId];
             if (cfg) cycleCarSetting(cfg.key, cfg.values, 1);
-        }
-    } else if (focused === 'option_6') {
-        // Regeneração: UP/DOWN change recovery level, ENTER toggles one-pedal
-        if (keyName === 'UP') {
-            cycleCarSetting('car.ev_setting.energy_recovery_level', ['2', '0', '1'], 1); // Baixo -> Normal -> Alto
-        } else if (keyName === 'DOWN') {
-            cycleCarSetting('car.ev_setting.energy_recovery_level', ['2', '0', '1'], -1);
         } else if (keyName === 'ENTER_LONG') {
-            const next = get('onepedal') ? '0' : '1';
-            androidUpdateCarData('car.ev.setting.pedal_control_enable', next);
-            setState('onepedal', !get('onepedal'));
+            if (ajustesId === 'ajuste_regen') {
+                if (get('onepedal')) {
+                    disableOnePedalAndRestoreRegen();
+                } else {
+                    enableOnePedalSavingRegen();
+                }
+                return;
+            }
+            if (ajustesId === 'ajuste_ev') {
+                toggleHevReserveIfInHev();
+            }
         }
     } else if (focused === 'option_7') {
         // Gráficos: cycle the visible graph (pure UI state)
@@ -975,6 +1022,8 @@ const SETTINGS_KEYS_TO_SUBSCRIBE = [
     KEYS.STEER_ASSIST_MODE,
     KEYS.REGEN_LEVEL,
     KEYS.PEDAL_CONTROL_ENABLE,
+    KEYS.POWER_RESERVE_CONFIG,
+    KEYS.CHARGE_SOC_TARGET_CONFIG,
     KEYS.HVAC_POWER,
     KEYS.HVAC_FAN_SPEED,
     KEYS.HVAC_DRIVER_TEMP,
@@ -1028,6 +1077,12 @@ function handleSettingsTelemetry(key, value) {
             break;
         case KEYS.PEDAL_CONTROL_ENABLE:
             setState('onepedal', value === "1" || value === 1 || value === "true" || value === true);
+            break;
+        case KEYS.POWER_RESERVE_CONFIG:
+            setState('hevReserve', String(value));
+            break;
+        case KEYS.CHARGE_SOC_TARGET_CONFIG:
+            setState('hevSocTarget', Number(value) || 50);
             break;
         case KEYS.GEAR_STATUS:
             setState('gearState', getLabel(KEYS.GEAR_STATUS, value));
@@ -1122,6 +1177,13 @@ async function initMinimalistBridge() {
             }
         }
     );
+
+    // Seed One-Pedal / HEV reserve from the live cache so the first paint matches
+    // the car even before card-entry control() or a subscribe echo arrives.
+    SETTINGS_KEYS_TO_SUBSCRIBE.forEach((key) => {
+        const raw = readCarDataRaw(key);
+        if (raw !== '') handleSettingsTelemetry(key, raw);
+    });
 }
 initMinimalistBridge().catch((e) => console.error('[Bridge] init failed:', e));
 

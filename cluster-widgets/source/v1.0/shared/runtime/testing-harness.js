@@ -375,6 +375,58 @@ export function initTestHarness(stateManager, menuItems) {
         }
     });
 
+    // 6b. HEV Inteligente / Prioritário long-press (Default option_2 or Minimalist ajuste_ev)
+    registerTest({
+        name: "HEV Reserve Long-Press Toggle Audit",
+        fn: async (h) => {
+            h.setState('screen', 'main_menu');
+            h.setState('cardId', 1);
+            h.setState('evMode', 'HEV');
+            h.setState('hevReserve', '1');
+            h.setState('hevSocTarget', 50);
+            await h.delay(50);
+
+            const prevGet = window.Android && window.Android.getCarData;
+            const prevUpdate = window.Android && window.Android.updateCarData;
+            const cache = {
+                'car.ev_setting.power_model_config': '0',
+                'car.ev_setting.power_reserve_config': '1'
+            };
+            window.Android = window.Android || {};
+            window.Android.getCarData = (k) => cache[k] ?? '';
+            window.Android.updateCarData = (k, v) => {
+                cache[k] = String(v);
+                if (k === 'car.ev_setting.power_reserve_config') {
+                    h.setState('hevReserve', String(v));
+                }
+            };
+
+            try {
+                // Prefer Minimalist Ajustes path when present; else Default option_2.
+                const stateKeys = Object.keys(h.getState() || {});
+                const hasAjustes = stateKeys.includes('focusedAjustesItem') || stateKeys.includes('menuFocusArea');
+                if (hasAjustes) {
+                    h.setState('focusedMenuItem', 'option_ajustes');
+                    h.setState('menuFocusArea', 'sub');
+                    h.setState('focusedAjustesItem', 'ajuste_ev');
+                } else {
+                    h.setState('focusedMenuItem', 'option_2');
+                }
+                await h.delay(30);
+
+                await h.dispatchKeyEvent('ENTER_LONG');
+                h.assertEqual(String(h.getState('hevReserve')), '2', "Long ENTER on Modo EV (HEV) switches to Prioritário");
+                await h.dispatchKeyEvent('ENTER_LONG');
+                h.assertEqual(String(h.getState('hevReserve')), '1', "Long ENTER toggles back to Inteligente");
+            } finally {
+                if (prevGet) window.Android.getCarData = prevGet;
+                else delete window.Android.getCarData;
+                if (prevUpdate) window.Android.updateCarData = prevUpdate;
+                else delete window.Android.updateCarData;
+            }
+        }
+    });
+
     // 7. Theme Settings and Header Visible Suppression Audit
     registerTest({
         name: "Theme Settings and Header Visible Suppression Audit",

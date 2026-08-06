@@ -4569,6 +4569,7 @@ body.nav-mask-reduced .info-item-val,
   gap: 10px;
   align-items: center;
   width: 90%;
+  position: relative;
 }
 
 .ajustes-item {
@@ -4618,10 +4619,56 @@ body.nav-mask-reduced .info-item-val,
   color: #ffffff;
   font-weight: 300;
   text-shadow: 0 0 8px rgba(0, 0, 0, 0.9), 0 2px 4px rgba(0, 0, 0, 0.85);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
   transition:
     color var(--ajustes-dur) var(--ajustes-ease),
     font-weight var(--ajustes-dur) var(--ajustes-ease),
     opacity var(--ajustes-dur) var(--ajustes-ease);
+}
+
+.ajustes-item-value-sub {
+  font-size: 0.6em;
+  font-weight: 300;
+  opacity: 0.85;
+  letter-spacing: 0.02em;
+}
+
+.ajustes-item-value.onepedal {
+  color: #7dd3fc;
+}
+
+/* Overlay under the list — never participates in flex sizing, so the menu stays put. */
+.ajustes-longpress-hint {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 280px;
+  width: max-content;
+  font-size: 14px;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.45);
+  text-align: center;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.ajustes-longpress-hint.hidden {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.ajustes-enter-icon {
+  display: inline-block;
+  min-width: 1.1em;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /*

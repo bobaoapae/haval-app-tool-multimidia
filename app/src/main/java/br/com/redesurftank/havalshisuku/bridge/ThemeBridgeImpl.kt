@@ -452,6 +452,8 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "car.drive_setting.steering_wheel_assist_mode",
             "car.ev_setting.energy_recovery_level",
             "car.ev.setting.pedal_control_enable",
+            "car.ev_setting.power_reserve_config",
+            "car.ev_setting.charge_soc_target_config",
             "car.ev_info.energy_output_percentage",
             "car.ev_info.cur_charge_current",
             "car.ev_info.power_battery_voltage",

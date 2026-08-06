@@ -109,14 +109,22 @@ export function initSimulationHarness(stateManager, menuItems) {
             }
 
             // Dispatch standard navigation keys to the frontend via window.onKeyEvent
+            // Shift+Enter / Shift+Backspace stand in for the wheel long-press variants.
+            if (e.key === 'Enter' && window.onKeyEvent) {
+                e.preventDefault();
+                window.onKeyEvent(e.shiftKey ? 'ENTER_LONG' : 'ENTER');
+                return;
+            }
+            if ((e.key === 'Backspace' || e.key === 'Escape') && window.onKeyEvent) {
+                e.preventDefault();
+                window.onKeyEvent(e.shiftKey && e.key === 'Backspace' ? 'BACK_LONG' : 'BACK');
+                return;
+            }
             const keyMap = {
                 'ArrowUp': 'UP',
                 'ArrowDown': 'DOWN',
                 'ArrowLeft': 'LEFT',
-                'ArrowRight': 'RIGHT',
-                'Enter': 'ENTER',
-                'Backspace': 'BACK',
-                'Escape': 'BACK'
+                'ArrowRight': 'RIGHT'
             };
             
             if (keyMap[e.key] && window.onKeyEvent) {

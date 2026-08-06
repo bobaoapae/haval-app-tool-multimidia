@@ -1671,6 +1671,17 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 updates["steerMode"] = sm.getData(CarConstants.CAR_DRIVE_SETTING_STEERING_WHEEL_ASSIST_MODE.value) ?: ""
                 updates["espStatus"] = sm.getData(CarConstants.CAR_DRIVE_SETTING_ESP_ENABLE.value) ?: ""
                 updates["regenMode"] = sm.getData(CarConstants.CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL.value) ?: ""
+                // One-Pedal + HEV reserve/SOC: raw values. Themes compose display labels
+                // (do NOT stuff "HEV Inteligente" into evMode — that breaks FRIENDLY_KEY translation).
+                val pedal = sm.getData(CarConstants.CAR_CONFIGURE_PEDAL_CONTROL_ENABLE.value)
+                updates["onepedal"] =
+                        if (pedal != null && (pedal.trim() == "1" || pedal.equals("true", ignoreCase = true)))
+                                "1"
+                        else "0"
+                updates["hevReserve"] =
+                        sm.getData(CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG.value) ?: "1"
+                updates["hevSocTarget"] =
+                        sm.getData(CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.value) ?: "50"
             }
         }
 
