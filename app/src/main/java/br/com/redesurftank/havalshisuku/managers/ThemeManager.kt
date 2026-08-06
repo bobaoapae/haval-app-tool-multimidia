@@ -151,34 +151,65 @@ class ThemeManager private constructor(val context: Context) {
         return normalized == CURRENT_CONTRACT_VERSION || normalized == "v1.0" || normalized == "1.0"
     }
 
-    fun sanitizeActiveThemeContract(context: Context) {
-        val prefs = context.getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+    private fun themePrefs() =
+            App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+
+    /**
+     * Selects the APK-bundled Default theme (empty [SharedPreferencesKeys.ACTIVE_CUSTOM_THEME]).
+     * Downloaded theme folders are left on disk so the user can re-select them later.
+     */
+    fun applyBundledDefaultTheme(bumpReloadNonce: Boolean = true) {
+        val editor = themePrefs().edit()
+            .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "")
+            .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default")
+        if (bumpReloadNonce) {
+            editor.putLong(
+                br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.THEME_RELOAD_NONCE.key,
+                System.currentTimeMillis()
+            )
+        }
+        editor.apply()
+    }
+
+    /**
+     * True when [folderName] is a non-Default selection that is missing on disk or
+     * not contract-compatible (legacy / blank contractVersion).
+     */
+    fun isLegacyOrIncompatibleThemeFolder(folderName: String?): Boolean {
+        if (folderName.isNullOrBlank() || folderName.equals("Default", ignoreCase = true)) return false
+        val metadata = getThemeMetadata(folderName) ?: return true
+        return !isContractCompatible(metadata.contractVersion)
+    }
+
+    /**
+     * Startup pass (before the cluster projector loads): if the active theme is
+     * legacy / missing / contract-incompatible, switch to the APK-bundled Default.
+     * Compatible custom themes (e.g. Minimalist) are left alone.
+     */
+    fun runStartupThemeMigrations() {
+        sanitizeActiveThemeContract()
+    }
+
+    fun sanitizeActiveThemeContract(@Suppress("UNUSED_PARAMETER") context: Context? = null) {
+        val prefs = themePrefs()
         val activeFolder = prefs.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
         val virtualTheme = prefs.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default") ?: "Default"
 
-        var isFolderInvalid = false
-        if (activeFolder.isNotBlank() && !activeFolder.equals("Default", ignoreCase = true)) {
-            val metadata = getThemeMetadata(activeFolder)
-            if (metadata == null || !isContractCompatible(metadata.contractVersion)) {
-                isFolderInvalid = true
-            }
-        }
+        val isFolderInvalid = isLegacyOrIncompatibleThemeFolder(activeFolder)
 
-        var isVirtualInvalid = false
-        if (!virtualTheme.equals("Default", ignoreCase = true) && !virtualTheme.equals("Minimalist", ignoreCase = true)) {
-            // Check if virtualTheme metadata is contract compatible
-            val metadata = getLocalThemes().firstOrNull { it.name.equals(virtualTheme, ignoreCase = true) }
-            if (metadata == null || !isContractCompatible(metadata.contractVersion)) {
-                isVirtualInvalid = true
-            }
-        }
+        // VIRTUAL_CLUSTER_THEME is UI bookkeeping. Invalid when it names something other
+        // than Default that is not among the compatible local themes (legacy / missing).
+        val isVirtualInvalid =
+            !virtualTheme.equals("Default", ignoreCase = true) &&
+                getLocalThemes().none { it.name.equals(virtualTheme, ignoreCase = true) }
 
         if (isFolderInvalid || isVirtualInvalid) {
-            Log.w(TAG, "Active theme (folder='$activeFolder', virtual='$virtualTheme') is incompatible with contract $CURRENT_CONTRACT_VERSION. Falling back to Default.")
-            prefs.edit()
-                .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "")
-                .putString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default")
-                .apply()
+            Log.w(
+                TAG,
+                "Active theme (folder='$activeFolder', virtual='$virtualTheme') is legacy or " +
+                    "incompatible with contract $CURRENT_CONTRACT_VERSION. Falling back to Default."
+            )
+            applyBundledDefaultTheme(bumpReloadNonce = true)
         }
     }
 

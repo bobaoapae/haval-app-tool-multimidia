@@ -42,6 +42,10 @@ public class App extends Application {
         );
         br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.ensureDefaultDesktopShortcuts();
 
+        // Before ForegroundService / cluster projector start: if the active theme is
+        // legacy or contract-incompatible, fall back to the APK-bundled Default.
+        br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(this).runStartupThemeMigrations();
+
         var context = getContext();
         Intent serviceIntent = new Intent(context, ForegroundService.class);
         context.startForegroundService(serviceIntent);
