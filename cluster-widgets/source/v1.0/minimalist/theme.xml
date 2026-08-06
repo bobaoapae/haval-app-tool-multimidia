@@ -1,7 +1,7 @@
 <theme>
     <name>Minimalist</name>
     <description>Clean, square edges, flat menu, and minimalist typography.</description>
-    <version>1.6.5</version>
+    <version>1.0.0</version>
     <minBridgeVersion>1.0.0</minBridgeVersion>
     <contractVersion>v1.0</contractVersion>
     <thumbnail>thumbnail.png</thumbnail>
@@ -40,37 +40,11 @@
         <!-- <infoMask enabled="false" x="1320" y="0" width="600" height="720" /> -->
     </nativeMasks>
 
+    <!--
+      <group> names the tab in the Telas settings dialog. First-seen order below
+      becomes tab order (after Geral, unused here): Barras, Exibição, Projeção.
+    -->
     <configurations>
-        <configuration>
-            <id>show_regen_icon</id>
-            <label>Exibir Indicador de Regen</label>
-            <type>boolean</type>
-            <default>true</default>
-            <stateVariable>showRegenIcon</stateVariable>
-        </configuration>
-        <configuration>
-            <id>show_rpm_icon</id>
-            <label>Exibir Indicador de RPM</label>
-            <type>boolean</type>
-            <default>true</default>
-            <stateVariable>showRpmIcon</stateVariable>
-        </configuration>
-        <configuration>
-            <id>navigation_display_mode</id>
-            <label>Modo de Exibição na Navegação</label>
-            <type>combo</type>
-            <options>Padrão, Reduzido, Clean</options>
-            <default>Clean</default>
-            <stateVariable>navigationDisplayMode</stateVariable>
-        </configuration>
-        <configuration>
-            <id>app_display_mode</id>
-            <label>Modo de Exibição de Outros Apps</label>
-            <type>combo</type>
-            <options>Padrão, Reduzido, Clean</options>
-            <default>Reduzido</default>
-            <stateVariable>appDisplayMode</stateVariable>
-        </configuration>
         <configuration>
             <id>top_bar_visibility</id>
             <label>Exibir Barra Superior</label>
@@ -78,6 +52,7 @@
             <options>Sempre, Só com Projeção, Só sem Projeção, Nunca</options>
             <default>Nunca</default>
             <stateVariable>topBarVisibility</stateVariable>
+            <group>Barras</group>
         </configuration>
         <configuration>
             <id>bottom_bar_visibility</id>
@@ -86,6 +61,7 @@
             <options>Sempre, Só com Projeção, Só sem Projeção, Nunca</options>
             <default>Nunca</default>
             <stateVariable>bottomBarVisibility</stateVariable>
+            <group>Barras</group>
         </configuration>
         <configuration>
             <id>bottom_bar_notch</id>
@@ -93,6 +69,41 @@
             <type>boolean</type>
             <default>true</default>
             <stateVariable>bottomBarNotch</stateVariable>
+            <group>Barras</group>
+        </configuration>
+        <configuration>
+            <id>navigation_display_mode</id>
+            <label>Modo de Exibição na Navegação</label>
+            <type>combo</type>
+            <options>Padrão, Reduzido, Clean</options>
+            <default>Clean</default>
+            <stateVariable>navigationDisplayMode</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+        <configuration>
+            <id>app_display_mode</id>
+            <label>Modo de Exibição de Outros Apps</label>
+            <type>combo</type>
+            <options>Padrão, Reduzido, Clean</options>
+            <default>Reduzido</default>
+            <stateVariable>appDisplayMode</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+        <configuration>
+            <id>show_regen_icon</id>
+            <label>Exibir Indicador de Regen</label>
+            <type>boolean</type>
+            <default>true</default>
+            <stateVariable>showRegenIcon</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+        <configuration>
+            <id>show_rpm_icon</id>
+            <label>Exibir Indicador de RPM</label>
+            <type>boolean</type>
+            <default>true</default>
+            <stateVariable>showRpmIcon</stateVariable>
+            <group>Exibição</group>
         </configuration>
         <!-- Multiple selection, stored as a comma separated list. On app builds that do
              not know the "multi" type the settings dialog shows the label with no
@@ -104,7 +115,7 @@
             <options>Gauges, Hora, Marcha, HEV, Regen</options>
             <default>Gauges, Hora, Marcha, HEV, Regen</default>
             <stateVariable>projectionKeepVisible</stateVariable>
+            <group>Projeção</group>
         </configuration>
     </configurations>
 </theme>
-

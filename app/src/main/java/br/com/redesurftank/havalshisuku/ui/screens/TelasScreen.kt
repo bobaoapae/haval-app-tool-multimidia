@@ -5459,9 +5459,12 @@ fun ThemeSettingsDialog(
                 HorizontalDivider(color = Color(0xFF2C3139))
 
                 Box(modifier = Modifier.weight(1f, fill = false).fillMaxWidth()) {
+                    // Extra bottom inset so the last control clears the "Role para ver
+                    // mais" fade/label and stays easy to tap when the list scrolls.
                     LazyColumn(
                         state = listState,
                         verticalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(bottom = 40.dp),
                         modifier = Modifier.fillMaxWidth().padding(end = 6.dp)
                     ) {
                         // Keyed by id so the per-control remember{} state belongs to the
