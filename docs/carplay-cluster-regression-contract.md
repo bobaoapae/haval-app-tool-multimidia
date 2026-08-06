@@ -31,15 +31,15 @@ permanente, sem buffer cinza/sujo e sem exigir tirar/recolocar o cabo.
    Se os processos nativos ja estiverem vivos, o handoff nao deve chamar `startservice` de novo
    apenas como keepalive; ver Regra 40.
 8. O projector do cluster nunca redimensiona CarPlay. Ele deve ignorar `com.ts.carplay.app`.
-9. Quando CarPlay ou Android Auto esta realmente no cluster 3, o projector aplica automaticamente o
-   display efetivo `Mapa` e o tema `theme-mirror-cluster`, sem gravar essa escolha nas preferencias.
-   Ao sair, voltar ao display 0, desconectar ou perder a task real no display 3, o cluster volta ao
-   display salvo pelo usuario.
-10. No modo `Mapa` automatico por projecao, os widgets do mapa que compoem a barra lateral/rodape
-    (velocidade, autonomia/combustivel/bateria, EV, temperaturas e gauges inferiores) devem
-    permanecer visiveis. Os backgrounds `.display-mapa .mask-top-bar` e
-    `.display-mapa .dashboard-speed-content` fazem parte protegida do display `Mapa` e nao devem
-    ser removidos pelo tema de espelhamento. Mascaras, circulos, velocimetro esportivo,
+9. Quando CarPlay ou Android Auto esta realmente no cluster 3, o projector aplica o tema tecnico
+   `theme-mirror-cluster`, mas nunca substitui automaticamente o modo de display escolhido pelo
+   usuario. `Normal`, `Reduzido`, `Clean` ou `Mapa` permanece ativo durante preparo, entrada, uso e
+   saida da projecao; somente uma acao do usuario pode trocar `display`.
+10. O modo escolhido pelo usuario deve preservar seus proprios widgets durante a projecao. Quando a
+    escolha manual for `Mapa`, os widgets que compoem a barra lateral/rodape (velocidade,
+    autonomia/combustivel/bateria, EV, temperaturas e gauges inferiores) e os backgrounds
+    `.display-mapa .mask-top-bar` e `.display-mapa .dashboard-speed-content` permanecem protegidos.
+    Mascaras, circulos, velocimetro esportivo,
     barras/molduras invasivas e alertas que cobrem a projecao devem ficar ocultos. Excecao
     permitida: navegacao fisica por cards pode armar uma sessao de overlays transparentes de
     `main_menu` e AC sobre a projecao. O `main_menu` pode pintar apenas um fundo circular
@@ -70,8 +70,9 @@ permanente, sem buffer cinza/sujo e sem exigir tirar/recolocar o cabo.
     refresh/foco e diagnostico de USB/host, sem reiniciar `com.ts.carplay.app`. Reinicio de host
     `com.ts.carplay` fica reservado para recuperacao manual/diagnostica, pois pode derrubar a
     sessao USB em alguns estados.
-18. Se CarPlay nao esta realmente no cluster 3, o cluster deve voltar ao display salvo pelo usuario
-    (`Normal` por padrao). Se o usuario escolheu `Mapa`, essa escolha manual deve ser preservada.
+18. O display salvo/ativo do usuario (`Normal` por padrao) e a fonte de verdade com ou sem projecao
+    no cluster 3. Se o usuario escolheu `Mapa`, essa escolha manual deve ser preservada; se escolheu
+    outro modo, a projecao nao pode troca-lo para `Mapa` nem restaura-lo para outro valor ao sair.
 19. A seta esquerda da bottom bar deve priorizar a projecao real ativa no display 0. Se CarPlay esta
     visivel no display 0, enviar ao cluster nao pode usar `selectedPackage` stale de outro app.
 20. Se o Android reaproveitar a instancia top-most do CarPlay no display 0 ao tentar `0 -> 3`, o
@@ -102,7 +103,9 @@ permanente, sem buffer cinza/sujo e sem exigir tirar/recolocar o cabo.
     saudavel e `move-stack` no sentido proibido.
 23. O frontend do cluster deve manter classes de projecao (`theme-mirror-cluster`,
     `projection-mirror-in-dash`, `projection-map-display-active`) sempre sincronizadas com a
-    realidade do display 3. O `InstrumentProjector2` deve forcar push (bypass do dedup cache) do
+    realidade do display 3. `projection-map-display-active` e um nome legado para a camada
+    transparente de projecao e nao autoriza trocar a classe `display-*` para `display-mapa`. O
+    `InstrumentProjector2` deve forcar push (bypass do dedup cache) do
     estado real de `carPlayInDash`/`projectionMirrorInDash` **antes** de propagar `cardId` para a
     WebView, para evitar uma janela de race em que o JS re-renderiza `screen-aircon` ou
     `screen-main-menu` enquanto `carPlayInDash` ainda esta stale-`false` no estado JS. Adicionalmente,
@@ -124,9 +127,9 @@ permanente, sem buffer cinza/sujo e sem exigir tirar/recolocar o cabo.
     instabilidade expirar. O watchdog nao substitui eventos manuais nem altera Android Auto.
 25. Quando CarPlay esta realmente no display 3 e um painel nativo do display 0 esta ativo
     (`sys.avm.preview_status` ou `car.hvac.panel_display_notify`), o app principal deve manter sua
-    `Presentation`/WebView visivel e transparente para preservar o display efetivo `Mapa`. O bypass
-    antigo por `windowAlpha=0` nao deve ser usado durante camera/AVM/HVAC, porque remove os widgets
-    protegidos do `Mapa` mesmo quando a Surface do CarPlay continua saudavel no D3.
+    `Presentation`/WebView visivel e transparente para preservar o display escolhido pelo usuario.
+    O bypass antigo por `windowAlpha=0` nao deve ser usado durante camera/AVM/HVAC, porque remove o
+    overlay selecionado mesmo quando a Surface do CarPlay continua saudavel no D3.
 26. Quando o proprio app Haval/Impulse ganha foco no display 0 e o CarPlay continua realmente no
     display 3, o guardiao fica verify-only enquanto a task D3 existe. A excecao antiga de Surface
     stale com `REFRESH_RENDER` + `am start --display 3` foi desativada em 2026-07-08 porque o log
@@ -136,7 +139,7 @@ permanente, sem buffer cinza/sujo e sem exigir tirar/recolocar o cabo.
 27. Antes de qualquer prova funcional de envio D0 -> D3, o CarPlay deve ser preparado no D0. O
     preflight minimo e: patch/mount e propriedades confirmados, servicos CarPlay vivos, Activity
     nativa aberta no D0 pelo icone/fluxo nativo, feed D0 fisicamente limpo, cluster em estado
-    `PREPARING_D3`/`Mapa` transitorio pelo orquestrador e so entao envio ao D3 pelo app. Um
+    `PREPARING_D3` com o display atual preservado pelo orquestrador e so entao envio ao D3 pelo app. Um
     `am start --display 3` direto por Telnet pode ser usado para diagnostico, mas nao e prova de
     regressao/correcao do fluxo do app porque bypassa o preparo de terreno, o defocus do D0 e a
     reconciliacao do `CarPlayDisplayOrchestrator`.
@@ -194,9 +197,15 @@ permanente, sem buffer cinza/sujo e sem exigir tirar/recolocar o cabo.
     reinicio de `com.ts.carplay`/`com.ts.carplay.app`.
 33. A recuperacao do icone CarPlay na barra nativa D0 nao deve exigir Activity visual aberta.
     Processo host `com.ts.carplay`, servico `com.ts.carplay/.CarPlayService` vivo e
-    `getLinkStatus()==2` sao evidencias validas de relevancia. O watchdog continua limitado ao
-    SystemUI e so pode reiniciar `com.android.systemui` sob as guardas ja existentes de veiculo
-    parado, cooldown e relevancia; nao pode alterar Surface, foco, display ou Android Auto.
+    `getLinkStatus()==2` continuam sendo evidencias validas para diagnostico, mas o watchdog deve
+    operar em modo somente observacao. Ele nao pode reiniciar automaticamente
+    `com.android.systemui`, pois isso tambem hospeda o menu lateral nativo do display 0.
+34. O prewarm automatico do bind nativo por restart do SystemUI esta desabilitado. Na v296, o evento
+    `carplay_system_ui_icon_recovery` com trigger `BOOT_SERVICE_READY_PREWARM` matou o SystemUI aos
+    `44s` de boot, o novo bind terminou `MISSING/verified=false` e o menu lateral nativo sumiu ate o
+    usuario fazer gesto de pinca. Estados `DEAD`, `MISSING`, desconexao USB ou atraso do icone podem
+    ser registrados, mas nao autorizam `kill`, `force-stop` ou restart automatico do SystemUI. Uma
+    intervencao manual/diagnostica exige veiculo explicitamente parado e fica fora do watchdog.
 
 ## Contrato Unificado de Estado D3
 
@@ -241,9 +250,9 @@ antes de chamar os comandos baixos de `DisplayAppLauncher`. Estados validos:
 - `RETURNING_TO_D0`;
 - `ERROR_RECOVERY`.
 
-Durante `PREPARING_D3`, o cluster recebe `projectionPreparingD3=true` e deve aplicar o display
-efetivo `Mapa` sem gravar a preferencia do usuario. Esse estado e transitorio e deve ser limpo ao
-concluir, falhar ou cancelar a transicao. Cliques repetidos de envio para D3 ou retorno para D0
+Durante `PREPARING_D3`, o cluster recebe `projectionPreparingD3=true`, ativa somente a camada
+tecnica transparente de projecao e preserva o `display` atual do usuario. Esse estado e transitorio
+e deve ser limpo ao concluir, falhar ou cancelar a transicao. Cliques repetidos de envio para D3 ou retorno para D0
 devem ser idempotentes: se a Activity real ja esta no alvo, a acao apenas reconcilia o alvo desejado
 e dispara verificacao leve, sem criar nova Surface, listener, timer ou stack duplicada.
 
@@ -254,8 +263,8 @@ e dispara verificacao leve, sem criar nova Surface, listener, timer ou stack dup
 - `am force-stop com.ts.carplay.app` em troca de display, camera, HVAC ou clique de usuario.
 - Resize parcial no cluster quando `com.ts.carplay.app` esta no display 3.
 - Loops de pulse/retry/recover baseados em camera, ar-condicionado ou mudanca de foco.
-- Gravar `display=Mapa` como preferencia do usuario apenas porque CarPlay/Android Auto entrou no
-  cluster; o override de `Mapa` por projecao deve ser transitorio/efetivo.
+- Gravar ou aplicar `display=Mapa` apenas porque CarPlay/Android Auto entrou, esta preparando entrada
+  ou saiu do cluster. A projecao nao pode sobrescrever a escolha atual do usuario.
 - Alterar video height para `540`.
 - Usar Activity antiga `com.ts.carplay.app.display.AapActivity`.
 - Criar stack vazia antes de abrir a Activity do CarPlay.
@@ -316,36 +325,38 @@ am start --display 3 --windowingMode 5 --activity-multiple-task -f 0x18000000 \
    `br.com.redesurftank.havalshisuku.carplay.REFRESH_RENDER`.
 11. Enviar broadcasts de foco de video do CarPlay.
 12. Remover somente duplicatas visuais antigas, preservando a stack do cluster.
-12. Aplicar display efetivo `Mapa` + `theme-mirror-cluster`: widgets de mapa ficam visiveis sobre o
-   CarPlay no display 3, enquanto mascaras e velocimetro esportivo ficam ocultos. Menus e HVAC
-   ficam ocultos por padrao, exceto quando acionados por navegacao fisica de cards como overlays.
-   O Mainmenu pode usar somente fundo circular translucido de contraste; bootstrap sem tecla fisica
-   recente continua desarmado; depois de uma tecla fisica real, o overlay armado pode atravessar
-   cards neutros/originais sem sumir.
+12. Aplicar `theme-mirror-cluster` preservando a classe `display-*` escolhida pelo usuario. Se a
+   escolha manual for `Mapa`, seus widgets permanecem visiveis sobre o CarPlay; nos demais modos,
+   seus elementos proprios permanecem sem troca automatica para `Mapa`. Menus e HVAC ficam ocultos
+   por padrao, exceto quando acionados por navegacao fisica de cards como overlays. O Mainmenu pode
+   usar somente fundo circular translucido de contraste; bootstrap sem tecla fisica recente continua
+   desarmado; depois de uma tecla fisica real, o overlay armado pode atravessar cards
+   neutros/originais sem sumir.
 
 ## Matriz Minima de Teste
 
 | Cenario | Resultado esperado |
 | --- | --- |
 | CarPlay no display 0, tocar icone CarPlay | CarPlay aparece no display 0 em fullscreen, sem menu nativo por cima |
-| Enviar CarPlay 0 -> 3 | Cluster 3 exibe CarPlay em fullscreen com display `Mapa` automatico |
+| Enviar CarPlay 0 -> 3 com display `Normal` ativo | Cluster 3 exibe CarPlay em fullscreen e continua em `Normal` |
 | Com CarPlay no 3, acionar camera/AVM | Camera aparece no display 0 e CarPlay permanece no 3 |
 | Fechar camera/AVM | CarPlay continua no 3 sem tirar cabo |
-| Com CarPlay no 3, acionar ar-condicionado | HVAC aparece no display 0, a `Presentation` do app permanece visivel/transparente, o display `Mapa` continua ativo e CarPlay permanece visivel no 3 |
+| Com CarPlay no 3, acionar ar-condicionado | HVAC aparece no display 0, a `Presentation` do app permanece visivel/transparente, o display escolhido continua ativo e CarPlay permanece visivel no 3 |
 | Fechar ar-condicionado | CarPlay continua no 3 sem tirar cabo |
-| Com CarPlay no 3, acionar camera/AVM | AVM aparece no display 0, a `Presentation` do app permanece visivel/transparente, o display `Mapa` continua ativo e CarPlay permanece visivel no 3 |
+| Com CarPlay no 3, acionar camera/AVM | AVM aparece no display 0, a `Presentation` do app permanece visivel/transparente, o display escolhido continua ativo e CarPlay permanece visivel no 3 |
 | Com CarPlay no 3, janela nativa de camera/AVM/HVAC ganha foco no display 0 | Guardiao pontual usa foco leve ou apenas verifica que CarPlay segue no 3; nao envia `view_state`, nao redimensiona, nao reinicia servicos e nao puxa CarPlay para o 0 |
 | Com CarPlay no 3, abrir outro app no display 0 | App abre no display 0 e CarPlay continua no 3 |
-| Com CarPlay no 3 | Display `Mapa` aparece por cima da projecao; `.display-mapa .mask-top-bar`, `.display-mapa .dashboard-speed-content`, widgets de mapa e gauges esperados permanecem visiveis; esportivo/circulos/fundo fixo/mascara/menu/HVAC nao aparecem por cima salvo overlays acionados por cards fisicos |
+| Com CarPlay no 3 | A classe `display-*` permanece igual a escolha do usuario; se for `Mapa`, `.display-mapa .mask-top-bar`, `.display-mapa .dashboard-speed-content`, widgets e gauges esperados permanecem visiveis; menu/HVAC nao aparecem por cima salvo overlays acionados por cards fisicos |
 | Com CarPlay no 3, navegar por cards fisicos para main menu ou AC | `main_menu` e AC aparecem como overlays focaveis; o `main_menu` pode ter somente fundo circular translucido de contraste; CarPlay permanece visivel no D3, sem tela preta, pausa, resize ou restore |
 | Com CarPlay no 3, passar por card original/neutro depois de armar overlay fisico | O overlay permanece visivel; nao ha fundo opaco/fullscreen, resize, restore nem pausa da projecao |
-| Com CarPlay no 3, card original/neutro chega sem tecla fisica recente | Overlay continua desligado e o cluster fica no `Mapa`/projecao limpa; CarPlay permanece visivel no D3 |
-| Com Android Auto no 3 | Display `Mapa` aparece por cima da projecao; `.display-mapa .mask-top-bar`, `.display-mapa .dashboard-speed-content` e widgets de mapa permanecem visiveis; esportivo/circulos/fundo fixo/mascara/menu/HVAC nao aparecem por cima |
+| Com CarPlay no 3, card original/neutro chega sem tecla fisica recente | Overlay continua desligado e o cluster fica no display escolhido/projecao limpa; CarPlay permanece visivel no D3 |
+| Trocar `Normal`/`Reduzido`/`Clean`/`Mapa` manualmente com CarPlay no 3 | A troca e aplicada imediatamente e permanece ao sair/voltar da projecao |
+| Com Android Auto no 3 | O display escolhido pelo usuario permanece ativo; a camada tecnica de projecao nao aplica `Mapa` automaticamente |
 | Trazer CarPlay 3 -> 0 | Display 0 mostra CarPlay, cluster 3 limpa sem frame cinza |
 | Enviar CarPlay 0 -> 3 novamente | Cluster 3 volta a exibir CarPlay sem reconectar cabo |
 | CarPlay fica preto apos troca de display | Fluxo tenta refresh/foco e recupera host sem `force-stop com.ts.carplay.app` |
-| CarPlay esta no display 0 ou desconectado | Cluster 3 nao deve forcar `Mapa`, salvo escolha manual do usuario |
-| CarPlay sai/perde conexao apos estar no 3 | Cluster volta ao display salvo anteriormente pelo usuario |
+| CarPlay esta no display 0 ou desconectado | Cluster 3 preserva o display escolhido pelo usuario |
+| CarPlay sai/perde conexao apos estar no 3 | Cluster continua no mesmo display escolhido pelo usuario |
 
 Evidencia obrigatoria por cenario: rodar `./tools/headunit-dev/headunit.sh carplay-proof <label>`
 apos cada etapa relevante para gerar prints completos de D0 e D3, alem de stack/window/SurfaceFlinger
@@ -449,8 +460,8 @@ decoder/Surface (`cpScreen`, `NdkMediaCodec`, `jsurface`) ou overlay WebView/Pre
 ## Regra 26 - Presentation/WebView Transparente Durante Projecao Real
 
 Quando CarPlay ou Android Auto esta realmente no cluster 3, a `Presentation` do app fica acima da
-janela nativa para desenhar o overlay do display efetivo `Mapa` e os overlays de card explicitamente
-permitidos. Nesse estado:
+janela nativa para desenhar a camada transparente do display escolhido pelo usuario e os overlays
+de card explicitamente permitidos. Nesse estado:
 
 - eventos nativos de camera/AVM/HVAC/app no display 0 nao devem forcar tela invasiva opaca na
   WebView do cluster;
@@ -467,13 +478,14 @@ permitidos. Nesse estado:
   o `main_menu` pode usar apenas fundo circular translucido atras do carrossel para contraste;
 - qualquer outra navegacao deve continuar suprimida enquanto `carPlayInDash` ou
   `projectionMirrorInDash` estiver ativo;
-- a tela efetiva do frontend deve ser neutra/transparente, preservando apenas os widgets do mapa;
+- a tela efetiva do frontend deve ser neutra/transparente, preservando os widgets do modo escolhido;
+  se a escolha for `Mapa`, seus widgets protegidos permanecem visiveis;
 - `html`, `body`, `#app` e o WebView devem permanecer transparentes;
 - se o WebView precisar ficar sobre a Surface nativa, a transparencia deve ser priorizada em vez de
   pintar fallback preto;
 - AC/HVAC, camera/AVM e apps no display 0 nao podem montar componentes opacos no display 3;
 - camera/AVM/HVAC nao podem esconder a `Presentation` inteira por `windowAlpha=0`, pois isso remove
-  o display `Mapa` mesmo com CarPlay renderizando corretamente no D3.
+  o display escolhido mesmo com CarPlay renderizando corretamente no D3.
 
 Se CarPlay estiver fullscreen (`[0,0][1920,720]`, Window requested `1920x720`, SurfaceView visivel
 em `[0,0][1920,720]`)
@@ -691,13 +703,15 @@ Contrato da variante atual:
 - o patch nao deve abrir, redirecionar, esconder ou substituir a camera original no display 0;
 - Android Auto permanece fora desta regra.
 
-## Regra 34 - Mapa permanece visivel durante camera/AVM/HVAC
+## Regra 34 - Display escolhido permanece ativo durante camera/AVM/HVAC
 
 Com CarPlay real no display 3, sinais nativos do display 0 como `sys.avm.preview_status` e
 `car.hvac.panel_display_notify` nao podem esconder a `Presentation` do app. O overlay do cluster
-deve permanecer no modo `Mapa`/`theme-mirror-cluster`, transparente sobre a Surface do CarPlay.
+deve permanecer no modo escolhido pelo usuario com `theme-mirror-cluster`, transparente sobre a
+Surface do CarPlay. A entrada, saida ou preparacao da projecao nao pode aplicar `Mapa` por conta
+propria.
 
-Motivo: em 2026-05-29, a camera nao deixava mais o D3 preto, mas o display `Mapa` sumia porque
+Motivo: em 2026-05-29, a camera nao deixava mais o D3 preto, mas o display visivel sumia porque
 `InstrumentProjector2` aplicava `windowAlpha=0` e `root/WebView` invisiveis.
 
 Contrato:
@@ -705,6 +719,17 @@ Contrato:
 - `InstrumentProjector2` deve manter `windowAlpha=1`, `root` visivel e WebView visivel quando
   CarPlay esta real no display 3;
 - os sinais nativos de camera/AVM/HVAC podem atualizar estado/logs, mas nao ativam bypass visual;
+- temas customizados devem usar a preferencia enviada em `display` como modo efetivo tambem durante
+  projecao. Bundles Sport 0.16.44 que aplicam `Mapa Limpo` internamente recebem compatibilidade em
+  memoria antes do carregamento, sem reescrever o arquivo do tema;
+- no `Analógico V2` dos bundles Sport 0.16.44, CarPlay real no D3 deve permanecer full-bleed por
+  tras dos mostradores. A compatibilidade em memoria substitui somente o recorte preto opaco por
+  dois gradientes lineares estaticos que partem quase opacos das bordas e ficam transparentes no
+  centro. A faixa larga `.mask-top-bar` fica transparente, mas a capsula independente
+  `.dashboard-top-center` com horario, marcha e modo de conducao permanece intacta. Nao ha
+  blur/filtro fullscreen nem mudanca de DOM, Surface, bounds ou resolucao;
+- essa mascara full-bleed deve depender de `.carplay-in-dash`; a classe generica de projecao nao
+  autoriza aplicar o mesmo tratamento ao Android Auto;
 - a correcao nao move, reinicia, redimensiona nem envia foco para o CarPlay;
 - Android Auto permanece isolado e nao deve receber logica nova neste caminho.
 
@@ -914,3 +939,32 @@ Contrato:
 - logs esperados:
   `Moving clean live CarPlay stack ... from D0 to D3 to preserve native Surface` e
   `CarPlay live stack moved to D3 as stack ...`.
+
+## Registro 42 - Candidata v15 retirada; nova ocorrencia exige captura antes da correcao
+
+Em 2026-08-05, a v301 reproduziu dois efeitos do foco global do Android 9 desta central. Durante a
+abertura de `ImpulseDashboardActivity` no D0, o `CarPlayDisplayActivity` no D3 pausou, a stack
+nativa publicou foco D0, o host registrou `_ScreenTearDown` e a Surface terminou sem video util.
+Porem, a linha do tempo completa registra `AMediaCodec_dequeueInputBuffer invalid bufidx-1` cerca
+de `47s` antes do Dashboard. Em 2026-08-06, apos cold boot e ainda na v301/patch v14, o mesmo
+`ImpulseDashboardActivity` foi aberto/fechado sem blackout e o buffer permaneceu `1904x704`.
+Portanto a Activity e um gatilho/agravante possivel, nao causa suficiente nem origem definitiva do
+decoder. A sessao ruim tambem tinha duas enumeracoes USB e `CarPlayRemoteService restartCount=1`,
+enquanto a sessao boa tinha uma enumeracao e nenhum restart; a relacao permanece A confirmar.
+
+Separadamente, tocar no icone Apple CarPlay promoveu a janela D3 com flags imersivas globais e
+deixou a `NavigationBar` D0 existente, mas `mPolicyVisibility=false` ate um gesto de pinca.
+
+Decisao apos a comparacao:
+
+- retirar integralmente a candidata visual v15 e manter o APK visual v13/auto-mount v14 da v301;
+- manter `ImpulseDashboardActivity` no fluxo operacional da v301, pois a mesma Activity funcionou
+  no boot limpo sem provocar blackout;
+- nao adicionar guardas de foco, flags de janela ou alteracoes de System UI sem uma nova ocorrencia
+  capturada desde o primeiro erro;
+- quando o sintoma reaparecer, registrar antes de qualquer recuperacao: `boot_id`, enumeracoes USB,
+  `CarPlayRemoteService restartCount`, primeira falha do codec, `_ScreenTearDown`, tasks D0/D3,
+  WindowManager, SurfaceFlinger e estado da `NavigationBar` D0;
+- nao reiniciar SystemUI, nao injetar gesto, nao enviar `VIDEO_FOCUS_CHANGE`, nao usar
+  `REFRESH_RENDER` preventivo e nao mudar Surface, `1904x704`, janela `1920x720` ou WebView;
+- Android Auto permanece fora deste registro.

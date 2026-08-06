@@ -387,7 +387,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         if (shouldHold && now - lastCarPlayD3HoldLogAtMs > 2_000L) {
             Log.w(
                     TAG,
-                    "[PROJECTION_D3_STATE_HOLD] Keeping Mapa active after transient D3 proof loss; " +
+                    "[PROJECTION_D3_STATE_HOLD] Keeping projection overlay active on the user-selected display after transient D3 proof loss; " +
                             "lastHealthyAgoMs=${now - lastHealthyCarPlayD3AtMs} " +
                             "desiredCluster=$desiredCluster preparingD3=$preparingD3"
             )
@@ -493,7 +493,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         // Camera/AVM/HVAC no longer hide the cluster Presentation. The native
         // CarPlay patch keeps the video route alive, and hiding this WebView
-        // removes the protected Mapa overlay while the projection is healthy
+        // removes the user-selected display overlay while the projection is healthy
         // on display 3.
         return false
     }
@@ -2287,7 +2287,31 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             TAG,
                             "Loading custom HTML from: ${themeFile.absolutePath} (mainFile: $mainFile)"
                     )
-                    return themeFile.readText()
+                    val compatibilityResult =
+                            ProjectionDisplayHtmlPolicy.preserveUserDisplaySelection(
+                                    themeFile.readText()
+                            )
+                    if (compatibilityResult.removedLegacyOverrides > 0 ||
+                                    compatibilityResult.injectedCarPlayFullBleedMask
+                    ) {
+                        Log.i(
+                                TAG,
+                                "Applied custom projection compatibility to $customThemeName: " +
+                                        "removedDisplayOverrides=${compatibilityResult.removedLegacyOverrides} " +
+                                        "carPlayFullBleedMask=${compatibilityResult.injectedCarPlayFullBleedMask}"
+                        )
+                        ClusterPersistentEventLogger.log(
+                                "custom_theme_projection_display_compat",
+                                mapOf(
+                                        "theme" to customThemeName,
+                                        "removedOverrides" to
+                                                compatibilityResult.removedLegacyOverrides,
+                                        "carPlayFullBleedMask" to
+                                                compatibilityResult.injectedCarPlayFullBleedMask
+                                )
+                        )
+                    }
+                    return compatibilityResult.html
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error reading custom theme file, falling back to raw asset", e)

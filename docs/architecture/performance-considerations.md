@@ -71,6 +71,10 @@ Atualizado em: 2026-06-15
 - Preferir updates por evento e deduplicados.
 - Medir antes de adicionar animações contínuas.
 - Usar classes CSS estáveis e dimensões fixas para componentes do cluster.
+- Mascaras de contraste sobre projecao devem preferir gradientes estaticos e localizados. O
+  full-bleed CarPlay do `Analógico V2` Sport usa dois `linear-gradient` estaticos, um por borda,
+  sem `filter`,
+  `backdrop-filter`, animacao, listener ou DOM adicional.
 - Validar na central real para alterações visuais.
 - Em telas de grafico, manter update visual em baixa frequencia:
   - UI geral em torno de `250 ms`;

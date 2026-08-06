@@ -80,11 +80,8 @@ function isRightMenuVisible(cardId, screen) {
 }
 
 function getEffectiveDisplayMode() {
-    // Projection on display 3 temporarily uses the Mapa layout without
-    // persisting over the user's saved display choice.
-    if (isProjectionMapDisplayActive()) {
-        return 'Mapa';
-    }
+    // Projection state controls transparency and card overlays, but never
+    // overrides the display selected by the user.
     return get('display') || 'Normal';
 }
 

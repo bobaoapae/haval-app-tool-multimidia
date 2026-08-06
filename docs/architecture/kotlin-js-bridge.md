@@ -65,6 +65,15 @@ modo e cor também são normalizados antes de persistir.
 - mídia: `nowPlayingTitle`, `nowPlayingArt`, `nowPlayingDurationMs`, `nowPlayingElapsedMs` e
   `nowPlayingPlaying`.
 
+Os bundles Sport 0.16.44 possuem uma regra interna legada que converte qualquer modo nao-mapa em
+`Mapa Limpo` durante projecao. Antes de carregar um tema customizado, `ProjectionDisplayHtmlPolicy`
+remove em memoria somente essa assinatura e mantem a leitura do `display` enviado pela bridge. O
+arquivo baixado nao e reescrito, nenhuma chave nova e criada e bundles ja corrigidos ficam
+inalterados. A mesma politica reconhece o recorte preto opaco do `Analógico V2` e injeta uma regra
+CSS tardia somente para `.carplay-in-dash`: a Surface CarPlay continua full-bleed e o WebView pinta
+dois gradientes laterais estaticos atras dos mostradores, deixando o centro transparente. Nao ha
+nova chave na bridge, timer, observer, blur ou alteracao do Android Auto.
+
 Strings novas são serializadas com JSON quoting. Capa é limitada a 320 px, JPEG 80 e enviada
 somente quando a referência muda. TPMS roda a cada 5 s apenas com o recurso habilitado; TSR roda a
 cada 1,5 s apenas nos temas Sport. Todos os jobs, callback de mídia e listener de dados são

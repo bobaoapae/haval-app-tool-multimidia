@@ -2185,7 +2185,7 @@ canvas.graph-chart {
   pointer-events: none !important;
 }
 
-/* Projection mirror uses the effective Mapa display; only hide invasive chrome. */
+/* Projection mirror preserves the user-selected display; only hide invasive chrome. */
 .theme-mirror-cluster .mask-circle,
 .theme-mirror-cluster .mask-circle-border,
 .theme-mirror-cluster .no-app-mask-l,
