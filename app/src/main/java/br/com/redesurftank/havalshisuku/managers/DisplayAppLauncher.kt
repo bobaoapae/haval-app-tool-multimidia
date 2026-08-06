@@ -2600,7 +2600,35 @@ object DisplayAppLauncher {
 
     private fun getAndroidAutoDisplayBounds(displayId: Int): IntArray {
         val res = getDisplayResolution(displayId)
+        // Cluster (display 3): desloca a janela do AA pra direita (OPT-IN, começa desativado). Só
+        // aplica se ENABLE_AA_CLUSTER_OFFSET estiver ligado. Borda direita fixa (res.first), então
+        // aumentar o offset só estreita a esquerda, nunca corta a direita. Contorna o menu lateral do
+        // AA que o host do cluster corta.
+        if (displayId == 3 &&
+            getPrefs().getBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, false)) {
+            val offset = getPrefs()
+                .getInt(SharedPreferencesKeys.AA_CLUSTER_LEFT_OFFSET.key, 145)
+                .coerceIn(0, maxOf(0, res.first - 200))
+            return intArrayOf(offset, 0, res.first, res.second)
+        }
         return intArrayOf(0, 0, res.first, res.second)
+    }
+
+    // Re-aplica os bounds do AA no cluster ao vivo (quando o toggle/slider de offset muda), pra
+    // ajustar sem reprojetar. Desligado -> getAndroidAutoDisplayBounds volta ao padrão.
+    fun reapplyAndroidAutoClusterBounds() {
+        scope.launch {
+            try {
+                val task = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 3)
+                if (task != null) {
+                    resizeAndFocusAndroidAuto(task, 3, getAndroidAutoDisplayBounds(3), "AA_CLUSTER_OFFSET_TUNE")
+                } else {
+                    Log.w(TAG, "[AA_CLUSTER_OFFSET_TUNE] AA nao esta no display 3; aplica na proxima projecao")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "reapplyAndroidAutoClusterBounds falhou", e)
+            }
+        }
     }
 
     internal fun getCarPlayConfigForDisplay(

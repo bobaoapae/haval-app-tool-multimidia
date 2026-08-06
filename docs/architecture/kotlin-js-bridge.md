@@ -17,6 +17,11 @@ O padrão principal é:
 control('nomeDaChave', valor)
 ```
 
+Desde o merge do PR 116, `evMode` preserva `EV`/`EVP` e, quando o modo nativo e HEV, pode carregar
+`HEV Inteligente` ou `HEV Prioridade XX%`. O tema Default reduz visualmente apenas o sufixo no
+MainMenu e mantem `HEV` no indicador inferior. Nao existe chave nova, timer novo ou chamada JS ->
+Android para esse fluxo.
+
 Também existem chamadas para:
 
 - `showScreen(...)`

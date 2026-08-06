@@ -1223,7 +1223,21 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.value -> {
                         evaluateJsIfReady(
                                 webView,
-                                "control('evMode', '${MainMenu.EvModeOptions.getLabel(value)}')"
+                                "control('evMode', '${evModeLabelWithSubmode(value)}')"
+                        )
+                    }
+                    CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG.value,
+                    CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.value -> {
+                        // Submodo HEV (Inteligente/Prioritário) OU o % alvo do Prioritário mudou — pela
+                        // multimídia OU pelo long-press do OK. Re-empurra a label do evMode com (I)/(P XX%)
+                        // NA HORA (real-time no cluster, sem sair/voltar o menu). As duas chaves já são
+                        // observadas (DEFAULT_KEYS).
+                        val evModeVal =
+                                ServiceManager.getInstance()
+                                        .getData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.value)
+                        evaluateJsIfReady(
+                                webView,
+                                "control('evMode', '${evModeLabelWithSubmode(evModeVal)}')"
                         )
                     }
                     CarConstants.CAR_DRIVE_SETTING_DRIVE_MODE.value -> {
@@ -1573,7 +1587,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         // Modes and Settings
         val evMode = sm.getData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.value)
-        updates["evMode"] = MainMenu.EvModeOptions.getLabel(evMode)
+        updates["evMode"] = evModeLabelWithSubmode(evMode)
 
         val drivingMode = sm.getData(CarConstants.CAR_DRIVE_SETTING_DRIVE_MODE.value)
         val drivingModeLabel = MainMenu.DrivingModeOptions.getLabel(drivingMode)
@@ -1625,6 +1639,31 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         }
     }
 
+    /**
+     * Label do modo de força pro cluster. Em HEV, anexa o submodo: "(I)" Inteligente / "(P)" Prioritário
+     * (lê CAR_EV_SETTING_POWER_RESERVE_CONFIG: 2=Prioritário, senão Inteligente). EV/EVP ficam inalterados.
+     */
+    private fun evModeLabelWithSubmode(evModeValue: String?): String {
+        val base = MainMenu.EvModeOptions.getLabel(evModeValue)
+        if (evModeValue?.trim() == "0") { // HEV
+            val sm = ServiceManager.getInstance()
+            val reserve = sm.getData(CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG.value)
+            return if (reserve?.trim() == "2") {
+                // Prioritário: mostra o % alvo (mesma fonte da barra estendida).
+                val pct =
+                        sm.getData(CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.value)
+                                ?.trim()
+                                ?.toIntOrNull()
+                                ?.coerceIn(20, 80)
+                                ?: 50
+                "$base Prioridade $pct%"
+            } else {
+                "$base Inteligente"
+            }
+        }
+        return base
+    }
+
     private fun updateCardEntryValuesWebView(cardId: Int) {
         val sm = ServiceManager.getInstance()
         val updates = mutableMapOf<String, String>()
@@ -1647,7 +1686,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             }
             ClusterCardIds.MAIN_MENU_CARD -> {
                 val evMode = sm.getData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.value)
-                updates["evMode"] = MainMenu.EvModeOptions.getLabel(evMode)
+                updates["evMode"] = evModeLabelWithSubmode(evMode)
 
                 val drivingMode = sm.getData(CarConstants.CAR_DRIVE_SETTING_DRIVE_MODE.value)
                 val drivingModeLabel = MainMenu.DrivingModeOptions.getLabel(drivingMode)

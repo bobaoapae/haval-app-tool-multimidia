@@ -282,16 +282,17 @@ export function createDashboardInfo() {
 
     const updateBottomEv = (val) => {
         const cleanVal = String(val).toUpperCase().replace(/'/g, "");
-        if (cleanVal === 'EV') {
+        const baseMode = cleanVal.startsWith('HEV ') ? 'HEV' : cleanVal;
+        if (baseMode === 'EV') {
             bottomEvLabel.textContent = 'EV';
-        } else if (cleanVal === 'EVP') {
+        } else if (baseMode === 'EVP') {
             bottomEvLabel.textContent = 'EV';
-        } else if (cleanVal === 'HEV') {
+        } else if (baseMode === 'HEV') {
             bottomEvLabel.textContent = 'HEV';
         } else {
             bottomEvLabel.textContent = val;
         }
-        bottomEvLabel.setAttribute('data-bottom-ev', cleanVal);
+        bottomEvLabel.setAttribute('data-bottom-ev', baseMode);
     };
     updateBottomEv(getState('evMode'));
 

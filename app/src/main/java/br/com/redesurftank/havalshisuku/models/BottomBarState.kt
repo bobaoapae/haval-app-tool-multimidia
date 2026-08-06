@@ -42,4 +42,11 @@ object BottomBarState {
     var isFridaRunning by mutableStateOf(false)
     var isDeleteModeEnabled by mutableStateOf(false)
     val restoredApps = mutableStateListOf<String>()
+
+    // Overlay flutuante de CPU/RAM (opt-in). Espelhos observáveis das prefs — UI e service atualizam.
+    var resourceOverlayEnabled by mutableStateOf(false)
+    var resourceOverlayFontSp by mutableStateOf(14)
+    var resourceOverlayCorner by mutableStateOf(3) // 0=sup.esq 1=sup.dir 2=inf.esq 3=inf.dir
+    var resourceOverlayX by mutableStateOf(12)
+    var resourceOverlayY by mutableStateOf(90)
 }

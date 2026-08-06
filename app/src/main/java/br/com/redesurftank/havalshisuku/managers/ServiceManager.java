@@ -889,6 +889,7 @@ public class ServiceManager {
             if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_FRIDA_HOOKS.getKey(), false)) pendingTasks.add(this::initializeFrida);
             ensureSteeringWheelButtonIntegration();
             ensureSystemApps();
+            ensureDebloatedSystemApps();
             TripConsistencyManager.Companion.getInstance().initialize();
         } catch (RemoteException e) {
             Log.e(TAG, "Error during initialization", e);
@@ -3125,6 +3126,72 @@ public class ServiceManager {
             disableSystemApp("com.beantechs.multidisplay");
         } else {
             enableSystemApp("com.beantechs.multidisplay");
+        }
+    }
+
+    // Debloat opt-in: desativa apps do sistema (OEM) que ficam rodando e consomem RAM/CPU da
+    // multimídia, cada um atrás do seu toggle (default OFF). Reaplicado no boot para sobreviver a
+    // updates/OTA que reabilitem os pacotes. Para "desligar mais coisas" basta acrescentar outra
+    // chamada a applyDebloatToggle (NÃO incluir operatorcenter/OTA nem drivinganalysis/TBOX). O
+    // DataTrack tem toggle próprio (BLOCK_DATATRACK_TELEMETRY / MobileDataManager).
+    public void ensureDebloatedSystemApps() {
+        try {
+            // 1) Lê o estado REAL do sistema na primeira vez (pref ainda não definida): se o pacote já
+            //    está desativado por fora (ex.: pm disable-user / pm uninstall --user 0), o toggle nasce marcado ON.
+            //    Depois disso a pref é a dona do estado — quem manda é o usuário pela UI.
+            reconcileDebloatPref(SharedPreferencesKeys.DISABLE_NATIVE_NAVIGATION.getKey(),
+                    "com.neusoft.na.navigation");
+            reconcileDebloatPref(SharedPreferencesKeys.DISABLE_NATIVE_VOICE.getKey(),
+                    "com.iflytek.cutefly.speechclient.hmi");
+            reconcileDebloatPref(SharedPreferencesKeys.DISABLE_NATIVE_WEATHER.getKey(),
+                    "com.beantechs.weatherservice");
+            // 2) Aplica cada toggle (idempotente; reaplica no boot).
+            applyDebloatToggle(SharedPreferencesKeys.DISABLE_NATIVE_NAVIGATION.getKey(),
+                    "com.neusoft.na.navigation");
+            applyDebloatToggle(SharedPreferencesKeys.DISABLE_NATIVE_VOICE.getKey(),
+                    "com.iflytek.cutefly.speechclient.hmi", "com.beantechs.voiceclient");
+            applyDebloatToggle(SharedPreferencesKeys.DISABLE_NATIVE_WEATHER.getKey(),
+                    "com.beantechs.weatherservice");
+        } catch (Exception e) {
+            Log.e(TAG, "Error ensuring debloated system apps", e);
+        }
+    }
+
+    // Semeia a pref de debloat a partir do estado real do pacote — SÓ enquanto a pref nunca foi
+    // definida (nem pelo usuário, nem por um boot anterior). Assim, um pacote já desativado por fora
+    // (pm disable-user / uninstall --user 0) faz o toggle aparecer ON ao instalar; a partir daí a pref é a fonte da verdade.
+    private void reconcileDebloatPref(String prefKey, String representativePackage) {
+        if (sharedPreferences.contains(prefKey)) return;
+        boolean currentlyDisabled = !isPackageEnabledForUser(representativePackage);
+        sharedPreferences.edit().putBoolean(prefKey, currentlyDisabled).apply();
+    }
+
+    // true se o pacote está instalado E habilitado para o user 0. Cobre os dois jeitos de desativar:
+    // "pm disable-user" (some do -e) e "pm uninstall --user 0" (some do -e). Em erro, assume ENABLED
+    // (conservador: não marca o toggle ON à toa).
+    private boolean isPackageEnabledForUser(String pkg) {
+        try {
+            String out = ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "list", "packages", "-e", pkg});
+            if (out == null) return true;
+            for (String line : out.split("\\n")) {
+                if (line.trim().equals("package:" + pkg)) return true;
+            }
+            return false;
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    // Aplica um toggle de debloat a um ou mais pacotes: ON => desabilita (pm uninstall --user 0 + pkill),
+    // OFF => reabilita (pm install-existing). Reversível e idempotente.
+    private void applyDebloatToggle(String prefKey, String... packages) {
+        boolean disable = sharedPreferences.getBoolean(prefKey, false);
+        for (String pkg : packages) {
+            if (disable) {
+                disableSystemApp(pkg);
+            } else {
+                enableSystemApp(pkg);
+            }
         }
     }
 

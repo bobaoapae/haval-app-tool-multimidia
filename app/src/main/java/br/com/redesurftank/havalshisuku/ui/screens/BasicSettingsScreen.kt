@@ -727,6 +727,12 @@ fun BasicSettingsTab() {
                 mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.MOBILE_DATA_AUTOBLOCK_CAP_MB.key, 2048).coerceIn(512, 8192))
         }
         var blockDatatrack by remember { mutableStateOf(mdm.isDatatrackBlocked()) }
+        var enableAaClusterOffset by remember {
+                mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, false))
+        }
+        var aaClusterOffset by remember {
+                mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.AA_CLUSTER_LEFT_OFFSET.key, 145))
+        }
         var mobileDataUsedMb by remember { mutableStateOf(0L) }
         var mobileBlockReason by remember { mutableStateOf<String?>(null) }
         LaunchedEffect(mobileControlEnabled, mobileDataCycleDay) {
@@ -900,20 +906,6 @@ fun BasicSettingsTab() {
                                                 modifier = Modifier.padding(top = 12.dp)
                                         )
                                 }
-                        }
-                )
-        )
-
-        // Congelar a telemetria OEM (DataTrack -> nuvem). Reversível; impacto remoto/OTA a confirmar.
-        settingsList.add(
-                SettingItem(
-                        title = "Bloquear telemetria (DataTrack → nuvem)",
-                        description =
-                                "Congela o serviço OEM que manda telemetria pra nuvem. Reversível. Impacto em comandos remotos/OTA: a confirmar no veículo.",
-                        checked = blockDatatrack,
-                        onCheckedChange = {
-                                blockDatatrack = it
-                                mdm.setDatatrackBlocked(it)
                         }
                 )
         )
@@ -2794,6 +2786,53 @@ fun BasicSettingsTab() {
                 )
         )
 
+
+        // Deslocamento do Android Auto no cluster (contorna o crop do menu lateral) — opt-in + slider ao vivo.
+        settingsList.add(
+                SettingItem(
+                        title = "Deslocar Android Auto no cluster",
+                        description = "Move a projeção do AA para a direita no cluster (display 3), pra não sobrepor a barra. Começa desligado; ligue e ajuste o slider olhando a tela (aplica ao vivo).",
+                        group = SettingsGroups.DRIVE,
+                        checked = enableAaClusterOffset,
+                        onCheckedChange = {
+                                enableAaClusterOffset = it
+                                prefs.edit {
+                                        putBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, it)
+                                }
+                                br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.reapplyAndroidAutoClusterBounds()
+                        },
+                        customContent = {
+                                if (enableAaClusterOffset) {
+                                        Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                                                Text(
+                                                        "Deslocamento: $aaClusterOffset px",
+                                                        color = AppColors.TextPrimary,
+                                                        fontSize = 14.sp
+                                                )
+                                                Slider(
+                                                        value = aaClusterOffset.toFloat(),
+                                                        onValueChange = { aaClusterOffset = it.toInt() },
+                                                        onValueChangeFinished = {
+                                                                prefs.edit {
+                                                                        putInt(SharedPreferencesKeys.AA_CLUSTER_LEFT_OFFSET.key, aaClusterOffset)
+                                                                }
+                                                                br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.reapplyAndroidAutoClusterBounds()
+                                                        },
+                                                        valueRange = 0f..400f,
+                                                        colors = SliderDefaults.colors(
+                                                                thumbColor = AppColors.Primary,
+                                                                activeTrackColor = AppColors.Primary,
+                                                                inactiveTrackColor = Color(0xFF2C3139)
+                                                        )
+                                                )
+                                        }
+                                }
+                        }
+                )
+        )
+
+        // Aba "Performance" (SettingsGroups.PERFORMANCE): debloat + DataTrack + overlay CPU/RAM.
+        settingsList.addAll(performanceSettingItems(prefs))
 
         GroupedSettingsLayout(items = settingsList)
 

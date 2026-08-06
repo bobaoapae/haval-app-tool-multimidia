@@ -2,6 +2,16 @@
 
 Atualizado em: 2026-06-15
 
+## Atualizacao 2026-08-06 - Overlay diagnostico CPU/RAM
+
+- `HeadUnitResourceSampler` le `/proc/stat`, `/proc/meminfo` e `/proc/self/status` sem shell.
+- O overlay e avancado, opt-in e default OFF; quando ativo, amostra a cada `2,5s` fora da main
+  thread e atualiza somente um `TextView` pequeno.
+- A janela e `NOT_FOCUSABLE|NOT_TOUCHABLE`, some durante o Dashboard expandido e e removida junto
+  com o job no `BottomBarService.onDestroy`.
+- Nao ha WebView, DOM, blur, animacao ou coleta GPU adicional. Custo real prolongado na central
+  permanece A confirmar.
+
 ## Pontos Identificados
 
 - `InstrumentProjector2` tem deduplicação de valores com `lastSentValues`.

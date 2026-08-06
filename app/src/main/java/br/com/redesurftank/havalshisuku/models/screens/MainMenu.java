@@ -238,6 +238,20 @@ public class MainMenu implements Screen {
                     serviceManager.updateData(((MenuAction.CycleValues) action).carOptionID.getValue(), ((MenuAction.CycleValues) action).cycleNext());
                 }
                 break;
+
+            case ENTER_LONG: // OK longo: alterna o submodo do HEV (Inteligente <-> Prioritario)
+                // SÓ age no item de modo de força E somente se o modo ATUAL for HEV (power_model_config==0).
+                // Em EV / EV Prioritário o long-press NÃO faz nada. O OK curto segue ciclando EV->EVP->HEV.
+                if (menuItems.get(currentMenuItemIndex).getId().equals(MenuItem.MENU_ID_EVMODE)) {
+                    String powerMode = serviceManager.getData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.getValue());
+                    if (powerMode != null && powerMode.trim().equals("0")) { // HEV
+                        String reserve = serviceManager.getData(CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG.getValue());
+                        // 2 = Prioritário, senão Inteligente. Alterna: Prioritário->Inteligente(1), senão->Prioritário(2).
+                        String next = (reserve != null && reserve.trim().equals("2")) ? "1" : "2";
+                        serviceManager.updateData(CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG.getValue(), next);
+                    }
+                }
+                break;
         }
     }
 

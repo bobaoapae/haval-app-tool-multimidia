@@ -35,8 +35,18 @@ export function createMainMenu() {
         let statusClass = String(stateValue).toLowerCase();
 
         if (itemData.stateKey === 'evMode') {
-            const val = String(stateValue).toUpperCase().replace(/'/g, "");
-            if (val === 'HEV') {
+            const rawValue = String(stateValue);
+            const val = rawValue.toUpperCase().replace(/'/g, "");
+            if (val.startsWith('HEV ')) {
+                statusClass = 'hev';
+                stateValue = [
+                    'HEV ',
+                    span({
+                        style: { fontSize: '0.6em', opacity: '0.7' },
+                        children: [rawValue.slice(4)]
+                    })
+                ];
+            } else if (val === 'HEV') {
                 stateValue = "Modo HEV";
                 //statusClass = 'off';
             } else if (val === 'EVP') {

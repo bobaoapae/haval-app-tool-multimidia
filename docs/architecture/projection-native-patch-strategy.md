@@ -44,6 +44,14 @@ Portanto, a estrategia atual e:
   CarPlay aberto e limpo no D0, preparo `PREPARING_D3` pelo orquestrador e envio pelo fluxo do
   Impulse/app. `am start --display 3` direto continua permitido apenas como diagnostico.
 
+Offset visual Android Auto do PR 116:
+
+- `ENABLE_AA_CLUSTER_OFFSET` e default OFF e se aplica somente ao display 3;
+- quando habilitado, os bounds passam de `[0,0,1920,720]` para `[offset,0,1920,720]`, preservando
+  a borda direita e estreitando apenas a esquerda; o slider limita o ajuste a `0..400px`;
+- a reaplicacao ao vivo redimensiona somente a task Android Auto existente no D3;
+- nao altera APK/servico nativo, display 0, CarPlay, Surface CarPlay ou o patch v13/v14.
+
 ## Estado Atual dos APKs Nativos
 
 | Item | Android Auto | CarPlay |
