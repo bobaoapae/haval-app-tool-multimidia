@@ -11,10 +11,11 @@ There are **no hardcoded screens on the Android backend**—the frontend theme H
 2. [Three-Tier Customization Model](#three-tier-customization-model)
 3. [Package Structure](#package-structure)
 4. [Theme Metadata & Manifests](#theme-metadata--manifests)
-5. [Native masks (covering OEM chrome)](#native-masks-covering-oem-chrome)
-6. [The JavaScript Bridge & Primitives](#the-javascript-bridge--primitives)
-7. [Development Workflow & Local Simulation](#development-workflow--local-simulation)
-8. [Build, Inlining & Deployment](#build-inlining--deployment)
+5. [Fixed native foreground](#fixed-native-foreground-mandatory-exclusion-zones)
+6. [Native masks (covering OEM chrome)](#native-masks-covering-oem-chrome)
+7. [The JavaScript Bridge & Primitives](#the-javascript-bridge--primitives)
+8. [Development Workflow & Local Simulation](#development-workflow--local-simulation)
+9. [Build, Inlining & Deployment](#build-inlining--deployment)
 
 ---
 
@@ -178,6 +179,37 @@ app builds ignore them and fall back to the declared `<default>`.
 
 ---
 
+## Fixed native foreground (mandatory exclusion zones)
+
+Three OEM indicators are physically composited **above the Display-3 WebView** and cannot be
+hidden, moved or covered by a theme:
+
+1. `READY`;
+2. the detected speed-limit sign below `READY`;
+3. the ESP indicator to the right of the sign.
+
+Treat them as immutable foreground, not as theme widgets. Theme authors must keep decorative
+strokes, gauge graduations and important data outside the following reserved rectangles. All
+coordinates use the fixed **1920×720** cluster canvas.
+
+| Indicator | Reference visible bounds (`x, y, w, h`) | Mandatory no-draw zone (`x, y, w, h`) |
+|---|---:|---:|
+| `READY` | `258, 335, 64, 20` | `238, 315, 104, 60` |
+| Speed-limit sign | `247, 497, 46, 46` | `225, 475, 90, 90` |
+| ESP | `350.4, 466, 59.2, 48` | `330, 445, 100, 100` |
+
+The Theme Lab renders one shared development mock for these indicators in every discovered theme,
+with `pointer-events: none` and the maximum CSS stacking level (`z-index: 2147483647`). Existing
+theme-owned mocks are suppressed there so the fixed layer is never duplicated. On the vehicle,
+the OEM compositor — not theme HTML — owns the real foreground layer.
+
+This is a backward-compatible clarification of the `v1.0` physical layout boundary. It does not
+add a telemetry key, bridge method or `theme.xml` field, and older `v1.0` themes remain loadable.
+Additional fixed OEM indicators are **A confirmar** and will be added only after their physical
+positions are mapped.
+
+---
+
 ## Native masks (covering OEM chrome)
 
 ### Why they exist
@@ -201,6 +233,7 @@ cluster chrome so the WebView theme can own the look end-to-end.
 │  │  └─────────────────────────────────────────────────────────────┘││
 │  └─────────────────────────────────────────────────────────────────┘│
 │  WebView theme (app.html) — free to design without fighting OEM UI  │
+│  Fixed OEM foreground — READY / speed sign / ESP (never maskable)    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -329,6 +362,12 @@ Exposed globally in the window scope:
   This is the single channel by which a theme learns the active card, and it is one-way:
   the card is owned by the vehicle and flows car → host → theme. There is deliberately no
   reverse channel; a theme must never report a card back to the host.
+
+  The host-pinned legacy Sport packages use a private compatibility adapter because their
+  immutable bundles predate this handler. That adapter is not part of contract `v1.0` and
+  must not be copied into new themes. They also predate `onKeyEvent`, so the same private,
+  trusted-package adapter translates their existing native Sport menu state to the old
+  `focus/showScreen/control` globals. Contract themes never receive that translation.
 
   **`onCardChanged` must be the only writer of the card in your theme's state.** A static
   initial value is fine, but nothing else may assign it — in particular, never re-seed the

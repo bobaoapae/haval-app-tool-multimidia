@@ -45,6 +45,19 @@ updateWarning(...)
 clearWarnings()
 ```
 
+The host still treats `window.onCardChanged(cardId)` as the canonical one-way card
+notification. The two host-pinned legacy Sport packages predate that handler, so the
+card-delivery capability check adapts the notification to `control('cardId', cardId)`
+only when a trusted Sport package has no `onCardChanged`. It never invokes both paths
+for the same event. Contract `v1.0` themes must continue to implement
+`window.onCardChanged`; the adapter is not part of the authoring API.
+
+Those immutable Sport 0.16.44 bundles also predate `window.onKeyEvent`. `ServiceManager`
+therefore keeps their existing native menu state machine and `InstrumentProjector2` translates
+its resolved targets to `focus(...)`, `showScreen(...)` and selected `control(...)` calls. This
+second adapter is gated by the same active-theme trust boundary and is never enabled for a
+contract `v1.0` theme. Delivery is observable as `legacy_sport_navigation_delivery`.
+
 New `v1.0` themes should prefer **subscribe + `onKeyEvent`**, not assume a host-driven `showScreen` FSM. Prefer extending `window.Android` (and THEME_GUIDE) over adding new ad-hoc globals.
 
 ## Warning policy

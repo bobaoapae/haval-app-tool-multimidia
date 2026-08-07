@@ -876,7 +876,7 @@ export function initTestHarness(stateManager, menuItems) {
                         <!-- EV Power kW -->
                         <div style="display: flex; flex-direction: column; gap: 2px;">
                             <div style="display: flex; justify-content: space-between; font-size: 11px;">
-                                <span>EV Power kW (evPowerKw)</span>
+                                <span>Potência / regeneração (evPowerKw)</span>
                                 <span id="val-evPowerKw" style="color: #a855f7; font-weight: bold;">0 kW</span>
                             </div>
                             <input type="range" id="state-range-evPowerKw" min="-100" max="300" value="0" style="width: 100%; height: 4px; border-radius: 2px; outline: none; cursor: pointer; accent-color: #a855f7;">

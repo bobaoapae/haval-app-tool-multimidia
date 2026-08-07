@@ -725,9 +725,11 @@ Contrato:
 - no `Analógico V2` dos bundles Sport 0.16.44, CarPlay real no D3 deve permanecer full-bleed por
   tras dos mostradores. A compatibilidade em memoria substitui somente o recorte preto opaco por
   dois gradientes lineares estaticos que partem quase opacos das bordas e ficam transparentes no
-  centro. A faixa larga `.mask-top-bar` fica transparente, mas a capsula independente
-  `.dashboard-top-center` com horario, marcha e modo de conducao permanece intacta. Nao ha
-  blur/filtro fullscreen nem mudanca de DOM, Surface, bounds ou resolucao;
+  centro. A faixa larga `.mask-top-bar` fica transparente. A compatibilidade visual Sport,
+  aprovada pelo usuario em 2026-08-06, preserva horario, marcha e modo de conducao nas coordenadas
+  originais, mas remove os pseudo-elementos que formavam a capsula `.dashboard-top-center`, seu
+  contorno, fundo, brilho e sombras coloridas. Nao ha blur/filtro fullscreen nem mudanca de DOM,
+  Surface, bounds ou resolucao;
 - essa mascara full-bleed deve depender de `.carplay-in-dash`; a classe generica de projecao nao
   autoriza aplicar o mesmo tratamento ao Android Auto;
 - a correcao nao move, reinicia, redimensiona nem envia foco para o CarPlay;

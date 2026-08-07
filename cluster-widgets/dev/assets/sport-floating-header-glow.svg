@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 114" fill="none">
+  <defs>
+    <radialGradient id="data-shadow">
+      <stop stop-color="#000" stop-opacity="0.78"/>
+      <stop offset="0.38" stop-color="#000" stop-opacity="0.62"/>
+      <stop offset="0.72" stop-color="#000" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="white-left" x1="150" y1="0" x2="398" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.28" stop-color="#fff" stop-opacity="0.9"/>
+      <stop offset="0.58" stop-color="#fff" stop-opacity="0.48"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="white-center" x1="335" y1="0" x2="665" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.18" stop-color="#fff" stop-opacity="0.35"/>
+      <stop offset="0.5" stop-color="#fff" stop-opacity="0.94"/>
+      <stop offset="0.82" stop-color="#fff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="white-right" x1="578" y1="0" x2="818" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.45" stop-color="#fff" stop-opacity="0.42"/>
+      <stop offset="0.74" stop-color="#fff" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow-white" x="-20%" y="-400%" width="140%" height="900%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="4.2"/>
+    </filter>
+  </defs>
+
+  <ellipse cx="274" cy="57" rx="174" ry="52" fill="url(#data-shadow)"/>
+  <ellipse cx="500" cy="57" rx="128" ry="52" fill="url(#data-shadow)"/>
+  <ellipse cx="698" cy="57" rx="184" ry="52" fill="url(#data-shadow)"/>
+
+  <path d="M150 96H398" stroke="url(#white-left)" stroke-width="9" filter="url(#glow-white)"/>
+  <path d="M170 94H378" stroke="url(#white-left)" stroke-width="1.2"/>
+
+  <path d="M335 101H665" stroke="url(#white-center)" stroke-width="10" filter="url(#glow-white)"/>
+  <path d="M350 99.5H650" stroke="url(#white-center)" stroke-width="1.2"/>
+
+  <path d="M578 96H818" stroke="url(#white-right)" stroke-width="9" filter="url(#glow-white)"/>
+  <path d="M594 94H802" stroke="url(#white-right)" stroke-width="1.2"/>
+</svg>

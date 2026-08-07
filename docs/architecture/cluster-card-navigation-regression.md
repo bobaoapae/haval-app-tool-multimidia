@@ -267,3 +267,34 @@ Bisect `a9b31f1..HEAD` using the oracle above, validating each verdict against t
 commit. `5668965` is the prime suspect but is too large to blame without narrowing —
 consider reverting its sub-areas (DisplayAppLauncher AA additions, BottomBarService,
 InstrumentProjector2) individually against a fixed base rather than bisecting commits.
+
+## 2026-08-06 regression after v304: trusted Sport bundle missing the new handler
+
+The physical report after deploying v304 was different from the intermittent vehicle-side
+failure above: persistent logs showed `cluster_input_key`, projector input, synthetic card
+navigation and `cluster_card_change` all occurring, while every visual delivery ended in
+`card_push_failed ... result=\"missing\"`.
+
+The installed SportRed/SportRedLite bundles expose `window.control` and react to
+`control('cardId', ...)`, but predate the required `window.onCardChanged` handler. The v301
+host used the legacy call; the merged host switched exclusively to the new contract call,
+so the native card changed while the WebView stayed on the old screen.
+
+Resolution: keep `onCardChanged` first and canonical. If it is absent, permit exactly one
+fallback to `control('cardId', ...)` only while SportRed or SportRedLite is active. Log the
+successful adaptation as `card_push_legacy_fallback`; retain `card_push_failed` when neither
+capability exists. This does not change msgId 133/135, wheel routing, resolution, projection
+focus or the contract required of new v1.0 themes.
+
+### 2026-08-07 follow-up: card delivery worked but Sport internal focus did not
+
+After the card fallback reached the central, physical input proved that `LEFT/RIGHT` changed cards
+and `UP/DOWN` reached `MainUiManager` (`option_8/option_9`), while the visible Sport carousel did
+not move. Sport 0.16.44 has no `window.onKeyEvent`; unlike a v1.0 theme, it still requires the
+resolved native state-machine target to be delivered through `focus`, `showScreen` and `control`.
+
+Resolution: restore those calls only behind the active trusted Sport gate. Keep the new contract
+path untouched for every v1.0 theme and log the WebView callback as
+`legacy_sport_navigation_delivery`, making `missing`/`threw` distinguishable from a physical input
+problem. This adapter does not predict card order and does not change msgId 133/135, D0/D3,
+CarPlay, Android Auto or display geometry.

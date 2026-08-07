@@ -80,6 +80,36 @@ through a temporary compatibility adapter only when all packaged files match the
 host-pinned SHA-256 allowlist; they are not presented as contract-v1 themes. A changed or
 unrecognized legacy package is rejected rather than receiving the native bridge.
 
+That temporary adapter also translates the host's canonical one-way
+`window.onCardChanged(cardId)` notification to the legacy
+`window.control('cardId', cardId)` state update when, and only when, the trusted Sport
+bundle has no `onCardChanged` handler. New `v1.0` themes do not receive this fallback and
+must implement the canonical handler.
+
+The same trusted legacy boundary covers wheel navigation for those two immutable packages. Since
+they do not implement `window.onKeyEvent`, the host may translate the result of its pre-existing
+Sport menu state machine to `focus`, `showScreen` and `control`. This is a private compatibility
+adapter, not a contract method: v1.0 themes continue to own all internal navigation through
+`onKeyEvent` and must not depend on host-driven focus or screen changes.
+
+## Fixed OEM foreground and reserved zones
+
+`READY`, the detected speed-limit sign and the ESP indicator are owned by the OEM compositor and
+remain above the theme WebView on Display 3. Themes cannot hide or reposition them. Consequently,
+every theme must treat their 1920×720 coordinates as no-draw zones for gauge marks, decorative
+lines and important information.
+
+The Theme Lab injects one simulator-only foreground layer into every source, OTA and legacy theme
+in its catalog. This keeps all previews on the same physical coordinates, uses the maximum CSS
+stacking level, and replaces any duplicate theme-owned mock. Nothing from that development layer
+is copied into the APK or an OTA package; the real vehicle supplies the OEM layer.
+
+This rule documents an existing physical boundary and is therefore an additive `v1.0`
+clarification: no bridge API, telemetry dictionary, manifest schema or compatibility filter changes.
+Exact coordinates and authoring guidance are canonical in
+[`THEME_GUIDE.md` — Fixed native foreground](../../cluster-widgets/Themes/THEME_GUIDE.md#fixed-native-foreground-mandatory-exclusion-zones).
+Other fixed indicators remain **A confirmar** until their vehicle positions are mapped.
+
 ## Native masks (OEM chrome cover)
 
 The cluster still shows **OEM** gauges/strips outside what a WebView alone can paint. Themes

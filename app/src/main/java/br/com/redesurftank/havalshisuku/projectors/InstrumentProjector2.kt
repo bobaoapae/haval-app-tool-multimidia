@@ -37,6 +37,7 @@ import br.com.redesurftank.havalshisuku.models.SteeringWheelAcControlType
 import br.com.redesurftank.havalshisuku.models.screens.GraphicsScreen
 import br.com.redesurftank.havalshisuku.models.screens.MainMenu
 import br.com.redesurftank.havalshisuku.models.screens.RegenScreen
+import br.com.redesurftank.havalshisuku.models.screens.Screen
 import br.com.redesurftank.havalshisuku.bridge.IBridgeContext
 import java.io.File
 import java.io.ByteArrayOutputStream
@@ -117,6 +118,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     // Cached EV power values for kW calculation
     private var batteryVoltage = 0f
     private var batteryCurrent = 0f
+    private val sportTelemetryBatchLock = Any()
+    private val pendingSportTelemetry = linkedMapOf<String, String>()
+    private var sportTelemetryBatchScheduled = false
+    private val sportTelemetryBatchRunnable = Runnable { flushSportTelemetryBatch() }
     private var isAnyAppOnDisplay3 = false
     private var isAnyAppOnDisplay1 = false
     // Seeded from the host-side cache rather than assumed to be 0. ServiceManager tracks
@@ -738,6 +743,29 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         logClusterPerfEvent("menu_item_navigation", mapOf("targetItem" to targetItem))
     }
 
+    private fun pushLegacySportNavigation(kind: String, target: String, javascript: String) {
+        if (!isSportThemeActive()) return
+        val activeWebView = webView ?: return
+        if (!webViewsLoaded.getOrDefault(activeWebView, false)) {
+            ClusterPersistentEventLogger.log(
+                    "legacy_sport_navigation_queued",
+                    mapOf("kind" to kind, "target" to target)
+            )
+            evaluateJsIfReady(activeWebView, javascript)
+            return
+        }
+        activeWebView.evaluateJavascript(javascript) { result ->
+            ClusterPersistentEventLogger.log(
+                    "legacy_sport_navigation_delivery",
+                    mapOf(
+                            "kind" to kind,
+                            "target" to target,
+                            "result" to (result ?: "null")
+                    )
+            )
+        }
+    }
+
     private fun readProjectionSnapshotForCardChange(): ProjectionSnapshot {
         val projectionPreparingD3 = isProjectionPreparingD3()
         val heldCarPlayD3 = shouldHoldCarPlayD3State(SystemClock.elapsedRealtime())
@@ -1049,14 +1077,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         )
 
         // Contract (THEME_GUIDE): backend owns the active card and informs the frontend
-        // via window.onCardChanged(cardId) — the single canonical channel. No legacy
-        // control('cardId', ...) push: two channels means two code paths and ambiguity
-        // about which one a theme is actually honouring.
-        //
-        // The call is feature-detected, so a theme that predates the contract would
-        // silently no-op and sit on whatever card it last rendered (observed on-car with
-        // a stale installed theme: card 0 never painted). Fail loudly instead — the fix
-        // for that case is redeploying the theme, not a second channel.
+        // via window.onCardChanged(cardId), the single canonical channel. The two trusted
+        // legacy Sport packages predate that handler, so delivery capability detection may
+        // adapt this same one-way notification to control('cardId', ...) for those packages
+        // only. Both channels are never invoked for the same event.
         pushActiveCardToTheme(currentCard)
 
         if (decision.updateVirtualClusterVisibility) {
@@ -1132,7 +1156,38 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                             "screen" to currentClusterScreenName
                                     )
                             )
-                            // Focus injections removed. Frontend is the single source of truth for navigation.
+                            if (isSportThemeActive()) {
+                                when (action) {
+                                    SteeringWheelAcControlType.FAN_SPEED ->
+                                            pushLegacySportNavigation(
+                                                    "ac_focus",
+                                                    "fan",
+                                                    LegacySportThemeNavigationPolicy
+                                                            .buildFocusJavascript("fan")
+                                            )
+                                    SteeringWheelAcControlType.TEMPERATURE ->
+                                            pushLegacySportNavigation(
+                                                    "ac_focus",
+                                                    "temp",
+                                                    LegacySportThemeNavigationPolicy
+                                                            .buildFocusJavascript("temp")
+                                            )
+                                    SteeringWheelAcControlType.POWER ->
+                                            pushLegacySportNavigation(
+                                                    "ac_focus",
+                                                    "power",
+                                                    LegacySportThemeNavigationPolicy
+                                                            .buildFocusJavascript("power")
+                                            )
+                                    is String ->
+                                            pushLegacySportNavigation(
+                                                    "ac_action",
+                                                    action,
+                                                    LegacySportThemeNavigationPolicy
+                                                            .buildControlJavascript("acAction", action)
+                                            )
+                                }
+                            }
                             br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
                                     .preserveCarPlayClusterContract("STEERING_WHEEL_AC_CONTROL")
                             br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
@@ -1143,16 +1198,38 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             if (screen is String) {
                                 currentGraphName = screen
                                 logClusterPerfEvent("graph_navigation", mapOf("targetGraph" to screen))
-                                // control injection removed. Frontend is the single source of truth for navigation.
+                                pushLegacySportNavigation(
+                                        "graph",
+                                        screen,
+                                        LegacySportThemeNavigationPolicy.buildControlJavascript(
+                                                "currentGraph",
+                                                screen
+                                        )
+                                )
                             }
                         }
                         ServiceManagerEventType.UPDATE_SCREEN -> {
                             val arg0 = args[0]
-                            if (arg0 is String) {
-                                currentClusterScreenName = arg0
-                                logClusterPerfEvent("screen_update", mapOf("targetScreen" to arg0))
-                                // showScreen injection removed. Frontend is the single source of truth for navigation.
-                                if (arg0 == "aircon") {
+                            val screenName =
+                                    when (arg0) {
+                                        is String -> arg0
+                                        is Screen -> arg0.jsName
+                                        else -> null
+                                    }
+                            if (screenName != null) {
+                                currentClusterScreenName = screenName
+                                logClusterPerfEvent(
+                                        "screen_update",
+                                        mapOf("targetScreen" to screenName)
+                                )
+                                pushLegacySportNavigation(
+                                        "screen",
+                                        screenName,
+                                        LegacySportThemeNavigationPolicy.buildShowScreenJavascript(
+                                                screenName
+                                        )
+                                )
+                                if (screenName == "aircon") {
                                     br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
                                             .preserveCarPlayClusterContract("UPDATE_SCREEN_AIRCON")
                                     br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
@@ -1165,7 +1242,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         ServiceManagerEventType.MENU_ITEM_NAVIGATION -> {
                             val menuNav = args[0] as String
                             logMenuNavigationPerfEventIfNeeded(menuNav)
-                            // focus injection removed. Frontend is the single source of truth for navigation.
+                            pushLegacySportNavigation(
+                                    "menu_focus",
+                                    menuNav,
+                                    LegacySportThemeNavigationPolicy.buildMenuFocusJavascript(menuNav)
+                            )
                         }
                         ServiceManagerEventType.MAX_AUTO_AC_STATUS_CHANGED -> {
                             val status = args[0]
@@ -1300,6 +1381,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         handler.removeCallbacks(watchdogRunnable)
         cancelPendingWarningClear()
         handler.removeCallbacks(mediaRunnable)
+        clearPendingSportTelemetryBatch()
         tsrJob?.cancel()
         tsrJob = null
         tpmsJob?.cancel()
@@ -1383,6 +1465,20 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             val previous = lastSentValues[key]
             if (previous == value) return
             lastSentValues[key] = value
+
+            // Sport 0.16.44 consumes these rapidly-changing values through the legacy control()
+            // channel. Keep only the latest sample inside one 30 fps frame so the UI Handler is
+            // not flooded with evaluateJavascript calls ahead of steering-wheel input. A theme
+            // that explicitly subscribes to this key stays on the original contract bridge path.
+            if (SportTelemetryBatchPolicy.shouldBatch(
+                            isSportTheme = isSportThemeActive(),
+                            key = key,
+                            hasThemeSubscription = { hasThemeSubscription(key) }
+                        )
+            ) {
+                enqueueSportTelemetry(key, value)
+                return
+            }
 
             ensureUi {
                 // Symmetrical bridge push
@@ -1588,6 +1684,60 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             }
     }
 
+    private fun hasThemeSubscription(canonicalKey: String): Boolean {
+        val themeKey =
+            br.com.redesurftank.havalshisuku.bridge.BridgeContractTranslator
+                .translateCanonicalToThemeKey(canonicalKey)
+        return subscribedKeys.contains(themeKey) || subscribedKeys.contains(canonicalKey)
+    }
+
+    private fun enqueueSportTelemetry(key: String, value: String) {
+        val shouldSchedule =
+            synchronized(sportTelemetryBatchLock) {
+                pendingSportTelemetry[key] = value
+                if (sportTelemetryBatchScheduled) {
+                    false
+                } else {
+                    sportTelemetryBatchScheduled = true
+                    true
+                }
+            }
+        if (shouldSchedule) {
+            handler.postDelayed(
+                sportTelemetryBatchRunnable,
+                SportTelemetryBatchPolicy.FRAME_INTERVAL_MS
+            )
+        }
+    }
+
+    private fun flushSportTelemetryBatch() {
+        val values =
+            synchronized(sportTelemetryBatchLock) {
+                sportTelemetryBatchScheduled = false
+                LinkedHashMap(pendingSportTelemetry).also { pendingSportTelemetry.clear() }
+            }
+        if (values.isEmpty() || !isSportThemeActive()) return
+
+        val result =
+            SportTelemetryBatchPolicy.buildControlUpdates(
+                values = values,
+                previousBatteryVoltage = batteryVoltage,
+                previousBatteryCurrent = batteryCurrent,
+                adjustSpeed = ::getAdjustedSpeed
+            )
+        batteryVoltage = result.batteryVoltage
+        batteryCurrent = result.batteryCurrent
+        batchEvaluateLegacyControlStrings(webView, result.controlUpdates)
+    }
+
+    private fun clearPendingSportTelemetryBatch() {
+        handler.removeCallbacks(sportTelemetryBatchRunnable)
+        synchronized(sportTelemetryBatchLock) {
+            pendingSportTelemetry.clear()
+            sportTelemetryBatchScheduled = false
+        }
+    }
+
     private fun triggerAutoLaunch() {
         ensureUi {
             val defaultPackage =
@@ -1748,6 +1898,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val sm = ServiceManager.getInstance()
         val webView = this.webView
         if (webView == null) return
+
+        clearPendingSportTelemetryBatch()
 
         val updates = mutableMapOf<String, String>()
 
@@ -2457,6 +2609,18 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         evaluateJsIfReady(view, jsBuilder.toString())
     }
 
+    private fun batchEvaluateLegacyControlStrings(view: WebView?, updates: Map<String, String>) {
+        if (view == null || updates.isEmpty()) return
+        val jsBuilder = StringBuilder("(function(){")
+        updates.forEach { (key, value) ->
+            jsBuilder.append(
+                "control(${JSONObject.quote(key)}, ${JSONObject.quote(value)});"
+            )
+        }
+        jsBuilder.append("})()")
+        evaluateJsIfReady(view, jsBuilder.toString())
+    }
+
     private fun controlStringJs(key: String, value: String): String {
         return "control(${JSONObject.quote(key)}, ${JSONObject.quote(value)})"
     }
@@ -2789,21 +2953,31 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
      */
     private fun pushActiveCardToTheme(cardId: Int) {
         val wv = webView ?: return
+        val allowLegacyControlFallback = isSportThemeActive()
         val js =
-                "(function(){ try {" +
-                        " if (!window.onCardChanged) return 'missing';" +
-                        " window.onCardChanged($cardId); return 'ok';" +
-                        " } catch (e) { return 'threw:' + e; } })()"
+                ClusterCardThemeDeliveryPolicy.buildJavascript(
+                        cardId,
+                        allowLegacyControlFallback
+                )
         if (webViewsLoaded.getOrDefault(wv, false)) {
             wv.evaluateJavascript(js) { result ->
-                if (result == null || !result.contains("ok")) {
-                    Log.e(TAG, "[CARD_PUSH] card=$cardId not delivered to theme: $result")
-                    ClusterPersistentEventLogger.log(
-                            "card_push_failed",
-                            mapOf("card" to cardId, "result" to (result ?: "null"))
-                    )
-                } else {
-                    Log.w(TAG, "[CARD_PUSH] card=$cardId delivered")
+                when (ClusterCardThemeDeliveryPolicy.classifyResult(result)) {
+                    ClusterCardThemeDeliveryPolicy.Result.CONTRACT ->
+                            Log.w(TAG, "[CARD_PUSH] card=$cardId delivered via contract")
+                    ClusterCardThemeDeliveryPolicy.Result.LEGACY_CONTROL -> {
+                        Log.w(TAG, "[CARD_PUSH] card=$cardId delivered via Sport compatibility")
+                        ClusterPersistentEventLogger.log(
+                                "card_push_legacy_fallback",
+                                mapOf("card" to cardId, "theme" to getActiveCustomThemeName())
+                        )
+                    }
+                    ClusterCardThemeDeliveryPolicy.Result.FAILED -> {
+                        Log.e(TAG, "[CARD_PUSH] card=$cardId not delivered to theme: $result")
+                        ClusterPersistentEventLogger.log(
+                                "card_push_failed",
+                                mapOf("card" to cardId, "result" to (result ?: "null"))
+                        )
+                    }
                 }
             }
         } else {
@@ -2899,16 +3073,23 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     )
                     val compatibilityResult =
                             ProjectionDisplayHtmlPolicy.preserveUserDisplaySelection(
-                                    themeFile.readText()
+                                    themeFile.readText(),
+                                    customThemeName
                             )
                     if (compatibilityResult.removedLegacyOverrides > 0 ||
-                                    compatibilityResult.injectedCarPlayFullBleedMask
+                                    compatibilityResult.injectedCarPlayFullBleedMask ||
+                                    compatibilityResult.injectedSportVisualPolish ||
+                                    compatibilityResult.tunedSportGaugeMotion ||
+                                    compatibilityResult.pausedHiddenSportCanvas
                     ) {
                         Log.i(
                                 TAG,
                                 "Applied custom projection compatibility to $customThemeName: " +
                                         "removedDisplayOverrides=${compatibilityResult.removedLegacyOverrides} " +
-                                        "carPlayFullBleedMask=${compatibilityResult.injectedCarPlayFullBleedMask}"
+                                        "carPlayFullBleedMask=${compatibilityResult.injectedCarPlayFullBleedMask} " +
+                                        "sportVisualPolish=${compatibilityResult.injectedSportVisualPolish} " +
+                                        "sportGaugeMotion=${compatibilityResult.tunedSportGaugeMotion} " +
+                                        "sportHiddenCanvasPaused=${compatibilityResult.pausedHiddenSportCanvas}"
                         )
                         ClusterPersistentEventLogger.log(
                                 "custom_theme_projection_display_compat",
@@ -2917,7 +3098,13 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                         "removedOverrides" to
                                                 compatibilityResult.removedLegacyOverrides,
                                         "carPlayFullBleedMask" to
-                                                compatibilityResult.injectedCarPlayFullBleedMask
+                                                compatibilityResult.injectedCarPlayFullBleedMask,
+                                        "sportVisualPolish" to
+                                                compatibilityResult.injectedSportVisualPolish,
+                                        "sportGaugeMotion" to
+                                                compatibilityResult.tunedSportGaugeMotion,
+                                        "sportHiddenCanvasPaused" to
+                                                compatibilityResult.pausedHiddenSportCanvas
                                 )
                         )
                     }
