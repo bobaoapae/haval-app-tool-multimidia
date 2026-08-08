@@ -1,8 +1,10 @@
 package br.com.redesurftank.havalshisuku.managers
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import java.io.File
 import java.io.FileOutputStream
@@ -21,6 +23,13 @@ object CarPlayPatchManager {
     const val SYSTEM_SERVICE_PATH = "/vendor/app/TsCarPlayService/TsCarPlayService.apk"
     private const val SYSTEM_APP_OAT = "/system/app/TsCarPlayApp/oat"
     private const val SYSTEM_SERVICE_OAT = "/vendor/app/TsCarPlayService/oat"
+    private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+    private const val APP_LIST_PACKAGE = "com.beantechs.applist"
+    private const val SYSTEM_UI_REFRESH_OVERLAY = "com.android.systemui.theme.dark"
+    private const val PROCESS_RELOAD_GRACE_MS = 500L
+    private const val PROCESS_RESTART_TIMEOUT_MS = 3_000L
+    private const val PROCESS_RESTART_POLL_MS = 100L
+    private const val OEM_CLIENT_REFRESH_SETTLE_MS = 1_000L
 
     private data class BundledPatchInstallResult(
         val success: Boolean,
@@ -296,11 +305,19 @@ object CarPlayPatchManager {
                 TAG,
                 "[$reason] CarPlay visual task is active; reloading visual and host so mounted HVAC focus patches are loaded"
             )
-            sh("am force-stop com.ts.carplay.app 2>/dev/null || true")
-            sh("am force-stop com.ts.carplay 2>/dev/null || true")
-            sh("sleep 0.3")
-            sh("am startservice -n com.ts.carplay/.CarPlayService 2>/dev/null || true")
-            sh("am startservice -n com.ts.carplay.app/.service.CarPlayRemoteService 2>/dev/null || true")
+            reloadBoundProcessWithoutForceStop(
+                packageName = "com.ts.carplay.app",
+                serviceComponent = "com.ts.carplay.app/.service.CarPlayRemoteService",
+                reason = reason
+            )
+            val hostReloaded = reloadBoundProcessWithoutForceStop(
+                packageName = "com.ts.carplay",
+                serviceComponent = "com.ts.carplay/.CarPlayService",
+                reason = reason
+            )
+            if (hostReloaded) {
+                refreshOemCarPlayClientsAfterHostReload(reason)
+            }
             if (visualTaskOnDisplay3) {
                 sh("am start --display 3 --windowingMode 5 --activity-multiple-task -f 0x18000000 -n com.ts.carplay.app/com.ts.carplay.app.ui.display.view.CarPlayDisplayActivity 2>/dev/null || true")
             } else if (visualTaskOnDisplay0) {
@@ -313,11 +330,238 @@ object CarPlayPatchManager {
             TAG,
             "[$reason] Reloading idle CarPlay processes so mounted HVAC focus patches are loaded in memory"
         )
-        sh("am force-stop com.ts.carplay.app 2>/dev/null || true")
-        sh("am force-stop com.ts.carplay 2>/dev/null || true")
-        sh("sleep 0.2")
-        sh("am startservice -n com.ts.carplay/.CarPlayService 2>/dev/null || true")
-        sh("am startservice -n com.ts.carplay.app/.service.CarPlayRemoteService 2>/dev/null || true")
+        reloadBoundProcessWithoutForceStop(
+            packageName = "com.ts.carplay.app",
+            serviceComponent = "com.ts.carplay.app/.service.CarPlayRemoteService",
+            reason = reason
+        )
+        val hostReloaded = reloadBoundProcessWithoutForceStop(
+            packageName = "com.ts.carplay",
+            serviceComponent = "com.ts.carplay/.CarPlayService",
+            reason = reason
+        )
+        if (hostReloaded) {
+            refreshOemCarPlayClientsAfterHostReload(reason)
+        }
+    }
+
+    /**
+     * Reloads patched code without putting the package in Android's force-stopped state.
+     *
+     * `am force-stop` permanently marks every existing service connection as DEAD until the
+     * client binds again. A direct process signal preserves ActivityManager's BIND_AUTO_CREATE
+     * records and reconnects clients to the replacement host. The OEM CarPlay SDK still caches
+     * its inner manager Binder, so the affected native clients are renewed separately after the
+     * host replacement.
+     */
+    private fun reloadBoundProcessWithoutForceStop(
+        packageName: String,
+        serviceComponent: String,
+        reason: String
+    ): Boolean {
+        val originalPids = readProcessIds(packageName)
+        ClusterPersistentEventLogger.log(
+            "carplay_patch_process_reload_started",
+            mapOf(
+                "reason" to reason,
+                "package" to packageName,
+                "originalPids" to originalPids.joinToString(","),
+                "strategy" to "signal_preserve_bind"
+            )
+        )
+
+        originalPids.forEach { pid ->
+            sh("kill -TERM $pid 2>/dev/null || true")
+        }
+
+        if (originalPids.isNotEmpty()) {
+            Thread.sleep(PROCESS_RELOAD_GRACE_MS)
+            readProcessIds(packageName)
+                .filter { it in originalPids }
+                .forEach { pid -> sh("kill -KILL $pid 2>/dev/null || true") }
+        }
+
+        var replacementPids =
+            if (originalPids.isEmpty()) emptySet()
+            else waitForReplacementProcess(packageName, originalPids)
+        var startFallbackUsed = false
+        if (replacementPids.isEmpty()) {
+            startFallbackUsed = true
+            sh("am startservice -n $serviceComponent 2>/dev/null || true")
+            replacementPids = waitForReplacementProcess(packageName, originalPids)
+        }
+
+        val replacementObserved = replacementPids.isNotEmpty()
+        Log.w(
+            TAG,
+            "[$reason] Bind-preserving CarPlay reload package=$packageName " +
+                "originalPids=$originalPids replacementPids=$replacementPids " +
+                "startFallbackUsed=$startFallbackUsed"
+        )
+        ClusterPersistentEventLogger.log(
+            "carplay_patch_process_reload_finished",
+            mapOf(
+                "reason" to reason,
+                "package" to packageName,
+                "originalPids" to originalPids.joinToString(","),
+                "replacementPids" to replacementPids.joinToString(","),
+                "replacementObserved" to replacementObserved,
+                "startFallbackUsed" to startFallbackUsed
+            )
+        )
+        return replacementObserved
+    }
+
+    /**
+     * Renews the two OEM clients that cache a CarPlayManager Binder across host replacement.
+     *
+     * SystemUI is not restarted. Toggling and immediately restoring its built-in resource
+     * overlay makes FragmentHostManager recreate only the navigation view, whose detach/attach
+     * lifecycle clears the stale manager. AppList is a separate process and can be renewed with
+     * a direct signal; if it was not active, its next normal launch creates a fresh manager.
+     */
+    private fun refreshOemCarPlayClientsAfterHostReload(reason: String) {
+        Thread.sleep(OEM_CLIENT_REFRESH_SETTLE_MS)
+        refreshSystemUiCarPlayView(reason)
+        refreshAppListCarPlayManager(reason)
+    }
+
+    private fun refreshSystemUiCarPlayView(reason: String) {
+        val systemUiPidsBefore = readProcessIds(SYSTEM_UI_PACKAGE)
+        val overlayListing = sh("cmd overlay list '$SYSTEM_UI_PACKAGE' 2>/dev/null || true")
+        val overlayInitiallyEnabled =
+            parseOverlayEnabled(overlayListing, SYSTEM_UI_REFRESH_OVERLAY)
+
+        if (overlayInitiallyEnabled == null) {
+            Log.e(TAG, "[$reason] SystemUI refresh overlay state unavailable; preserving native menu")
+            ClusterPersistentEventLogger.log(
+                "carplay_native_client_refresh_skipped",
+                mapOf(
+                    "reason" to reason,
+                    "client" to SYSTEM_UI_PACKAGE,
+                    "cause" to "overlay_state_unavailable"
+                )
+            )
+            return
+        }
+
+        val toggleAction = if (overlayInitiallyEnabled) "disable" else "enable"
+        val restoreAction = if (overlayInitiallyEnabled) "enable" else "disable"
+        try {
+            sh("cmd overlay $toggleAction --user 0 '$SYSTEM_UI_REFRESH_OVERLAY' 2>/dev/null || true")
+            Thread.sleep(OEM_CLIENT_REFRESH_SETTLE_MS)
+        } finally {
+            sh("cmd overlay $restoreAction --user 0 '$SYSTEM_UI_REFRESH_OVERLAY' 2>/dev/null || true")
+            Thread.sleep(OEM_CLIENT_REFRESH_SETTLE_MS)
+        }
+
+        val overlayRestored =
+            parseOverlayEnabled(
+                sh("cmd overlay list '$SYSTEM_UI_PACKAGE' 2>/dev/null || true"),
+                SYSTEM_UI_REFRESH_OVERLAY
+            ) == overlayInitiallyEnabled
+        val systemUiPidsAfter = readProcessIds(SYSTEM_UI_PACKAGE)
+        val systemUiPidPreserved =
+            systemUiPidsBefore.isNotEmpty() && systemUiPidsBefore == systemUiPidsAfter
+        val navigationBarPresent =
+            sh("dumpsys window windows 2>/dev/null | grep -F 'NavigationBar' | head -n 1")
+                .contains("NavigationBar")
+
+        Log.w(
+            TAG,
+            "[$reason] SystemUI CarPlay view refreshed; pidPreserved=$systemUiPidPreserved " +
+                "navigationBarPresent=$navigationBarPresent overlayRestored=$overlayRestored"
+        )
+        ClusterPersistentEventLogger.log(
+            "carplay_native_client_refreshed",
+            mapOf(
+                "reason" to reason,
+                "client" to SYSTEM_UI_PACKAGE,
+                "pidBefore" to systemUiPidsBefore.joinToString(","),
+                "pidAfter" to systemUiPidsAfter.joinToString(","),
+                "pidPreserved" to systemUiPidPreserved,
+                "navigationBarPresent" to navigationBarPresent,
+                "overlayRestored" to overlayRestored
+            )
+        )
+    }
+
+    private fun refreshAppListCarPlayManager(reason: String) {
+        val originalPids = readProcessIds(APP_LIST_PACKAGE)
+        if (originalPids.isEmpty()) {
+            ClusterPersistentEventLogger.log(
+                "carplay_native_client_refresh_skipped",
+                mapOf(
+                    "reason" to reason,
+                    "client" to APP_LIST_PACKAGE,
+                    "cause" to "process_not_running"
+                )
+            )
+            return
+        }
+
+        originalPids.forEach { pid -> sh("kill -TERM $pid 2>/dev/null || true") }
+        Thread.sleep(PROCESS_RELOAD_GRACE_MS)
+        readProcessIds(APP_LIST_PACKAGE)
+            .filter { it in originalPids }
+            .forEach { pid -> sh("kill -KILL $pid 2>/dev/null || true") }
+
+        val replacementPids = waitForReplacementProcess(APP_LIST_PACKAGE, originalPids)
+        Log.w(
+            TAG,
+            "[$reason] AppList CarPlay manager renewed; originalPids=$originalPids " +
+                "replacementPids=$replacementPids"
+        )
+        ClusterPersistentEventLogger.log(
+            "carplay_native_client_refreshed",
+            mapOf(
+                "reason" to reason,
+                "client" to APP_LIST_PACKAGE,
+                "pidBefore" to originalPids.joinToString(","),
+                "pidAfter" to replacementPids.joinToString(","),
+                "replacementObserved" to replacementPids.isNotEmpty()
+            )
+        )
+    }
+
+    private fun waitForReplacementProcess(packageName: String, originalPids: Set<Int>): Set<Int> {
+        val deadline = SystemClock.elapsedRealtime() + PROCESS_RESTART_TIMEOUT_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val currentPids = readProcessIds(packageName)
+            val replacements = replacementProcessIds(originalPids, currentPids)
+            if (replacements.isNotEmpty()) return replacements
+            Thread.sleep(PROCESS_RESTART_POLL_MS)
+        }
+        return replacementProcessIds(originalPids, readProcessIds(packageName))
+    }
+
+    private fun readProcessIds(packageName: String): Set<Int> {
+        return parseProcessIds(sh("pidof '$packageName' 2>/dev/null || true"))
+    }
+
+    internal fun parseProcessIds(output: String): Set<Int> {
+        return output
+            .trim()
+            .split(Regex("\\s+"))
+            .mapNotNull { token -> token.toIntOrNull()?.takeIf { it > 0 } }
+            .toSet()
+    }
+
+    internal fun replacementProcessIds(originalPids: Set<Int>, currentPids: Set<Int>): Set<Int> {
+        return currentPids - originalPids
+    }
+
+    internal fun parseOverlayEnabled(output: String, packageName: String): Boolean? {
+        val marker =
+            Regex("(?m)^\\[([x ])]\\s+${Regex.escape(packageName)}\\s*$")
+                .find(output)
+                ?.groupValues
+                ?.getOrNull(1)
+        return when (marker) {
+            "x" -> true
+            " " -> false
+            else -> null
+        }
     }
 
     fun getDiagnostics(): String {
