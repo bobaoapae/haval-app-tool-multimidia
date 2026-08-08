@@ -914,3 +914,41 @@ Contrato:
 - logs esperados:
   `Moving clean live CarPlay stack ... from D0 to D3 to preserve native Surface` e
   `CarPlay live stack moved to D3 as stack ...`.
+
+## Regra 43 - Recarga do host renova clientes OEM sem reiniciar SystemUI
+
+Em 2026-08-07, o cold boot da v309 comprovou que sinalizar diretamente o processo
+`com.ts.carplay` preserva os `ConnectionRecord` externos do ActivityManager, mas nao renova o
+`CarPlayManager` interno mantido pelo SDK OEM. O `CarPlay.java` zera `mConnectionState` antes de
+chamar `disconnect()` em `onServiceDisconnected`; por isso `tearDownCarPlayManagers()` retorna sem
+limpar `mServiceMap`. SystemUI e AppList reconectam ao novo host, mas continuam consultando o Binder
+interno do processo anterior. O servico novo estava com `linkStatus=2`, enquanto os dois icones
+permaneciam inativos.
+
+Contrato:
+
+- `com.android.systemui` nao pode ser encerrado ou reiniciado para atualizar o icone CarPlay;
+- depois de uma substituicao confirmada do host `com.ts.carplay`, a view nativa pode ser renovada
+  por uma mudanca de recursos direcionada ao SystemUI, usando o overlay OEM
+  `com.android.systemui.theme.dark` e restaurando obrigatoriamente seu estado original;
+- a recuperacao deve confirmar que o PID do SystemUI foi preservado e que a janela
+  `NavigationBar` continua presente;
+- se o estado inicial do overlay nao puder ser determinado, a renovacao deve ser ignorada e o menu
+  preservado;
+- o AppList pode ter apenas seu processo renovado por sinal direto, sem `am force-stop`; se ele nao
+  estiver ativo, o proximo inicio normal criara o manager novo;
+- a sequencia nao pode reiniciar CarPlay novamente, alterar Surface, foco, display D0/D3,
+  resolucao, WebView ou Android Auto.
+
+Validacao fisica manual em 2026-08-07:
+
+- SystemUI permaneceu no PID `1928`, host CarPlay permaneceu no PID `6792` e a NavigationBar ficou
+  presente;
+- o bind SystemUI foi renovado de `ConnectionRecord{3fdbd3d}` para
+  `ConnectionRecord{7716f94}` e o icone apareceu no menu lateral;
+- AppList foi renovado de PID `5808` para `17271`, criou
+  `ConnectionRecord{eb2cc4a}` e o usuario confirmou o icone ativo na area de trabalho;
+- cold boot automatico da v310 confirmado no `boot_id=e2376c73-a688-4bd8-b396-13247395a208`:
+  host `3913 -> 6152`, SystemUI PID `1993` preservado, `navigationBarPresent=true` e
+  `overlayRestored=true` antes de qualquer pinca; apos USB e abertura normal do AppList, PID
+  `14334` criou `ConnectionRecord{323f771}` e o usuario confirmou ambos os icones ativos.

@@ -781,3 +781,28 @@ Um novo patch CarPlay so deve ser considerado se:
 - `app/src/main/java/br/com/redesurftank/havalshisuku/projectors/InstrumentProjector2.kt`
 - `docs/carplay-cluster-regression-contract.md`
 - `tools/headunit-dev/diagnose-projection-focus-compare.sh`
+
+## Renovacao dos clientes OEM apos recarga do host CarPlay (2026-08-07)
+
+O bind externo e o manager interno sao duas camadas diferentes. A troca do processo
+`com.ts.carplay` por `SIGTERM` preserva os binds `BIND_AUTO_CREATE` registrados no
+ActivityManager, mas o SDK OEM `com.ts.carplay.manager.CarPlay` mantem os objetos em `mServiceMap`.
+No callback de desconexao, ele grava `mConnectionState=0` antes de chamar `disconnect()`; a chamada
+retorna imediatamente e nao executa `tearDownCarPlayManagers()`. Assim, SystemUI e AppList recebem
+o novo `onServiceConnected`, mas `getCarPlayManager()` devolve o manager que ainda aponta para o
+Binder morto.
+
+A estrategia da v310 e restrita ao momento em que `CarPlayPatchManager` confirma uma nova geracao
+do host:
+
+1. aguardar o host substituto estabilizar;
+2. renovar apenas o fragmento da NavigationBar por uma mudanca de recursos do SystemUI;
+3. restaurar o estado original do overlay OEM usado como gatilho;
+4. confirmar PID do SystemUI preservado e janela `NavigationBar` presente;
+5. renovar separadamente o processo do AppList por sinal direto, sem estado force-stopped.
+
+Essa sequencia nao toca no renderer CarPlay, Activity D0/D3, Surface, video focus, WebView,
+resolucao ou Android Auto. O teste manual no mesmo boot restaurou os dois icones. O cold boot
+seguinte da v310 tambem confirmou a automacao: SystemUI foi renovado e preservado antes da pinca;
+quando o AppList, ausente no boot, foi aberto normalmente, criou um manager novo e exibiu o segundo
+icone ativo.
