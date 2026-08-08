@@ -1,6 +1,6 @@
 # Themes Architecture (Contract v1.0)
 
-Updated: 2026-08-06
+Updated: 2026-08-07
 
 ## Ownership
 
@@ -59,6 +59,23 @@ OTA publish checklist:
 4. Push to the branch `ThemeManager` crawls (currently `preview` in `bobaoapae/haval-app-tool-multimidia` — see `ThemeManager.THEME_REPO_URL`).
 
 `theme.xml` must ship with `app.html`; the updater compares `<version>` there.
+
+## Published catalogue sources
+
+The production picker aggregates two deliberately separate paths on the same `preview` branch:
+
+- `Themes/v1.0` for contract-compatible themes such as Minimalist;
+- `Themes` only for the explicitly allowlisted legacy packages `SportRed` and `SportRedLite`.
+
+The legacy root is not a second contract catalogue. `ThemeManager` skips every other folder there,
+requires the exact expected folder/name/version/main-file metadata, downloads Sport from that root,
+and activates it only when the complete three-file package matches the host-pinned SHA-256 allowlist.
+A renamed, repackaged, extra-file or hash-mismatched package fails closed. Sport therefore remains a
+temporary legacy compatibility path and must not be moved into `v1.0` without a real contract port.
+
+`fetchPublishedThemes()` tolerates one catalogue source being temporarily unavailable so a Sport
+failure does not hide Minimalist and a v1.0 failure does not hide an otherwise valid pinned Sport
+package. If both sources fail, the picker reports the catalogue error as before.
 
 ## User-owned display mode
 

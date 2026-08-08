@@ -538,7 +538,7 @@ fun TelasTab() {
             try {
                 githubThemes =
                         ThemeManager.getInstance(context)
-                                .fetchThemesFromGithub(ThemeManager.THEME_REPO_URL)
+                                .fetchPublishedThemes()
             } catch (e: Exception) {
                 // Startup fetch stays silent (no toast on screen entry), but always logs:
                 // this used to be DEBUG-gated, which is why the car showed nothing at all.
@@ -745,7 +745,7 @@ fun TelasTab() {
                                                         try {
                                                             localThemes = ThemeManager.getInstance(context).getLocalThemes()
                                                             val fetched = ThemeManager.getInstance(context)
-                                                                    .fetchThemesFromGithub(ThemeManager.THEME_REPO_URL)
+                                                                    .fetchPublishedThemes()
                                                             githubThemes = fetched
                                                             val updates = fetched.count { remote ->
                                                                 localThemes.any { local ->

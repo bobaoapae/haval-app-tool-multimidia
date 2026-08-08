@@ -36,7 +36,19 @@ class ThemeManager private constructor(val context: Context) {
         private const val TAG = "ThemeManager"
         /** Audited package catalog published with the stable v301 integration branch. */
         const val THEME_REPO_URL = "https://github.com/bobaoapae/haval-app-tool-multimidia/tree/preview/cluster-widgets/Themes/v1.0"
+        /** Legacy Sport packages stay outside v1.0 and are accepted only through the pinned allowlist below. */
+        const val TRUSTED_LEGACY_SPORT_REPO_URL = "https://github.com/bobaoapae/haval-app-tool-multimidia/tree/preview/cluster-widgets/Themes"
         const val CURRENT_CONTRACT_VERSION = "v1.0"
+
+        private data class TrustedLegacySportMetadata(
+            val name: String,
+            val version: String
+        )
+
+        private val TRUSTED_LEGACY_SPORT_METADATA = mapOf(
+            "sportred" to TrustedLegacySportMetadata("Sport Colors", "0.16.44"),
+            "sportredlite" to TrustedLegacySportMetadata("Sport Colors Leve", "0.16.44")
+        )
 
         private val TRUSTED_LEGACY_SPORT_HASHES = mapOf(
             "sportred" to mapOf(
@@ -68,6 +80,22 @@ class ThemeManager private constructor(val context: Context) {
                 instance ?: ThemeManager(context.applicationContext).also { instance = it }
             }
         }
+
+        internal fun isTrustedLegacySportCatalogEntry(metadata: ThemeMetadata): Boolean {
+            val expected = TRUSTED_LEGACY_SPORT_METADATA[metadata.folderName.lowercase()]
+                ?: return false
+            return metadata.name == expected.name &&
+                metadata.version == expected.version &&
+                metadata.mainFile == "index.html" &&
+                metadata.contractVersion.equals("legacy", ignoreCase = true)
+        }
+
+        internal fun defaultRepositoryUrlFor(metadata: ThemeMetadata): String =
+            if (isTrustedLegacySportCatalogEntry(metadata)) {
+                TRUSTED_LEGACY_SPORT_REPO_URL
+            } else {
+                THEME_REPO_URL
+            }
     }
 
     fun getLocalThemes(): List<ThemeMetadata> {
@@ -181,7 +209,9 @@ class ThemeManager private constructor(val context: Context) {
     }
 
     fun isThemeSupported(metadata: ThemeMetadata): Boolean {
-        if (metadata.isLocal && isTrustedLegacySportThemeFolder(metadata.folderName)) return true
+        if (isTrustedLegacySportCatalogEntry(metadata)) {
+            return !metadata.isLocal || isTrustedLegacySportThemeFolder(metadata.folderName)
+        }
         return isContractCompatible(metadata.contractVersion) &&
             CompatTranslationLayer.isBridgeVersionSupported(metadata.minBridgeVersion)
     }
@@ -190,7 +220,20 @@ class ThemeManager private constructor(val context: Context) {
         if (folderName.isNullOrBlank()) return false
         val expectedFiles = TRUSTED_LEGACY_SPORT_HASHES[folderName.lowercase()] ?: return false
         val themeDir = resolveThemeDirectory(folderName) ?: return false
+        return hasTrustedLegacySportFiles(themeDir, expectedFiles)
+    }
+
+    private fun hasTrustedLegacySportFiles(
+        themeDir: File,
+        expectedFiles: Map<String, String>
+    ): Boolean {
         if (!themeDir.isDirectory) return false
+        val actualFiles = themeDir.listFiles()
+            ?.filter { it.isFile }
+            ?.map { it.name }
+            ?.toSet()
+            ?: return false
+        if (actualFiles != expectedFiles.keys) return false
         return expectedFiles.all { (relativePath, expectedHash) ->
             val file = File(themeDir, relativePath)
             file.isFile && sha256(file).equals(expectedHash, ignoreCase = true)
@@ -470,11 +513,51 @@ class ThemeManager private constructor(val context: Context) {
     class ThemeFetchException(val userMessage: String, cause: Throwable? = null) :
             Exception(userMessage, cause)
 
-    suspend fun fetchThemesFromGithub(repoUrl: String): List<ThemeMetadata> {
+    /**
+     * Builds the production catalogue from two deliberately separate sources:
+     * contract-v1 themes and the two immutable legacy Sport packages. A partial
+     * source failure must not hide themes returned successfully by the other source.
+     */
+    suspend fun fetchPublishedThemes(): List<ThemeMetadata> {
+        val results = mutableListOf<ThemeMetadata>()
+        var successfulSources = 0
+        var firstError: ThemeFetchException? = null
+
+        try {
+            results += fetchThemesFromGithub(THEME_REPO_URL)
+            successfulSources++
+        } catch (e: ThemeFetchException) {
+            firstError = e
+            Log.e(TAG, "Contract-v1 theme catalogue unavailable", e)
+        }
+
+        try {
+            results += fetchThemesFromGithub(
+                TRUSTED_LEGACY_SPORT_REPO_URL,
+                TRUSTED_LEGACY_SPORT_METADATA.keys
+            ).filter(::isTrustedLegacySportCatalogEntry)
+            successfulSources++
+        } catch (e: ThemeFetchException) {
+            if (firstError == null) firstError = e
+            Log.e(TAG, "Trusted legacy Sport catalogue unavailable", e)
+        }
+
+        if (successfulSources == 0) {
+            throw firstError ?: ThemeFetchException("Falha ao consultar o catálogo de temas.")
+        }
+
+        return results.distinctBy { it.folderName.lowercase() }
+    }
+
+    suspend fun fetchThemesFromGithub(
+        repoUrl: String,
+        allowedFolderNames: Set<String>? = null
+    ): List<ThemeMetadata> {
         return withContext(Dispatchers.IO) {
             try {
                 val apiUrl = convertToGithubApiUrl(repoUrl)
                 Log.i(TAG, "Fetching themes from API: $apiUrl")
+                val normalizedAllowedFolders = allowedFolderNames?.map { it.lowercase() }?.toSet()
 
                 val url = URL(apiUrl)
                 val conn = url.openConnection() as HttpURLConnection
@@ -506,6 +589,11 @@ class ThemeManager private constructor(val context: Context) {
                     val obj = array.getJSONObject(i)
                     if (obj.getString("type") == "dir") {
                         val folderName = obj.getString("name")
+                        if (normalizedAllowedFolders != null &&
+                            folderName.lowercase() !in normalizedAllowedFolders
+                        ) {
+                            continue
+                        }
                         val folderUrl = obj.getString("url")
 
                         // Fetch theme.xml for this folder
@@ -690,7 +778,11 @@ class ThemeManager private constructor(val context: Context) {
                 // Read preference for custom theme repo or use defaults
                 val sharedPrefs = context.getSharedPreferences("MainPrefs", Context.MODE_PRIVATE)
                 val customUrl = sharedPrefs.getString("customThemeRepoUrlProd", null)
-                val repoUrl = if (!customUrl.isNullOrBlank()) customUrl else THEME_REPO_URL
+                val repoUrl = if (!customUrl.isNullOrBlank()) {
+                    customUrl
+                } else {
+                    defaultRepositoryUrlFor(metadata)
+                }
 
                 val info = parseGithubUrl(repoUrl)
                 val apiUrl = if (info != null) {
@@ -779,9 +871,16 @@ class ThemeManager private constructor(val context: Context) {
                     metadata.folderName,
                     true
                 ) ?: return@withContext false
-                if (!isContractCompatible(stagedMetadata.contractVersion) ||
-                    !CompatTranslationLayer.isBridgeVersionSupported(stagedMetadata.minBridgeVersion)
-                ) {
+                val isCompatibleContractTheme =
+                    isContractCompatible(stagedMetadata.contractVersion) &&
+                        CompatTranslationLayer.isBridgeVersionSupported(stagedMetadata.minBridgeVersion)
+                val expectedLegacyFiles =
+                    TRUSTED_LEGACY_SPORT_HASHES[stagedMetadata.folderName.lowercase()]
+                val isTrustedLegacySportPackage =
+                    isTrustedLegacySportCatalogEntry(stagedMetadata) &&
+                        expectedLegacyFiles != null &&
+                        hasTrustedLegacySportFiles(stagingDir, expectedLegacyFiles)
+                if (!isCompatibleContractTheme && !isTrustedLegacySportPackage) {
                     Log.e(TAG, "Downloaded theme is incompatible with the active contract/bridge")
                     return@withContext false
                 }
