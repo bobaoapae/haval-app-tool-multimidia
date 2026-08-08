@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Haval Cluster Theme Lab</title>
+  <link rel="stylesheet" href="/dev/theme-lab.css" />
+</head>
+<body>
+  <a class="skip-link" href="#cluster-preview">Ir para a prévia do cluster</a>
+
+  <header class="lab-header">
+    <div class="brand-block">
+      <span class="eyebrow">Cluster Widgets</span>
+      <h1>Theme Lab</h1>
+    </div>
+
+    <div class="header-actions" aria-label="Ações da prévia">
+      <button class="toolbar-button" id="reload-theme" type="button">Recarregar</button>
+      <button class="toolbar-button" id="open-theme" type="button">Abrir isolado</button>
+    </div>
+  </header>
+
+  <main class="lab-main">
+    <section class="theme-picker" aria-labelledby="theme-picker-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="theme-picker-title">Escolha o tema</h2>
+          <p>O tema é carregado diretamente da pasta indicada abaixo.</p>
+        </div>
+
+        <label class="select-field" for="theme-select">
+          <span>Tema</span>
+          <select id="theme-select" disabled>
+            <option>Carregando temas…</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="theme-toggle" id="theme-toggle" role="radiogroup" aria-label="Temas disponíveis"></div>
+
+      <div class="theme-meta" aria-live="polite">
+        <div>
+          <span class="meta-label">Pasta ativa</span>
+          <code id="active-folder">—</code>
+        </div>
+        <div class="meta-badges">
+          <span class="badge" id="active-version">Versão —</span>
+          <span class="badge" id="active-kind">—</span>
+          <span class="badge badge-accent" id="active-keyboard">Teclado —</span>
+          <span class="badge badge-fixed-layer">3 ícones nativos fixos</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="preview-section" aria-labelledby="preview-title">
+      <div class="preview-heading">
+        <div>
+          <h2 id="preview-title">Display 3 · 1920 × 720</h2>
+          <p id="preview-status" role="status">Preparando simulador…</p>
+        </div>
+
+        <div class="preview-tools">
+          <div class="panel-actions" id="panel-actions" aria-label="Painéis do simulador">
+            <button class="panel-button" type="button" data-panel="testing-settings-harness" aria-pressed="false">Aparência</button>
+            <button class="panel-button" type="button" data-panel="testing-state-harness" aria-pressed="false">Telemetria / AC</button>
+            <button class="panel-button" type="button" data-panel="testing-shortcuts-harness" aria-pressed="false">Atalhos</button>
+            <button class="panel-button" type="button" data-panel="testing-console-harness" aria-pressed="false">Testes</button>
+          </div>
+
+          <div class="keyboard-summary" aria-label="Atalhos principais">
+            <span><kbd>[</kbd> <kbd>]</kbd> cards</span>
+            <span><kbd>↑</kbd> <kbd>↓</kbd> navegar</span>
+            <span><kbd>Enter</kbd> selecionar</span>
+            <span><kbd>Backspace</kbd> voltar</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="preview-viewport" id="cluster-preview" tabindex="-1">
+        <div class="preview-stage" id="preview-stage">
+          <iframe
+            id="theme-frame"
+            title="Prévia do tema do cluster"
+            width="1920"
+            height="720"
+            allow="autoplay"
+          ></iframe>
+        </div>
+      </div>
+    </section>
+
+    <details class="help-panel">
+      <summary>Atalhos de simulação</summary>
+      <div class="help-grid">
+        <div>
+          <h3>Navegação</h3>
+          <p><kbd>[</kbd>/<kbd>]</kbd> ou <kbd>Page Up</kbd>/<kbd>Page Down</kbd> alternam os cards 0, 1 e 3. Setas verticais navegam; <kbd>Enter</kbd> seleciona.</p>
+        </div>
+        <div>
+          <h3>Climatização</h3>
+          <p>No card 3, <kbd>Enter</kbd> alterna entre ventilador e temperatura; <kbd>↑</kbd>/<kbd>↓</kbd> ajustam. <kbd>Espaço</kbd> alterna AUTO.</p>
+        </div>
+        <div>
+          <h3>Sport Colors</h3>
+          <p>No card 1, escolha <strong>Display</strong> para Analógico V2 ou <strong>Cores</strong> para mudar a paleta. O adaptador é somente de desenvolvimento.</p>
+        </div>
+      </div>
+    </details>
+  </main>
+
+  <script type="module" src="/dev/theme-lab.js"></script>
+</body>
+</html>

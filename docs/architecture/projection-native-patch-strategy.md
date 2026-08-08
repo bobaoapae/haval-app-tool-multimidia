@@ -33,7 +33,7 @@ As variantes antigas continuam proibidas porque causaram crash, frame sujo ou re
 Portanto, a estrategia atual e:
 
 - manter Android Auto no fluxo patchado e isolado;
-- manter CarPlay no patch D3 v13 `native1904x704`, sustentado por MD5 e sentinels;
+- manter CarPlay no patch visual D3 v13, com auto-mount v14 `native1904x704`, sustentado por MD5 e sentinels;
 - nao misturar comandos de recuperacao Android Auto com CarPlay;
 - investigar CarPlay no caminho nativo de foco/video, principalmente `CarPlayManager.requestVideoFocusChange` e `ScreenResourceManager.screenResourceRequest`.
 - tratar o foco do proprio app Haval no D0 como excecao app-side: se o D3 fica preto mas
@@ -44,6 +44,14 @@ Portanto, a estrategia atual e:
   CarPlay aberto e limpo no D0, preparo `PREPARING_D3` pelo orquestrador e envio pelo fluxo do
   Impulse/app. `am start --display 3` direto continua permitido apenas como diagnostico.
 
+Offset visual Android Auto do PR 116:
+
+- `ENABLE_AA_CLUSTER_OFFSET` e default OFF e se aplica somente ao display 3;
+- quando habilitado, os bounds passam de `[0,0,1920,720]` para `[offset,0,1920,720]`, preservando
+  a borda direita e estreitando apenas a esquerda; o slider limita o ajuste a `0..400px`;
+- a reaplicacao ao vivo redimensiona somente a task Android Auto existente no D3;
+- nao altera APK/servico nativo, display 0, CarPlay, Surface CarPlay ou o patch v13/v14.
+
 ## Estado Atual dos APKs Nativos
 
 | Item | Android Auto | CarPlay |
@@ -52,7 +60,7 @@ Portanto, a estrategia atual e:
 | Pacote/host nativo | `com.ts.androidauto.projectionservice` / `com.ts.androidauto` | `com.ts.carplay` |
 | Activity visual | `com.ts.androidauto.app.display.AapActivity` | `com.ts.carplay.app.ui.display.view.CarPlayDisplayActivity` |
 | Estrategia atual | APK patchado via bind mount em `/vendor/app/...` | Patch minimo em `/system/app/TsCarPlayApp` + `/vendor/app/TsCarPlayService` |
-| Patch runtime | Ativo quando instalado/montado | Ativo para CarPlay D3 v13 |
+| Patch runtime | Ativo quando instalado/montado | Ativo para CarPlay visual D3 v13 / auto-mount v14 |
 | Recuperacao permitida | Mais agressiva no app visual e foco | Conservadora, baseada em estado real e logs |
 | Evidencia recente | v156 valida hardkeys por ACK dentro do processo system AA; efeito fisico ainda depende de teste no carro | HVAC corrigido; app normal no D0 validado por stack + screencap; camera/AVM ainda depende de teste fisico |
 
@@ -401,6 +409,43 @@ Atualizacao 2026-06-09 10:53 - Botoes fisicos de midia pela rota nativa da headu
   app-side quando necessario.
 - CarPlay continua isolado e nao foi alterado nesta correcao.
 
+Atualizacao 2026-08-05 - corrida de boot do icone CarPlay na barra nativa:
+
+- Logs da central mostraram o SystemUI tentando resolver `CarPlayService` antes de o host montado
+  disponibilizar o servico. Musica/link podiam funcionar depois, mas a barra lateral mantinha o
+  bind ausente ate um restart posterior do SystemUI.
+- O watchdog agora diferencia `SERVICE_NOT_READY` de `MISSING` e pode preparar o bind antes da
+  primeira conexao USB, somente uma vez por `boot_id` e dentro dos primeiros `120s`.
+- A confirmacao `MISSING` usa a mesma geracao de host PID, SystemUI PID e `ServiceRecord`, com duas
+  releituras de `2s`; qualquer troca de geracao reinicia a contagem.
+- Antes de reiniciar somente o SystemUI, o fluxo relê USB, geracao, estado do bind e velocidade.
+  Apenas velocidade conhecida no intervalo `0..0,5km/h` e cooldown global expirado autorizam a
+  acao.
+- O caminho conectado reutiliza o mesmo snapshot de host/servico para relevancia e estado do bind,
+  evitando o `dumpsys` duplicado anterior. Fora da janela de boot nao existe polling adicional de
+  prewarm.
+- Nao houve mudanca nos APKs/patches nativos, Activity CarPlay, Surface, foco, display, handoff
+  D0/D3, WebView ou Android Auto. Persistencia do listener prearmado e tempo real de aparicao do
+  icone continuam A confirmar na central.
+
+Atualizacao 2026-08-05 - prewarm por restart desabilitado apos regressao v296:
+
+- A v296 executou `BOOT_SERVICE_READY_PREWARM` aos `44s`, matou o SystemUI e terminou a verificacao
+  do novo bind em `MISSING/verified=false`.
+- No mesmo cold boot, o menu lateral nativo do display 0 desapareceu. O usuario confirmou que um
+  gesto de pinca na tela fez o menu voltar, e o WindowManager voltou a mostrar a NavigationBar em
+  `[0,0][128,720]`.
+- A politica atual mantem o watchdog somente como observador. Boot, conexao e desconexao USB nao
+  podem mais executar restart automatico de `com.android.systemui`.
+- Recuperacao manual do SystemUI fica restrita a diagnostico explicito com o veiculo parado. O
+  atraso do icone CarPlay e menos grave que remover o menu nativo inteiro.
+- A camada visual de projecao tambem nao escolhe mais `Mapa`: ela preserva o modo de display atual e
+  somente a acao do usuario pode trocar `Normal`, `Reduzido`, `Clean` ou `Mapa`.
+- Os bundles precompilados `SportRed`/`SportRedLite` 0.16.44 ainda contem um override interno para
+  `Mapa Limpo`. `ProjectionDisplayHtmlPolicy` remove essa assinatura em memoria antes do
+  `loadDataWithBaseURL`; o arquivo baixado e a preferencia permanecem intactos e a politica vira
+  no-op quando o tema for corrigido na origem.
+
 Atualizacao 2026-06-11 21:52 - Toggle Android Auto sem fallback OEM:
 
 - O fallback OEM de midia Android Auto (`input keyevent 1002/1003/1004`) permanece proibido por
@@ -610,7 +655,7 @@ Confirmado por codigo:
 
 - `CarPlayPatchManager` tem `PATCH_RUNTIME_ENABLED = true`.
 - `ensureMounted()` instala e monta `TsCarPlayApp.apk` e `TsCarPlayService.apk`.
-- `ForegroundService` usa a chave `app_visual_d0_focus_service_conditional_camera_native1904x704_v13` para ativar o auto-mount.
+- `ForegroundService` usa a chave `app_visual_d0_focus_service_conditional_camera_native1904x704_v14` para ativar o auto-mount.
 - Se o mount muda enquanto a task visual do CarPlay ja esta ativa, o manager recarrega
   `com.ts.carplay.app` e `com.ts.carplay` para carregar o dex novo e reabre a Activity visual no
   display onde ela estava. Isso e restrito ao carregamento de patch, nao ao handoff normal.
@@ -650,9 +695,9 @@ Consequencia:
   Activity visual do CarPlay ou recria o visual no D0, o watchdog pode recriar a Activity no D3 sem
   `force-stop` e limpar duplicata somente depois que o D3 existir.
 - Com o patch atual preservando HVAC/apps do D0 e a camera validada sem o service camera v7, a camada `InstrumentProjector2` nao deve
-  mais esconder a `Presentation` por `windowAlpha=0` durante painel nativo. O display efetivo
-  `Mapa` deve permanecer visivel/transparente sobre o CarPlay no D3; esconder a WebView remove os
-  widgets do Mapa sem corrigir foco ou decoder.
+  mais esconder a `Presentation` por `windowAlpha=0` durante painel nativo. O display escolhido pelo
+  usuario deve permanecer visivel/transparente sobre o CarPlay no D3; esconder a WebView remove o
+  overlay selecionado sem corrigir foco ou decoder.
 
 ## Diferenca de Recuperacao Entre Android Auto e CarPlay
 

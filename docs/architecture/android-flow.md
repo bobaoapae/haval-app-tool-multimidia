@@ -11,6 +11,21 @@ Atualizado em: 2026-06-30
 5. `ProjectorManager` cria projectors nos displays secundários.
 6. Telas Compose em `ui/screens` expõem configurações para usuário.
 
+## Atualizacao 2026-08-06 - PR 116: Performance, HEV e card A/C
+
+- A subaba `Performance` agrupa debloat OEM, bloqueio DataTrack e o monitor opcional CPU/RAM.
+- Debloat permanece opt-in e reversivel: os toggles chamam `ensureDebloatedSystemApps()`, que usa
+  `pm uninstall --user 0` para desativar e `pm install-existing` para restaurar os pacotes.
+- O monitor CPU/RAM e avancado, desligado por padrao, le `/proc` em `Dispatchers.IO` a cada `2,5s`
+  e usa uma janela `NOT_FOCUSABLE|NOT_TOUCHABLE`; o job e a janela sao removidos no `onDestroy`.
+- No MainMenu, `ENTER_LONG` sobre modo de forca alterna o submodo apenas quando o veiculo reporta
+  HEV. `InstrumentProjector2` publica `HEV Inteligente` ou `HEV Prioridade XX%` e o tema mostra o
+  submodo em fonte secundaria.
+- A guarda de reentrada nativa ignora somente `0 -> 1/3` espontaneo, sem
+  `LEFT/RIGHT/HOME/BACK` recente. Saidas intencionais do A/C e transicoes `1 -> 3` continuam
+  aceitas e cobertas por teste.
+- O offset Android Auto D3 e opt-in/default OFF e nao altera CarPlay.
+
 ## Atualizacao 2026-06-30 - Dashboard Impulse background por album
 
 - `ExpandedImpulseDashboard` calcula uma paleta compartilhada da capa via

@@ -80,6 +80,28 @@ class DisplayAppLauncherCarPlaySystemUiIconWatchdogTest {
     }
 
     @Test
+    fun emptyServiceDumpMeansCarPlayServiceIsNotReady() {
+        assertEquals(
+            "SERVICE_NOT_READY",
+            DisplayAppLauncher.resolveCarPlaySystemUiServiceConnectionStateForTest("")
+        )
+    }
+
+    @Test
+    fun liveCarPlayServiceWithoutSystemUiConnectionIsMissing() {
+        val dump =
+            """
+            * ServiceRecord{c2141 u0 com.ts.carplay/.CarPlayService}
+              intent={cmp=com.ts.carplay/.CarPlayService}
+            """.trimIndent()
+
+        assertEquals(
+            "MISSING",
+            DisplayAppLauncher.resolveCarPlaySystemUiServiceConnectionStateForTest(dump)
+        )
+    }
+
+    @Test
     fun missingSystemUiConnectionRequiresRepeatedStationarySamples() {
         assertFalse(
             DisplayAppLauncher.shouldRecoverCarPlaySystemUiIconForTest(
@@ -100,6 +122,215 @@ class DisplayAppLauncherCarPlaySystemUiIconWatchdogTest {
                 missingBindSamples = 3,
                 now = 200_000L,
                 lastRecoveryAt = 0L
+            )
+        )
+    }
+
+    @Test
+    fun missingBindUsesFastRechecksOnlyWhileConfirmationIsPending() {
+        assertEquals(
+            2_000L,
+            DisplayAppLauncher.carPlaySystemUiIconWatchdogDelayForTest(
+                connectedMissingBindSamples = 1,
+                prewarmMissingBindSamples = 0
+            )
+        )
+        assertEquals(
+            2_000L,
+            DisplayAppLauncher.carPlaySystemUiIconWatchdogDelayForTest(
+                connectedMissingBindSamples = 0,
+                prewarmMissingBindSamples = 2
+            )
+        )
+        assertEquals(
+            10_000L,
+            DisplayAppLauncher.carPlaySystemUiIconWatchdogDelayForTest(
+                connectedMissingBindSamples = 3,
+                prewarmMissingBindSamples = 0
+            )
+        )
+        assertEquals(
+            10_000L,
+            DisplayAppLauncher.carPlaySystemUiIconWatchdogDelayForTest(
+                connectedMissingBindSamples = 0,
+                prewarmMissingBindSamples = 0
+            )
+        )
+    }
+
+    @Test
+    fun automaticSystemUiRestartPolicyBlocksBootPrewarm() {
+        assertFalse(DisplayAppLauncher.isCarPlaySystemUiAutomaticRestartEnabledForTest())
+        assertFalse(
+            DisplayAppLauncher.shouldPrewarmCarPlaySystemUiBindForTest(
+                usbConfigured = false,
+                hadConnectedCarPlayContext = false,
+                prewarmAttempted = false,
+                hostPidAlive = true,
+                connectionStateName = "MISSING"
+            )
+        )
+        assertFalse(
+            DisplayAppLauncher.shouldPrewarmCarPlaySystemUiBindForTest(
+                usbConfigured = false,
+                hadConnectedCarPlayContext = false,
+                prewarmAttempted = false,
+                hostPidAlive = true,
+                connectionStateName = "SERVICE_NOT_READY"
+            )
+        )
+        assertFalse(
+            DisplayAppLauncher.shouldPrewarmCarPlaySystemUiBindForTest(
+                usbConfigured = true,
+                hadConnectedCarPlayContext = false,
+                prewarmAttempted = false,
+                hostPidAlive = true,
+                connectionStateName = "MISSING"
+            )
+        )
+        assertFalse(
+            DisplayAppLauncher.shouldPrewarmCarPlaySystemUiBindForTest(
+                usbConfigured = false,
+                hadConnectedCarPlayContext = true,
+                prewarmAttempted = false,
+                hostPidAlive = true,
+                connectionStateName = "MISSING"
+            )
+        )
+        assertFalse(
+            DisplayAppLauncher.shouldPrewarmCarPlaySystemUiBindForTest(
+                usbConfigured = false,
+                hadConnectedCarPlayContext = false,
+                bootPrewarmEligible = false,
+                prewarmAttempted = false,
+                hostPidAlive = true,
+                connectionStateName = "MISSING"
+            )
+        )
+        assertFalse(
+            DisplayAppLauncher.shouldPrewarmCarPlaySystemUiBindForTest(
+                usbConfigured = false,
+                hadConnectedCarPlayContext = false,
+                prewarmAttempted = true,
+                hostPidAlive = true,
+                connectionStateName = "MISSING"
+            )
+        )
+    }
+
+    @Test
+    fun bootPrewarmIsClaimedOnlyOnceAndOnlyInsideBootstrapWindow() {
+        val bootToken = "87d9be65-616b-4e5b-bff8-97c2b7052528"
+        assertTrue(
+            DisplayAppLauncher.isCarPlaySystemUiIconBootPrewarmEligibleForTest(
+                bootUptimeMs = 60_000L,
+                bootToken = bootToken,
+                claimedBootToken = ""
+            )
+        )
+        assertFalse(
+            DisplayAppLauncher.isCarPlaySystemUiIconBootPrewarmEligibleForTest(
+                bootUptimeMs = 120_001L,
+                bootToken = bootToken,
+                claimedBootToken = ""
+            )
+        )
+        assertFalse(
+            DisplayAppLauncher.isCarPlaySystemUiIconBootPrewarmEligibleForTest(
+                bootUptimeMs = 60_000L,
+                bootToken = bootToken,
+                claimedBootToken = bootToken
+            )
+        )
+        assertFalse(
+            DisplayAppLauncher.isCarPlaySystemUiIconBootPrewarmEligibleForTest(
+                bootUptimeMs = 60_000L,
+                bootToken = "unknown-1234",
+                claimedBootToken = ""
+            )
+        )
+    }
+
+    @Test
+    fun missingSamplesResetWhenCarPlayOrSystemUiGenerationChanges() {
+        assertEquals(
+            3,
+            DisplayAppLauncher.nextCarPlayMissingBindSampleCountForTest(
+                previousCount = 2,
+                previousGeneration = "host-10|systemui-20|service-a",
+                currentGeneration = "host-10|systemui-20|service-a",
+                connectionStateName = "MISSING"
+            )
+        )
+        assertEquals(
+            1,
+            DisplayAppLauncher.nextCarPlayMissingBindSampleCountForTest(
+                previousCount = 2,
+                previousGeneration = "host-10|systemui-20|service-a",
+                currentGeneration = "host-11|systemui-20|service-b",
+                connectionStateName = "MISSING"
+            )
+        )
+        assertEquals(
+            1,
+            DisplayAppLauncher.nextCarPlayMissingBindSampleCountForTest(
+                previousCount = 2,
+                previousGeneration = "host-10|systemui-20|service-a",
+                currentGeneration = "host-10|systemui-21|service-a",
+                connectionStateName = "MISSING"
+            )
+        )
+        assertEquals(
+            0,
+            DisplayAppLauncher.nextCarPlayMissingBindSampleCountForTest(
+                previousCount = 2,
+                previousGeneration = "host-10|systemui-20|service-a",
+                currentGeneration = "host-10|systemui-20|service-a",
+                connectionStateName = "HEALTHY"
+            )
+        )
+    }
+
+    @Test
+    fun recoveryRevalidationRequiresSameStateAndAnOpenBootWindow() {
+        assertTrue(
+            DisplayAppLauncher.isCarPlaySystemUiRecoveryConfirmationValidForTest(
+                originalConnectionStateName = "MISSING",
+                confirmedConnectionStateName = "MISSING",
+                requireBootPrewarmWindow = true,
+                bootUptimeMs = 120_000L
+            )
+        )
+        assertFalse(
+            DisplayAppLauncher.isCarPlaySystemUiRecoveryConfirmationValidForTest(
+                originalConnectionStateName = "DEAD",
+                confirmedConnectionStateName = "MISSING",
+                requireBootPrewarmWindow = false,
+                bootUptimeMs = 60_000L
+            )
+        )
+        assertFalse(
+            DisplayAppLauncher.isCarPlaySystemUiRecoveryConfirmationValidForTest(
+                originalConnectionStateName = "MISSING",
+                confirmedConnectionStateName = "HEALTHY",
+                requireBootPrewarmWindow = true,
+                bootUptimeMs = 60_000L
+            )
+        )
+        assertFalse(
+            DisplayAppLauncher.isCarPlaySystemUiRecoveryConfirmationValidForTest(
+                originalConnectionStateName = "MISSING",
+                confirmedConnectionStateName = "MISSING",
+                requireBootPrewarmWindow = true,
+                bootUptimeMs = 120_001L
+            )
+        )
+        assertTrue(
+            DisplayAppLauncher.isCarPlaySystemUiRecoveryConfirmationValidForTest(
+                originalConnectionStateName = "DEAD",
+                confirmedConnectionStateName = "DEAD",
+                requireBootPrewarmWindow = false,
+                bootUptimeMs = 500_000L
             )
         )
     }
@@ -166,6 +397,39 @@ class DisplayAppLauncherCarPlaySystemUiIconWatchdogTest {
             DisplayAppLauncher.shouldRecoverCarPlaySystemUiIconForTest(
                 connectionStateName = "DEAD",
                 carPlayRelevant = true,
+                speedKmh = -1.0,
+                missingBindSamples = 0,
+                now = 200_000L,
+                lastRecoveryAt = 0L
+            )
+        )
+
+        assertTrue(
+            DisplayAppLauncher.shouldRecoverCarPlaySystemUiIconForTest(
+                connectionStateName = "DEAD",
+                carPlayRelevant = true,
+                speedKmh = 0.5,
+                missingBindSamples = 0,
+                now = 200_000L,
+                lastRecoveryAt = 0L
+            )
+        )
+
+        assertFalse(
+            DisplayAppLauncher.shouldRecoverCarPlaySystemUiIconForTest(
+                connectionStateName = "DEAD",
+                carPlayRelevant = true,
+                speedKmh = 0.6,
+                missingBindSamples = 0,
+                now = 200_000L,
+                lastRecoveryAt = 0L
+            )
+        )
+
+        assertFalse(
+            DisplayAppLauncher.shouldRecoverCarPlaySystemUiIconForTest(
+                connectionStateName = "DEAD",
+                carPlayRelevant = true,
                 speedKmh = 12.0,
                 missingBindSamples = 0,
                 now = 200_000L,
@@ -192,6 +456,17 @@ class DisplayAppLauncherCarPlaySystemUiIconWatchdogTest {
                 missingBindSamples = 0,
                 now = 200_000L,
                 lastRecoveryAt = 150_000L
+            )
+        )
+
+        assertFalse(
+            DisplayAppLauncher.shouldRecoverCarPlaySystemUiIconForTest(
+                connectionStateName = "SERVICE_NOT_READY",
+                carPlayRelevant = true,
+                speedKmh = 0.0,
+                missingBindSamples = 3,
+                now = 200_000L,
+                lastRecoveryAt = 0L
             )
         )
     }
@@ -258,6 +533,28 @@ class DisplayAppLauncherCarPlaySystemUiIconWatchdogTest {
                 speedKmh = 0.0,
                 now = 400_000L,
                 lastDisconnectRefreshAt = 0L
+            )
+        )
+
+        assertFalse(
+            DisplayAppLauncher.shouldRefreshCarPlaySystemUiIconAfterUsbDisconnectForTest(
+                previousUsbConfigured = true,
+                lastRelevantAt = 180_000L,
+                speedKmh = 0.0,
+                now = 200_000L,
+                lastDisconnectRefreshAt = 0L,
+                lastRecoveryAt = 150_000L
+            )
+        )
+
+        assertFalse(
+            DisplayAppLauncher.shouldRefreshCarPlaySystemUiIconAfterUsbDisconnectForTest(
+                previousUsbConfigured = true,
+                lastRelevantAt = 180_000L,
+                speedKmh = -1.0,
+                now = 200_000L,
+                lastDisconnectRefreshAt = 0L,
+                lastRecoveryAt = 0L
             )
         )
     }
