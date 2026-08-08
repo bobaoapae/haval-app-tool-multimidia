@@ -79,12 +79,21 @@ android {
         named("debug") {
             buildConfigField("boolean", "EMBED_FRIDA_TOOLS", "true")
             buildConfigField("boolean", "IMPULSE_REPORT_DIAGNOSTICS_ENABLED", "true")
+            buildConfigField("boolean", "SIMULATOR_MODE", "false")
         }
         create("leanDebug") {
             initWith(getByName("debug"))
             matchingFallbacks += listOf("debug")
             buildConfigField("boolean", "EMBED_FRIDA_TOOLS", "false")
             buildConfigField("boolean", "IMPULSE_REPORT_DIAGNOSTICS_ENABLED", "true")
+            buildConfigField("boolean", "SIMULATOR_MODE", "false")
+        }
+        create("simulator") {
+            initWith(getByName("debug"))
+            matchingFallbacks += listOf("debug")
+            buildConfigField("boolean", "EMBED_FRIDA_TOOLS", "false")
+            buildConfigField("boolean", "IMPULSE_REPORT_DIAGNOSTICS_ENABLED", "true")
+            buildConfigField("boolean", "SIMULATOR_MODE", "true")
         }
         named("release") {
             signingConfig = signingConfigs.getByName("release")
@@ -92,6 +101,7 @@ android {
             isShrinkResources  = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("boolean", "EMBED_FRIDA_TOOLS", "true")
+            buildConfigField("boolean", "SIMULATOR_MODE", "false")
         }
     }
 
@@ -101,6 +111,9 @@ android {
         }
         getByName("leanDebug") {
             java.srcDir("src/internalDebug/java")
+        }
+        getByName("simulator") {
+            java.srcDir("src/simulator/java")
         }
     }
 

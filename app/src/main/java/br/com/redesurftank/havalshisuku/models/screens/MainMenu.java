@@ -1,6 +1,7 @@
 package br.com.redesurftank.havalshisuku.models.screens;
 
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -18,6 +19,7 @@ public class MainMenu implements Screen {
     private Screen previousScreen = this;
 
     private List<MenuItem> menuItems;
+    private Boolean menuBuiltForSportTheme;
 
     // Car related control values, these should match the car constants in the server
     public static class EspOptions {
@@ -91,12 +93,21 @@ public class MainMenu implements Screen {
         return "main_menu";
     }
 
+    private boolean isSportThemeActive() {
+        return DisplaySelectionScreen.isSportTheme(
+                serviceManager.getSharedPreferences().getString(
+                        SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.getKey(), ""));
+    }
+
     @Override
     public void initialize() {
 
         if (this.serviceManager == null) this.serviceManager = ServiceManager.getInstance();
 
-        if (menuItems == null) {
+        boolean sportTheme = isSportThemeActive();
+
+        if (menuItems == null || menuBuiltForSportTheme == null
+                || menuBuiltForSportTheme != sportTheme) {
             Screen acControlScreen = new AcControlScreen();
             acControlScreen.setReturnScreen(this);
             Screen regenScreen = new RegenScreen();
@@ -110,8 +121,7 @@ public class MainMenu implements Screen {
             displaySelectionScreen.setReturnScreen(this);
             displaySelectionScreen.initialize();
 
-            // Define menu structure and options available
-            menuItems = Arrays.asList(
+            List<MenuItem> rebuiltMenuItems = new ArrayList<>(Arrays.asList(
                     new MenuItem(
                             MenuItem.MENU_ID_ESP,
                             new MenuAction.CycleValues(Arrays.asList(EspOptions.ON, EspOptions.OFF),
@@ -144,7 +154,25 @@ public class MainMenu implements Screen {
                             MenuItem.MENU_ID_AC_CONTROL,
                             new MenuAction.NavigateTo(displaySelectionScreen)
                     )
-            );
+            ));
+
+            if (sportTheme) {
+                Screen colorSelectionScreen = new ColorSelectionScreen();
+                colorSelectionScreen.setReturnScreen(this);
+                colorSelectionScreen.initialize();
+                Screen nowPlayingScreen = new NowPlayingScreen();
+                nowPlayingScreen.setReturnScreen(this);
+                nowPlayingScreen.initialize();
+                rebuiltMenuItems.add(new MenuItem(
+                        MenuItem.MENU_ID_COLOR,
+                        new MenuAction.NavigateTo(colorSelectionScreen)));
+                rebuiltMenuItems.add(new MenuItem(
+                        MenuItem.MENU_ID_NOW_PLAYING,
+                        new MenuAction.NavigateTo(nowPlayingScreen)));
+            }
+
+            menuItems = rebuiltMenuItems;
+            menuBuiltForSportTheme = sportTheme;
         }
 
         // Send update event to make sure screen is displayed
@@ -181,6 +209,9 @@ public class MainMenu implements Screen {
     }
 
     public void processKey(Key key) {
+        if (menuBuiltForSportTheme == null || menuBuiltForSportTheme != isSportThemeActive()) {
+            initialize();
+        }
         switch (key) {
             case UP: // Up
                 currentMenuItemIndex--;
@@ -205,6 +236,20 @@ public class MainMenu implements Screen {
                     MainUiManager.getInstance().updateScreen(((MenuAction.NavigateTo) action).getScreen());
                 } else if (action instanceof MenuAction.CycleValues) {
                     serviceManager.updateData(((MenuAction.CycleValues) action).carOptionID.getValue(), ((MenuAction.CycleValues) action).cycleNext());
+                }
+                break;
+
+            case ENTER_LONG: // OK longo: alterna o submodo do HEV (Inteligente <-> Prioritario)
+                // SÓ age no item de modo de força E somente se o modo ATUAL for HEV (power_model_config==0).
+                // Em EV / EV Prioritário o long-press NÃO faz nada. O OK curto segue ciclando EV->EVP->HEV.
+                if (menuItems.get(currentMenuItemIndex).getId().equals(MenuItem.MENU_ID_EVMODE)) {
+                    String powerMode = serviceManager.getData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.getValue());
+                    if (powerMode != null && powerMode.trim().equals("0")) { // HEV
+                        String reserve = serviceManager.getData(CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG.getValue());
+                        // 2 = Prioritário, senão Inteligente. Alterna: Prioritário->Inteligente(1), senão->Prioritário(2).
+                        String next = (reserve != null && reserve.trim().equals("2")) ? "1" : "2";
+                        serviceManager.updateData(CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG.getValue(), next);
+                    }
                 }
                 break;
         }
@@ -262,6 +307,8 @@ public class MainMenu implements Screen {
         public static final String MENU_ID_STEER_MODE = "option_5";
         public static final String MENU_ID_REGENERATION_MODE = "option_6";
         public static final String MENU_ID_STATS = "option_7";
+        public static final String MENU_ID_COLOR = "option_8";
+        public static final String MENU_ID_NOW_PLAYING = "option_9";
         private final String id;
         private final MenuAction action;
 

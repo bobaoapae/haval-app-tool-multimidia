@@ -2,6 +2,81 @@
 
 Atualizado em: 2026-06-15
 
+## Atualizacao 2026-08-07 - MainMenu atrasado por carga WebView/GPU no Sport
+
+- Em captura fisica da v308, a latencia de `UP/DOWN` variou de menos de `20 ms` para
+  `600-800 ms`. O atraso apareceu tanto antes do projetor quanto no callback
+  `evaluateJavascript`, confirmando fila compartilhada e nao falha da regra do menu.
+- O processo Impulse consumiu `90-94%` de um nucleo em duas janelas, dominado pela thread
+  `Chrome_InProcGp` em `61-62%`; renderer WebView ficou em `13-15%` e SurfaceFlinger em `17-18%`.
+- O delta de `gfxinfo` em ~457s foi `7061/7172` novos frames janky (`98,45%`), p50 `200 ms`.
+  Como havia cinco ViewRoots, o numero nao e FPS isolado, mas a mesma janela acumulou `644`
+  eventos de alta latencia de entrada e `6284` frames com UI thread lenta.
+- O Sport 0.16.44 possui um canvas de velocimetro Normal que continua desenhando por rAF com
+  `shadowBlur` mesmo oculto em outros displays. O Digital mantem um rAF agendado mesmo fora da
+  tela, e o Analogico V2 adiciona seu proprio loop SVG a ~30 fps quando velocidade/potencia mudam.
+- Durante a captura o estado era `main_menu` e `graph=unknown`; nao houve console error nem
+  watchdog reload. O modo Chart.js nao foi o fator primario observado.
+- `handleDataChanged` deduplica valores iguais, mas cada chave realmente alterada ainda posta seu
+  proprio `ensureUi` e uma ou mais chamadas `evaluateJavascript`. Input de menu usa a mesma
+  main thread e pode ficar atras da rajada de telemetria.
+
+Correcao implementada localmente:
+
+- `ProjectionDisplayHtmlPolicy` injeta uma guarda exata no rAF do canvas Normal. Fora de
+  `.display-normal`, o frame seguinte continua agendado, mas `clearRect`, gradiente, arcos,
+  `shadowBlur` e strokes nao executam. Ao voltar para Normal, o renderer original retoma no mesmo
+  handle e seu cleanup permanece valido.
+- `SportTelemetryBatchPolicy` limita cinco sinais de gauge a um lote a cada `33 ms`: velocidade,
+  RPM, fator/regeneracao, tensao e corrente. Valores repetidos continuam deduplicados; quando mais
+  de uma amostra chega no quadro, somente a mais recente e entregue.
+- Tensao e corrente do mesmo quadro calculam `evPowerKw` uma unica vez. Fator de potencia produz
+  `evPowerFactor` e `evPowerRegen` no mesmo IIFE, reduzindo tarefas e crossings Android -> JS.
+- O lote e exclusivo dos dois pacotes Sport legados. Uma chave inscrita via `subscribe()` ignora o
+  lote e segue a bridge original, preservando retrocompatibilidade do contrato `v1.0`; demais
+  temas nao executam nem a consulta de subscription.
+- A reescrita do canvas exige uma unica assinatura conhecida e falha fechada. Os pacotes 0.16.44
+  continuam imutaveis e o Theme Lab aplica a mesma regra somente na resposta de desenvolvimento.
+
+Validacao e limite:
+
+- `382` testes, assemble, lint, Theme Lab check/build e browser local: OK. O navegador confirmou
+  guarda ativa no V2, retomada visual em Normal e retorno ao estado oculto sem console error.
+- A matriz parado/dinamico, Sport/leve e CarPlay conectado/desconectado continua necessaria na
+  central; build e browser nao quantificam a reducao real de CPU, jank ou latencia do volante.
+
+## Atualizacao 2026-08-07 - Movimento responsivo dos ponteiros Sport
+
+- SportRed/SportRedLite 0.16.44 possuem um interpolador exponencial compartilhado pelos ponteiros
+  de velocidade e potencia/regeneracao, executado sob demanda e limitado a aproximadamente
+  `30 fps`.
+- A constante original de `180 ms` precisava de cerca de `540 ms` para chegar a 95% do alvo. A
+  velocidade ainda somava uma transicao de propriedades SVG de `80 ms`; variacoes maiores que
+  `30 km/h` ou `80 kW` ignoravam a suavizacao e saltavam.
+- A compatibilidade do host reduz a constante para `100 ms`, remove os dois saltos e limita a
+  transicao extra da velocidade a `34 ms`. O limite de `30 fps` e preservado para nao dobrar
+  updates de geometria SVG nem o custo dos `drop-shadow` existentes.
+- O ajuste e uma reescrita atomica e fail-closed em memoria, restrita aos dois bundles Sport
+  conhecidos. Nao altera bridge, contrato `v1.0`, arquivos OTA, resolucao, DOM, listeners,
+  observers ou quantidade de loops.
+- O Theme Lab aplica a mesma transformacao somente ao servir a previa; os hashes dos pacotes
+  legados permanecem intactos.
+- Snapshot read-only da central v307: `dumpsys gfxinfo` reportou `9025/11628` frames janky
+  (`77,61%`), mediana `250 ms`, seis `ViewRootImpl` e processo com aproximadamente `248 MB` RSS;
+  o sandbox WebView apareceu com aproximadamente `185 MB` RSS. Esses valores sao cumulativos e
+  agregados, portanto nao isolam a WebView Sport nem provam causalidade do ponteiro.
+- Validacao fisica e comparacao temporal controlada na central permanecem **A confirmar**.
+
+## Atualizacao 2026-08-06 - Overlay diagnostico CPU/RAM
+
+- `HeadUnitResourceSampler` le `/proc/stat`, `/proc/meminfo` e `/proc/self/status` sem shell.
+- O overlay e avancado, opt-in e default OFF; quando ativo, amostra a cada `2,5s` fora da main
+  thread e atualiza somente um `TextView` pequeno.
+- A janela e `NOT_FOCUSABLE|NOT_TOUCHABLE`, some durante o Dashboard expandido e e removida junto
+  com o job no `BottomBarService.onDestroy`.
+- Nao ha WebView, DOM, blur, animacao ou coleta GPU adicional. Custo real prolongado na central
+  permanece A confirmar.
+
 ## Pontos Identificados
 
 - `InstrumentProjector2` tem deduplicação de valores com `lastSentValues`.
@@ -71,6 +146,10 @@ Atualizado em: 2026-06-15
 - Preferir updates por evento e deduplicados.
 - Medir antes de adicionar animações contínuas.
 - Usar classes CSS estáveis e dimensões fixas para componentes do cluster.
+- Mascaras de contraste sobre projecao devem preferir gradientes estaticos e localizados. O
+  full-bleed CarPlay do `Analógico V2` Sport usa dois `linear-gradient` estaticos, um por borda,
+  sem `filter`,
+  `backdrop-filter`, animacao, listener ou DOM adicional.
 - Validar na central real para alterações visuais.
 - Em telas de grafico, manter update visual em baixa frequencia:
   - UI geral em torno de `250 ms`;

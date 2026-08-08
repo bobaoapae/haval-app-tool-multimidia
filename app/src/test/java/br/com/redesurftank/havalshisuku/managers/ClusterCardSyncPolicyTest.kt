@@ -59,11 +59,67 @@ class ClusterCardSyncPolicyTest {
     }
 
     @Test
-    fun nativeCardChangeWithoutSyntheticNavigationIsAccepted() {
+    fun nativeAirconChangeFromMainMenuWithoutSyntheticNavigationIsAccepted() {
         assertFalse(
             ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
                 1,
                 3,
+                -1L,
+                -1,
+                -1L,
+                -1
+            )
+        )
+    }
+
+    @Test
+    fun spontaneousNativeAirconEntryFromHiddenCardWithoutNavigationIsIgnored() {
+        assertTrue(
+            ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
+                0,
+                3,
+                -1L,
+                -1,
+                -1L,
+                -1
+            )
+        )
+    }
+
+    @Test
+    fun recentRightNavigationAcceptsNativeAirconEntryFromHiddenCard() {
+        assertFalse(
+            ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
+                0,
+                3,
+                250L,
+                1027,
+                -1L,
+                -1
+            )
+        )
+    }
+
+    @Test
+    fun recentHomeAcceptsNativeMainMenuEntryFromHiddenCard() {
+        assertFalse(
+            ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
+                0,
+                1,
+                250L,
+                1029,
+                -1L,
+                -1
+            )
+        )
+    }
+
+    @Test
+    fun spontaneousNativeMainMenuEntryWithoutNavigationIsIgnored() {
+        assertTrue(
+            ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
+                0,
+                1,
                 -1L,
                 -1,
                 -1L,

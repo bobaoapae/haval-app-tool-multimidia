@@ -1,0 +1,15 @@
+{
+  "name": "haval-cluster-theme-lab",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 1234",
+    "dev:open": "vite --host 0.0.0.0 --port 1234 --open",
+    "build": "vite build",
+    "check": "node dev/check-catalog.mjs && node dev/check-telemetry.mjs && node dev/check-fixed-foreground.mjs && node dev/check-sport-gauge-polish.mjs && node dev/check-sport-gauge-motion.mjs && node dev/check-projection-simulator.mjs"
+  },
+  "devDependencies": {
+    "vite": "^8.1.4"
+  }
+}

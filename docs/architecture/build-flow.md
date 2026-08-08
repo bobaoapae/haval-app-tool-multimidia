@@ -20,16 +20,38 @@ O projeto usa `settings.gradle.kts` com apenas o módulo `:app`.
 
 ## Frontend
 
-Tema Default:
+Simulador unificado de temas:
 
 ```bash
-cd cluster-widgets/default
+cd cluster-widgets
+npm install
+npm run dev
+```
+
+Validação do catálogo local:
+
+```bash
+npm run check
+```
+
+Esse check cobre descoberta dos temas, adaptador de telemetria dos pacotes legados e geometria da
+camada frontal fixa (`READY`, placa e ESP) no canvas `1920x720`.
+
+Build do tema Default v1.0:
+
+```bash
+cd cluster-widgets/source/v1.0/default
 npm run build
 ```
 
-O `package.json` do Default usa `bun run clear` dentro do script de build. Isso exige confirmar se `bun` está instalado ou ajustar ambiente.
+Build do Minimalist OTA:
 
-Temas Basic e Basic Light usam `npm run clear` no script de build.
+```bash
+cd cluster-widgets/source/v1.0/minimalist
+npm run build
+```
+
+O Theme Lab serve fontes e pacotes existentes, mas não substitui o build individual do tema.
 
 ## Deploy
 
@@ -48,5 +70,4 @@ Temas Basic e Basic Light usam `npm run clear` no script de build.
 
 ## A Confirmar
 
-- Comando preferido para todos os temas: `npm` ou `bun`.
-- Estratégia de versionamento dos pacotes de tema em `cluster-widgets/Themes`.
+- Estratégia de migração dos pacotes legados Sport para fonte editável no contrato v1.0.

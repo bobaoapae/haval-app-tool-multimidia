@@ -7,26 +7,48 @@ import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
 
 public class DisplaySelectionScreen implements Screen {
 
-    private static final String TAG = "DisplaySelectionScreen";
+    private static final String[] LEGACY_ITEM_IDS = {
+            "mode_normal", "mode_reduzido", "mode_clean", "mode_mapa"
+    };
+    private static final String[] LEGACY_DISPLAYS = {"Normal", "Reduzido", "Clean", "Mapa"};
+
+    private static final String[] SPORT_ITEM_IDS = {
+            "mode_analogico",
+            "mode_analogico_v2",
+            "mode_digital",
+            "mode_mapa",
+            "mode_mapa_graduado",
+            "mode_mapa_limpo"
+    };
+    private static final String[] SPORT_DISPLAYS = {
+            "Normal", "Analógico V2", "Digital", "Mapa", "Mapa Graduado", "Mapa Limpo"
+    };
 
     private ServiceManager serviceManager;
     private Screen previousScreen = this;
+    private String[] itemIds = LEGACY_ITEM_IDS;
+    private String[] displays = LEGACY_DISPLAYS;
+    private int focusedTemplateIndex = 0;
+    private int selectedDisplayIndex = 0;
+    private boolean configuredForSportTheme = false;
 
-    // The items mirror the frontend displaySelection.js
-    private static final String[] ITEM_IDS = {
-            "mode_normal",
-            "mode_reduzido",
-            "mode_clean",
-            "mode_mapa"
-    };
-    private int focusedTemplateIndex = 0; // default focus on Normal
-    private int focusedDisplayIndex = 0; // default selected display is Normal
+    private void configureForActiveTheme() {
+        String activeTheme = serviceManager.getSharedPreferences().getString(
+                SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.getKey(), "");
+        boolean sportTheme = isSportTheme(activeTheme);
+        configuredForSportTheme = sportTheme;
+        itemIds = sportTheme ? SPORT_ITEM_IDS : LEGACY_ITEM_IDS;
+        displays = sportTheme ? SPORT_DISPLAYS : LEGACY_DISPLAYS;
+    }
 
-    private static final String[] DISPLAYS = { "Normal", "Reduzido", "Clean", "Mapa" };
+    static boolean isSportTheme(String activeTheme) {
+        return "SportRed".equalsIgnoreCase(activeTheme)
+                || "SportRedLite".equalsIgnoreCase(activeTheme);
+    }
 
     private int getDisplayIndex(String display) {
-        for (int i = 0; i < DISPLAYS.length; i++) {
-            if (DISPLAYS[i].equals(display)) {
+        for (int i = 0; i < displays.length; i++) {
+            if (displays[i].equals(display)) {
                 return i;
             }
         }
@@ -34,20 +56,31 @@ public class DisplaySelectionScreen implements Screen {
     }
 
     private String getCurrentDisplay() {
-        return DISPLAYS[focusedDisplayIndex];
+        return displays[selectedDisplayIndex];
     }
 
-    private void persistCurrentDisplay() {
+    private void persistAndDispatch() {
+        String display = getCurrentDisplay();
         serviceManager.getSharedPreferences()
                 .edit()
-                .putString(SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.getKey(), getCurrentDisplay())
+                .putString(SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.getKey(), display)
                 .apply();
-    }
-
-    private void dispatchCurrentDisplay() {
         serviceManager.dispatchServiceManagerEvent(
                 ServiceManagerEventType.DISPLAY_SCREEN_SELECTION,
-                "control('display', '" + getCurrentDisplay() + "')");
+                "control('display', '" + display + "')");
+    }
+
+    private void updateFocus() {
+        serviceManager.dispatchServiceManagerEvent(
+                ServiceManagerEventType.MENU_ITEM_NAVIGATION,
+                itemIds[focusedTemplateIndex]);
+    }
+
+    private void exitLegacyCleanIfNeeded() {
+        if (displays == LEGACY_DISPLAYS && "Clean".equals(getCurrentDisplay())) {
+            selectedDisplayIndex = 0;
+            persistAndDispatch();
+        }
     }
 
     @Override
@@ -57,83 +90,54 @@ public class DisplaySelectionScreen implements Screen {
 
     @Override
     public void processKey(Key key) {
+        String activeTheme = serviceManager.getSharedPreferences().getString(
+                SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.getKey(), "");
+        if (configuredForSportTheme != isSportTheme(activeTheme)) {
+            initialize();
+        }
         switch (key) {
             case DOWN:
-                focusedTemplateIndex++;
-                if (focusedTemplateIndex >= ITEM_IDS.length) {
-                    focusedTemplateIndex = 0;
-                }
+                focusedTemplateIndex = (focusedTemplateIndex + 1) % itemIds.length;
                 updateFocus();
-                handleSelection(key);
+                exitLegacyCleanIfNeeded();
                 break;
             case UP:
-                focusedTemplateIndex--;
-                if (focusedTemplateIndex < 0) {
-                    focusedTemplateIndex = ITEM_IDS.length - 1;
-                }
+                focusedTemplateIndex =
+                        (focusedTemplateIndex - 1 + itemIds.length) % itemIds.length;
                 updateFocus();
-                handleSelection(key);
+                exitLegacyCleanIfNeeded();
+                break;
+            case ENTER:
+                if (displays == LEGACY_DISPLAYS
+                        && "Clean".equals(displays[focusedTemplateIndex])
+                        && selectedDisplayIndex == focusedTemplateIndex) {
+                    selectedDisplayIndex = 0;
+                } else {
+                    selectedDisplayIndex = focusedTemplateIndex;
+                }
+                persistAndDispatch();
                 break;
             case BACK:
             case BACK_LONG:
-                handleSelection(key);
+                exitLegacyCleanIfNeeded();
                 MainUiManager.getInstance().updateScreen(previousScreen);
                 break;
             default:
-                handleSelection(key);
+                exitLegacyCleanIfNeeded();
                 break;
-        }
-    }
-
-    private void updateFocus() {
-        serviceManager.dispatchServiceManagerEvent(ServiceManagerEventType.MENU_ITEM_NAVIGATION,
-                ITEM_IDS[focusedTemplateIndex]);
-    }
-
-    private void handleSelection(Key key) {
-        String selectedId = ITEM_IDS[focusedTemplateIndex];
-        if (key == Key.ENTER) {
-            switch (selectedId) {
-                case "mode_normal":
-                    focusedDisplayIndex = 0;
-                    break;
-                case "mode_reduzido":
-                    focusedDisplayIndex = 1;
-                    break;
-                case "mode_clean":
-                    if (focusedDisplayIndex == 2) { // if already in clean mode, exit
-                        focusedDisplayIndex = 0;
-                    } else {
-                        focusedDisplayIndex = 2;
-                    }
-                    break;
-                case "mode_mapa":
-                    focusedDisplayIndex = 3;
-                    break;
-            }
-            persistCurrentDisplay();
-            dispatchCurrentDisplay();
-        } else {
-            // if in clean mode, any key exits
-            if (focusedDisplayIndex == 2) {
-                focusedDisplayIndex = 0;
-                persistCurrentDisplay();
-                dispatchCurrentDisplay();
-
-            }
         }
     }
 
     @Override
     public void initialize() {
-        this.serviceManager = ServiceManager.getInstance();
+        serviceManager = ServiceManager.getInstance();
+        configureForActiveTheme();
         String savedDisplay = serviceManager.getSharedPreferences().getString(
-                SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.getKey(),
-                DISPLAYS[focusedDisplayIndex]);
-        focusedDisplayIndex = getDisplayIndex(savedDisplay);
-        focusedTemplateIndex = focusedDisplayIndex;
+                SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.getKey(), "Normal");
+        selectedDisplayIndex = getDisplayIndex(savedDisplay);
+        focusedTemplateIndex = selectedDisplayIndex;
         serviceManager.dispatchServiceManagerEvent(ServiceManagerEventType.UPDATE_SCREEN, this);
-        dispatchCurrentDisplay();
+        persistAndDispatch();
         updateFocus();
     }
 

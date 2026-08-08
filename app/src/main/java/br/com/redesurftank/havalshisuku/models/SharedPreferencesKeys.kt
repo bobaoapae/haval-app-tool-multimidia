@@ -80,6 +80,35 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "disableAvmCarStopped",
             "Desativar camera AVM quando o carro está parado"
     ),
+    // ===== Debloat: desativa apps do sistema (OEM) que rodam e consomem RAM/CPU da multimídia =====
+    // Reversível (pm install-existing) e reaplicado no boot por ServiceManager.ensureDebloatedSystemApps().
+    DISABLE_NATIVE_NAVIGATION("disableNativeNavigation", "Desativar navegador GPS nativo (Neusoft)"),
+    DISABLE_NATIVE_VOICE("disableNativeVoice", "Desativar assistente de voz nativo (iFlyTek)"),
+    DISABLE_NATIVE_WEATHER("disableNativeWeather", "Desativar serviço de previsão do tempo (OEM)"),
+    // ===== Overlay flutuante de CPU/RAM =====
+    ENABLE_RESOURCE_OVERLAY(
+            "enableResourceOverlay",
+            "Indicador flutuante de CPU e RAM por cima dos apps (some com a barra estendida aberta)"
+    ),
+    RESOURCE_OVERLAY_FONT_SP(
+            "resourceOverlayFontSp",
+            "Tamanho da fonte do indicador flutuante de CPU/RAM (sp)"
+    ),
+    RESOURCE_OVERLAY_CORNER(
+            "resourceOverlayCorner",
+            "Canto de ancoragem do indicador flutuante: 0=sup.esq 1=sup.dir 2=inf.esq 3=inf.dir"
+    ),
+    RESOURCE_OVERLAY_X(
+            "resourceOverlayX",
+            "Deslocamento horizontal (dp) do indicador flutuante a partir do canto escolhido"
+    ),
+    RESOURCE_OVERLAY_Y(
+            "resourceOverlayY",
+            "Deslocamento vertical (dp) do indicador flutuante a partir do canto escolhido"
+    ),
+    // ===== Deslocamento do Android Auto no cluster (contorna o crop do menu lateral) =====
+    ENABLE_AA_CLUSTER_OFFSET("enableAaClusterOffset", "Habilitar deslocamento do Android Auto no cluster"),
+    AA_CLUSTER_LEFT_OFFSET("aaClusterLeftOffset", "Deslocamento horizontal do Android Auto no cluster (px)"),
     CAR_MONITOR_PROPERTIES("carMonitorProperties", "Propriedades do monitoramento do carro"),
     BYPASS_SELF_INSTALLATION_INTEGRITY_CHECK(
             "bypassSelfInstallationIntegrityCheck",
@@ -248,6 +277,7 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ),
     CURRENT_CLUSTER_TEMPLATE("currentClusterTemplate", "Template atual do cluster"),
     CURRENT_CLUSTER_DISPLAY("currentClusterDisplay", "Modo de exibição do cluster"),
+    CURRENT_CLUSTER_COLOR("currentClusterColor", "Paleta de cores do cluster"),
     DEFAULT_DISPLAY_APP_PACKAGE(
             "defaultDisplayAppPackage",
             "Pacote do app padrão para abrir no cluster"
@@ -260,11 +290,30 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "Ajuste de margem inferior para a barra (overscan)"
     ),
     CLUSTER_FUEL_DISPLAY_UNIT("clusterFuelDisplayUnit", "Unidade de exibição do combustível no cluster"),
+    CLUSTER_HIDE_SPEEDOMETER_ON_MAPS(
+            "clusterHideSpeedometerOnMaps",
+            "Ocultar velocímetro nos modos de mapa"
+    ),
+    CLUSTER_V2_TRIP_INFO(
+            "clusterV2TripInfo",
+            "Exibir dados de viagem e pressão dos pneus no Analógico V2"
+    ),
     CUSTOM_THEME_REPO_URL_PROD("customThemeRepoUrlProd", "URL do Repositório de Temas (Prod)"),
     CUSTOM_THEME_REPO_URL_DEV("customThemeRepoUrlDev", "URL do Repositório de Temas (Dev)"),
     CUSTOM_THEME_REPO_ENV("customThemeRepoEnv", "Ambiente do Repositório (Prod/Dev)"),
     ACTIVE_CUSTOM_THEME("activeCustomTheme", "Tema Dinâmico Ativo"),
+    THEME_RELOAD_NONCE("themeReloadNonce", "Nonce para recarregar WebView do tema"),
     BOTTOM_BAR_AUTO_HIDE("bottomBarAutoHide", "Esconder barra automaticamente após 30s"),
+    HIDE_LEFT_NAV_PANE("hideLeftNavPane", "Manter o painel lateral esquerdo oculto"),
+    BOTTOM_BAR_SWIPE_UP_ACTION("bottomBarSwipeUpAction", "Ação ao deslizar a barra para cima"),
+    BOTTOM_BAR_SWIPE_UP_PACKAGE(
+            "bottomBarSwipeUpPackage",
+            "Pacote do app aberto ao deslizar a barra para cima"
+    ),
+    CLUSTER_PROJECTION_OPENS_DASHBOARD(
+            "clusterProjectionOpensDashboard",
+            "Abrir o Impulse Drive quando a projeção inicia no cluster"
+    ),
     BOTTOM_BAR_OVERRIDES("bottomBarOverrides", "Overrides de aplicativos salvos (JSON)"),
     DASHBOARD_CARD_ORDER("dashboardCardOrder", "Ordem dos cards do dashboard"),
     ENABLE_SPEED_ADJUSTMENT("enableSpeedAdjustment", "Habilitar ajuste de velocidade no painel"),
@@ -334,6 +383,13 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ),
     ENABLE_PERSIST_HEV_SOC_TARGET("enablePersistHevSocTarget", "Manter o % de bateria escolhido no HEV Prioritário"),
     HEV_SOC_TARGET_VALUE("hevSocTargetValue", "% de bateria a manter no HEV Prioritário (20-80)"),
+    ENABLE_CUSTOM_BACKGROUND_D1("enableCustomBackgroundD1", "Habilitar fundo personalizado no Display 1"),
+    CUSTOM_BACKGROUND_TYPE_D1("customBackgroundTypeD1", "Tipo de fundo do Display 1"),
+    CUSTOM_BACKGROUND_VALUE_D1("customBackgroundValueD1", "Valor do fundo do Display 1"),
+    AUTO_MOVE_PROJECTION_TO_CLUSTER(
+            "autoMoveProjectionToCluster",
+            "Mover AA/CarPlay para o cluster (D3) no auto-start — só se AA/CarPlay for o app inicial na tela Telas"
+    ),
     ENABLE_HOT_ROUTER("enableHotRouter", "Roteia o hotspot pelo 4G ou WLAN (Starlink) quando disponível"),
     // ===== Controle de dados móveis do carro =====
     MOBILE_DATA_CONTROL_ENABLED("mobileDataControlEnabled", "Master: ativa o controle de dados móveis do carro"),

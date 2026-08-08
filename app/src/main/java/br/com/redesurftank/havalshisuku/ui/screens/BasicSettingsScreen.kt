@@ -7,27 +7,32 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightService
 import br.com.redesurftank.havalshisuku.managers.AutoBrightnessManager
+import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
+import coil.compose.AsyncImage
 import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.SteeringWheelClimateCommandType
@@ -38,6 +43,9 @@ import br.com.redesurftank.havalshisuku.ui.components.GroupedSettingsLayout
 import br.com.redesurftank.havalshisuku.ui.components.SettingsGroups
 import br.com.redesurftank.havalshisuku.ui.components.TwoColumnSettingsLayout
 import br.com.redesurftank.havalshisuku.managers.HotRouterManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -45,6 +53,39 @@ import java.util.Locale
 // HotRouter: formata o epoch do statefile em HH:mm:ss.
 private fun formatHms(epochSeconds: Long): String {
         return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(epochSeconds * 1000L))
+}
+
+/**
+ * Shows or hides the left navigation pane (the system NAVIGATION_BAR window, 128px on the left edge).
+ *
+ * Uses `policy_control`, the AOSP PolicyControl override, which exists on this head unit's Android 9
+ * (it was removed in Android 11). It is a persistent global setting, so it survives reboots and needs
+ * no service-side reapplication.
+ *
+ * Whether GWM's SystemUI honours the hide flag is not verified - if the pane stays put, this is the
+ * lever that failed, not the bar layout, which is correct in both pane states either way.
+ */
+private fun applyLeftNavPaneVisibility(hidden: Boolean) {
+        Thread {
+                        val command =
+                                if (hidden)
+                                        arrayOf(
+                                                "settings",
+                                                "put",
+                                                "global",
+                                                "policy_control",
+                                                "immersive.navigation=*"
+                                        )
+                                else arrayOf("settings", "delete", "global", "policy_control")
+                        val result =
+                                br.com.redesurftank.havalshisuku.utils.ShizukuUtils
+                                        .runCommandAndGetOutput(command)
+                        android.util.Log.w(
+                                "BasicSettingsScreen",
+                                "[NAV_PANE] hidden=$hidden result=$result"
+                        )
+                }
+                .start()
 }
 
 // Seletor reutilizavel de acao do volante (usado p/ toque curto / duplo / longo de cada botao).
@@ -59,8 +100,10 @@ private fun SteeringActionPicker(
         onPackageChanged: (String) -> Unit,
         onClimateCommandSelected: (SteeringWheelClimateCommandType) -> Unit,
 ) {
+        val context = LocalContext.current
         var expanded by remember { mutableStateOf(false) }
         var climateCommandExpanded by remember { mutableStateOf(false) }
+        var showAppPicker by remember { mutableStateOf(false) }
         Text(label, color = Color(0xFFB0B8C4), fontSize = 14.sp)
         ExposedDropdownMenuBox(
                 expanded = expanded,
@@ -94,19 +137,76 @@ private fun SteeringActionPicker(
                 }
         }
         if (actionKey == SteeringWheelCustomActionType.OPEN_APP.key) {
-                TextField(
-                        value = packageName,
-                        onValueChange = { onPackageChanged(it) },
-                        label = { Text("Pacote do App") },
-                        colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color(0xFF2A2F37),
-                                unfocusedContainerColor = Color(0xFF2A2F37),
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color(0xFFB0B8C4),
-                                focusedIndicatorColor = Color(0xFF4A9EFF),
-                                unfocusedIndicatorColor = Color(0xFF3A3F47)
+                // Reaproveita o mesmo seletor de apps da tela "Telas" no lugar de digitar o pacote.
+                val resolved =
+                        remember(packageName) {
+                                if (packageName.isBlank()) null
+                                else DisplayAppLauncher.resolveAppInfo(context, packageName)
+                        }
+                Row(
+                        modifier =
+                                Modifier.fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF2A2F37))
+                                        .border(
+                                                1.dp,
+                                                Color(0xFF3A3F47),
+                                                RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { showAppPicker = true }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                ) {
+                        if (resolved?.icon != null) {
+                                AsyncImage(
+                                        model = resolved.icon,
+                                        contentDescription = resolved.label,
+                                        modifier = Modifier.size(32.dp),
+                                        contentScale = ContentScale.Fit
+                                )
+                        } else {
+                                Icon(
+                                        imageVector = Icons.Default.Apps,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(32.dp),
+                                        tint = Color(0xFFB0B8C4)
+                                )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                        text = resolved?.label ?: "Selecionar aplicativo",
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                        text =
+                                                if (packageName.isBlank()) "Nenhum app escolhido"
+                                                else packageName,
+                                        color = Color(0xFFB0B8C4),
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                )
+                        }
+                        Text(
+                                "ESCOLHER",
+                                color = Color(0xFF4A9EFF),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
                         )
-                )
+                }
+                if (showAppPicker) {
+                        AppPickerDialog(
+                                onDismiss = { showAppPicker = false },
+                                onAppSelected = { app ->
+                                        onPackageChanged(app.packageName)
+                                        showAppPicker = false
+                                }
+                        )
+                }
         }
         if (actionKey == SteeringWheelCustomActionType.CLIMATE_COMMAND.key) {
                 SteeringWheelClimateCommandDropdown(
@@ -654,6 +754,46 @@ fun BasicSettingsTab() {
                         prefs.getBoolean(SharedPreferencesKeys.BOTTOM_BAR_AUTO_HIDE.key, false)
                 )
         }
+        var hideLeftNavPane by remember {
+                mutableStateOf(
+                        prefs.getBoolean(SharedPreferencesKeys.HIDE_LEFT_NAV_PANE.key, false)
+                )
+        }
+        var swipeUpAction by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_ACTION.key,
+                                null
+                        )
+                                ?: BottomBarState.SwipeUpAction.DASHBOARD.key
+                )
+        }
+        var swipeUpPackage by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_PACKAGE.key,
+                                null
+                        )
+                                ?: ""
+                )
+        }
+        var showSwipeUpAppPicker by remember { mutableStateOf(false) }
+        var clusterProjectionOpensDashboard by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.CLUSTER_PROJECTION_OPENS_DASHBOARD.key,
+                                true
+                        )
+                )
+        }
+        var autoMoveProjectionToCluster by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.AUTO_MOVE_PROJECTION_TO_CLUSTER.key,
+                                true
+                        )
+                )
+        }
         var showStartPicker by remember { mutableStateOf(false) }
         var showEndPicker by remember { mutableStateOf(false) }
         var enableSpeedAdjustment by remember {
@@ -727,6 +867,12 @@ fun BasicSettingsTab() {
                 mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.MOBILE_DATA_AUTOBLOCK_CAP_MB.key, 2048).coerceIn(512, 8192))
         }
         var blockDatatrack by remember { mutableStateOf(mdm.isDatatrackBlocked()) }
+        var enableAaClusterOffset by remember {
+                mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, false))
+        }
+        var aaClusterOffset by remember {
+                mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.AA_CLUSTER_LEFT_OFFSET.key, 145))
+        }
         var mobileDataUsedMb by remember { mutableStateOf(0L) }
         var mobileBlockReason by remember { mutableStateOf<String?>(null) }
         LaunchedEffect(mobileControlEnabled, mobileDataCycleDay) {
@@ -900,20 +1046,6 @@ fun BasicSettingsTab() {
                                                 modifier = Modifier.padding(top = 12.dp)
                                         )
                                 }
-                        }
-                )
-        )
-
-        // Congelar a telemetria OEM (DataTrack -> nuvem). Reversível; impacto remoto/OTA a confirmar.
-        settingsList.add(
-                SettingItem(
-                        title = "Bloquear telemetria (DataTrack → nuvem)",
-                        description =
-                                "Congela o serviço OEM que manda telemetria pra nuvem. Reversível. Impacto em comandos remotos/OTA: a confirmar no veículo.",
-                        checked = blockDatatrack,
-                        onCheckedChange = {
-                                blockDatatrack = it
-                                mdm.setDatatrackBlocked(it)
                         }
                 )
         )
@@ -1193,7 +1325,7 @@ fun BasicSettingsTab() {
 
                                                         Column(
                                                                 verticalArrangement =
-                                                                        Arrangement.spacedBy(16.dp)
+                                                                        Arrangement.spacedBy(12.dp)
                                                         ) {
                                                                 Column {
                                                                         Text(
@@ -1468,6 +1600,14 @@ fun BasicSettingsTab() {
                                                                         color = Color(0xFF3A3F47),
                                                                         thickness = 1.dp
                                                                 )
+
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        12.dp
+                                                                                )
+                                                                )
+
                                                                 Row(
                                                                         modifier =
                                                                                 Modifier.fillMaxWidth(),
@@ -1694,6 +1834,7 @@ fun BasicSettingsTab() {
                                                  }
                                          } else null
                          ),
+
                         SettingItem(
                                 title = "Manter desativado monitoramento de distrações",
                                 group = SettingsGroups.SAFETY,
@@ -1928,9 +2069,330 @@ fun BasicSettingsTab() {
                                                                                         12.dp
                                                                                 )
                                                                 )
+
+                                                                Row(
+                                                                        modifier =
+                                                                                Modifier.fillMaxWidth(),
+                                                                        horizontalArrangement =
+                                                                                Arrangement
+                                                                                        .SpaceBetween,
+                                                                        verticalAlignment =
+                                                                                Alignment
+                                                                                        .CenterVertically
+                                                                ) {
+                                                                        Column(
+                                                                                modifier =
+                                                                                        Modifier.weight(
+                                                                                                1f
+                                                                                        )
+                                                                        ) {
+                                                                                Text(
+                                                                                        "Ocultar painel lateral",
+                                                                                        color =
+                                                                                                Color.White,
+                                                                                        fontSize =
+                                                                                                16.sp
+                                                                                )
+                                                                                Text(
+                                                                                        "O painel fica oculto e libera os 128px da esquerda para a barra. Deslize da borda esquerda para trazê-lo de volta; ele se esconde de novo após 5s.",
+                                                                                        color =
+                                                                                                Color.Gray,
+                                                                                        fontSize =
+                                                                                                12.sp
+                                                                                )
+                                                                        }
+                                                                        Switch(
+                                                                                checked =
+                                                                                        hideLeftNavPane,
+                                                                                onCheckedChange = {
+                                                                                        hideLeftNavPane =
+                                                                                                it
+                                                                                        prefs.edit()
+                                                                                                .putBoolean(
+                                                                                                        SharedPreferencesKeys
+                                                                                                                .HIDE_LEFT_NAV_PANE
+                                                                                                                .key,
+                                                                                                        it
+                                                                                                )
+                                                                                                .apply()
+                                                                                        BottomBarState
+                                                                                                .leftNavPaneHidden =
+                                                                                                it
+                                                                                        applyLeftNavPaneVisibility(
+                                                                                                it
+                                                                                        )
+                                                                                },
+                                                                                modifier =
+                                                                                        Modifier.scale(
+                                                                                                0.9f
+                                                                                        ),
+                                                                                colors =
+                                                                                        SwitchDefaults
+                                                                                                .colors(
+                                                                                                        checkedThumbColor =
+                                                                                                                AppColors
+                                                                                                                        .TextPrimary,
+                                                                                                        checkedTrackColor =
+                                                                                                                AppColors
+                                                                                                                        .Primary,
+                                                                                                        uncheckedThumbColor =
+                                                                                                                AppColors
+                                                                                                                        .TextSecondary,
+                                                                                                        uncheckedTrackColor =
+                                                                                                                AppColors
+                                                                                                                        .ButtonSecondary,
+                                                                                                        uncheckedBorderColor =
+                                                                                                                Color.Transparent,
+                                                                                                        checkedBorderColor =
+                                                                                                                Color.Transparent
+                                                                                                )
+                                                                        )
+                                                                }
+
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        12.dp
+                                                                                )
+                                                                )
+
+                                                                // Swipe-up action
+                                                                Text(
+                                                                        "Ao deslizar a barra para cima",
+                                                                        color = Color.White,
+                                                                        fontSize = 16.sp
+                                                                )
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        6.dp
+                                                                                )
+                                                                )
+                                                                BottomBarState.SwipeUpAction.entries
+                                                                        .forEach { option ->
+                                                                                val selected =
+                                                                                        swipeUpAction ==
+                                                                                                option.key
+                                                                                Row(
+                                                                                        modifier =
+                                                                                                Modifier.fillMaxWidth()
+                                                                                                        .clickable {
+                                                                                                                swipeUpAction =
+                                                                                                                        option.key
+                                                                                                                prefs.edit()
+                                                                                                                        .putString(
+                                                                                                                                SharedPreferencesKeys
+                                                                                                                                        .BOTTOM_BAR_SWIPE_UP_ACTION
+                                                                                                                                        .key,
+                                                                                                                                option.key
+                                                                                                                        )
+                                                                                                                        .apply()
+                                                                                                                BottomBarState
+                                                                                                                        .swipeUpAction =
+                                                                                                                        option.key
+                                                                                                                if (option ==
+                                                                                                                                BottomBarState
+                                                                                                                                        .SwipeUpAction
+                                                                                                                                        .CUSTOM_APP
+                                                                                                                ) {
+                                                                                                                        showSwipeUpAppPicker =
+                                                                                                                                true
+                                                                                                                }
+                                                                                                        }
+                                                                                                        .padding(
+                                                                                                                vertical =
+                                                                                                                        6.dp
+                                                                                                        ),
+                                                                                        verticalAlignment =
+                                                                                                Alignment
+                                                                                                        .CenterVertically
+                                                                                ) {
+                                                                                        RadioButton(
+                                                                                                selected =
+                                                                                                        selected,
+                                                                                                onClick =
+                                                                                                        null,
+                                                                                                colors =
+                                                                                                        RadioButtonDefaults
+                                                                                                                .colors(
+                                                                                                                        selectedColor =
+                                                                                                                                AppColors
+                                                                                                                                        .Primary,
+                                                                                                                        unselectedColor =
+                                                                                                                                AppColors
+                                                                                                                                        .TextSecondary
+                                                                                                                )
+                                                                                        )
+                                                                                        Spacer(
+                                                                                                modifier =
+                                                                                                        Modifier.width(
+                                                                                                                8.dp
+                                                                                                        )
+                                                                                        )
+                                                                                        Column {
+                                                                                                Text(
+                                                                                                        option.label,
+                                                                                                        color =
+                                                                                                                Color.White,
+                                                                                                        fontSize =
+                                                                                                                14.sp
+                                                                                                )
+                                                                                                if (option ==
+                                                                                                                BottomBarState
+                                                                                                                        .SwipeUpAction
+                                                                                                                        .CUSTOM_APP &&
+                                                                                                                selected
+                                                                                                ) {
+                                                                                                        Text(
+                                                                                                                if (swipeUpPackage
+                                                                                                                                .isBlank()
+                                                                                                                )
+                                                                                                                        "Toque para escolher um app"
+                                                                                                                else
+                                                                                                                        swipeUpPackage,
+                                                                                                                color =
+                                                                                                                        AppColors
+                                                                                                                                .Primary,
+                                                                                                                fontSize =
+                                                                                                                        12.sp
+                                                                                                        )
+                                                                                                }
+                                                                                        }
+                                                                                }
+                                                                        }
+
+                                                                if (showSwipeUpAppPicker) {
+                                                                        AppPickerDialog(
+                                                                                onDismiss = {
+                                                                                        showSwipeUpAppPicker =
+                                                                                                false
+                                                                                },
+                                                                                onAppSelected = {
+                                                                                        app ->
+                                                                                        swipeUpPackage =
+                                                                                                app.packageName
+                                                                                        prefs.edit()
+                                                                                                .putString(
+                                                                                                        SharedPreferencesKeys
+                                                                                                                .BOTTOM_BAR_SWIPE_UP_PACKAGE
+                                                                                                                .key,
+                                                                                                        app.packageName
+                                                                                                )
+                                                                                                .apply()
+                                                                                        BottomBarState
+                                                                                                .swipeUpPackage =
+                                                                                                app.packageName
+                                                                                        showSwipeUpAppPicker =
+                                                                                                false
+                                                                                }
+                                                                        )
+                                                                }
                                                         }
                                                 }
                                         } else null
+                        ),
+                        SettingItem(
+                                title = "Mover navegação para o cluster ao iniciar",
+                                description =
+                                        "Enviar Android Auto ou CarPlay automaticamente para o cluster ao iniciar (só se AA/CarPlay estiver selecionado como app inicial na tela Telas)",
+                                checked = autoMoveProjectionToCluster,
+                                onCheckedChange = { checked ->
+                                        autoMoveProjectionToCluster = checked
+                                        prefs.edit()
+                                                .putBoolean(
+                                                        SharedPreferencesKeys
+                                                                .AUTO_MOVE_PROJECTION_TO_CLUSTER
+                                                                .key,
+                                                        checked
+                                                )
+                                                .apply()
+                                        if (!checked) {
+                                                prefs.edit()
+                                                        .remove("desiredAndroidAutoDisplayId")
+                                                        .remove("desiredCarPlayDisplayId")
+                                                        .apply()
+                                        }
+                                },
+                                alwaysShowCustomContent = true,
+                                customContent = {
+                                        Column(
+                                                verticalArrangement =
+                                                        Arrangement.spacedBy(12.dp)
+                                        ) {
+                                                Row(
+                                                        modifier =
+                                                                Modifier.fillMaxWidth(),
+                                                        horizontalArrangement =
+                                                                Arrangement
+                                                                        .SpaceBetween,
+                                                        verticalAlignment =
+                                                                Alignment
+                                                                        .CenterVertically
+                                                ) {
+                                                        Column(
+                                                                modifier =
+                                                                        Modifier.weight(
+                                                                                1f
+                                                                        )
+                                                        ) {
+                                                                Text(
+                                                                        "Abrir Impulse Drive na projeção do cluster",
+                                                                        color =
+                                                                                Color.White,
+                                                                        fontSize =
+                                                                                16.sp
+                                                                )
+                                                                Text(
+                                                                        "Ao iniciar Android Auto ou CarPlay no cluster",
+                                                                        color =
+                                                                                Color.Gray,
+                                                                        fontSize =
+                                                                                12.sp
+                                                                )
+                                                        }
+                                                        Switch(
+                                                                checked =
+                                                                        clusterProjectionOpensDashboard,
+                                                                onCheckedChange = { checked ->
+                                                                        clusterProjectionOpensDashboard =
+                                                                                checked
+                                                                        prefs.edit()
+                                                                                .putBoolean(
+                                                                                        SharedPreferencesKeys
+                                                                                                .CLUSTER_PROJECTION_OPENS_DASHBOARD
+                                                                                                .key,
+                                                                                        checked
+                                                                                )
+                                                                                .apply()
+                                                                },
+                                                                modifier =
+                                                                        Modifier.scale(
+                                                                                0.9f
+                                                                        ),
+                                                                colors =
+                                                                        SwitchDefaults
+                                                                                .colors(
+                                                                                        checkedThumbColor =
+                                                                                                AppColors
+                                                                                                        .TextPrimary,
+                                                                                        checkedTrackColor =
+                                                                                                AppColors
+                                                                                                        .Primary,
+                                                                                        uncheckedThumbColor =
+                                                                                                AppColors
+                                                                                                        .TextSecondary,
+                                                                                        uncheckedTrackColor =
+                                                                                                AppColors
+                                                                                                        .ButtonSecondary,
+                                                                                        uncheckedBorderColor =
+                                                                                                Color.Transparent,
+                                                                                        checkedBorderColor =
+                                                                                                Color.Transparent
+                                                                                )
+                                                        )
+                                                }
+                                        }
+                                }
                         ),
                         SettingItem(
                                 title = "Desativar AVAS",
@@ -2794,6 +3256,53 @@ fun BasicSettingsTab() {
                 )
         )
 
+
+        // Deslocamento do Android Auto no cluster (contorna o crop do menu lateral) — opt-in + slider ao vivo.
+        settingsList.add(
+                SettingItem(
+                        title = "Deslocar Android Auto no cluster",
+                        description = "Move a projeção do AA para a direita no cluster (display 3), pra não sobrepor a barra. Começa desligado; ligue e ajuste o slider olhando a tela (aplica ao vivo).",
+                        group = SettingsGroups.DRIVE,
+                        checked = enableAaClusterOffset,
+                        onCheckedChange = {
+                                enableAaClusterOffset = it
+                                prefs.edit {
+                                        putBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, it)
+                                }
+                                br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.reapplyAndroidAutoClusterBounds()
+                        },
+                        customContent = {
+                                if (enableAaClusterOffset) {
+                                        Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                                                Text(
+                                                        "Deslocamento: $aaClusterOffset px",
+                                                        color = AppColors.TextPrimary,
+                                                        fontSize = 14.sp
+                                                )
+                                                Slider(
+                                                        value = aaClusterOffset.toFloat(),
+                                                        onValueChange = { aaClusterOffset = it.toInt() },
+                                                        onValueChangeFinished = {
+                                                                prefs.edit {
+                                                                        putInt(SharedPreferencesKeys.AA_CLUSTER_LEFT_OFFSET.key, aaClusterOffset)
+                                                                }
+                                                                br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.reapplyAndroidAutoClusterBounds()
+                                                        },
+                                                        valueRange = 0f..400f,
+                                                        colors = SliderDefaults.colors(
+                                                                thumbColor = AppColors.Primary,
+                                                                activeTrackColor = AppColors.Primary,
+                                                                inactiveTrackColor = Color(0xFF2C3139)
+                                                        )
+                                                )
+                                        }
+                                }
+                        }
+                )
+        )
+
+        // Aba "Performance" (SettingsGroups.PERFORMANCE): debloat + DataTrack + overlay CPU/RAM.
+        settingsList.addAll(performanceSettingItems(prefs))
 
         GroupedSettingsLayout(items = settingsList)
 

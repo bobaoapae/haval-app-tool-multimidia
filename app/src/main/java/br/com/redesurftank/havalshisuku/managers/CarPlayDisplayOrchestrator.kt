@@ -20,9 +20,9 @@ enum class CarPlayDisplayState {
 object CarPlayDisplayOrchestrator {
     private const val TAG = "CarPlayOrchestrator"
 
-    // Short, cancelable settle window so the cluster WebView can apply the Mapa
-    // preparation state before the native CarPlay Activity is recreated on D3.
-    private const val D3_MAPA_PREPARE_SETTLE_MS = 260L
+    // Short, cancelable settle window so the cluster WebView can apply projection transparency
+    // without changing the user's selected display before CarPlay is recreated on D3.
+    private const val D3_PROJECTION_PREPARE_SETTLE_MS = 260L
 
     private val transitionMutex = Mutex()
 
@@ -141,12 +141,12 @@ object CarPlayDisplayOrchestrator {
                 }
 
                 transitionTo(CarPlayDisplayState.PREPARING_D3, reason)
-                setPreparingD3(true, "${reason}_PREPARE_MAPA")
+                setPreparingD3(true, "${reason}_PREPARE_PROJECTION")
                 DisplayAppLauncher.rememberCarPlayDisplayTargetForOrchestrator(
                     3,
                     "${reason}_PREPARE_TARGET"
                 )
-                delay(D3_MAPA_PREPARE_SETTLE_MS)
+                delay(D3_PROJECTION_PREPARE_SETTLE_MS)
 
                 try {
                     runCatching {

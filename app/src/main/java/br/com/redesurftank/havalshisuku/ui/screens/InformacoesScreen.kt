@@ -58,7 +58,7 @@ fun InformacoesTab() {
                 App.getDeviceProtectedContext()
                         .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
         var isActive by remember {
-                mutableStateOf(ServiceManager.getInstance().isServicesInitialized)
+                mutableStateOf(ServiceManager.getInstance().isServicesInitialized())
         }
         var bypassSelfInstallationCheck by remember {
                 mutableStateOf(
@@ -113,7 +113,7 @@ fun InformacoesTab() {
 
         LaunchedEffect(Unit) {
                 while (true) {
-                        isActive = ServiceManager.getInstance().isServicesInitialized
+                        isActive = ServiceManager.getInstance().isServicesInitialized()
                         val timeBoot = ServiceManager.getInstance().timeBootReceived
                         formattedTime =
                                 if (isActive && timeBoot > 0) {
