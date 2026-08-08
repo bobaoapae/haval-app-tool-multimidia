@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -13,6 +14,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.*
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -20,7 +23,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.*
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.*
 import androidx.compose.ui.platform.LocalContext
@@ -40,19 +50,31 @@ import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.managers.ThemeManager
+import br.com.redesurftank.havalshisuku.managers.BackgroundSyncServer
+import br.com.redesurftank.havalshisuku.managers.WallpaperLibrary
+import br.com.redesurftank.havalshisuku.managers.WebImage
+import br.com.redesurftank.havalshisuku.managers.WebImageSearch
 import br.com.redesurftank.havalshisuku.models.DisplayAppConfig
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
+import br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec
 import br.com.redesurftank.havalshisuku.models.ThemeMetadata
+import br.com.redesurftank.havalshisuku.models.ThemeConfig
+import br.com.redesurftank.havalshisuku.ui.components.HsvColorPicker
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
 import br.com.redesurftank.havalshisuku.ui.components.StyledCard
 import br.com.redesurftank.havalshisuku.ui.components.StyledTextField
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+/** Busca inicial da aba Web — abre o diálogo já com resultados úteis para o cluster. */
+private const val DEFAULT_WEB_QUERY = "gradient background"
 
 data class RevisionEntry(val km: Int, val date: Long)
 
@@ -163,28 +185,48 @@ fun CompactThemeCard(
                             modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(20.dp)
                     )
                 }
+
+                // Delete button: top-left of the thumbnail, on a dark scrim for visibility
+                if (canDelete) {
+                    Box(
+                            modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(4.dp)
+                                    .size(28.dp)
+                                    .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+                                    .clickable { onDelete() },
+                            contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Excluir",
+                                tint = Color(0xFFFF4B4B),
+                                modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Theme Name
-            Text(
-                    text = theme.name,
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-            )
-
-            // Description / Status
-            Spacer(modifier = Modifier.height(2.dp))
+            // [Name (row1) | Status (row2)]  ...far right...  [update badge] [gear]
             Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
+                    // Row 1: Theme Name
+                    Text(
+                            text = theme.name,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                    )
+
+                    // Row 2: Description / Status
+                    Spacer(modifier = Modifier.height(2.dp))
                     if (isDownloading) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -223,58 +265,109 @@ fun CompactThemeCard(
                         }
                     } else {
                         Text(
-                                text = if (theme.name == "Default") "Original" else "Instalado",
+                                text = if (theme.name == "Default") "Original" else if (theme.version.isNotBlank()) "Instalado v${theme.version}" else "Instalado",
                                 color = if (isSelected) ImpTokens.Accent else ImpTokens.TextSecondary,
                                 fontSize = 11.sp
                         )
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Update Button in bottom right if update is available
-                    if (hasUpdate && !isDownloading) {
-                        Box(
-                            modifier = Modifier
-                                .background(Color(0xFFE5A93B), RoundedCornerShape(6.dp))
-                                .clickable { onUpdate() }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            contentAlignment = Alignment.Center
+                // Push the update badge + gear to the far right
+                Spacer(modifier = Modifier.weight(1f))
+
+                if (hasUpdate && !isDownloading) {
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFFE5A93B), RoundedCornerShape(6.dp))
+                            .clickable { onUpdate() }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Update,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Text(
-                                    text = "Atualizar",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Update,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = "Atualizar",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
+                    Spacer(modifier = Modifier.width(10.dp))
+                }
 
-                    // Delete button for custom installed themes
-                    if (canDelete) {
-                        Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Excluir",
-                                tint = Color(0xFFFF4B4B).copy(alpha = 0.8f),
-                                modifier = Modifier.size(20.dp).clickable { onDelete() }
+                // Config gear on the far right of the name/status row
+                if (theme.configurations.isNotEmpty() && isDownloaded) {
+                    var showSettingsDialog by remember { mutableStateOf(false) }
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Configurar Tema",
+                        tint = Color(0xFF4A9EFF),
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clickable { showSettingsDialog = true }
+                    )
+
+                    if (showSettingsDialog) {
+                        ThemeSettingsDialog(
+                            theme = theme,
+                            onDismiss = { showSettingsDialog = false }
                         )
                     }
                 }
             }
         }
+    }
+}
+
+
+
+/**
+ * Everything that has to be put back to stock when the virtual panel is switched off.
+ *
+ * ACTIVE_CUSTOM_THEME is the sole source of truth for what HTML the cluster loads
+ * (see InstrumentProjector2.getActiveCustomThemeName()), and custom themes are
+ * authored assuming the mask is painted. Leaving one selected with the panel off
+ * can leave the menu unusable, so fall back to the embedded Default theme.
+ *
+ * Default's own colour settings go back to stock too: with the panel off the menu
+ * is drawn over the car's native cluster, and a customised palette clashes with it.
+ * The stock values are whatever assets/Default/theme.xml declares, so this stays
+ * correct as configurations are added or their defaults change.
+ *
+ * Values are written explicitly rather than removed: PreferencePushListener pushes
+ * `sharedPreferences.all[key]` to the theme, and a removed key would push an empty
+ * string instead of the colour the theme expects.
+ */
+private fun resetToStockDefaultTheme(context: Context, prefs: SharedPreferences) {
+    val defaultTheme = ThemeManager.getInstance(context).getEmbeddedDefaultTheme()
+    // A colour setting is either a literal swatch or the drive-mode override that
+    // repaints them — leaving the latter on would re-tint the dials anyway.
+    val colorConfigs =
+            defaultTheme.configurations.filter {
+                it.type.equals("color", ignoreCase = true) ||
+                        it.stateVariable == "driveModeColors"
+            }
+
+    prefs.edit {
+        putString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "")
+        putString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default")
+        colorConfigs.forEach { config ->
+            // Must match the key ThemeSettingsDialog scopes its saves with.
+            putString(
+                    "theme_config_${defaultTheme.folderName}_${config.stateVariable}",
+                    config.defaultValue
+            )
+        }
+        putLong(SharedPreferencesKeys.THEME_RELOAD_NONCE.key, System.currentTimeMillis())
     }
 }
 
@@ -323,6 +416,49 @@ fun TelasTab() {
                 prefs.getString(SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key, "liters")
                         ?: "liters"
         )
+    }
+    var hideSpeedometerOnMaps by remember {
+        mutableStateOf(
+                prefs.getBoolean(
+                        SharedPreferencesKeys.CLUSTER_HIDE_SPEEDOMETER_ON_MAPS.key,
+                        false
+                )
+        )
+    }
+    var showV2TripInfo by remember {
+        mutableStateOf(
+                prefs.getBoolean(SharedPreferencesKeys.CLUSTER_V2_TRIP_INFO.key, false)
+        )
+    }
+
+    // Custom Display 1 Background States (default ON — prefer theme wallpaper)
+    var enableCustomBg by remember {
+        mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true))
+    }
+    var showBackgroundSettingsDialog by remember { mutableStateOf(false) }
+    var localAssetList by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        // Seed first-run defaults: background ON + mode THEME
+        if (!prefs.contains(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key)) {
+            prefs.edit {
+                putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+                putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME")
+                putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "")
+            }
+            enableCustomBg = true
+        } else if (!prefs.contains(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key)) {
+            prefs.edit {
+                putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME")
+            }
+        }
+        try {
+            val list = context.assets.list("backgrounds")?.toList() ?: emptyList()
+            localAssetList = list.filter {
+                it.endsWith(".png", true) || it.endsWith(".jpg", true) || it.endsWith(".jpeg", true)
+            }
+        } catch (e: Exception) {
+            Log.e("TelasTab", "Error listing background assets", e)
+        }
     }
 
     // Revision History States
@@ -394,17 +530,19 @@ fun TelasTab() {
 
     // Refresh local themes on start just in case, and fetch from GitHub
     LaunchedEffect(Unit) {
+        ThemeManager.getInstance(context).sanitizeActiveThemeContract(context)
+        selectedTheme = prefs.getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default") ?: "Default"
         localThemes = ThemeManager.getInstance(context).getLocalThemes()
         if (githubThemes.isEmpty()) {
             isFetchingThemes = true
             try {
                 githubThemes =
                         ThemeManager.getInstance(context)
-                                .fetchThemesFromGithub(ThemeManager.THEME_REPO_URL)
+                                .fetchPublishedThemes()
             } catch (e: Exception) {
-                if (BuildConfig.DEBUG) {
-                    Log.e("TelasTab", "Error fetching themes", e)
-                }
+                // Startup fetch stays silent (no toast on screen entry), but always logs:
+                // this used to be DEBUG-gated, which is why the car showed nothing at all.
+                Log.e("TelasTab", "Error fetching themes on start", e)
             } finally {
                 isFetchingThemes = false
             }
@@ -473,7 +611,14 @@ fun TelasTab() {
                                                 false
                                         )
                                     }
+                                    // Same invariant as the Painel Virtual switch: whenever
+                                    // the virtual cluster goes off, the theme goes back to
+                                    // stock Default. Otherwise re-enabling the cluster
+                                    // functions later would restore the projector with a
+                                    // custom theme still selected and the mask off.
                                     enableMask = false
+                                    selectedTheme = "Default"
+                                    resetToStockDefaultTheme(context, prefs)
                                     prefs.edit {
                                         putBoolean(
                                                 SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key,
@@ -539,6 +684,8 @@ fun TelasTab() {
                                     showVirtualClusterWarningDialog = true
                                 } else {
                                     enableMask = false
+                                    selectedTheme = "Default"
+                                    resetToStockDefaultTheme(context, prefs)
                                     prefs.edit {
                                         putBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key, false)
                                     }
@@ -557,85 +704,101 @@ fun TelasTab() {
 
                     // Theme Selector - Horizontal compact carousel
                     Column {
-                        Text(
-                                "Tema do Painel (Toque para selecionar)",
-                                color = ImpTokens.TextSecondary,
-                                fontSize = 12.sp
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                    "Tema do Painel (Toque para selecionar)",
+                                    color = ImpTokens.TextSecondary,
+                                    fontSize = 12.sp
+                            )
+                            if (isFetchingThemes) {
+                                Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            color = ImpTokens.Accent,
+                                            strokeWidth = 2.dp
+                                    )
+                                    Text(
+                                            text = "Buscando...",
+                                            color = ImpTokens.Accent,
+                                            fontSize = 12.sp
+                                    )
+                                }
+                            } else {
+                                // Labelled, full-height tap target: the bare 20.dp icon gave no
+                                // hint of its purpose and was hard to hit while driving.
+                                Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .clickable {
+                                                    isFetchingThemes = true
+                                                    scope.launch {
+                                                        try {
+                                                            localThemes = ThemeManager.getInstance(context).getLocalThemes()
+                                                            val fetched = ThemeManager.getInstance(context)
+                                                                    .fetchPublishedThemes()
+                                                            githubThemes = fetched
+                                                            val updates = fetched.count { remote ->
+                                                                localThemes.any { local ->
+                                                                    local.folderName == remote.folderName &&
+                                                                            local.version != remote.version
+                                                                }
+                                                            }
+                                                            Toast.makeText(
+                                                                    context,
+                                                                    if (updates > 0) "$updates tema(s) com atualização disponível"
+                                                                    else "Todos os temas estão atualizados",
+                                                                    Toast.LENGTH_SHORT
+                                                            ).show()
+                                                        } catch (e: ThemeManager.ThemeFetchException) {
+                                                            Log.e("TelasTab", "Error refreshing themes", e)
+                                                            Toast.makeText(context, e.userMessage, Toast.LENGTH_LONG).show()
+                                                        } catch (e: Exception) {
+                                                            Log.e("TelasTab", "Error refreshing themes", e)
+                                                            Toast.makeText(
+                                                                    context,
+                                                                    "Falha ao buscar atualizações.",
+                                                                    Toast.LENGTH_LONG
+                                                            ).show()
+                                                        } finally {
+                                                            isFetchingThemes = false
+                                                        }
+                                                    }
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            tint = ImpTokens.Accent,
+                                            modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                            text = "Buscar atualizações",
+                                            color = ImpTokens.Accent,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
                         Spacer(Modifier.height(8.dp))
                         val allThemes =
                                 remember(githubThemes, localThemes) {
                                     val merged = mutableListOf<ThemeMetadata>()
 
-                                    // Find remote "Default" and local "Default"
-                                    val remoteDefault =
-                                            githubThemes.firstOrNull {
-                                                it.folderName == "Default" || it.name == "Default"
-                                            }
-                                    val localDefault =
-                                            localThemes.firstOrNull {
-                                                it.folderName == "Default" || it.name == "Default"
-                                            }
-
-                                    if (localDefault != null) {
-                                        // Default theme is downloaded locally
-                                        val hasUpdate =
-                                                if (remoteDefault != null) {
-                                                    ThemeManager.getInstance(context)
-                                                            .isNewerVersion(
-                                                                    localDefault.version,
-                                                                    remoteDefault.version
-                                                            )
-                                                } else false
-
-                                        merged.add(
-                                                ThemeMetadata(
-                                                        name = "Default",
-                                                        description =
-                                                                localDefault.description.ifEmpty {
-                                                                    remoteDefault?.description
-                                                                            ?: "Visual clássico do carro"
-                                                                },
-                                                        version = localDefault.version,
-                                                        thumbnailUrl =
-                                                                localDefault.thumbnailUrl.ifEmpty {
-                                                                    remoteDefault?.thumbnailUrl
-                                                                            ?: ""
-                                                                },
-                                                        mainFile = localDefault.mainFile,
-                                                        folderName = "Default",
-                                                        isLocal = true,
-                                                        isDownloaded = true,
-                                                        hasUpdate = hasUpdate
-                                                )
-                                        )
-                                    } else {
-                                        // Default theme is not downloaded locally, using embedded
-                                        val hasUpdate =
-                                                if (remoteDefault != null) {
-                                                    ThemeManager.getInstance(context)
-                                                            .isEmbeddedDifferent(
-                                                                    remoteDefault.remoteSha,
-                                                                    remoteDefault.remoteSize
-                                                            )
-                                                } else false
-
-                                        merged.add(
-                                                ThemeMetadata(
-                                                        name = "Default",
-                                                        description = remoteDefault?.description
-                                                                        ?: "Visual clássico do carro",
-                                                        version = remoteDefault?.version ?: "1.0.0",
-                                                        thumbnailUrl = remoteDefault?.thumbnailUrl
-                                                                        ?: "",
-                                                        mainFile = remoteDefault?.mainFile ?: "",
-                                                        folderName = "Default",
-                                                        isLocal = true,
-                                                        isDownloaded = true,
-                                                        hasUpdate = hasUpdate
-                                                )
-                                        )
-                                    }
+                                    // Default ships embedded in the APK (res/raw/app.html) and its
+                                    // metadata (theme.xml <configurations>) is dynamically parsed from res/raw/theme_default.xml.
+                                    merged.add(ThemeManager.getInstance(context).getEmbeddedDefaultTheme())
 
                                     // Now add rest of remote themes (excluding Default)
                                     githubThemes.forEach { remote ->
@@ -655,6 +818,7 @@ fun TelasTab() {
                                                                 )
                                                 merged.add(
                                                         remote.copy(
+                                                                version = local.version,
                                                                 isLocal = true,
                                                                 isDownloaded = true,
                                                                 hasUpdate = hasUpdate
@@ -685,8 +849,43 @@ fun TelasTab() {
                                         }
                                     }
 
-                                    merged
+                                    merged.filter {
+                                        ThemeManager.getInstance(context).isThemeSupported(it)
+                                    }
                                 }
+
+                        val applyThemeWithBgCheck: (ThemeMetadata) -> Unit = { themeToApply ->
+                            selectedTheme = themeToApply.name
+                            val folderName = if (themeToApply.folderName == "Default" || themeToApply.name == "Default") "" else themeToApply.folderName
+                            val hasThemeBg = themeToApply.background.isNotBlank() || themeToApply.backgroundAbsolutePath.isNotBlank()
+                            val bgDisabled = !prefs.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+                            val relativeBg = themeToApply.background.ifBlank {
+                                if (themeToApply.backgroundAbsolutePath.isNotBlank()) java.io.File(themeToApply.backgroundAbsolutePath).name else ""
+                            }
+
+                            prefs.edit {
+                                putString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, themeToApply.name)
+                                putString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, folderName)
+                                putLong(SharedPreferencesKeys.THEME_RELOAD_NONCE.key, System.currentTimeMillis())
+
+                                if (hasThemeBg) {
+                                    val currentType = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME"
+                                    if (bgDisabled) {
+                                        putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+                                        putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME")
+                                        if (relativeBg.isNotBlank()) {
+                                            putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, relativeBg)
+                                        }
+                                    } else if (currentType.equals("THEME", ignoreCase = true) && relativeBg.isNotBlank()) {
+                                        putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, relativeBg)
+                                    }
+                                }
+                            }
+
+                            if (hasThemeBg && bgDisabled) {
+                                enableCustomBg = true
+                            }
+                        }
 
                         Row(
                                 modifier =
@@ -713,26 +912,7 @@ fun TelasTab() {
                                         onAction = {
                                             if (allClusterFunctionsEnabled) {
                                                 if (theme.isDownloaded) {
-                                                    selectedTheme = theme.name
-                                                    prefs.edit {
-                                                        putString(
-                                                                SharedPreferencesKeys
-                                                                        .VIRTUAL_CLUSTER_THEME
-                                                                        .key,
-                                                                theme.name
-                                                        )
-                                                        putString(
-                                                                SharedPreferencesKeys
-                                                                        .ACTIVE_CUSTOM_THEME
-                                                                        .key,
-                                                                if (theme.folderName == "Default" ||
-                                                                                theme.name ==
-                                                                                        "Default"
-                                                                )
-                                                                        ""
-                                                                else theme.folderName
-                                                        )
-                                                    }
+                                                    applyThemeWithBgCheck(theme)
                                                 } else {
                                                     downloadingThemeName = theme.folderName
                                                     scope.launch {
@@ -746,22 +926,11 @@ fun TelasTab() {
                                                                                     context
                                                                             )
                                                                             .getLocalThemes()
-                                                            if (selectedTheme == theme.name) {
-                                                                prefs.edit {
-                                                                    putString(
-                                                                            SharedPreferencesKeys
-                                                                                    .ACTIVE_CUSTOM_THEME
-                                                                                    .key,
-                                                                            if (theme.folderName ==
-                                                                                            "Default" ||
-                                                                                            theme.name ==
-                                                                                                    "Default"
-                                                                            )
-                                                                                    ""
-                                                                            else theme.folderName
-                                                                    )
-                                                                }
-                                                            }
+                                                            val downloadedMeta =
+                                                                    localThemes.firstOrNull {
+                                                                        it.folderName == theme.folderName || it.name == theme.name
+                                                                    } ?: theme
+                                                            applyThemeWithBgCheck(downloadedMeta)
                                                         }
                                                     }
                                                 }
@@ -780,20 +949,11 @@ fun TelasTab() {
                                                                 ThemeManager.getInstance(context)
                                                                         .getLocalThemes()
                                                         if (selectedTheme == theme.name) {
-                                                            prefs.edit {
-                                                                putString(
-                                                                        SharedPreferencesKeys
-                                                                                .ACTIVE_CUSTOM_THEME
-                                                                                .key,
-                                                                        if (theme.folderName ==
-                                                                                        "Default" ||
-                                                                                        theme.name ==
-                                                                                                "Default"
-                                                                        )
-                                                                                ""
-                                                                        else theme.folderName
-                                                                )
-                                                            }
+                                                            val downloadedMeta =
+                                                                    localThemes.firstOrNull {
+                                                                        it.folderName == theme.folderName || it.name == theme.name
+                                                                    } ?: theme
+                                                            applyThemeWithBgCheck(downloadedMeta)
                                                         }
                                                     }
                                                 }
@@ -825,39 +985,239 @@ fun TelasTab() {
                         }
                         Spacer(Modifier.height(16.dp))
                     }
+                      // ── SIDE-BY-SIDE CARDS (50% / 50% width) ──
+                HorizontalDivider(color = Color(0xFF2C3139))
+                Spacer(Modifier.height(16.dp))
 
-                    HorizontalDivider(color = ImpTokens.TrackOff)
-                    Spacer(Modifier.height(16.dp))
-
-                    // Default screen/app when cluster initializes and fuel consumption unit merged
-                    Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalAlignment = Alignment.Top
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Max),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    // ── LEFT CARD (40%): Background do Cluster Card (aligned with Exibir Odômetro below) ──
+                    Column(
+                        modifier = Modifier
+                            .weight(0.40f)
+                            .fillMaxHeight()
+                            .background(ImpTokens.TrackOff, RoundedCornerShape(8.dp))
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // 1. Default screen/app when cluster initializes
-                        Column(
-                            modifier = Modifier.weight(1f)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                    "App Padrão na Inicialização",
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Background do Cluster",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    if (enableCustomBg) "Papel de parede do painel" else "Padrão do sistema",
                                     color = ImpTokens.TextSecondary,
                                     fontSize = 12.sp
+                                )
+                            }
+                            Switch(
+                                checked = enableCustomBg,
+                                enabled = allClusterFunctionsEnabled,
+                                onCheckedChange = { checked ->
+                                    enableCustomBg = checked
+                                    prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, checked) }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Color(0xFF4A9EFF)
+                                )
                             )
-                            Spacer(Modifier.height(8.dp))
+                        }
+
+                        val activeFolder = remember(selectedTheme) {
+                            prefs.getString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
+                        }
+                        val themeMeta = remember(activeFolder, selectedTheme, localThemes) {
+                            ThemeManager.getInstance(context).getThemeMetadata(activeFolder)
+                                ?: localThemes.firstOrNull {
+                                    it.name == selectedTheme || it.folderName == activeFolder
+                                }
+                        }
+
+                        val bgThumb = remember(enableCustomBg, showBackgroundSettingsDialog, selectedTheme, activeFolder) {
+                            if (!enableCustomBg) {
+                                ClusterBgThumb.Empty(
+                                    Icons.Default.VisibilityOff,
+                                    "Fundo personalizado desligado",
+                                    "Ative a chave acima para escolher um fundo"
+                                )
+                            } else {
+                                val bgType = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME"
+                                val bgValue = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: ""
+                                when (bgType) {
+                                    "THEME" -> {
+                                        val bgPath = themeMeta?.backgroundAbsolutePath.orEmpty()
+                                        if (bgPath.isNotEmpty() && java.io.File(bgPath).exists()) {
+                                            ClusterBgThumb.Picture(java.io.File(bgPath))
+                                        } else {
+                                            // O projetor deixa o cluster transparente nesse caso: a miniatura
+                                            // não deve fingir que existe um papel de parede.
+                                            ClusterBgThumb.Empty(
+                                                Icons.Default.ImageNotSupported,
+                                                "O tema ativo não tem imagem de fundo",
+                                                "Escolha uma cor ou imagem em TROCAR"
+                                            )
+                                        }
+                                    }
+                                    "PRESET" -> {
+                                        if (bgValue.isNotBlank()) {
+                                            val uploadedFile = java.io.File(BackgroundSyncServer.getUploadsDir(), bgValue)
+                                            if (uploadedFile.exists()) ClusterBgThumb.Picture(uploadedFile)
+                                            else ClusterBgThumb.Picture("file:///android_asset/backgrounds/$bgValue")
+                                        } else {
+                                            ClusterBgThumb.Empty(
+                                                Icons.Default.Wallpaper,
+                                                "Nenhum preset selecionado",
+                                                "Escolha em TROCAR › Presets"
+                                            )
+                                        }
+                                    }
+                                    SolidBackgroundSpec.TYPE -> {
+                                        val spec = SolidBackgroundSpec.parse(bgValue)
+                                        if (spec != null) ClusterBgThumb.Solid(spec)
+                                        else ClusterBgThumb.Empty(
+                                            Icons.Default.Palette,
+                                            "Cor inválida",
+                                            "Escolha novamente em TROCAR › Cor"
+                                        )
+                                    }
+                                    "FILE" -> {
+                                        val file = bgValue.takeIf { it.isNotBlank() }?.let { java.io.File(it) }
+                                        when {
+                                            file == null -> ClusterBgThumb.Empty(
+                                                Icons.Default.Wallpaper,
+                                                "Nenhuma imagem selecionada",
+                                                "Escolha em TROCAR › Biblioteca"
+                                            )
+                                            !file.exists() -> ClusterBgThumb.Empty(
+                                                Icons.Default.BrokenImage,
+                                                "Imagem da biblioteca não encontrada",
+                                                "Ela pode ter sido excluída — escolha outra"
+                                            )
+                                            else -> ClusterBgThumb.Picture(file)
+                                        }
+                                    }
+                                    "IMAGE_URL" -> {
+                                        if (bgValue.isNotBlank()) ClusterBgThumb.Picture(bgValue)
+                                        else ClusterBgThumb.Empty(
+                                            Icons.Default.Wallpaper,
+                                            "Nenhuma imagem selecionada",
+                                            "Escolha em TROCAR › Web"
+                                        )
+                                    }
+                                    else -> ClusterBgThumb.Empty(
+                                        Icons.Default.Wallpaper,
+                                        "Nenhuma imagem selecionada",
+                                        "Escolha um fundo em TROCAR"
+                                    )
+                                }
+                            }
+                        }
+
+                        // Ultrawide Thumbnail Box (1920x720 ratio, filling 40% card width, right edge aligned with Exibir Odômetro below)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1920f / 720f)
+                                .background(Color(0xFF13151A), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFF3F4652), RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(8.dp))
+                        ) {
+                            ClusterBackgroundThumbContent(
+                                state = bgThumb,
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            // Overlay Button "TROCAR" pinned to Bottom-Right corner inside image
+                            if (allClusterFunctionsEnabled && enableCustomBg) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(8.dp)
+                                        .background(Color(0xD91E2228), RoundedCornerShape(6.dp))
+                                        .border(1.dp, Color(0xFF4A9EFF), RoundedCornerShape(6.dp))
+                                        .clickable { showBackgroundSettingsDialog = true }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Palette,
+                                            contentDescription = null,
+                                            tint = Color(0xFF4A9EFF),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            "TROCAR",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── RIGHT CARD (60%): Inicialização & Consumo Card (aligned with Próxima Revisão below) ──
+                    Column(
+                        modifier = Modifier
+                            .weight(0.60f)
+                            .fillMaxHeight()
+                            .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                "Inicialização & Exibição",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "App de arranque e unidade de consumo",
+                                color = Color(0xFFB0B8C4),
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            // 1. App Padrão na Inicialização
+                        Column {
+                            Text(
+                                "App Padrão na Inicialização",
+                                color = Color(0xFFB0B8C4),
+                                fontSize = 11.sp
+                            )
+                            Spacer(Modifier.height(4.dp))
                             Box(
-                                    modifier =
-                                            Modifier.fillMaxWidth()
-                                                    .height(46.dp)
-                                                    .background(
-                                                            ImpTokens.TrackOff,
-                                                            RoundedCornerShape(8.dp)
-                                                    )
-                                                    .clickable(enabled = allClusterFunctionsEnabled) {
-                                                        appExpanded = true
-                                                    }
-                                                    .padding(horizontal = 16.dp),
-                                    contentAlignment = Alignment.CenterStart
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(42.dp)
+                                    .background(ImpTokens.Container, RoundedCornerShape(8.dp))
+                                    .clickable(enabled = allClusterFunctionsEnabled) {
+                                        appExpanded = true
+                                    }
+                                    .padding(horizontal = 14.dp),
+                                contentAlignment = Alignment.CenterStart
                             ) {
                                 val resolvedApp = remember(defaultApp, configs) {
                                     if (defaultApp.isEmpty()) {
@@ -874,9 +1234,9 @@ fun TelasTab() {
                                 }
 
                                 Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Row(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -886,148 +1246,227 @@ fun TelasTab() {
                                             AsyncImage(
                                                 model = resolvedApp.icon,
                                                 contentDescription = null,
-                                                modifier = Modifier.size(24.dp)
+                                                modifier = Modifier.size(22.dp)
                                             )
                                         } else {
                                             Icon(
                                                 imageVector = if (defaultApp.isEmpty()) Icons.Default.Block else Icons.Default.Apps,
                                                 contentDescription = null,
                                                 tint = if (defaultApp.isEmpty()) ImpTokens.TextSecondary else ImpTokens.Accent,
-                                                modifier = Modifier.size(24.dp)
+                                                modifier = Modifier.size(22.dp)
                                             )
                                         }
-                                        Text(resolvedApp.label, color = Color.White, fontSize = 14.sp)
+                                        Text(resolvedApp.label, color = Color.White, fontSize = 13.sp)
                                     }
                                     Icon(
-                                            Icons.Default.ArrowDropDown,
-                                            contentDescription = "Expandir",
-                                            tint = Color.White
+                                        Icons.Default.ArrowDropDown,
+                                        contentDescription = "Expandir",
+                                        tint = Color.White
                                     )
                                 }
 
                                 DropdownMenu(
-                                        expanded = appExpanded && allClusterFunctionsEnabled,
-                                        onDismissRequest = { appExpanded = false },
-                                        modifier =
-                                                Modifier.fillMaxWidth(0.45f)
-                                                        .background(ImpTokens.Container)
+                                    expanded = appExpanded && allClusterFunctionsEnabled,
+                                    onDismissRequest = { appExpanded = false },
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.45f)
+                                        .background(ImpTokens.Container)
                                 ) {
                                     DropdownMenuItem(
-                                            text = { Text("Nenhum", color = Color.White, fontSize = 14.sp) },
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = Icons.Default.Block,
-                                                    contentDescription = null,
-                                                    tint = ImpTokens.TextSecondary,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            },
-                                            onClick = {
-                                                defaultApp = ""
-                                                prefs.edit {
-                                                    putString(
-                                                            SharedPreferencesKeys
-                                                                    .DEFAULT_DISPLAY_APP_PACKAGE
-                                                                    .key,
-                                                            ""
-                                                    )
-                                                }
-                                                appExpanded = false
-                                            }
+                                        text = { Text("Nenhum", color = Color.White, fontSize = 14.sp) },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Block,
+                                                contentDescription = null,
+                                                tint = ImpTokens.TextSecondary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        },
+                                        onClick = {
+                                            defaultApp = ""
+                                            prefs.edit { putString(SharedPreferencesKeys.DEFAULT_DISPLAY_APP_PACKAGE.key, "") }
+                                            appExpanded = false
+                                        }
                                     )
                                     configs.forEach { config ->
                                         val resolved = remember(config.packageName, config.customName) {
                                             DisplayAppLauncher.resolveAppInfo(context, config.packageName, config.customName)
                                         }
                                         DropdownMenuItem(
-                                                text = { Text(resolved.label, color = Color.White, fontSize = 14.sp) },
-                                                leadingIcon = if (resolved.icon != null) {
-                                                    {
-                                                        AsyncImage(
-                                                            model = resolved.icon,
-                                                            contentDescription = null,
-                                                            modifier = Modifier.size(20.dp)
-                                                        )
-                                                    }
-                                                } else {
-                                                    {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Apps,
-                                                            contentDescription = null,
-                                                            tint = ImpTokens.Accent,
-                                                            modifier = Modifier.size(20.dp)
-                                                        )
-                                                    }
-                                                },
-                                                onClick = {
-                                                    defaultApp = config.packageName
-                                                    prefs.edit {
-                                                        putString(
-                                                                SharedPreferencesKeys
-                                                                        .DEFAULT_DISPLAY_APP_PACKAGE
-                                                                        .key,
-                                                                config.packageName
-                                                        )
-                                                    }
-                                                    appExpanded = false
+                                            text = { Text(resolved.label, color = Color.White, fontSize = 14.sp) },
+                                            leadingIcon = if (resolved.icon != null) {
+                                                {
+                                                    AsyncImage(
+                                                        model = resolved.icon,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
                                                 }
+                                            } else {
+                                                {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Apps,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF4A9EFF),
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            },
+                                            onClick = {
+                                                defaultApp = config.packageName
+                                                prefs.edit { putString(SharedPreferencesKeys.DEFAULT_DISPLAY_APP_PACKAGE.key, config.packageName) }
+                                                appExpanded = false
+                                            }
                                         )
                                     }
                                 }
                             }
                         }
 
-                        // 2. Personalizações de Exibição (Unidade de Consumo)
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
+                        // 2. Unidade de Consumo de Combustível
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                    "Unidade de Consumo de Combustível",
-                                    color = ImpTokens.TextSecondary,
-                                    fontSize = 12.sp
+                                "Unidade de Consumo",
+                                color = ImpTokens.TextSecondary,
+                                fontSize = 11.sp
                             )
                             Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 val units = listOf("liters" to "Litros", "percent" to "Porcentagem")
                                 units.forEach { (unitId, label) ->
                                     val isSelected = clusterFuelDisplayUnit == unitId
                                     Box(
-                                            modifier =
-                                                    Modifier.weight(1f)
-                                                            .height(46.dp)
-                                                            .background(
-                                                                    if (isSelected) ImpTokens.Accent
-                                                                    else ImpTokens.TrackOff,
-                                                                    RoundedCornerShape(8.dp)
-                                                            )
-                                                            .clickable(
-                                                                    enabled = allClusterFunctionsEnabled
-                                                            ) {
-                                                                clusterFuelDisplayUnit = unitId
-                                                                prefs.edit {
-                                                                    putString(
-                                                                            SharedPreferencesKeys
-                                                                                    .CLUSTER_FUEL_DISPLAY_UNIT
-                                                                                    .key,
-                                                                            unitId
-                                                                    )
-                                                                }
-                                                            }
-                                                            .padding(horizontal = 12.dp),
-                                            contentAlignment = Alignment.Center
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(42.dp)
+                                            .background(
+                                                if (isSelected) ImpTokens.Accent else ImpTokens.Container,
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable(enabled = allClusterFunctionsEnabled) {
+                                                clusterFuelDisplayUnit = unitId
+                                                prefs.edit { putString(SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key, unitId) }
+                                            }
+                                            .padding(horizontal = 10.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                                label,
-                                                color = Color.White,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold
+                                            label,
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
                                         )
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                                modifier =
+                                        Modifier.weight(1f)
+                                                .height(104.dp)
+                                                .background(
+                                                        ImpTokens.TrackOff,
+                                                        RoundedCornerShape(8.dp)
+                                                )
+                                                .clickable(enabled = allClusterFunctionsEnabled) {
+                                                    hideSpeedometerOnMaps =
+                                                            !hideSpeedometerOnMaps
+                                                    prefs.edit {
+                                                        putBoolean(
+                                                                SharedPreferencesKeys
+                                                                        .CLUSTER_HIDE_SPEEDOMETER_ON_MAPS
+                                                                        .key,
+                                                                hideSpeedometerOnMaps
+                                                        )
+                                                    }
+                                                }
+                                                .padding(horizontal = 20.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                        "Ocultar velocímetro nos mapas",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                        "Aplica-se aos modos de mapa dos temas Sport",
+                                        color = ImpTokens.TextSecondary,
+                                        fontSize = 12.sp
+                                )
+                            }
+                            Switch(
+                                    checked = hideSpeedometerOnMaps,
+                                    enabled = allClusterFunctionsEnabled,
+                                    onCheckedChange = null,
+                                    colors =
+                                            SwitchDefaults.colors(
+                                                    checkedThumbColor = Color.White,
+                                                    checkedTrackColor = ImpTokens.Accent
+                                            )
+                            )
+                        }
+
+                        Row(
+                                modifier =
+                                        Modifier.weight(1f)
+                                                .height(104.dp)
+                                                .background(
+                                                        ImpTokens.TrackOff,
+                                                        RoundedCornerShape(8.dp)
+                                                )
+                                                .clickable(enabled = allClusterFunctionsEnabled) {
+                                                    showV2TripInfo = !showV2TripInfo
+                                                    prefs.edit {
+                                                        putBoolean(
+                                                                SharedPreferencesKeys
+                                                                        .CLUSTER_V2_TRIP_INFO
+                                                                        .key,
+                                                                showV2TripInfo
+                                                        )
+                                                    }
+                                                }
+                                                .padding(horizontal = 20.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                        "Viagem e pneus no Analógico V2",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                        "Ativa consumo, tempo, distância e TPMS no tema Sport",
+                                        color = ImpTokens.TextSecondary,
+                                        fontSize = 12.sp
+                                )
+                            }
+                            Switch(
+                                    checked = showV2TripInfo,
+                                    enabled = allClusterFunctionsEnabled,
+                                    onCheckedChange = null,
+                                    colors =
+                                            SwitchDefaults.colors(
+                                                    checkedThumbColor = Color.White,
+                                                    checkedTrackColor = ImpTokens.Accent
+                                            )
+                            )
                         }
                     }
 
@@ -1035,8 +1474,8 @@ fun TelasTab() {
                     HorizontalDivider(color = ImpTokens.TrackOff)
                     Spacer(Modifier.height(16.dp))
 
-                    // Odômetro e Aviso de Revisão
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Odômetro e Aviso de Revisão
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -2097,6 +2536,1259 @@ fun TelasTab() {
                     showConfigDialog = false
                 }
         )
+    }
+
+    if (showBackgroundSettingsDialog) {
+        val activeFolder = prefs.getString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
+        val themeMeta = remember(activeFolder, selectedTheme, localThemes) {
+            ThemeManager.getInstance(context).getThemeMetadata(activeFolder)
+                ?: localThemes.firstOrNull {
+                    it.name == selectedTheme || it.folderName == activeFolder
+                }
+        }
+        ClusterBackgroundSettingsDialog(
+            prefs = prefs,
+            localAssetList = localAssetList,
+            themeBackgroundPath = themeMeta?.backgroundAbsolutePath.orEmpty(),
+            themeBackgroundLabel = themeMeta?.background?.ifBlank { null }
+                ?: themeMeta?.name?.let { "$it (tema)" }
+                ?: "Tema ativo",
+            scope = scope,
+            onDismiss = { showBackgroundSettingsDialog = false }
+        )
+    }
+}
+
+@Composable
+fun ClusterBackgroundSettingsDialog(
+    prefs: SharedPreferences,
+    localAssetList: List<String>,
+    themeBackgroundPath: String = "",
+    themeBackgroundLabel: String = "Tema",
+    scope: kotlinx.coroutines.CoroutineScope,
+    onDismiss: () -> Unit
+) {
+    var customBgType by remember {
+        mutableStateOf(prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME")
+    }
+    var customBgValue by remember {
+        mutableStateOf(prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: "")
+    }
+
+    val initialBgType = remember { customBgType }
+    val initialBgValue = remember { customBgValue }
+
+    // Aba sendo navegada — independente do que está aplicado, para que apenas abrir uma aba
+    // nunca mude o cluster; só clicar em uma miniatura muda.
+    var selectedTab by remember { mutableStateOf(customBgType) }
+
+    var currentView by remember { mutableStateOf("SETTINGS") } // "SETTINGS" or "SYNC"
+    var uploadedRefreshToken by remember { mutableIntStateOf(0) }
+    val libraryItems = remember(uploadedRefreshToken) {
+        WallpaperLibrary.list()
+    }
+    val libraryFileNames = remember(libraryItems) {
+        libraryItems.map { it.file.name }.toSet()
+    }
+
+    // ── Preview ao vivo: toda seleção é aplicada no cluster na hora e só vira definitiva
+    // no OK. Cancelar / fechar restaura o que estava valendo ao abrir o diálogo.
+    LaunchedEffect(customBgType, customBgValue) {
+        if (customBgType == "THEME" || customBgValue.isNotBlank()) {
+            prefs.edit {
+                putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, customBgType)
+                putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, customBgValue)
+            }
+        }
+    }
+
+    val revertPreview: () -> Unit = {
+        customBgType = initialBgType
+        customBgValue = initialBgValue
+        prefs.edit {
+            putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, initialBgType)
+            putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, initialBgValue)
+        }
+    }
+
+    // ── Cor sólida + vinheta ──
+    val initialSolid = remember {
+        SolidBackgroundSpec.parse(initialBgValue)
+            ?.takeIf { initialBgType == SolidBackgroundSpec.TYPE }
+            ?: SolidBackgroundSpec.DEFAULT
+    }
+    val initialHsv = remember {
+        FloatArray(3).also { android.graphics.Color.colorToHSV(initialSolid.color, it) }
+    }
+    var solidHue by remember { mutableFloatStateOf(initialHsv[0]) }
+    var solidSat by remember { mutableFloatStateOf(initialHsv[1]) }
+    var solidVal by remember { mutableFloatStateOf(initialHsv[2]) }
+    var solidVignette by remember { mutableIntStateOf(initialSolid.vignette) }
+
+    // Só grava (e portanto só aplica no cluster) ao soltar o dedo: arrastar no mapa
+    // dispararia dezenas de escritas de preferência por segundo.
+    val commitSolidColor: () -> Unit = {
+        val argb = android.graphics.Color.HSVToColor(floatArrayOf(solidHue, solidSat, solidVal))
+        customBgType = SolidBackgroundSpec.TYPE
+        customBgValue = SolidBackgroundSpec(argb, solidVignette).encode()
+    }
+
+    // ── Busca na web (Wallhaven; estado no diálogo sobrevive à troca de abas) ──
+    val ioScope = rememberCoroutineScope()
+    var webQuery by remember { mutableStateOf(DEFAULT_WEB_QUERY) }
+    var webResults by remember { mutableStateOf<List<WebImage>>(emptyList()) }
+    var webPage by remember { mutableIntStateOf(1) }
+    var webHasMore by remember { mutableStateOf(false) }
+    var webLoading by remember { mutableStateOf(false) }
+    var webLoadingMore by remember { mutableStateOf(false) }
+    var webError by remember { mutableStateOf<String?>(null) }
+    var webRetryToken by remember { mutableIntStateOf(0) }
+    var webLoadedSignature by remember { mutableStateOf("") }
+    var favoriteBusyKey by remember { mutableStateOf<String?>(null) }
+    var libraryMessage by remember { mutableStateOf<String?>(null) }
+    val webGridState = rememberLazyGridState()
+
+    suspend fun loadWebPage(page: Int) {
+        if (page == 1) {
+            webLoading = true
+            webError = null
+        } else {
+            webLoadingMore = true
+        }
+        try {
+            val result = WebImageSearch.search(webQuery, page)
+            webResults = if (page == 1) result.images else webResults + result.images
+            webPage = result.page
+            webHasMore = result.hasMore && result.images.isNotEmpty()
+            webError = null
+        } catch (e: Exception) {
+            if (page == 1) webResults = emptyList()
+            webHasMore = false
+            webError = e.message ?: "Falha ao buscar imagens."
+        } finally {
+            webLoading = false
+            webLoadingMore = false
+        }
+    }
+
+    val webTabActive = selectedTab == "IMAGE_URL"
+    val webSignature = "${webQuery.trim()}|$webRetryToken"
+
+    LaunchedEffect(webTabActive, webSignature) {
+        if (!webTabActive) return@LaunchedEffect
+        if (webSignature == webLoadedSignature && webResults.isNotEmpty()) return@LaunchedEffect
+        if (webQuery.isNotBlank()) delay(500) // debounce da digitação
+        webLoadedSignature = webSignature
+        loadWebPage(1)
+        // Só depois de ter resultados: scrollToItem espera o primeiro layout da grade e
+        // ficaria suspenso para sempre enquanto a grade não estiver composta.
+        if (webResults.isNotEmpty()) webGridState.scrollToItem(0)
+    }
+
+    // Scroll infinito: carrega a próxima página ao chegar perto do fim da grade.
+    val shouldLoadMoreWeb by remember {
+        derivedStateOf {
+            val lastVisible = webGridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            lastVisible >= 0 && lastVisible >= webResults.size - 6
+        }
+    }
+    // Os flags de carregamento não entram nas chaves: mudá-los aqui reiniciaria o próprio
+    // efeito e cancelaria a requisição em andamento.
+    LaunchedEffect(shouldLoadMoreWeb, webHasMore) {
+        if (shouldLoadMoreWeb && webHasMore && !webLoading && !webLoadingMore) {
+            loadWebPage(webPage + 1)
+        }
+    }
+
+    LaunchedEffect(libraryMessage) {
+        if (libraryMessage != null) {
+            delay(2500)
+            libraryMessage = null
+        }
+    }
+
+    val localIp = remember { BackgroundSyncServer.getLocalIpAddress() ?: "127.0.0.1" }
+    val portalUrl = "http://$localIp:8080"
+
+    val syncServer = remember {
+        BackgroundSyncServer {
+            scope.launch {
+                delay(500)
+                customBgType = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "PRESET") ?: "PRESET"
+                customBgValue = prefs.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: ""
+                uploadedRefreshToken++
+            }
+        }
+    }
+
+    DisposableEffect(currentView) {
+        if (currentView == "SYNC") {
+            syncServer.start()
+        } else {
+            syncServer.stop()
+        }
+        onDispose {
+            syncServer.stop()
+        }
+    }
+
+    Dialog(
+        onDismissRequest = {
+            // Fechar sem confirmar equivale a cancelar: desfaz o preview.
+            revertPreview()
+            onDismiss()
+        },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.82f)
+                .fillMaxHeight(0.84f)
+                .padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2228)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.5.dp, Color(0xFF4A9EFF))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (currentView == "SYNC") {
+                    Text(
+                        "Sincronizar pelo Celular",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    HorizontalDivider(color = Color(0xFF2C3139))
+
+                    Text(
+                        "Conecte o seu celular na mesma rede Wi-Fi do carro (ou roteador) e escaneie o código abaixo:",
+                        color = Color(0xFFB0B8C4),
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .size(200.dp)
+                            .background(Color.White, RoundedCornerShape(8.dp))
+                            .padding(8.dp)
+                            .align(Alignment.CenterHorizontally),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = "https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${java.net.URLEncoder.encode(portalUrl, "UTF-8")}",
+                            contentDescription = "QR Code de Sincronização",
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    Text(
+                        text = "Ou acesse no navegador:\n$portalUrl",
+                        color = Color(0xFF4A9EFF),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = { currentView = "SETTINGS" },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C3139)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Voltar", color = Color.White)
+                    }
+                } else {
+                    Text(
+                        "Ajustes: Background do Cluster",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    HorizontalDivider(color = Color(0xFF2C3139))
+
+                    // Selector Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            "THEME" to "Tema",
+                            SolidBackgroundSpec.TYPE to "Cor",
+                            "PRESET" to "Presets",
+                            "IMAGE_URL" to "Web",
+                            "FILE" to "Biblioteca"
+                        ).forEach { (type, label) ->
+                            val isBrowsing = selectedTab == type
+                            val isApplied = customBgType == type
+                            Button(
+                                onClick = { selectedTab = type },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isBrowsing) Color(0xFF4A9EFF) else Color(0xFF2C3139),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (isApplied) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Em uso",
+                                            tint = if (isBrowsing) Color.White else Color(0xFF4A9EFF),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                    Text(label, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    ) {
+                        when (selectedTab) {
+                            "THEME" -> {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        "Usa o papel de parede declarado pelo tema ativo (<background> no theme.xml). Padrão recomendado.",
+                                        color = Color(0xFFB0B8C4),
+                                        fontSize = 12.sp
+                                    )
+                                    val hasThemeBg = themeBackgroundPath.isNotBlank()
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(160.dp)
+                                            .border(
+                                                2.dp,
+                                                if (customBgType == "THEME") Color(0xFF4A9EFF) else Color(0xFF2C3139),
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable {
+                                                customBgType = "THEME"
+                                                customBgValue = ""
+                                            },
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A))
+                                    ) {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            if (hasThemeBg) {
+                                                AsyncImage(
+                                                    model = java.io.File(themeBackgroundPath),
+                                                    contentDescription = themeBackgroundLabel,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        "Tema ativo sem imagem de fundo",
+                                                        color = Color(0xFFB0B8C4),
+                                                        fontSize = 12.sp,
+                                                        textAlign = TextAlign.Center
+                                                    )
+                                                }
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(Color.Black.copy(alpha = 0.55f))
+                                                    .align(Alignment.BottomCenter)
+                                                    .padding(vertical = 4.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (hasThemeBg) themeBackgroundLabel else "Sem background no tema",
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    textAlign = TextAlign.Center,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            SolidBackgroundSpec.TYPE -> {
+                                SolidColorTab(
+                                    hue = solidHue,
+                                    saturation = solidSat,
+                                    brightness = solidVal,
+                                    vignette = solidVignette,
+                                    onHueChange = { solidHue = it },
+                                    onSatValChange = { s, v ->
+                                        solidSat = s
+                                        solidVal = v
+                                    },
+                                    onArgbChange = { argb ->
+                                        val hsv = FloatArray(3)
+                                        android.graphics.Color.colorToHSV(argb, hsv)
+                                        solidHue = hsv[0]
+                                        solidSat = hsv[1]
+                                        solidVal = hsv[2]
+                                    },
+                                    onVignetteChange = { solidVignette = it },
+                                    onCommit = commitSolidColor
+                                )
+                            }
+                            "PRESET" -> {
+                                Column {
+                                    Text("Presets Locais (assets/backgrounds/)", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Adaptive(minSize = 150.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        items(localAssetList) { fileName ->
+                                            val isSelected = customBgType == "PRESET" && customBgValue == fileName
+                                            val borderColor = if (isSelected) Color(0xFF4A9EFF) else Color.Transparent
+                                            Card(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(88.dp)
+                                                    .border(2.dp, borderColor, RoundedCornerShape(8.dp))
+                                                    .clickable {
+                                                        customBgType = "PRESET"
+                                                        customBgValue = fileName
+                                                    },
+                                                colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A))
+                                            ) {
+                                                Box(modifier = Modifier.fillMaxSize()) {
+                                                    AsyncImage(
+                                                        model = "file:///android_asset/backgrounds/$fileName",
+                                                        contentDescription = fileName,
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .background(Color.Black.copy(alpha = 0.5f))
+                                                            .align(Alignment.BottomCenter)
+                                                            .padding(vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = fileName.substringBeforeLast("."),
+                                                            color = Color.White,
+                                                            fontSize = 10.sp,
+                                                            textAlign = TextAlign.Center,
+                                                            modifier = Modifier.fillMaxWidth()
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            "IMAGE_URL" -> {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // Busca ao vivo no Wallhaven
+                                    OutlinedTextField(
+                                        value = webQuery,
+                                        onValueChange = { webQuery = it },
+                                        placeholder = {
+                                            Text(
+                                                "Buscar no Wallhaven: carros, paisagem, abstrato...",
+                                                fontSize = 12.sp,
+                                                color = Color(0xFFB0B8C4),
+                                                maxLines = 1
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Search,
+                                                contentDescription = null,
+                                                tint = Color(0xFF4A9EFF),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        },
+                                        trailingIcon = {
+                                            if (webQuery.isNotEmpty()) {
+                                                IconButton(onClick = { webQuery = "" }) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Clear,
+                                                        contentDescription = "Limpar busca",
+                                                        tint = Color(0xFFB0B8C4),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = Color(0xFF4A9EFF),
+                                            unfocusedBorderColor = Color(0xFF2C3139),
+                                            focusedContainerColor = Color(0xFF13151A),
+                                            unfocusedContainerColor = Color(0xFF13151A),
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    Text(
+                                        libraryMessage
+                                            ?: "Toque para pré-visualizar no cluster · ♥ salva na Biblioteca para usar sem internet.",
+                                        color = if (libraryMessage != null) Color(0xFF4A9EFF) else Color(0xFF718096),
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    when {
+                                        webLoading && webResults.isEmpty() -> {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                    CircularProgressIndicator(color = Color(0xFF4A9EFF))
+                                                    Spacer(modifier = Modifier.height(8.dp))
+                                                    Text("Buscando no Wallhaven...", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+                                                }
+                                            }
+                                        }
+
+                                        webError != null && webResults.isEmpty() -> {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.CloudOff,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF718096),
+                                                        modifier = Modifier.size(32.dp)
+                                                    )
+                                                    Text(
+                                                        webError ?: "",
+                                                        color = Color(0xFFB0B8C4),
+                                                        fontSize = 12.sp,
+                                                        textAlign = TextAlign.Center
+                                                    )
+                                                    Button(
+                                                        onClick = { webRetryToken++ },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C3139)),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Refresh,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFF4A9EFF),
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Tentar novamente", color = Color.White, fontSize = 12.sp)
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        webResults.isEmpty() -> {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    if (webQuery.isBlank()) "Digite algo para buscar no Wallhaven."
+                                                    else "Nenhuma imagem encontrada para \"$webQuery\".",
+                                                    color = Color(0xFFB0B8C4),
+                                                    fontSize = 12.sp,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+                                        }
+
+                                        else -> {
+                                            LazyVerticalGrid(
+                                                state = webGridState,
+                                                columns = GridCells.Adaptive(minSize = 150.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.fillMaxSize()
+                                            ) {
+                                                items(webResults) { image ->
+                                                    val isSelected = customBgType == "IMAGE_URL" &&
+                                                            customBgValue == image.fullUrl
+                                                    val isSaved = libraryFileNames.contains(
+                                                        WallpaperLibrary.fileNameFor(image)
+                                                    )
+                                                    val isSaving = favoriteBusyKey == image.libraryKey
+                                                    Card(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(92.dp)
+                                                            .border(
+                                                                2.dp,
+                                                                if (isSelected) Color(0xFF4A9EFF) else Color.Transparent,
+                                                                RoundedCornerShape(8.dp)
+                                                            )
+                                                            .clickable {
+                                                                // Preview imediato no cluster; só persiste no OK.
+                                                                customBgType = "IMAGE_URL"
+                                                                customBgValue = image.fullUrl
+                                                            },
+                                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A))
+                                                    ) {
+                                                        Box(modifier = Modifier.fillMaxSize()) {
+                                                            AsyncImage(
+                                                                model = image.thumbUrl,
+                                                                contentDescription = image.title,
+                                                                contentScale = ContentScale.Crop,
+                                                                modifier = Modifier.fillMaxSize()
+                                                            )
+                                                            // Favoritar: baixa para a Biblioteca (offline)
+                                                            IconButton(
+                                                                onClick = {
+                                                                    if (isSaving) return@IconButton
+                                                                    favoriteBusyKey = image.libraryKey
+                                                                    ioScope.launch {
+                                                                        val result = WallpaperLibrary.favorite(image)
+                                                                        favoriteBusyKey = null
+                                                                        result
+                                                                            .onSuccess {
+                                                                                uploadedRefreshToken++
+                                                                                libraryMessage = "Imagem salva na Biblioteca."
+                                                                            }
+                                                                            .onFailure {
+                                                                                libraryMessage = it.message
+                                                                                    ?: "Não foi possível salvar a imagem."
+                                                                            }
+                                                                    }
+                                                                },
+                                                                modifier = Modifier
+                                                                    .align(Alignment.TopEnd)
+                                                                    .size(28.dp)
+                                                                    .background(
+                                                                        Color.Black.copy(alpha = 0.55f),
+                                                                        RoundedCornerShape(bottomStart = 8.dp)
+                                                                    )
+                                                            ) {
+                                                                if (isSaving) {
+                                                                    CircularProgressIndicator(
+                                                                        color = Color(0xFF4A9EFF),
+                                                                        strokeWidth = 2.dp,
+                                                                        modifier = Modifier.size(14.dp)
+                                                                    )
+                                                                } else {
+                                                                    Icon(
+                                                                        imageVector = if (isSaved) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                                                        contentDescription = if (isSaved) "Já está na Biblioteca" else "Favoritar na Biblioteca",
+                                                                        tint = if (isSaved) Color(0xFFFF6B81) else Color.White,
+                                                                        modifier = Modifier.size(16.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .background(Color.Black.copy(alpha = 0.65f))
+                                                                    .align(Alignment.BottomCenter)
+                                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                            ) {
+                                                                Row(
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                                    verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                    Text(
+                                                                        text = image.title.ifBlank { image.provider.label },
+                                                                        color = Color.White,
+                                                                        fontSize = 10.sp,
+                                                                        fontWeight = FontWeight.Medium,
+                                                                        maxLines = 1,
+                                                                        overflow = TextOverflow.Ellipsis,
+                                                                        modifier = Modifier.weight(1f)
+                                                                    )
+                                                                    Text(
+                                                                        text = image.resolutionLabel,
+                                                                        color = Color(0xFF4A9EFF),
+                                                                        fontSize = 9.sp,
+                                                                        maxLines = 1
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                if (webLoadingMore) {
+                                                    item(span = { GridItemSpan(maxLineSpan) }) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(vertical = 8.dp),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            CircularProgressIndicator(
+                                                                color = Color(0xFF4A9EFF),
+                                                                strokeWidth = 2.dp,
+                                                                modifier = Modifier.size(20.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                } else if (!webHasMore) {
+                                                    item(span = { GridItemSpan(maxLineSpan) }) {
+                                                        Text(
+                                                            "Fim dos resultados do Wallhaven.",
+                                                            color = Color(0xFF718096),
+                                                            fontSize = 11.sp,
+                                                            textAlign = TextAlign.Center,
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(vertical = 8.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            "FILE" -> {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        "Sua biblioteca: imagens enviadas pelo celular e favoritas da Web (ficam salvas no carro e funcionam sem internet).",
+                                        color = Color(0xFFB0B8C4),
+                                        fontSize = 12.sp
+                                    )
+                                    libraryMessage?.let { message ->
+                                        Text(message, color = Color(0xFF4A9EFF), fontSize = 11.sp, maxLines = 1)
+                                    }
+                                    if (libraryItems.isEmpty()) {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                "Biblioteca vazia. Favorite uma imagem na aba Web (ícone de coração) ou use \"Carregar pelo Celular\" para enviar uma foto.",
+                                                color = Color(0xFF718096),
+                                                fontSize = 12.sp,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                    } else {
+                                        LazyVerticalGrid(
+                                            columns = GridCells.Adaptive(minSize = 150.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            items(libraryItems, key = { it.file.absolutePath }) { item ->
+                                                val isSelected = customBgType == "FILE" &&
+                                                        customBgValue == item.file.absolutePath
+                                                Card(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(92.dp)
+                                                        .border(
+                                                            2.dp,
+                                                            if (isSelected) Color(0xFF4A9EFF) else Color.Transparent,
+                                                            RoundedCornerShape(8.dp)
+                                                        )
+                                                        .clickable {
+                                                            customBgType = "FILE"
+                                                            customBgValue = item.file.absolutePath
+                                                        },
+                                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A))
+                                                ) {
+                                                    Box(modifier = Modifier.fillMaxSize()) {
+                                                        AsyncImage(
+                                                            model = item.file,
+                                                            contentDescription = item.title,
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                        IconButton(
+                                                            onClick = {
+                                                                val wasApplied = customBgType == "FILE" &&
+                                                                        customBgValue == item.file.absolutePath
+                                                                if (WallpaperLibrary.delete(item.file)) {
+                                                                    if (wasApplied) revertPreview()
+                                                                    uploadedRefreshToken++
+                                                                }
+                                                            },
+                                                            modifier = Modifier
+                                                                .align(Alignment.TopEnd)
+                                                                .size(28.dp)
+                                                                .background(
+                                                                    Color.Black.copy(alpha = 0.55f),
+                                                                    RoundedCornerShape(bottomStart = 8.dp)
+                                                                )
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Delete,
+                                                                contentDescription = "Excluir da biblioteca",
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .background(Color.Black.copy(alpha = 0.65f))
+                                                                .align(Alignment.BottomCenter)
+                                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                        ) {
+                                                            Row(
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Text(
+                                                                    text = item.title,
+                                                                    color = Color.White,
+                                                                    fontSize = 10.sp,
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis,
+                                                                    modifier = Modifier.weight(1f)
+                                                                )
+                                                                Row(
+                                                                    verticalAlignment = Alignment.CenterVertically,
+                                                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                                                ) {
+                                                                    Icon(
+                                                                        imageVector = if (item.isFromWeb) Icons.Default.Public else Icons.Default.PhoneAndroid,
+                                                                        contentDescription = null,
+                                                                        tint = Color(0xFF4A9EFF),
+                                                                        modifier = Modifier.size(10.dp)
+                                                                    )
+                                                                    Text(
+                                                                        text = item.providerLabel ?: "Celular",
+                                                                        color = Color(0xFF4A9EFF),
+                                                                        fontSize = 9.sp,
+                                                                        maxLines = 1
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // ── 3 ACTION BUTTONS: OK, Cancelar, Carregar pelo Celular ──
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // 1. OK (Saves & Closes)
+                        Button(
+                            onClick = {
+                                prefs.edit {
+                                    putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, customBgType)
+                                    putString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, customBgValue)
+                                }
+                                onDismiss()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF4A9EFF),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("OK", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        // 2. Cancelar (Reverts & Closes)
+                        Button(
+                            onClick = {
+                                revertPreview()
+                                onDismiss()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C3139)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Cancelar", color = Color.White, fontSize = 13.sp)
+                        }
+
+                        // 3. Carregar pelo Celular (Opens Sync View)
+                        Button(
+                            onClick = { currentView = "SYNC" },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2C3139),
+                                contentColor = Color(0xFF4A9EFF)
+                            ),
+                            border = BorderStroke(1.dp, Color(0xFF4A9EFF)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1.3f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Carregar pelo Celular", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** O que a miniatura 1920x720 da tela Telas deve mostrar para o fundo atual do cluster. */
+private sealed interface ClusterBgThumb {
+    data class Picture(val model: Any) : ClusterBgThumb
+    data class Solid(val spec: SolidBackgroundSpec) : ClusterBgThumb
+    data class Empty(val icon: ImageVector, val title: String, val hint: String) : ClusterBgThumb
+}
+
+@Composable
+private fun ClusterBackgroundThumbContent(state: ClusterBgThumb, modifier: Modifier = Modifier) {
+    Box(modifier = modifier) {
+        when (state) {
+            is ClusterBgThumb.Solid -> SolidBackgroundPreview(
+                color = Color(state.spec.color),
+                vignette = state.spec.vignette,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            is ClusterBgThumb.Picture -> SubcomposeAsyncImage(
+                model = state.model,
+                contentDescription = "Miniatura do fundo do cluster (1920x720)",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                loading = {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = Color(0xFF4A9EFF),
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                },
+                error = {
+                    // Fundos "Web" dependem da rede do carro a cada carregamento.
+                    ClusterBgThumbPlaceholder(
+                        icon = Icons.Default.CloudOff,
+                        title = "Não foi possível carregar a imagem",
+                        hint = "Verifique a conexão do carro ou salve na Biblioteca"
+                    )
+                }
+            )
+
+            is ClusterBgThumb.Empty -> ClusterBgThumbPlaceholder(
+                icon = state.icon,
+                title = state.title,
+                hint = state.hint
+            )
+        }
+    }
+}
+
+/** Placeholder hachurado: deixa claro que não há imagem, sem parecer um fundo preto válido. */
+@Composable
+private fun ClusterBgThumbPlaceholder(icon: ImageVector, title: String, hint: String) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawRect(Color(0xFF13151A))
+            val step = 18.dp.toPx()
+            val stripe = Color(0xFF1C212B)
+            var x = -size.height
+            while (x < size.width) {
+                drawLine(
+                    color = stripe,
+                    start = Offset(x, size.height),
+                    end = Offset(x + size.height, 0f),
+                    strokeWidth = 7f
+                )
+                x += step
+            }
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Color(0xFF6B7280),
+                modifier = Modifier.size(30.dp)
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                title,
+                color = Color(0xFFB0B8C4),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                hint,
+                color = Color(0xFF6B7280),
+                fontSize = 9.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * Desenha a cor sólida com a mesma vinheta elíptica que o projetor aplica no cluster,
+ * para que a miniatura e a pré-visualização batam com o que aparece no painel.
+ */
+@Composable
+private fun SolidBackgroundPreview(color: Color, vignette: Int, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        drawRect(color)
+        if (vignette > 0) {
+            scale(scaleX = 1f, scaleY = size.height / size.width, pivot = center) {
+                drawRect(
+                    brush = Brush.radialGradient(
+                        0f to Color.Transparent,
+                        0.45f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = vignette / 100f),
+                        center = center,
+                        radius = size.width * 0.62f
+                    ),
+                    topLeft = Offset(0f, center.y - size.width),
+                    size = Size(size.width, size.width * 2)
+                )
+            }
+        }
+    }
+}
+
+/** Paleta rápida pensada para o cluster: tons escuros que não ofuscam à noite. */
+private val SOLID_COLOR_SWATCHES = listOf(
+    0xFF000000.toInt() to "Preto",
+    0xFF101820.toInt() to "Azul noite",
+    0xFF1C1F26.toInt() to "Grafite",
+    0xFF123A63.toInt() to "Azul GWM",
+    0xFF0F2A1D.toInt() to "Verde escuro",
+    0xFF3A0D14.toInt() to "Vinho",
+    0xFF241533.toInt() to "Roxo",
+    0xFF3A4048.toInt() to "Cinza"
+)
+
+/**
+ * Aba "Cor": mapa saturação/brilho + faixa de matiz (o mapa RGB), sliders R/G/B para ajuste
+ * fino e vinheta opcional, com pré-visualização no formato do cluster (1920x720).
+ */
+@Composable
+private fun SolidColorTab(
+    hue: Float,
+    saturation: Float,
+    brightness: Float,
+    vignette: Int,
+    onHueChange: (Float) -> Unit,
+    onSatValChange: (Float, Float) -> Unit,
+    onArgbChange: (Int) -> Unit,
+    onVignetteChange: (Int) -> Unit,
+    onCommit: () -> Unit
+) {
+    val argb = remember(hue, saturation, brightness) {
+        android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness))
+    }
+    val color = Color(argb)
+    val red = android.graphics.Color.red(argb)
+    val green = android.graphics.Color.green(argb)
+    val blue = android.graphics.Color.blue(argb)
+    val hex = remember(argb) { "#%06X".format(argb and 0x00FFFFFF) }
+
+    Row(
+        modifier = Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // ── Mapa de cores ──
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Mapa de cores", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+
+            HsvColorPicker(
+                hue = hue,
+                saturation = saturation,
+                brightness = brightness,
+                onHueChange = onHueChange,
+                onSatValChange = onSatValChange,
+                onCommit = onCommit
+            )
+
+            Text("Atalhos", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(SOLID_COLOR_SWATCHES) { (swatch, name) ->
+                    val isSelected = (swatch and 0x00FFFFFF) == (argb and 0x00FFFFFF)
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(swatch))
+                            .border(
+                                2.dp,
+                                if (isSelected) Color(0xFF4A9EFF) else Color(0xFF2C3139),
+                                RoundedCornerShape(6.dp)
+                            )
+                            .clickable {
+                                onArgbChange(swatch)
+                                onCommit()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = name,
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Pré-visualização e ajustes ──
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SolidBackgroundPreview(
+                color = color,
+                vignette = vignette,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1920f / 720f)
+                    .clip(RoundedCornerShape(8.dp))
+            )
+
+            Text(
+                "$hex · R $red  G $green  B $blue",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            listOf(
+                Triple("R", red, 0),
+                Triple("G", green, 1),
+                Triple("B", blue, 2)
+            ).forEach { (label, value, channel) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(label, color = Color(0xFFB0B8C4), fontSize = 11.sp, modifier = Modifier.width(12.dp))
+                    Slider(
+                        value = value.toFloat(),
+                        onValueChange = { raw ->
+                            val channelValue = raw.roundToInt().coerceIn(0, 255)
+                            val updated = when (channel) {
+                                0 -> android.graphics.Color.rgb(channelValue, green, blue)
+                                1 -> android.graphics.Color.rgb(red, channelValue, blue)
+                                else -> android.graphics.Color.rgb(red, green, channelValue)
+                            }
+                            onArgbChange(updated)
+                        },
+                        onValueChangeFinished = onCommit,
+                        valueRange = 0f..255f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF4A9EFF),
+                            activeTrackColor = Color(0xFF4A9EFF),
+                            inactiveTrackColor = Color(0xFF2C3139)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(28.dp)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = Color(0xFF2C3139))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Vinheta", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    if (vignette > 0) "$vignette%" else "desligada",
+                    color = Color(0xFF4A9EFF),
+                    fontSize = 11.sp
+                )
+            }
+            Slider(
+                value = vignette.toFloat(),
+                onValueChange = { onVignetteChange(it.roundToInt().coerceIn(0, 100)) },
+                onValueChangeFinished = onCommit,
+                valueRange = 0f..100f,
+                colors = SliderDefaults.colors(
+                    thumbColor = Color(0xFF4A9EFF),
+                    activeTrackColor = Color(0xFF4A9EFF),
+                    inactiveTrackColor = Color(0xFF2C3139)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(28.dp)
+            )
+            Text(
+                "Escurece as bordas do cluster, deixando os mostradores em destaque.",
+                color = Color(0xFF718096),
+                fontSize = 11.sp
+            )
+        }
     }
 }
 
@@ -3298,5 +4990,695 @@ private fun getSubstituteIconVector(
         "chat" -> Icons.Default.Chat
         "map_alt" -> Icons.Default.Map
         else -> null
+    }
+}
+
+private val DEFAULT_THEME_COLOR_PRESETS = listOf(
+    "#00A0FF", "#FF0033", "#00E676", "#FF6D00", "#0033CC", "#000000", "#FFFFFF", "#808080"
+)
+
+/** Coerces user/theme-supplied text to "#RRGGBB", or returns [fallback] if it isn't one. */
+private fun normalizeHexColor(raw: String?, fallback: String): String {
+    val trimmed = raw?.trim().orEmpty()
+    val withHash = if (trimmed.startsWith("#")) trimmed else "#$trimmed"
+    val digits = withHash.drop(1)
+    return if (digits.length == 6 && digits.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
+        withHash.uppercase()
+    } else {
+        fallback
+    }
+}
+
+/**
+ * Control for a <type>multi</type> theme configuration: the same pills as a combo, but
+ * any number can be active at once. The value is persisted to the usual scoped key as a
+ * comma separated list, so it needs no storage format of its own and older app builds
+ * that do not know this type simply fall through to the theme's <default>.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ThemeMultiConfigControl(
+    options: List<String>,
+    initialCsv: String,
+    onCommit: (String) -> Unit
+) {
+    var selected by remember {
+        mutableStateOf(initialCsv.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet())
+    }
+
+    // FlowRow rather than the combo's Row of weight(1f) cells: splitting the width evenly
+    // already crowds the labels at four options and truncates them beyond that. These keep
+    // their natural width and wrap to a second line instead.
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        options.forEach { option ->
+            val isSelected = selected.any { it.equals(option, ignoreCase = true) }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50.dp))
+                    .background(if (isSelected) Color(0xFF4A9EFF) else Color(0xFF13151A))
+                    .clickable {
+                        val next = if (isSelected) {
+                            selected.filterNot { it.equals(option, ignoreCase = true) }.toSet()
+                        } else {
+                            selected + option
+                        }
+                        selected = next
+                        // Emit in the order theme.xml declares, not tap order, so the stored
+                        // string stays stable and readable. Everything unticked writes an
+                        // empty string, which themes must read as "nothing kept" — not as
+                        // "unset", since an absent key already resolves to <default>.
+                        onCommit(
+                            options.filter { o -> next.any { it.equals(o, ignoreCase = true) } }
+                                .joinToString(", ")
+                        )
+                    }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = option,
+                    color = if (isSelected) Color.White else Color(0xFFB0B8C4),
+                    fontSize = 13.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Control for a <type>color</type> theme configuration: a row of preset swatches plus an
+ * option to open a free-form HSV color picker popup dialog.
+ */
+@Composable
+private fun ThemeColorConfigControl(
+    initialHex: String,
+    presets: List<String>,
+    onCommit: (String) -> Unit
+) {
+    val swatches = remember(presets) {
+        presets.mapNotNull { option ->
+            val normalized = normalizeHexColor(option, "")
+            normalized.ifEmpty { null }
+        }.ifEmpty { DEFAULT_THEME_COLOR_PRESETS }
+    }
+    val fallback = swatches.first()
+
+    var hex by remember(initialHex) { mutableStateOf(normalizeHexColor(initialHex, fallback)) }
+    var showCustomPickerModal by remember { mutableStateOf(false) }
+
+    fun selectSwatch(swatch: String) {
+        hex = swatch
+        onCommit(swatch)
+    }
+
+    // Single row: presets, then a chip showing the live color that opens the full picker.
+    // The old layout stacked a color+hex header, a "Personalizado" text link and a swatch
+    // strip - three rows per color setting, which does not fit once a tab has several.
+    val currentArgb = android.graphics.Color.parseColor(hex)
+    val isCustom = swatches.none { it.equals(hex, ignoreCase = true) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            swatches.forEach { swatch ->
+                val isSelected = swatch.equals(hex, ignoreCase = true)
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(Color(android.graphics.Color.parseColor(swatch)))
+                        .border(
+                            2.dp,
+                            if (isSelected) Color.White else Color(0xFF2C3139),
+                            RoundedCornerShape(7.dp)
+                        )
+                        .clickable { selectSwatch(swatch) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = contrastOn(android.graphics.Color.parseColor(swatch)),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .height(22.dp)
+                .background(Color(0xFF2C3139))
+        )
+
+        // Doubles as the current-color readout and the entry point to the HSV picker,
+        // and carries the selection ring when the value is not one of the presets.
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(RoundedCornerShape(7.dp))
+                .background(Color(currentArgb))
+                .border(
+                    2.dp,
+                    if (isCustom) Color.White else Color(0xFF2C3139),
+                    RoundedCornerShape(7.dp)
+                )
+                .clickable { showCustomPickerModal = true },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Colorize,
+                contentDescription = "Cor personalizada",
+                tint = contrastOn(currentArgb),
+                modifier = Modifier.size(15.dp)
+            )
+        }
+
+        Text(hex, color = Color(0xFF8A93A0), fontSize = 11.sp)
+    }
+
+    if (showCustomPickerModal) {
+        CustomColorPickerDialog(
+            initialHex = hex,
+            swatches = swatches,
+            onDismiss = { showCustomPickerModal = false },
+            onColorSelected = { selectedHex ->
+                selectSwatch(selectedHex)
+                showCustomPickerModal = false
+            },
+            // Writing the pref is what pushes the colour to the running cluster, via
+            // PreferencePushListener - so a preview is just an early commit that Cancel
+            // rewinds. `hex` is intentionally not updated here, so the row behind the
+            // dialog keeps showing the value that is actually saved.
+            onPreview = { previewHex -> onCommit(previewHex) }
+        )
+    }
+}
+
+/** Black or white, whichever stays legible on top of [argb]. */
+private fun contrastOn(argb: Int): Color {
+    val luminance = (0.299f * android.graphics.Color.red(argb) +
+        0.587f * android.graphics.Color.green(argb) +
+        0.114f * android.graphics.Color.blue(argb)) / 255f
+    return if (luminance > 0.6f) Color.Black else Color.White
+}
+
+@Composable
+private fun CustomColorPickerDialog(
+    initialHex: String,
+    swatches: List<String>,
+    onDismiss: () -> Unit,
+    onColorSelected: (String) -> Unit,
+    /**
+     * Pushes a colour to the live cluster without treating it as the final choice.
+     * Debounced below, and rewound to [initialHex] if the user cancels.
+     */
+    onPreview: (String) -> Unit = {}
+) {
+    val startHsv = remember(initialHex) {
+        FloatArray(3).also { android.graphics.Color.colorToHSV(android.graphics.Color.parseColor(initialHex), it) }
+    }
+    var hue by remember { mutableStateOf(startHsv[0]) }
+    var saturation by remember { mutableStateOf(startHsv[1]) }
+    var brightness by remember { mutableStateOf(startHsv[2]) }
+
+    val currentArgb = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness))
+    val currentHex = "#%06X".format(currentArgb and 0x00FFFFFF)
+
+    // Live preview: the cluster is a second display, so it IS the preview. Debounced
+    // because each distinct colour costs the theme a full artwork repaint - the restart
+    // on every change means we only push once the drag settles.
+    var previewed by remember { mutableStateOf(false) }
+    LaunchedEffect(currentHex) {
+        if (currentHex.equals(initialHex, ignoreCase = true)) return@LaunchedEffect
+        delay(250)
+        previewed = true
+        onPreview(currentHex)
+    }
+
+    // Cancelling must put the cluster back; otherwise a preview the user rejected sticks.
+    val cancel = {
+        if (previewed) onPreview(initialHex)
+        onDismiss()
+    }
+
+    Dialog(
+        onDismissRequest = cancel,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .width(360.dp)
+                .padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF191C21)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.5.dp, Color(0xFF4A9EFF))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Cor Personalizada",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(
+                        onClick = cancel,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Fechar",
+                            tint = Color(0xFFB0B8C4)
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF2C3139))
+
+                // Preview & Hex value display
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF101216), RoundedCornerShape(10.dp))
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(android.graphics.Color.parseColor(currentHex)))
+                                .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        )
+                        Text(
+                            text = currentHex,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // HSV Canvas map & hue slider
+                HsvColorPicker(
+                    hue = hue,
+                    saturation = saturation,
+                    brightness = brightness,
+                    onHueChange = { hue = it },
+                    onSatValChange = { s, v -> saturation = s; brightness = v },
+                    onCommit = { },
+                    mapHeight = 130.dp
+                )
+
+                // Swatch list inside popup for quick picking
+                Text(
+                    text = "Paleta de Cores",
+                    color = Color(0xFFB0B8C4),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(swatches) { swatch ->
+                        val isSelected = swatch.equals(currentHex, ignoreCase = true)
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(android.graphics.Color.parseColor(swatch)))
+                                .border(
+                                    2.dp,
+                                    if (isSelected) Color.White else Color(0xFF2C3139),
+                                    RoundedCornerShape(6.dp)
+                                )
+                                .clickable {
+                                    val hsv = FloatArray(3)
+                                    android.graphics.Color.colorToHSV(android.graphics.Color.parseColor(swatch), hsv)
+                                    hue = hsv[0]
+                                    saturation = hsv[1]
+                                    brightness = hsv[2]
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = cancel) {
+                        Text("Cancelar", color = Color(0xFFB0B8C4))
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { onColorSelected(currentHex) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Aplicar", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ThemeSettingsDialog(
+    theme: ThemeMetadata,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val prefs = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+    val listState = rememberLazyListState()
+
+    val defaultGroup = "Geral"
+    // "Geral" always leads; every other tab follows the order it first appears in
+    // theme.xml. Themes with no <group> at all collapse to a single tab and the tab
+    // row is hidden entirely, so they look exactly as they did before groups existed.
+    val groupedConfigs = remember(theme.configurations) {
+        theme.configurations.groupBy { it.group.ifBlank { defaultGroup } }
+    }
+    val groups = remember(groupedConfigs) {
+        groupedConfigs.keys.sortedBy { if (it == defaultGroup) 0 else 1 }
+    }
+    var selectedGroup by remember(groups) { mutableStateOf(groups.firstOrNull() ?: defaultGroup) }
+    val visibleConfigs = groupedConfigs[selectedGroup].orEmpty()
+
+    // One shared listState across tabs, so a tab switch has to rewind it - otherwise
+    // arriving on a short tab leaves it scrolled past its own content.
+    LaunchedEffect(selectedGroup) { listState.scrollToItem(0) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier.width(640.dp).heightIn(max = 720.dp).padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2228)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.5.dp, Color(0xFF4A9EFF))
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Ajustes: ${theme.name}",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                if (groups.size > 1) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        groups.forEach { group ->
+                            val isSelected = group == selectedGroup
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50.dp))
+                                    .background(if (isSelected) Color(0xFF4A9EFF) else Color(0xFF13151A))
+                                    .clickable { selectedGroup = group }
+                                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = group,
+                                    color = if (isSelected) Color.White else Color(0xFFB0B8C4),
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF2C3139))
+
+                Box(modifier = Modifier.weight(1f, fill = false).fillMaxWidth()) {
+                    // Extra bottom inset so the last control clears the "Role para ver
+                    // mais" fade/label and stays easy to tap when the list scrolls.
+                    LazyColumn(
+                        state = listState,
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(bottom = 40.dp),
+                        modifier = Modifier.fillMaxWidth().padding(end = 6.dp)
+                    ) {
+                        // Keyed by id so the per-control remember{} state belongs to the
+                        // config itself, not to a list slot that another tab reuses.
+                        items(visibleConfigs, key = { it.id }) { config ->
+                            val scopedKey = "theme_config_${theme.folderName}_${config.stateVariable}"
+
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(config.label, color = Color(0xFFB0B8C4), fontSize = 13.sp)
+
+                                when (config.type) {
+                                    "boolean" -> {
+                                        var checked by remember {
+                                            mutableStateOf(prefs.getString(scopedKey, config.defaultValue) == "true")
+                                        }
+
+                                        val options = listOf("Ativado", "Desativado")
+                                        val selectedOption = if (checked) "Ativado" else "Desativado"
+
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(Color(0xFF13151A), RoundedCornerShape(50.dp))
+                                                .padding(4.dp),
+                                            horizontalArrangement = Arrangement.SpaceEvenly
+                                        ) {
+                                            options.forEach { option ->
+                                                val isSelected = selectedOption == option
+                                                val backgroundColor = if (isSelected) Color(0xFF4A9EFF) else Color.Transparent
+                                                val textColor = if (isSelected) Color.White else Color(0xFFB0B8C4)
+
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clip(RoundedCornerShape(50.dp))
+                                                        .background(backgroundColor)
+                                                        .clickable {
+                                                            val newVal = option == "Ativado"
+                                                            checked = newVal
+                                                            prefs.edit().putString(scopedKey, newVal.toString()).apply()
+                                                        }
+                                                        .padding(vertical = 10.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = option,
+                                                        color = textColor,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    "text", "number" -> {
+                                        var textVal by remember {
+                                            mutableStateOf(prefs.getString(scopedKey, config.defaultValue) ?: "")
+                                        }
+                                        OutlinedTextField(
+                                            value = textVal,
+                                            onValueChange = { newVal ->
+                                                textVal = newVal
+                                                prefs.edit().putString(scopedKey, newVal).apply()
+                                            },
+                                            keyboardOptions = KeyboardOptions(
+                                                keyboardType = if (config.type == "number") KeyboardType.Number else KeyboardType.Text
+                                            ),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedTextColor = Color.White,
+                                                unfocusedTextColor = Color.White,
+                                                focusedBorderColor = Color(0xFF4A9EFF),
+                                                unfocusedBorderColor = Color(0xFF2C3139)
+                                            ),
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                    "color" -> {
+                                        ThemeColorConfigControl(
+                                            initialHex = prefs.getString(scopedKey, config.defaultValue) ?: config.defaultValue,
+                                            // <options> doubles as the preset swatch list for color configs.
+                                            presets = config.options,
+                                            onCommit = { hex ->
+                                                prefs.edit().putString(scopedKey, hex).apply()
+                                            }
+                                        )
+                                    }
+                                    "multi" -> {
+                                        ThemeMultiConfigControl(
+                                            options = config.options,
+                                            initialCsv = prefs.getString(scopedKey, config.defaultValue)
+                                                ?: config.defaultValue,
+                                            onCommit = { csv ->
+                                                prefs.edit().putString(scopedKey, csv).apply()
+                                            }
+                                        )
+                                    }
+                                    "combo" -> {
+                                        var selectedOption by remember {
+                                            mutableStateOf(prefs.getString(scopedKey, config.defaultValue) ?: config.options.firstOrNull() ?: "")
+                                        }
+
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(Color(0xFF13151A), RoundedCornerShape(50.dp))
+                                                .padding(4.dp),
+                                            horizontalArrangement = Arrangement.SpaceEvenly
+                                        ) {
+                                            config.options.forEach { option ->
+                                                val isSelected = selectedOption == option
+                                                val backgroundColor = if (isSelected) Color(0xFF4A9EFF) else Color.Transparent
+                                                val textColor = if (isSelected) Color.White else Color(0xFFB0B8C4)
+
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clip(RoundedCornerShape(50.dp))
+                                                        .background(backgroundColor)
+                                                        .clickable {
+                                                            selectedOption = option
+                                                            prefs.edit().putString(scopedKey, option).apply()
+                                                        }
+                                                        .padding(vertical = 10.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = option,
+                                                        color = textColor,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // Unknown type: label only. Themes declaring a type this
+                                    // app build does not know still fall back to their
+                                    // <default>, which the bridge serves unchanged.
+                                    else -> {}
+                                }
+                            }
+                        }
+                    }
+
+                    if (listState.canScrollForward) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color.Transparent, Color(0xEC1E2228))
+                                    )
+                                )
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Role para ver mais",
+                                tint = Color(0xFF4A9EFF),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Role para ver mais",
+                                color = Color(0xFF4A9EFF),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    if (listState.canScrollBackward) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color(0xEC1E2228), Color.Transparent)
+                                    )
+                                )
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Mais opções acima",
+                                tint = Color(0xFF4A9EFF),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF2C3139))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Fechar", color = Color(0xFF4A9EFF), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
     }
 }

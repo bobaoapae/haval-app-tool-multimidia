@@ -45,6 +45,9 @@ data class ResolvedAppInfo(
 
 object DisplayAppLauncher {
 
+    @Volatile
+    var dynamicThemeBounds: IntArray? = null
+
     /**
      * Attempts to launch Android Auto using common system package names.
      */
@@ -320,6 +323,8 @@ object DisplayAppLauncher {
     private const val CARPLAY_START_FLAGS = "0x18000000"
     private const val PREF_DESIRED_CARPLAY_DISPLAY_ID = "desiredCarPlayDisplayId"
     private const val PREF_CARPLAY_BOOT_AUTOSTART_BOOT_TOKEN = "carPlayBootAutostartBootToken"
+    private const val PREF_CARPLAY_SYSTEM_UI_ICON_PREWARM_BOOT_TOKEN =
+        "carPlaySystemUiIconPrewarmBootToken"
     private const val CARPLAY_REFRESH_RENDER_ACTION = "br.com.redesurftank.havalshisuku.carplay.REFRESH_RENDER"
     private const val CARPLAY_HEALTH_TRANSITION_GRACE_SEC = 1.2
     private const val CARPLAY_HEALTH_RECENT_WINDOW_SEC = 2.2
@@ -346,11 +351,14 @@ object DisplayAppLauncher {
     private const val CARPLAY_VIDEO_FOCUS_PULSE_COOLDOWN_MS = 4_500L
     private const val CARPLAY_VIDEO_FOCUS_AFTER_D3_HANDOFF_GRACE_MS = 2_500L
     private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+    private const val CARPLAY_SYSTEM_UI_AUTOMATIC_RESTART_ENABLED = false
     private const val CARPLAY_SYSTEM_UI_ICON_WATCHDOG_START_DELAY_MS = 12_000L
     private const val CARPLAY_SYSTEM_UI_ICON_WATCHDOG_INTERVAL_MS = 10_000L
+    private const val CARPLAY_SYSTEM_UI_ICON_MISSING_RECHECK_INTERVAL_MS = 2_000L
     private const val CARPLAY_SYSTEM_UI_ICON_RECOVERY_COOLDOWN_MS = 120_000L
     private const val CARPLAY_SYSTEM_UI_ICON_DISCONNECT_REFRESH_COOLDOWN_MS = 30_000L
     private const val CARPLAY_SYSTEM_UI_ICON_RECENT_RELEVANT_WINDOW_MS = 5 * 60_000L
+    private const val CARPLAY_SYSTEM_UI_ICON_BOOT_PREWARM_MAX_UPTIME_MS = 120_000L
     private const val CARPLAY_SYSTEM_UI_ICON_MISSING_BIND_SAMPLES = 3
     private const val CARPLAY_SYSTEM_UI_ICON_STATIONARY_SPEED_KMH = 0.5
 
@@ -370,6 +378,11 @@ object DisplayAppLauncher {
     @Volatile private var lastCarPlaySystemUiIconRelevantAt = 0L
     @Volatile private var lastCarPlaySystemUiIconUsbConfiguredState: Boolean? = null
     @Volatile private var carPlaySystemUiMissingBindCount = 0
+    @Volatile private var carPlaySystemUiObservedGeneration = ""
+    @Volatile private var carPlaySystemUiBindPrewarmEligible = false
+    @Volatile private var carPlaySystemUiBindPrewarmAttempted = false
+    @Volatile private var carPlaySystemUiPrewarmMissingBindCount = 0
+    @Volatile private var carPlaySystemUiPrewarmObservedGeneration = ""
     @Volatile private var lastCarPlayMainDuplicateCleanupAt = 0L
     @Volatile private var lastCarPlaySurfaceProbeAt = 0L
     @Volatile private var lastCarPlaySurfaceReassertAt = 0L
@@ -497,7 +510,26 @@ object DisplayAppLauncher {
     private enum class CarPlaySystemUiServiceConnectionState {
         HEALTHY,
         DEAD,
-        MISSING
+        MISSING,
+        SERVICE_NOT_READY
+    }
+
+    private data class CarPlaySystemUiRestartResult(
+        val newPid: String,
+        val connectionState: CarPlaySystemUiServiceConnectionState,
+        val verified: Boolean,
+        val newGeneration: String
+    )
+
+    private data class CarPlaySystemUiBindSnapshot(
+        val hostPid: String,
+        val systemUiPid: String,
+        val serviceRecordToken: String,
+        val connectionState: CarPlaySystemUiServiceConnectionState,
+        val serviceDump: String
+    ) {
+        val generation: String
+            get() = "$hostPid|$systemUiPid|$serviceRecordToken"
     }
 
     private data class ProjectionDisplayToggleDecision(
@@ -799,6 +831,41 @@ object DisplayAppLauncher {
             .putInt(PREF_DESIRED_ANDROID_AUTO_DISPLAY_ID, displayId)
             .apply()
         Log.w(TAG, "[$reason] Desired Android Auto display set to $displayId")
+    }
+
+    fun isAutoMoveProjectionToClusterEnabled(): Boolean {
+        return getPrefs().getBoolean(
+            br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.AUTO_MOVE_PROJECTION_TO_CLUSTER.key,
+            true
+        )
+    }
+
+    /**
+     * Gate for the startup auto-launch only (InstrumentProjector2.triggerAutoLaunch).
+     *
+     * Android Auto and CarPlay are declared with displayId = 3 in PREDEFINED_APPS, and
+     * getOrCreateDefaultConfig() also defaults new configs to 3, so the config-driven
+     * launch path put projection on the cluster without ever reading the
+     * "move projection to cluster" setting - which is why turning it off changed nothing.
+     *
+     * Deliberately NOT applied inside launchApp(): an explicit send-to-display from the
+     * UI must still be able to put projection on the cluster. The setting only covers the
+     * automatic move at start.
+     *
+     * Coerces a copy instead of rewriting the stored config, so switching the setting back
+     * on restores cluster launch with no reconfiguration.
+     */
+    fun resolveAutoLaunchConfig(config: DisplayAppConfig): DisplayAppConfig {
+        if (config.displayId != 3) return config
+        if (normalizeProjectionPackage(config.packageName) == null) return config
+        if (isAutoMoveProjectionToClusterEnabled()) return config
+
+        Log.w(
+            TAG,
+            "[AUTO_LAUNCH_CLUSTER_GATE] ${config.packageName} configured for D3 but " +
+                    "autoMoveProjectionToCluster is off; auto-launching on D0 instead"
+        )
+        return config.copy(displayId = 0)
     }
 
     fun isAndroidAutoDesiredOnCluster(): Boolean {
@@ -1224,6 +1291,17 @@ object DisplayAppLauncher {
             else -> null
         }
     }
+
+    /**
+     * Maps an already-observed package name onto the projection package the rest of the app keys
+     * configs off, or null when it is not a projection package.
+     *
+     * Unlike [resolveActiveProjectionPackageForDisplay] this never searches the task stack, so a
+     * caller that already knows what is on top of a display can classify it without a projection
+     * that is merely parked in the background winning.
+     */
+    fun resolveProjectionPackageOrNull(packageName: String?): String? =
+        normalizeProjectionPackage(packageName)
 
     internal fun resolveProjectionDisplayToggleDecisionForTest(
         mainProjectionPackage: String?,
@@ -2359,6 +2437,8 @@ object DisplayAppLauncher {
         val bounds = getEffectiveBounds(config)
         val previousDisplay = findTaskForPackage(ANDROID_AUTO_PACKAGE)?.displayId
 
+        prepareDisplay3MaskHoleBeforeMove(displayId, bounds, reason)
+
         rememberAndroidAutoDisplayTarget(displayId, reason)
         AndroidAutoPatchManager.ensureMounted()
         configureAndroidAutoProjection(reason)
@@ -2571,7 +2651,35 @@ object DisplayAppLauncher {
 
     private fun getAndroidAutoDisplayBounds(displayId: Int): IntArray {
         val res = getDisplayResolution(displayId)
+        // Cluster (display 3): desloca a janela do AA pra direita (OPT-IN, começa desativado). Só
+        // aplica se ENABLE_AA_CLUSTER_OFFSET estiver ligado. Borda direita fixa (res.first), então
+        // aumentar o offset só estreita a esquerda, nunca corta a direita. Contorna o menu lateral do
+        // AA que o host do cluster corta.
+        if (displayId == 3 &&
+            getPrefs().getBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, false)) {
+            val offset = getPrefs()
+                .getInt(SharedPreferencesKeys.AA_CLUSTER_LEFT_OFFSET.key, 145)
+                .coerceIn(0, maxOf(0, res.first - 200))
+            return intArrayOf(offset, 0, res.first, res.second)
+        }
         return intArrayOf(0, 0, res.first, res.second)
+    }
+
+    // Re-aplica os bounds do AA no cluster ao vivo (quando o toggle/slider de offset muda), pra
+    // ajustar sem reprojetar. Desligado -> getAndroidAutoDisplayBounds volta ao padrão.
+    fun reapplyAndroidAutoClusterBounds() {
+        scope.launch {
+            try {
+                val task = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 3)
+                if (task != null) {
+                    resizeAndFocusAndroidAuto(task, 3, getAndroidAutoDisplayBounds(3), "AA_CLUSTER_OFFSET_TUNE")
+                } else {
+                    Log.w(TAG, "[AA_CLUSTER_OFFSET_TUNE] AA nao esta no display 3; aplica na proxima projecao")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "reapplyAndroidAutoClusterBounds falhou", e)
+            }
+        }
     }
 
     internal fun getCarPlayConfigForDisplay(
@@ -2702,6 +2810,7 @@ object DisplayAppLauncher {
         carPlaySystemUiIconWatchdogStarted = true
 
         scope.launch {
+            initializeCarPlaySystemUiIconBootPrewarm()
             delay(CARPLAY_SYSTEM_UI_ICON_WATCHDOG_START_DELAY_MS)
             while (true) {
                 try {
@@ -2713,10 +2822,69 @@ object DisplayAppLauncher {
                         e
                     )
                 }
-                delay(CARPLAY_SYSTEM_UI_ICON_WATCHDOG_INTERVAL_MS)
+                delay(carPlaySystemUiIconWatchdogDelayMs())
             }
         }
         Log.w(TAG, "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Started")
+    }
+
+    private fun initializeCarPlaySystemUiIconBootPrewarm() {
+        if (!CARPLAY_SYSTEM_UI_AUTOMATIC_RESTART_ENABLED) {
+            carPlaySystemUiBindPrewarmEligible = false
+            carPlaySystemUiBindPrewarmAttempted = true
+            carPlaySystemUiPrewarmMissingBindCount = 0
+            carPlaySystemUiPrewarmObservedGeneration = ""
+            Log.w(
+                TAG,
+                "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Automatic SystemUI restart disabled; " +
+                        "native menu preservation policy is active"
+            )
+            return
+        }
+
+        val bootUptimeMs = SystemClock.elapsedRealtime()
+        val bootToken = currentBootToken()
+        val prefs = getPrefs()
+        val claimedBootToken =
+            prefs.getString(PREF_CARPLAY_SYSTEM_UI_ICON_PREWARM_BOOT_TOKEN, "").orEmpty()
+        val bootPrewarmEligible =
+            isCarPlaySystemUiIconBootPrewarmEligible(
+                bootUptimeMs = bootUptimeMs,
+                bootToken = bootToken,
+                claimedBootToken = claimedBootToken
+            )
+        if (bootPrewarmEligible) {
+            // Claim this boot before probing so a process restart cannot repeat a SystemUI restart.
+            val claimCommitted = prefs.edit()
+                .putString(PREF_CARPLAY_SYSTEM_UI_ICON_PREWARM_BOOT_TOKEN, bootToken)
+                .commit()
+            val claimVerified =
+                claimCommitted &&
+                        prefs.getString(PREF_CARPLAY_SYSTEM_UI_ICON_PREWARM_BOOT_TOKEN, "") ==
+                        bootToken
+            carPlaySystemUiBindPrewarmEligible = claimVerified
+            carPlaySystemUiBindPrewarmAttempted = !claimVerified
+            if (claimVerified) {
+                Log.w(
+                    TAG,
+                    "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Boot prewarm armed; uptimeMs=$bootUptimeMs"
+                )
+            } else {
+                Log.e(
+                    TAG,
+                    "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Boot prewarm disabled; " +
+                            "boot claim could not be persisted"
+                )
+            }
+        } else {
+            carPlaySystemUiBindPrewarmEligible = false
+            carPlaySystemUiBindPrewarmAttempted = true
+            Log.w(
+                TAG,
+                "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Boot prewarm disabled; " +
+                        "uptimeMs=$bootUptimeMs claimedForBoot=${claimedBootToken == bootToken}"
+            )
+        }
     }
 
     @Synchronized
@@ -2771,27 +2939,41 @@ object DisplayAppLauncher {
         val now = System.currentTimeMillis()
         val usbConfigured = isProjectionUsbConfigured()
         if (!usbConfigured) {
+            val hadConnectedCarPlayContext =
+                lastCarPlaySystemUiIconUsbConfiguredState == true ||
+                        lastCarPlaySystemUiIconRelevantAt > 0L
             recoverCarPlaySystemUiIconAfterUsbDisconnectIfNeeded(now)
             carPlaySystemUiMissingBindCount = 0
+            carPlaySystemUiObservedGeneration = ""
+            prewarmCarPlaySystemUiBindIfNeeded(now, hadConnectedCarPlayContext)
             return
         }
 
         lastCarPlaySystemUiIconUsbConfiguredState = true
+        carPlaySystemUiPrewarmMissingBindCount = 0
+        carPlaySystemUiPrewarmObservedGeneration = ""
 
-        val carPlayRelevant = isCarPlaySystemUiIconRelevantWhenUsbConfigured()
+        val snapshot = readCarPlaySystemUiBindSnapshot()
+        val carPlayRelevant = isCarPlaySystemUiIconRelevantWhenUsbConfigured(snapshot)
         if (!carPlayRelevant) {
             carPlaySystemUiMissingBindCount = 0
+            carPlaySystemUiObservedGeneration = ""
             return
         }
         lastCarPlaySystemUiIconRelevantAt = now
 
-        val serviceDump = sh("dumpsys activity services com.ts.carplay 2>/dev/null || true")
-        val connectionState = resolveCarPlaySystemUiServiceConnectionState(serviceDump)
-        carPlaySystemUiMissingBindCount =
+        val connectionState = snapshot.connectionState
+        carPlaySystemUiMissingBindCount = nextCarPlayMissingBindSampleCount(
+            previousCount = carPlaySystemUiMissingBindCount,
+            previousGeneration = carPlaySystemUiObservedGeneration,
+            currentGeneration = snapshot.generation,
+            connectionState = connectionState
+        )
+        carPlaySystemUiObservedGeneration =
             if (connectionState == CarPlaySystemUiServiceConnectionState.MISSING) {
-                carPlaySystemUiMissingBindCount + 1
+                snapshot.generation
             } else {
-                0
+                ""
             }
 
         val speedKmh = readVehicleSpeedKmh()
@@ -2815,34 +2997,292 @@ object DisplayAppLauncher {
             return
         }
 
-        val oldPid = sh("pidof $SYSTEM_UI_PACKAGE 2>/dev/null || true").trim()
+        val result =
+            restartSystemUiForCarPlayIcon(
+                now = now,
+                trigger = "CONNECTED_LINK",
+                connectionState = connectionState,
+                missingBindSamples = carPlaySystemUiMissingBindCount,
+                speedKmh = speedKmh,
+                expectedGeneration = snapshot.generation,
+                expectedUsbConfigured = true,
+                requireBootPrewarmWindow = false
+            ) ?: return
+        carPlaySystemUiMissingBindCount =
+            if (result.connectionState == CarPlaySystemUiServiceConnectionState.MISSING) 1 else 0
+        carPlaySystemUiObservedGeneration =
+            if (result.connectionState == CarPlaySystemUiServiceConnectionState.MISSING) {
+                result.newGeneration
+            } else {
+                ""
+            }
+    }
+
+    private fun carPlaySystemUiIconWatchdogDelayMs(): Long {
+        return carPlaySystemUiIconWatchdogDelayForState(
+            connectedMissingBindSamples = carPlaySystemUiMissingBindCount,
+            prewarmMissingBindSamples = carPlaySystemUiPrewarmMissingBindCount
+        )
+    }
+
+    private fun carPlaySystemUiIconWatchdogDelayForState(
+        connectedMissingBindSamples: Int,
+        prewarmMissingBindSamples: Int
+    ): Long {
+        val confirmingMissingBind =
+            connectedMissingBindSamples in 1 until CARPLAY_SYSTEM_UI_ICON_MISSING_BIND_SAMPLES ||
+                    prewarmMissingBindSamples in 1 until CARPLAY_SYSTEM_UI_ICON_MISSING_BIND_SAMPLES
+        return if (confirmingMissingBind) {
+            CARPLAY_SYSTEM_UI_ICON_MISSING_RECHECK_INTERVAL_MS
+        } else {
+            CARPLAY_SYSTEM_UI_ICON_WATCHDOG_INTERVAL_MS
+        }
+    }
+
+    private suspend fun prewarmCarPlaySystemUiBindIfNeeded(
+        now: Long,
+        hadConnectedCarPlayContext: Boolean
+    ) {
+        val bootUptimeMs = SystemClock.elapsedRealtime()
+        if (
+            !carPlaySystemUiBindPrewarmEligible ||
+                carPlaySystemUiBindPrewarmAttempted ||
+                hadConnectedCarPlayContext ||
+                bootUptimeMs > CARPLAY_SYSTEM_UI_ICON_BOOT_PREWARM_MAX_UPTIME_MS
+        ) {
+            if (bootUptimeMs > CARPLAY_SYSTEM_UI_ICON_BOOT_PREWARM_MAX_UPTIME_MS) {
+                carPlaySystemUiBindPrewarmAttempted = true
+            }
+            carPlaySystemUiPrewarmMissingBindCount = 0
+            carPlaySystemUiPrewarmObservedGeneration = ""
+            return
+        }
+
+        val snapshot = readCarPlaySystemUiBindSnapshot()
+        val connectionState = snapshot.connectionState
+        if (
+            !shouldPrewarmCarPlaySystemUiBind(
+                usbConfigured = false,
+                hadConnectedCarPlayContext = false,
+                bootPrewarmEligible = carPlaySystemUiBindPrewarmEligible,
+                prewarmAttempted = carPlaySystemUiBindPrewarmAttempted,
+                hostPidAlive = isProjectionProcessPidOutputAliveForTest(snapshot.hostPid),
+                connectionState = connectionState
+            )
+        ) {
+            carPlaySystemUiPrewarmMissingBindCount = 0
+            carPlaySystemUiPrewarmObservedGeneration = ""
+            return
+        }
+
+        if (connectionState == CarPlaySystemUiServiceConnectionState.HEALTHY) {
+            carPlaySystemUiBindPrewarmAttempted = true
+            carPlaySystemUiPrewarmMissingBindCount = 0
+            carPlaySystemUiPrewarmObservedGeneration = ""
+            Log.w(
+                TAG,
+                "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Boot prewarm already healthy; " +
+                        "hostPid=${snapshot.hostPid}"
+            )
+            return
+        }
+
+        if (snapshot.systemUiPid.isEmpty()) {
+            carPlaySystemUiPrewarmMissingBindCount = 0
+            carPlaySystemUiPrewarmObservedGeneration = ""
+            Log.w(
+                TAG,
+                "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] SystemUI pid not found; waiting for boot prewarm"
+            )
+            return
+        }
+
+        carPlaySystemUiPrewarmMissingBindCount = nextCarPlayMissingBindSampleCount(
+            previousCount = carPlaySystemUiPrewarmMissingBindCount,
+            previousGeneration = carPlaySystemUiPrewarmObservedGeneration,
+            currentGeneration = snapshot.generation,
+            connectionState = connectionState
+        )
+        carPlaySystemUiPrewarmObservedGeneration =
+            if (connectionState == CarPlaySystemUiServiceConnectionState.MISSING) {
+                snapshot.generation
+            } else {
+                ""
+            }
+
+        val speedKmh = readVehicleSpeedKmh()
+        if (
+            !shouldRecoverCarPlaySystemUiIcon(
+                connectionState = connectionState,
+                carPlayRelevant = true,
+                speedKmh = speedKmh,
+                missingBindSamples = carPlaySystemUiPrewarmMissingBindCount,
+                now = now,
+                lastRecoveryAt = lastCarPlaySystemUiIconRecoveryAt
+            )
+        ) {
+            Log.w(
+                TAG,
+                "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Waiting for boot prewarm; " +
+                        "state=$connectionState missingSamples=$carPlaySystemUiPrewarmMissingBindCount " +
+                        "speed=${speedKmh ?: "unknown"} hostPid=${snapshot.hostPid} " +
+                        "systemUiPid=${snapshot.systemUiPid} uptimeMs=$bootUptimeMs"
+            )
+            return
+        }
+
+        val result =
+            restartSystemUiForCarPlayIcon(
+                now = now,
+                trigger = "BOOT_SERVICE_READY_PREWARM",
+                connectionState = connectionState,
+                missingBindSamples = carPlaySystemUiPrewarmMissingBindCount,
+                speedKmh = speedKmh,
+                expectedGeneration = snapshot.generation,
+                expectedUsbConfigured = false,
+                requireBootPrewarmWindow = true
+            ) ?: return
+
+        // A boot may issue at most one prewarm kill, even if native rebind verification fails.
+        carPlaySystemUiBindPrewarmAttempted = true
+        carPlaySystemUiPrewarmMissingBindCount = 0
+        carPlaySystemUiPrewarmObservedGeneration = ""
+        if (!result.verified) {
+            Log.w(
+                TAG,
+                "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Boot prewarm issued but native rebind " +
+                        "was not verified; newPid=${result.newPid} state=${result.connectionState}"
+            )
+        }
+    }
+
+    private suspend fun restartSystemUiForCarPlayIcon(
+        now: Long,
+        trigger: String,
+        connectionState: CarPlaySystemUiServiceConnectionState,
+        missingBindSamples: Int,
+        speedKmh: Double?,
+        expectedGeneration: String,
+        expectedUsbConfigured: Boolean,
+        requireBootPrewarmWindow: Boolean
+    ): CarPlaySystemUiRestartResult? {
+        if (!CARPLAY_SYSTEM_UI_AUTOMATIC_RESTART_ENABLED) {
+            Log.w(
+                TAG,
+                "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Verify-only; automatic SystemUI restart " +
+                        "blocked to preserve the native menu; trigger=$trigger " +
+                        "state=$connectionState missingSamples=$missingBindSamples"
+            )
+            logPersistentEvent(
+                "carplay_system_ui_icon_recovery_blocked",
+                mapOf(
+                    "trigger" to trigger,
+                    "connectionState" to connectionState.name,
+                    "missingSamples" to missingBindSamples,
+                    "reason" to "native_menu_preservation"
+                )
+            )
+            return null
+        }
+
+        if (isProjectionUsbConfigured() != expectedUsbConfigured) {
+            Log.w(
+                TAG,
+                "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] USB state changed during confirmation; " +
+                        "trigger=$trigger"
+            )
+            return null
+        }
+        val confirmedSnapshot = readCarPlaySystemUiBindSnapshot()
+        val oldPid = confirmedSnapshot.systemUiPid
         if (oldPid.isEmpty()) {
             Log.w(
                 TAG,
                 "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] SystemUI pid not found; skipping icon recovery"
             )
-            return
+            return null
+        }
+        if (confirmedSnapshot.generation != expectedGeneration) {
+            Log.w(
+                TAG,
+                "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] CarPlay/SystemUI generation changed during " +
+                        "confirmation; expected=$expectedGeneration " +
+                        "actual=${confirmedSnapshot.generation} trigger=$trigger"
+            )
+            return null
+        }
+        val confirmationUptimeMs = SystemClock.elapsedRealtime()
+        if (!isCarPlaySystemUiRecoveryConfirmationValid(
+                originalConnectionState = connectionState,
+                confirmedConnectionState = confirmedSnapshot.connectionState,
+                requireBootPrewarmWindow = requireBootPrewarmWindow,
+                bootUptimeMs = confirmationUptimeMs
+            )
+        ) {
+            Log.w(
+                TAG,
+                "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Native bind/window changed before recovery; " +
+                        "originalState=$connectionState confirmedState=${confirmedSnapshot.connectionState} " +
+                        "uptimeMs=$confirmationUptimeMs trigger=$trigger"
+            )
+            return null
+        }
+        val confirmedSpeedKmh = readVehicleSpeedKmh()
+        if (!isKnownStationarySpeed(confirmedSpeedKmh)) {
+            Log.w(
+                TAG,
+                "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Vehicle speed changed before recovery; " +
+                        "speed=${confirmedSpeedKmh ?: "unknown"} trigger=$trigger"
+            )
+            return null
         }
 
         lastCarPlaySystemUiIconRecoveryAt = now
         Log.w(
             TAG,
             "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Restarting SystemUI to restore native CarPlay icon; " +
-                    "state=$connectionState missingSamples=$carPlaySystemUiMissingBindCount " +
-                    "speed=${speedKmh ?: "unknown"} oldPid=$oldPid"
+                    "trigger=$trigger state=$connectionState missingSamples=$missingBindSamples " +
+                    "speed=${confirmedSpeedKmh ?: speedKmh ?: "unknown"} oldPid=$oldPid"
+        )
+        logPersistentEvent(
+            "carplay_system_ui_icon_recovery",
+            mapOf(
+                "trigger" to trigger,
+                "connectionState" to connectionState.name,
+                "missingSamples" to missingBindSamples,
+                "speedKmh" to confirmedSpeedKmh,
+                "oldPid" to oldPid
+            )
         )
         sh("kill -9 $oldPid 2>/dev/null || true")
         delay(2_500L)
 
-        val newPid = sh("pidof $SYSTEM_UI_PACKAGE 2>/dev/null || true").trim()
-        val newDump = sh("dumpsys activity services com.ts.carplay 2>/dev/null || true")
-        val newState = resolveCarPlaySystemUiServiceConnectionState(newDump)
-        carPlaySystemUiMissingBindCount =
-            if (newState == CarPlaySystemUiServiceConnectionState.MISSING) 1 else 0
+        val newSnapshot = readCarPlaySystemUiBindSnapshot()
+        val newPid = newSnapshot.systemUiPid
+        val newState = newSnapshot.connectionState
+        val pidChanged = newPid.isNotEmpty() && newPid != oldPid
+        val verified = pidChanged && newState == CarPlaySystemUiServiceConnectionState.HEALTHY
         Log.w(
             TAG,
-            "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] SystemUI recovery result; newPid=$newPid " +
-                    "connectionState=$newState"
+            "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] SystemUI recovery result; trigger=$trigger " +
+                    "newPid=$newPid pidChanged=$pidChanged connectionState=$newState"
+        )
+        logPersistentEvent(
+            "carplay_system_ui_icon_recovery_result",
+            mapOf(
+                "trigger" to trigger,
+                "oldPid" to oldPid,
+                "newPid" to newPid,
+                "pidChanged" to pidChanged,
+                "connectionState" to newState.name,
+                "verified" to verified
+            )
+        )
+        return CarPlaySystemUiRestartResult(
+            newPid = newPid,
+            connectionState = newState,
+            verified = verified,
+            newGeneration = newSnapshot.generation
         )
     }
 
@@ -2857,9 +3297,23 @@ object DisplayAppLauncher {
                 lastRelevantAt = lastCarPlaySystemUiIconRelevantAt,
                 speedKmh = speedKmh,
                 now = now,
-                lastDisconnectRefreshAt = lastCarPlaySystemUiIconDisconnectRefreshAt
+                lastDisconnectRefreshAt = lastCarPlaySystemUiIconDisconnectRefreshAt,
+                lastRecoveryAt = lastCarPlaySystemUiIconRecoveryAt
             )
         ) {
+            return
+        }
+
+        if (!CARPLAY_SYSTEM_UI_AUTOMATIC_RESTART_ENABLED) {
+            Log.w(
+                TAG,
+                "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Verify-only; disconnect SystemUI restart " +
+                        "blocked to preserve the native menu"
+            )
+            logPersistentEvent(
+                "carplay_system_ui_icon_disconnect_refresh_blocked",
+                mapOf("reason" to "native_menu_preservation")
+            )
             return
         }
 
@@ -2873,6 +3327,7 @@ object DisplayAppLauncher {
         }
 
         lastCarPlaySystemUiIconDisconnectRefreshAt = now
+        lastCarPlaySystemUiIconRecoveryAt = now
         Log.w(
             TAG,
             "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] Restarting SystemUI after CarPlay USB disconnect " +
@@ -2890,18 +3345,40 @@ object DisplayAppLauncher {
         )
     }
 
-    private fun isCarPlaySystemUiIconRelevantWhenUsbConfigured(): Boolean {
+    private fun readCarPlaySystemUiBindSnapshot(): CarPlaySystemUiBindSnapshot {
+        val hostPid = sh("pidof $CARPLAY_HOST_PROCESS 2>/dev/null || true").trim()
+        val systemUiPid = sh("pidof $SYSTEM_UI_PACKAGE 2>/dev/null || true").trim()
+        val serviceDump = sh("dumpsys activity services $CARPLAY_HOST_PROCESS 2>/dev/null || true")
+        return CarPlaySystemUiBindSnapshot(
+            hostPid = hostPid,
+            systemUiPid = systemUiPid,
+            serviceRecordToken = resolveCarPlayServiceRecordToken(serviceDump),
+            connectionState = resolveCarPlaySystemUiServiceConnectionState(serviceDump),
+            serviceDump = serviceDump
+        )
+    }
+
+    private fun resolveCarPlayServiceRecordToken(serviceDump: String): String {
+        return serviceDump.lineSequence()
+            .firstOrNull { line ->
+                line.contains("ServiceRecord{") && line.contains(CARPLAY_HOST_SERVICE)
+            }
+            ?.let { line -> Regex("""ServiceRecord\{([^\s}]+)""").find(line)?.groupValues?.get(1) }
+            .orEmpty()
+    }
+
+    private fun isCarPlaySystemUiIconRelevantWhenUsbConfigured(
+        snapshot: CarPlaySystemUiBindSnapshot
+    ): Boolean {
         val hasVisualTask = isCarPlayOnDisplay(0) || isCarPlayOnDisplay(3)
         val carPlayAppPid = sh("pidof $CARPLAY_PACKAGE 2>/dev/null || true").trim()
-        val carPlayHostPid = sh("pidof $CARPLAY_HOST_PROCESS 2>/dev/null || true").trim()
-        val serviceDump = sh("dumpsys activity services $CARPLAY_HOST_PROCESS 2>/dev/null || true")
         val linkStatus = readCarPlayLinkStatus("CARPLAY_SYSTEM_UI_ICON_RELEVANCE")
         val relevant =
             isCarPlaySystemUiIconRelevantForState(
                 hasVisualTask = hasVisualTask,
                 appPidAlive = isProjectionProcessPidOutputAliveForTest(carPlayAppPid),
-                hostPidAlive = isProjectionProcessPidOutputAliveForTest(carPlayHostPid),
-                serviceDump = serviceDump,
+                hostPidAlive = isProjectionProcessPidOutputAliveForTest(snapshot.hostPid),
+                serviceDump = snapshot.serviceDump,
                 linkStatus = linkStatus
             )
 
@@ -2909,7 +3386,8 @@ object DisplayAppLauncher {
             Log.w(
                 TAG,
                 "[CARPLAY_SYSTEM_UI_ICON_WATCHDOG] CarPlay icon relevant without visual task; " +
-                        "hostPid=${carPlayHostPid.ifBlank { "-" }} appPid=${carPlayAppPid.ifBlank { "-" }} " +
+                        "hostPid=${snapshot.hostPid.ifBlank { "-" }} " +
+                        "appPid=${carPlayAppPid.ifBlank { "-" }} " +
                         "linkStatus=${linkStatus ?: "UNKNOWN"}"
             )
         }
@@ -2948,8 +3426,13 @@ object DisplayAppLauncher {
     private fun resolveCarPlaySystemUiServiceConnectionState(
         serviceDump: String
     ): CarPlaySystemUiServiceConnectionState {
+        var carPlayServiceReady = false
         var pendingCarPlayConnectionDead: Boolean? = null
         serviceDump.lineSequence().forEach { line ->
+            if (line.contains("ServiceRecord{") && line.contains(CARPLAY_HOST_SERVICE)) {
+                carPlayServiceReady = true
+            }
+
             val isCarPlayConnection =
                 line.contains("ConnectionRecord{") && line.contains(CARPLAY_HOST_SERVICE)
             if (isCarPlayConnection) {
@@ -2990,7 +3473,11 @@ object DisplayAppLauncher {
                 }
             }
         }
-        return CarPlaySystemUiServiceConnectionState.MISSING
+        return if (carPlayServiceReady) {
+            CarPlaySystemUiServiceConnectionState.MISSING
+        } else {
+            CarPlaySystemUiServiceConnectionState.SERVICE_NOT_READY
+        }
     }
 
     internal fun resolveCarPlaySystemUiServiceConnectionStateForTest(serviceDump: String): String {
@@ -3013,6 +3500,69 @@ object DisplayAppLauncher {
         )
     }
 
+    private fun shouldPrewarmCarPlaySystemUiBind(
+        usbConfigured: Boolean,
+        hadConnectedCarPlayContext: Boolean,
+        bootPrewarmEligible: Boolean,
+        prewarmAttempted: Boolean,
+        hostPidAlive: Boolean,
+        connectionState: CarPlaySystemUiServiceConnectionState
+    ): Boolean {
+        if (!CARPLAY_SYSTEM_UI_AUTOMATIC_RESTART_ENABLED) return false
+        if (!bootPrewarmEligible) return false
+        if (usbConfigured || hadConnectedCarPlayContext || prewarmAttempted) return false
+        if (!hostPidAlive) return false
+        return connectionState != CarPlaySystemUiServiceConnectionState.SERVICE_NOT_READY
+    }
+
+    private fun isCarPlaySystemUiIconBootPrewarmEligible(
+        bootUptimeMs: Long,
+        bootToken: String,
+        claimedBootToken: String
+    ): Boolean {
+        if (bootUptimeMs !in 0..CARPLAY_SYSTEM_UI_ICON_BOOT_PREWARM_MAX_UPTIME_MS) return false
+        if (bootToken.startsWith("unknown-") || bootToken.isBlank()) return false
+        return claimedBootToken != bootToken
+    }
+
+    private fun nextCarPlayMissingBindSampleCount(
+        previousCount: Int,
+        previousGeneration: String,
+        currentGeneration: String,
+        connectionState: CarPlaySystemUiServiceConnectionState
+    ): Int {
+        if (
+            connectionState != CarPlaySystemUiServiceConnectionState.MISSING ||
+                currentGeneration.isBlank()
+        ) {
+            return 0
+        }
+        return if (previousGeneration == currentGeneration) previousCount + 1 else 1
+    }
+
+    private fun isCarPlaySystemUiRecoveryConfirmationValid(
+        originalConnectionState: CarPlaySystemUiServiceConnectionState,
+        confirmedConnectionState: CarPlaySystemUiServiceConnectionState,
+        requireBootPrewarmWindow: Boolean,
+        bootUptimeMs: Long
+    ): Boolean {
+        if (originalConnectionState != confirmedConnectionState) return false
+        if (
+            confirmedConnectionState == CarPlaySystemUiServiceConnectionState.HEALTHY ||
+                confirmedConnectionState == CarPlaySystemUiServiceConnectionState.SERVICE_NOT_READY
+        ) {
+            return false
+        }
+        return !requireBootPrewarmWindow ||
+                bootUptimeMs in 0..CARPLAY_SYSTEM_UI_ICON_BOOT_PREWARM_MAX_UPTIME_MS
+    }
+
+    private fun isKnownStationarySpeed(speedKmh: Double?): Boolean {
+        return speedKmh != null &&
+                speedKmh >= 0.0 &&
+                speedKmh <= CARPLAY_SYSTEM_UI_ICON_STATIONARY_SPEED_KMH
+    }
+
     private fun shouldRecoverCarPlaySystemUiIcon(
         connectionState: CarPlaySystemUiServiceConnectionState,
         carPlayRelevant: Boolean,
@@ -3023,7 +3573,8 @@ object DisplayAppLauncher {
     ): Boolean {
         if (!carPlayRelevant) return false
         if (connectionState == CarPlaySystemUiServiceConnectionState.HEALTHY) return false
-        if (speedKmh == null || speedKmh > CARPLAY_SYSTEM_UI_ICON_STATIONARY_SPEED_KMH) return false
+        if (connectionState == CarPlaySystemUiServiceConnectionState.SERVICE_NOT_READY) return false
+        if (!isKnownStationarySpeed(speedKmh)) return false
         if (now - lastRecoveryAt < CARPLAY_SYSTEM_UI_ICON_RECOVERY_COOLDOWN_MS) return false
         if (
             connectionState == CarPlaySystemUiServiceConnectionState.MISSING &&
@@ -3039,13 +3590,15 @@ object DisplayAppLauncher {
         lastRelevantAt: Long,
         speedKmh: Double?,
         now: Long,
-        lastDisconnectRefreshAt: Long
+        lastDisconnectRefreshAt: Long,
+        lastRecoveryAt: Long
     ): Boolean {
         val hadRecentCarPlayContext =
             lastRelevantAt > 0L &&
                     now - lastRelevantAt <= CARPLAY_SYSTEM_UI_ICON_RECENT_RELEVANT_WINDOW_MS
         if (previousUsbConfigured != true && !hadRecentCarPlayContext) return false
-        if (speedKmh == null || speedKmh > CARPLAY_SYSTEM_UI_ICON_STATIONARY_SPEED_KMH) return false
+        if (!isKnownStationarySpeed(speedKmh)) return false
+        if (now - lastRecoveryAt < CARPLAY_SYSTEM_UI_ICON_RECOVERY_COOLDOWN_MS) return false
         if (now - lastDisconnectRefreshAt < CARPLAY_SYSTEM_UI_ICON_DISCONNECT_REFRESH_COOLDOWN_MS) {
             return false
         }
@@ -3057,14 +3610,16 @@ object DisplayAppLauncher {
         lastRelevantAt: Long,
         speedKmh: Double?,
         now: Long,
-        lastDisconnectRefreshAt: Long
+        lastDisconnectRefreshAt: Long,
+        lastRecoveryAt: Long = 0L
     ): Boolean {
         return shouldRefreshCarPlaySystemUiIconAfterUsbDisconnect(
             previousUsbConfigured = previousUsbConfigured,
             lastRelevantAt = lastRelevantAt,
             speedKmh = speedKmh,
             now = now,
-            lastDisconnectRefreshAt = lastDisconnectRefreshAt
+            lastDisconnectRefreshAt = lastDisconnectRefreshAt,
+            lastRecoveryAt = lastRecoveryAt
         )
     }
 
@@ -3083,6 +3638,80 @@ object DisplayAppLauncher {
             missingBindSamples = missingBindSamples,
             now = now,
             lastRecoveryAt = lastRecoveryAt
+        )
+    }
+
+    internal fun shouldPrewarmCarPlaySystemUiBindForTest(
+        usbConfigured: Boolean,
+        hadConnectedCarPlayContext: Boolean,
+        bootPrewarmEligible: Boolean = true,
+        prewarmAttempted: Boolean,
+        hostPidAlive: Boolean,
+        connectionStateName: String
+    ): Boolean {
+        return shouldPrewarmCarPlaySystemUiBind(
+            usbConfigured = usbConfigured,
+            hadConnectedCarPlayContext = hadConnectedCarPlayContext,
+            bootPrewarmEligible = bootPrewarmEligible,
+            prewarmAttempted = prewarmAttempted,
+            hostPidAlive = hostPidAlive,
+            connectionState = CarPlaySystemUiServiceConnectionState.valueOf(connectionStateName)
+        )
+    }
+
+    internal fun isCarPlaySystemUiAutomaticRestartEnabledForTest(): Boolean {
+        return CARPLAY_SYSTEM_UI_AUTOMATIC_RESTART_ENABLED
+    }
+
+    internal fun isCarPlaySystemUiIconBootPrewarmEligibleForTest(
+        bootUptimeMs: Long,
+        bootToken: String,
+        claimedBootToken: String
+    ): Boolean {
+        return isCarPlaySystemUiIconBootPrewarmEligible(
+            bootUptimeMs = bootUptimeMs,
+            bootToken = bootToken,
+            claimedBootToken = claimedBootToken
+        )
+    }
+
+    internal fun nextCarPlayMissingBindSampleCountForTest(
+        previousCount: Int,
+        previousGeneration: String,
+        currentGeneration: String,
+        connectionStateName: String
+    ): Int {
+        return nextCarPlayMissingBindSampleCount(
+            previousCount = previousCount,
+            previousGeneration = previousGeneration,
+            currentGeneration = currentGeneration,
+            connectionState = CarPlaySystemUiServiceConnectionState.valueOf(connectionStateName)
+        )
+    }
+
+    internal fun isCarPlaySystemUiRecoveryConfirmationValidForTest(
+        originalConnectionStateName: String,
+        confirmedConnectionStateName: String,
+        requireBootPrewarmWindow: Boolean,
+        bootUptimeMs: Long
+    ): Boolean {
+        return isCarPlaySystemUiRecoveryConfirmationValid(
+            originalConnectionState =
+                CarPlaySystemUiServiceConnectionState.valueOf(originalConnectionStateName),
+            confirmedConnectionState =
+                CarPlaySystemUiServiceConnectionState.valueOf(confirmedConnectionStateName),
+            requireBootPrewarmWindow = requireBootPrewarmWindow,
+            bootUptimeMs = bootUptimeMs
+        )
+    }
+
+    internal fun carPlaySystemUiIconWatchdogDelayForTest(
+        connectedMissingBindSamples: Int,
+        prewarmMissingBindSamples: Int
+    ): Long {
+        return carPlaySystemUiIconWatchdogDelayForState(
+            connectedMissingBindSamples = connectedMissingBindSamples,
+            prewarmMissingBindSamples = prewarmMissingBindSamples
         )
     }
 
@@ -6891,6 +7520,9 @@ object DisplayAppLauncher {
         Log.w(TAG, "CMD: $cmd")
         val out = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "$cmd 2>&1"))
         Log.w(TAG, "OUT: [$out]")
+        // Everything that moves, resizes or starts a task goes through here, so any
+        // cached `am stack list` snapshot is stale the moment this returns.
+        invalidateStackListCache()
         return out
     }
 
@@ -6910,21 +7542,35 @@ object DisplayAppLauncher {
         var width = config.width
         var height = config.height
 
-        if (!config.overrideThemeDimensions && virtualClusterEnabled && config.displayId == 3) {
-            val themeFolderName = prefs.getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Básico") ?: "Básico"
-            if (themeFolderName == "Default" || themeFolderName == "Básico" || themeFolderName == "Light") {
-                x = 0
-                y = 62
-                width = 1920
-                height = 596
+        // Displays 1 and 3 are both the instrument cluster: 1 renders behind the
+        // ADAS/theme layer, 3 above it (see the display picker in TelasScreen).
+        // Both need the theme's mask insets — an app on display 1 sits *under*
+        // the masks, so it needs them most. overrideThemeDimensions stays the
+        // opt-out for users who want their raw configured bounds.
+        val onClusterDisplay = config.displayId == 1 || config.displayId == 3
+        if (!config.overrideThemeDimensions && virtualClusterEnabled && onClusterDisplay) {
+            val dynamicBounds = dynamicThemeBounds
+            if (dynamicBounds != null && dynamicBounds.size == 4) {
+                x = dynamicBounds[0]
+                y = dynamicBounds[1]
+                width = dynamicBounds[2]
+                height = dynamicBounds[3]
             } else {
-                val themeManager = ThemeManager.getInstance(App.getContext())
-                val metadata = themeManager.getThemeMetadata(themeFolderName)
-                if (metadata != null && metadata.x != null && metadata.y != null && metadata.width != null && metadata.height != null) {
-                    x = metadata.x!!
-                    y = metadata.y!!
-                    width = metadata.width!!
-                    height = metadata.height!!
+                val themeFolderName = prefs.getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Básico") ?: "Básico"
+                if (themeFolderName == "Default" || themeFolderName == "Básico" || themeFolderName == "Light") {
+                    x = 0
+                    y = 62
+                    width = 1920
+                    height = 596
+                } else {
+                    val themeManager = ThemeManager.getInstance(App.getContext())
+                    val metadata = themeManager.getThemeMetadata(themeFolderName)
+                    if (metadata != null && metadata.x != null && metadata.y != null && metadata.width != null && metadata.height != null) {
+                        x = metadata.x!!
+                        y = metadata.y!!
+                        width = metadata.width!!
+                        height = metadata.height!!
+                    }
                 }
             }
         }
@@ -6955,10 +7601,14 @@ object DisplayAppLauncher {
     suspend fun launchApp(config: DisplayAppConfig) {
         withContext(Dispatchers.IO) {
             if (isCarPlayPackage(config.packageName)) {
+                val bounds = getEffectiveBounds(config)
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "LAUNCH_APP_CARPLAY")
                 CarPlayDisplayOrchestrator.start(config, "LAUNCH_APP")
                 return@withContext
             }
             if (isAndroidAutoPackage(config.packageName)) {
+                val bounds = getEffectiveBounds(config)
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "LAUNCH_APP_AA")
                 startAndroidAutoOnDisplay(config, "LAUNCH_APP")
                 return@withContext
             }
@@ -6975,6 +7625,8 @@ object DisplayAppLauncher {
                 val y = bounds[1]
                 val right = bounds[2]
                 val bottom = bounds[3]
+
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "LAUNCH_APP")
 
                 val escapedActivity = config.activityName.replace("$", "\\$")
                 val isOwnPackage = config.packageName == App.getContext().packageName
@@ -7166,6 +7818,17 @@ object DisplayAppLauncher {
      * Uses am display move-stack + resize to fullscreen.
      */
     suspend fun launchOnMainDisplay(config: DisplayAppConfig) = launchAnyApp(App.getContext(), config.packageName, config.activityName)
+
+    /**
+     * Fire-and-forget [launchAnyApp] on this manager's own scope.
+     *
+     * The bottom bar drawer closes itself in the same tap that launches an app, which tears down its
+     * composition and cancels anything started from `rememberCoroutineScope()`. The launch has to
+     * outlive that, so it runs here instead.
+     */
+    fun launchAnyAppDetached(context: Context, packageName: String, activityName: String? = null) {
+        scope.launch { launchAnyApp(context, packageName, activityName) }
+    }
 
     /**
      * More robust launch for the main display using package manager intents.
@@ -7424,15 +8087,20 @@ object DisplayAppLauncher {
     suspend fun sendToDisplay(config: DisplayAppConfig) = withContext(Dispatchers.IO) {
         try {
             if (isCarPlayPackage(config.packageName)) {
+                val bounds = getEffectiveBounds(config)
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "SEND_TO_DISPLAY_CARPLAY")
                 CarPlayDisplayOrchestrator.start(config, "SEND_TO_DISPLAY")
                 return@withContext
             }
             if (isAndroidAutoPackage(config.packageName)) {
+                val bounds = getEffectiveBounds(config)
+                prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "SEND_TO_DISPLAY_AA")
                 startAndroidAutoOnDisplay(config, "SEND_TO_DISPLAY")
                 return@withContext
             }
 
             val bounds = getEffectiveBounds(config)
+            prepareDisplay3MaskHoleBeforeMove(config.displayId, bounds, "SEND_TO_DISPLAY")
 
             // Already on target display — just resize
             val existing = findStackIdForPackage(config.packageName, config.displayId)
@@ -7726,6 +8394,30 @@ object DisplayAppLauncher {
         return null
     }
 
+    /**
+     * Ask InstrumentProjector2 to punch the native-mask hole for [bounds] on display 3
+     * *before* the activity is moved/started, so the first composed frame is already open.
+     * No-op for other displays. Brief sleep lets the UI thread apply the bitmap.
+     */
+    private fun prepareDisplay3MaskHoleBeforeMove(displayId: Int, bounds: IntArray, reason: String) {
+        if (displayId != 3 || bounds.size < 4) return
+        try {
+            Log.w(
+                TAG,
+                "[$reason] Preparing D3 native-mask hole before move: " +
+                    "[${bounds[0]},${bounds[1]}][${bounds[2]},${bounds[3]}]"
+            )
+            ServiceManager.getInstance().dispatchServiceManagerEvent(
+                br.com.redesurftank.havalshisuku.models.ServiceManagerEventType.PREPARE_DISPLAY3_APP_HOLE,
+                bounds
+            )
+            // One-ish frame for updateNativeMaskViews to land before the activity appears.
+            Thread.sleep(48)
+        } catch (e: Exception) {
+            Log.w(TAG, "[$reason] Failed to prepare D3 mask hole before move", e)
+        }
+    }
+
     fun notifyDisplayStateChanged(displayId: Int) {
         scope.launch {
             // Check multiple times with increasing delays to ensure system has updated stack state
@@ -7750,8 +8442,56 @@ object DisplayAppLauncher {
         }
     }
 
+    /**
+     * `am stack list` costs ~150-200ms over Shizuku, and a single high-level
+     * operation fans out into several independent readers (findTaskForPackage,
+     * findTaskMatching, getTopPackageOnDisplay, findFirstTasksForPackages...),
+     * each of which used to spawn its own shell. On the cluster projector that
+     * whole burst runs on the UI thread inside ensureUi{}, so it stalled the
+     * theme WebView for seconds whenever an app entered or left display 1/3.
+     *
+     * A short TTL collapses one burst into a single shell call while staying
+     * far below the interval at which the system stack state realistically
+     * changes on its own. Anything that *mutates* stack state goes through
+     * sh(), which drops the cache, so a read after a move/resize is never
+     * served a stale snapshot.
+     */
+    private const val STACK_LIST_CACHE_TTL_MS = 250L
+
+    @Volatile private var cachedStackList: String? = null
+    @Volatile private var cachedStackListAtMs = 0L
+    private val stackListCacheLock = Any()
+
+    private fun invalidateStackListCache() {
+        synchronized(stackListCacheLock) {
+            cachedStackList = null
+            cachedStackListAtMs = 0L
+        }
+    }
+
     private fun getStackList(): String {
-        return ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "am stack list 2>&1"))
+        val cached = cachedStackList
+        if (cached != null &&
+            SystemClock.elapsedRealtime() - cachedStackListAtMs < STACK_LIST_CACHE_TTL_MS
+        ) {
+            return cached
+        }
+
+        synchronized(stackListCacheLock) {
+            // Re-check inside the lock: a concurrent caller may have just refreshed it,
+            // which is the common case when a burst of readers arrives together.
+            val fresh = cachedStackList
+            if (fresh != null &&
+                SystemClock.elapsedRealtime() - cachedStackListAtMs < STACK_LIST_CACHE_TTL_MS
+            ) {
+                return fresh
+            }
+
+            val out = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "am stack list 2>&1"))
+            cachedStackList = out
+            cachedStackListAtMs = SystemClock.elapsedRealtime()
+            return out
+        }
     }
 
     private data class StackInfo(val stackId: Int, val windowingMode: String, val isFreeform: Boolean)

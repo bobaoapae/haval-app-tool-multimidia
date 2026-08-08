@@ -44,8 +44,8 @@ public class ProjectorManager {
     private ProjectorManager() {
         sharedPreferences = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
 
-        int maskDisplayId = 3;
-        int hudDisplayId = 1;
+        int maskDisplayId = br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE ? 0 : 3;
+        int hudDisplayId = br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE ? -1 : 1;
 
         projectorCreators.put(maskDisplayId, (ctx, disp) -> {
             instrumentProjector2 = new InstrumentProjector2(ctx, disp);
@@ -157,8 +157,8 @@ public class ProjectorManager {
         stopProjectors();
         
         // Re-read preferences and re-populate creators
-        int maskDisplayId = 3;
-        int hudDisplayId = 1;
+        int maskDisplayId = br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE ? 0 : 3;
+        int hudDisplayId = br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE ? -1 : 1;
 
         projectorCreators.put(maskDisplayId, (ctx, disp) -> {
             instrumentProjector2 = new InstrumentProjector2(ctx, disp);
