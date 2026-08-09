@@ -39,18 +39,20 @@ internal object ProjectionDisplayHtmlPolicy {
 
     /**
      * Sport 0.16.44 uses a large black box-shadow to leave only a narrow map window between the
-     * Analogico V2 gauges. While CarPlay is on D3 its video Surface already fills 1920x720, so
-     * replace that opaque cutout with two static linear edge gradients. Each edge stays nearly
-     * opaque below its gauge and fades continuously toward the clear central navigation area.
-     * The theme's full-width top mask also becomes transparent while the independent center
-     * status capsule remains intact. These rules avoid filters/blur to keep the WebView compositor
-     * cost bounded. The `carplay-in-dash` selector deliberately keeps Android Auto outside this
-     * compatibility.
+     * Analogico V2 gauges. While CarPlay or Android Auto is projecting on D3 its video Surface
+     * already fills 1920x720, so replace that opaque cutout with two static linear edge gradients.
+     * Each edge stays nearly opaque below its gauge and fades continuously toward the clear central
+     * navigation area. The theme's full-width top mask also becomes transparent while the independent
+     * center status capsule remains intact. These rules avoid filters/blur to keep the WebView
+     * compositor cost bounded. Both in-dash projection classes get the same full-bleed treatment:
+     * CarPlay (`carplay-in-dash`) and Android Auto (`projection-mirror-in-dash`) — the latter was the
+     * missing case that left Android Auto in the narrow square crop.
      */
     private val projectionFullBleedMaskStyle =
         """
         <style $PROJECTION_FULL_BLEED_STYLE_MARKER="1">
-        .carplay-in-dash.display-analogico-v2 .cluster-mask-bg::after {
+        .carplay-in-dash.display-analogico-v2 .cluster-mask-bg::after,
+        .projection-mirror-in-dash.display-analogico-v2 .cluster-mask-bg::after {
           content: "" !important;
           display: block !important;
           position: absolute !important;
@@ -87,7 +89,8 @@ internal object ProjectionDisplayHtmlPolicy {
             ) !important;
           pointer-events: none !important;
         }
-        .carplay-in-dash.display-analogico-v2 .mask-top-bar {
+        .carplay-in-dash.display-analogico-v2 .mask-top-bar,
+        .projection-mirror-in-dash.display-analogico-v2 .mask-top-bar {
           background: transparent !important;
           background-image: none !important;
           box-shadow: none !important;
