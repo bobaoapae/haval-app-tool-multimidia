@@ -34,6 +34,7 @@ import br.com.redesurftank.havalshisuku.services.BottomBarService
 import br.com.redesurftank.havalshisuku.services.AndroidAutoDcmRecovery
 import com.ts.androidauto.sdk.aidl.data.IfVehicleInfo
 import com.ts.androidauto.sdk.common.VehicleConst
+import java.io.File
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
@@ -4884,9 +4885,32 @@ object DisplayAppLauncher {
             .any { state -> state == "CONFIGURED" || state == "CONNECTED" }
     }
 
+    private const val PROJECTION_USB_STATE_PATH = "/sys/class/android_usb/android0/state"
+    private const val PROJECTION_USB_STATE_CACHE_MS = 500L
+
+    @Volatile private var cachedProjectionUsbConfigured: Boolean? = null
+    @Volatile private var cachedProjectionUsbConfiguredAtMs = 0L
+
     private fun isProjectionUsbConfigured(): Boolean {
-        val state = sh("cat /sys/class/android_usb/android0/state 2>/dev/null || true").trim()
-        return isProjectionUsbStateReady(state)
+        val cached = cachedProjectionUsbConfigured
+        if (cached != null &&
+            SystemClock.elapsedRealtime() - cachedProjectionUsbConfiguredAtMs < PROJECTION_USB_STATE_CACHE_MS
+        ) {
+            return cached
+        }
+        // Read the sysfs node directly (no shell spawn) — the same source BottomBarService uses.
+        // Fall back to a Shizuku shell read only if the direct read is blocked. This removes a very
+        // hot spawn: isProjectionUsbConfigured() is polled from many projection paths, and each
+        // sh("cat …") was a shell process routed through shizuku_server, starving its ~96MB heap
+        // → OutOfMemoryError → shizuku_server restart → cluster presentation dropped (the flicker).
+        val state = runCatching { File(PROJECTION_USB_STATE_PATH).readText() }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: sh("cat $PROJECTION_USB_STATE_PATH 2>/dev/null || true")
+        val configured = isProjectionUsbStateReady(state.trim())
+        cachedProjectionUsbConfigured = configured
+        cachedProjectionUsbConfiguredAtMs = SystemClock.elapsedRealtime()
+        return configured
     }
 
     private suspend fun recreateMissingCarPlayVisualTaskOnCluster(reason: String): TaskInfo? {
