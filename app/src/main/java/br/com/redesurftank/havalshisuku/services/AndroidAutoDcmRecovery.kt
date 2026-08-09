@@ -32,11 +32,21 @@ object AndroidAutoDcmRecovery {
     private const val CAPABILITY_STATE_ACTIVATED = 4
     private const val DISCONNECT_REASON_SWITCH_PROJECTION = 2
     private const val ACTIVATE_SUCCESS = 0
+    private const val LOG_SNAPSHOT_CACHE_MS = 3_000L
+
+    @Volatile private var cachedLogSnapshots: List<DcmDeviceSnapshot> = emptyList()
+    @Volatile private var cachedLogSnapshotsAtMs: Long = 0L
 
     suspend fun readDeviceSnapshots(context: Context): List<DcmDeviceSnapshot> {
-        return withDcmBinder(context.applicationContext) { binder ->
+        val viaBinder = withDcmBinder(context.applicationContext) { binder ->
             readDevices(binder)
         } ?: emptyList()
+        if (viaBinder.isNotEmpty()) return viaBinder
+        // The OEM ConnDevice Parcelable isn't on our classpath, so the binder read always
+        // unmarshals to empty (ClassNotFound at Bundle.keySet). Fall back to parsing the
+        // OEM's own DcController "mergeDevices" log lines, which expose every field we need.
+        // Cached briefly so the (non-hot) callers don't re-scrape logcat and add Shizuku load.
+        return readDevicesFromLogs()
     }
 
     suspend fun recoverUsbProjection(context: Context, requestedDevId: String?): RecoveryResult {
@@ -269,6 +279,84 @@ object AndroidAutoDcmRecovery {
         return patterns.firstNotNullOfOrNull { pattern ->
             pattern.findAll(logs).lastOrNull()?.groupValues?.getOrNull(1)
         }
+    }
+
+    /**
+     * Reconstructs device snapshots from the OEM's own `DcController: mergeDevices ... Device{...}`
+     * log lines. Used when the binder read cannot unmarshal (ConnDevice class missing). The scrape
+     * is filtered to a single tag (few lines) and cached briefly, so it stays cheap.
+     */
+    private fun readDevicesFromLogs(): List<DcmDeviceSnapshot> {
+        val now = SystemClock.elapsedRealtime()
+        val cachedAt = cachedLogSnapshotsAtMs
+        if (cachedAt != 0L &&
+                (now - cachedAt) in 0..LOG_SNAPSHOT_CACHE_MS &&
+                cachedLogSnapshots.isNotEmpty()) {
+            return cachedLogSnapshots
+        }
+        val logs = runCatching {
+            ShizukuUtils.runCommandAndGetOutput(
+                arrayOf("logcat", "-d", "DcController:E", "*:S")
+            )
+        }.getOrNull().orEmpty()
+        if (logs.isBlank()) return cachedLogSnapshots
+        val byKey = LinkedHashMap<String, DcmDeviceSnapshot>()
+        logs.lineSequence().forEach { line ->
+            if (!line.contains("mergeDevices") || !line.contains("Device{")) return@forEach
+            val snap = parseDeviceLogLine(line) ?: return@forEach
+            byKey[snap.key] = snap
+        }
+        val result = byKey.values.toList()
+        if (result.isNotEmpty()) {
+            cachedLogSnapshots = result
+            cachedLogSnapshotsAtMs = now
+        }
+        return result
+    }
+
+    private fun parseDeviceLogLine(line: String): DcmDeviceSnapshot? {
+        fun str(name: String): String? =
+            Regex("$name='([^']*)'").find(line)?.groupValues?.getOrNull(1)?.takeIf {
+                it.isNotBlank() && it != "null"
+            }
+
+        fun int(name: String): Int? =
+            Regex("$name=(-?\\d+)").find(line)?.groupValues?.getOrNull(1)?.toIntOrNull()
+
+        val id = str("mId")
+        val bt = str("mBtAddr")
+        val key = bt ?: id ?: return null
+        val capa = parseCapaState(
+            Regex("mActiveCapaState=\\{([^}]*)\\}").find(line)?.groupValues?.getOrNull(1).orEmpty()
+        )
+        return DcmDeviceSnapshot(
+            key = key,
+            uuid = id,
+            friendlyName = str("mFriendlyName"),
+            usbSerial = str("mUsbSerialNumber"),
+            btAddr = bt,
+            availableCapability = int("mAvailableCapability"),
+            activeCapability = int("mActiveCapability"),
+            deviceConnectedState = int("mDeviceConnectedState"),
+            connectedTypeState =
+                Regex("mConnectedTypeState=\\{([^}]*)\\}").find(line)?.groupValues?.getOrNull(1),
+            activeUsbAndroidAutoState = capa[CAP_ANDROID_AUTO_USB],
+            activeWirelessAndroidAutoState = capa[CAP_ANDROID_AUTO_WIRELESS]
+        )
+    }
+
+    private fun parseCapaState(raw: String): Map<Int, Int> {
+        if (raw.isBlank()) return emptyMap()
+        val map = HashMap<Int, Int>()
+        raw.split(",").forEach { part ->
+            val kv = part.trim().split("=")
+            if (kv.size == 2) {
+                val k = kv[0].trim().toIntOrNull()
+                val v = kv[1].trim().toIntOrNull()
+                if (k != null && v != null) map[k] = v
+            }
+        }
+        return map
     }
 
     private fun transactDisconnectProjection(

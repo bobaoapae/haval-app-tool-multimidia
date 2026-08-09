@@ -34,6 +34,7 @@ import br.com.redesurftank.havalshisuku.services.BottomBarService
 import br.com.redesurftank.havalshisuku.services.AndroidAutoDcmRecovery
 import com.ts.androidauto.sdk.aidl.data.IfVehicleInfo
 import com.ts.androidauto.sdk.common.VehicleConst
+import java.io.File
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
@@ -2651,16 +2652,26 @@ object DisplayAppLauncher {
 
     private fun getAndroidAutoDisplayBounds(displayId: Int): IntArray {
         val res = getDisplayResolution(displayId)
-        // Cluster (display 3): desloca a janela do AA pra direita (OPT-IN, começa desativado). Só
-        // aplica se ENABLE_AA_CLUSTER_OFFSET estiver ligado. Borda direita fixa (res.first), então
-        // aumentar o offset só estreita a esquerda, nunca corta a direita. Contorna o menu lateral do
-        // AA que o host do cluster corta.
-        if (displayId == 3 &&
-            getPrefs().getBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, false)) {
-            val offset = getPrefs()
-                .getInt(SharedPreferencesKeys.AA_CLUSTER_LEFT_OFFSET.key, 145)
-                .coerceIn(0, maxOf(0, res.first - 200))
-            return intArrayOf(offset, 0, res.first, res.second)
+        // Cluster (display 3): desloca a janela do AA pra direita. Borda direita fixa (res.first),
+        // então aumentar o offset só estreita a esquerda, nunca corta a direita. Contorna a coluna
+        // esquerda dos layouts de mapa do tema Sport.
+        //
+        // AUTOMÁTICO: nos 3 displays de MAPA do Sport (Mapa / Mapa Graduado / Mapa Limpo) o offset
+        // é aplicado sozinho; nos demais displays (Analógico V2, Normal, Digital) o AA fica em tela
+        // cheia. O toggle manual ENABLE_AA_CLUSTER_OFFSET continua funcionando como força-sempre.
+        if (displayId == 3) {
+            val display = getPrefs()
+                .getString(SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key, "").orEmpty()
+            val isMapDisplay =
+                display == "Mapa" || display == "Mapa Graduado" || display == "Mapa Limpo"
+            val manualForce =
+                getPrefs().getBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, false)
+            if (isMapDisplay || manualForce) {
+                val offset = getPrefs()
+                    .getInt(SharedPreferencesKeys.AA_CLUSTER_LEFT_OFFSET.key, 135)
+                    .coerceIn(0, maxOf(0, res.first - 200))
+                return intArrayOf(offset, 0, res.first, res.second)
+            }
         }
         return intArrayOf(0, 0, res.first, res.second)
     }
@@ -4884,9 +4895,32 @@ object DisplayAppLauncher {
             .any { state -> state == "CONFIGURED" || state == "CONNECTED" }
     }
 
+    private const val PROJECTION_USB_STATE_PATH = "/sys/class/android_usb/android0/state"
+    private const val PROJECTION_USB_STATE_CACHE_MS = 500L
+
+    @Volatile private var cachedProjectionUsbConfigured: Boolean? = null
+    @Volatile private var cachedProjectionUsbConfiguredAtMs = 0L
+
     private fun isProjectionUsbConfigured(): Boolean {
-        val state = sh("cat /sys/class/android_usb/android0/state 2>/dev/null || true").trim()
-        return isProjectionUsbStateReady(state)
+        val cached = cachedProjectionUsbConfigured
+        if (cached != null &&
+            SystemClock.elapsedRealtime() - cachedProjectionUsbConfiguredAtMs < PROJECTION_USB_STATE_CACHE_MS
+        ) {
+            return cached
+        }
+        // Read the sysfs node directly (no shell spawn) — the same source BottomBarService uses.
+        // Fall back to a Shizuku shell read only if the direct read is blocked. This removes a very
+        // hot spawn: isProjectionUsbConfigured() is polled from many projection paths, and each
+        // sh("cat …") was a shell process routed through shizuku_server, starving its ~96MB heap
+        // → OutOfMemoryError → shizuku_server restart → cluster presentation dropped (the flicker).
+        val state = runCatching { File(PROJECTION_USB_STATE_PATH).readText() }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: sh("cat $PROJECTION_USB_STATE_PATH 2>/dev/null || true")
+        val configured = isProjectionUsbStateReady(state.trim())
+        cachedProjectionUsbConfigured = configured
+        cachedProjectionUsbConfiguredAtMs = SystemClock.elapsedRealtime()
+        return configured
     }
 
     private suspend fun recreateMissingCarPlayVisualTaskOnCluster(reason: String): TaskInfo? {

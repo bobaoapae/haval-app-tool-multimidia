@@ -68,6 +68,13 @@ public class DisplaySelectionScreen implements Screen {
         serviceManager.dispatchServiceManagerEvent(
                 ServiceManagerEventType.DISPLAY_SCREEN_SELECTION,
                 "control('display', '" + display + "')");
+        // Re-aplica os bounds do AA no cluster: os 3 displays de mapa deslocam o AA 135px pra
+        // direita automaticamente; os demais voltam a tela cheia. No-op se o AA nao estiver no D3.
+        try {
+            br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.INSTANCE
+                    .reapplyAndroidAutoClusterBounds();
+        } catch (Throwable ignored) {
+        }
     }
 
     private void updateFocus() {
