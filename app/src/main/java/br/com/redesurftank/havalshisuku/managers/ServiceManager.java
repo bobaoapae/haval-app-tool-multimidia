@@ -175,7 +175,20 @@ public class ServiceManager {
             CarConstants.CAR_EV_INFO_INSTANT_ENERGY_CONSUMPTION,
             CarConstants.CAR_IPK_LIGHT_FUEL_LOW,
             CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT,
-            CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT_SIGN_STATUS
+            CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT_SIGN_STATUS,
+            // Campos do dashboard que precisam atualizar EM TEMPO REAL (sem essas chaves observadas,
+            // o onDataChanged nunca dispara pra elas e o valor so re-le ao fechar/reabrir o dash).
+            CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG,
+            CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG,
+            CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL,
+            CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL,
+            CarConstants.CAR_COMFORT_SETTING_SEAT_VENTILATION_MAX_LEVEL,
+            CarConstants.CAR_EV_INFO_CAR_EV_INFO_SOC_OF_BATTERY,
+            CarConstants.CAR_EV_INFO_BATTERY_POWER_PERCENTAGE,
+            CarConstants.CAR_BASIC_REMAIN_ODOMETER,
+            CarConstants.CAR_BASIC_CUR_JOURNEY_AVG_FUEL_CONSUME,
+            CarConstants.CAR_EV_INFO_AVG_ENERGY_CONSUME_INFO_SINCE_STARTUP,
+            CarConstants.CAR_EV_INFO_POWER_BATTERY_CURRENT
     };
 
     private static final CarConstants[] KEYS_TO_SAVE = {
