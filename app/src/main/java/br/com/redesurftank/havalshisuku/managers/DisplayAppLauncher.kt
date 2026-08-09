@@ -2652,16 +2652,26 @@ object DisplayAppLauncher {
 
     private fun getAndroidAutoDisplayBounds(displayId: Int): IntArray {
         val res = getDisplayResolution(displayId)
-        // Cluster (display 3): desloca a janela do AA pra direita (OPT-IN, começa desativado). Só
-        // aplica se ENABLE_AA_CLUSTER_OFFSET estiver ligado. Borda direita fixa (res.first), então
-        // aumentar o offset só estreita a esquerda, nunca corta a direita. Contorna o menu lateral do
-        // AA que o host do cluster corta.
-        if (displayId == 3 &&
-            getPrefs().getBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, false)) {
-            val offset = getPrefs()
-                .getInt(SharedPreferencesKeys.AA_CLUSTER_LEFT_OFFSET.key, 145)
-                .coerceIn(0, maxOf(0, res.first - 200))
-            return intArrayOf(offset, 0, res.first, res.second)
+        // Cluster (display 3): desloca a janela do AA pra direita. Borda direita fixa (res.first),
+        // então aumentar o offset só estreita a esquerda, nunca corta a direita. Contorna a coluna
+        // esquerda dos layouts de mapa do tema Sport.
+        //
+        // AUTOMÁTICO: nos 3 displays de MAPA do Sport (Mapa / Mapa Graduado / Mapa Limpo) o offset
+        // é aplicado sozinho; nos demais displays (Analógico V2, Normal, Digital) o AA fica em tela
+        // cheia. O toggle manual ENABLE_AA_CLUSTER_OFFSET continua funcionando como força-sempre.
+        if (displayId == 3) {
+            val display = getPrefs()
+                .getString(SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key, "").orEmpty()
+            val isMapDisplay =
+                display == "Mapa" || display == "Mapa Graduado" || display == "Mapa Limpo"
+            val manualForce =
+                getPrefs().getBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, false)
+            if (isMapDisplay || manualForce) {
+                val offset = getPrefs()
+                    .getInt(SharedPreferencesKeys.AA_CLUSTER_LEFT_OFFSET.key, 135)
+                    .coerceIn(0, maxOf(0, res.first - 200))
+                return intArrayOf(offset, 0, res.first, res.second)
+            }
         }
         return intArrayOf(0, 0, res.first, res.second)
     }
