@@ -2798,6 +2798,7 @@ private fun DashboardHeader(
                                 text = "Externa ${formatTemperature(snapshot.outsideTemp)}"
                         )
                         DashboardBattery12vChip(pct = snapshot.batt12vPct, voltageRaw = snapshot.batt12vVoltage)
+                        DashboardHotRouterChip()
                         DashboardStatusChip(icon = Icons.Default.AccessTime, text = time)
                         DashboardHeaderControlButton(
                                 icon = Icons.Default.Tune,
@@ -7064,6 +7065,156 @@ fun VerticalSlider(
                         }
                 }
         }
+}
+
+// Chip de CONECTIVIDADE no cabecalho (HotRouter + dados moveis), no formato dos chips de temperatura.
+// Leitura ASSINCRONA (ConnectivityStatusManager.computeFresh em Dispatchers.IO, cache 1s). A COR diz o
+// estado (verde=ok, amarelo=aviso, vermelho=cortado, cinza=conectando); o ICONE diz a fonte
+// (satelite=Starlink, roteador=4G roteando, wifi, celular, celular cortado). Toque liga/desliga o
+// hotspot; toque longo alterna verbose. So aparece se roteando OU o controle de dados esta ligado.
+@Composable
+private fun DashboardHotRouterChip() {
+        val context = LocalContext.current
+        val prefs = remember { ServiceManager.getInstance().getSharedPreferences() }
+        var verbose by remember {
+                mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.HOTROUTER_CARD_VERBOSE.key, false))
+        }
+        val status = rememberConnectivityStatus() ?: return
+        if (status.routingMode == HotRouterManager.MODE_OFF && !status.mobileControlEnabled) return
+        val displayText = status.displayText ?: return
+
+        val tint =
+                when (status.displayLevel) {
+                        "good" -> Color(0xFF78E08F)
+                        "warn" -> Color(0xFFFBBF24)
+                        "bad" -> Color(0xFFEF4444)
+                        else -> Color(0xFF8A93A3)
+                }
+        val primaryIcon =
+                when (status.displayIcon) {
+                        "satellite" -> Icons.Default.SatelliteAlt
+                        "wifi" -> Icons.Default.Wifi
+                        "cell" ->
+                                if (status.hotspotRouting) Icons.Default.Router
+                                else Icons.Default.SignalCellularAlt
+                        "cell_off" -> Icons.Default.SignalCellularOff
+                        "loader" -> Icons.Default.Sync
+                        "alert" -> Icons.Default.WarningAmber
+                        else -> Icons.Default.SignalCellularAlt
+                }
+        val reasonIcon =
+                if (status.displayIcon == "cell_off")
+                        when (status.mobileBlockReason) {
+                                "consumo" -> Icons.Default.Speed
+                                "AA/CarPlay" -> Icons.Default.DirectionsCar
+                                "manual" -> Icons.Default.Lock
+                                else -> null
+                        }
+                else null
+        // Compacto: so o nome do WiFi (some no 4G). Verbose: o texto completo do status.
+        val label = if (verbose) displayText else status.routingWifiName
+
+        DashboardHotRouterChipView(
+                primaryIcon = primaryIcon,
+                reasonIcon = reasonIcon,
+                label = label,
+                tint = tint,
+                onToggleHotspot = {
+                        Thread(
+                                        {
+                                                try {
+                                                        val sm = ServiceManager.getInstance()
+                                                        if (sm.isHotspotOnAir()) sm.disableWifiTether()
+                                                        else sm.enableWifiTether()
+                                                } catch (t: Throwable) {}
+                                        },
+                                        "hotrouter-toggle"
+                                )
+                                .start()
+                },
+                onToggleVerbose = {
+                        val v = !verbose
+                        verbose = v
+                        prefs.edit()
+                                .putBoolean(SharedPreferencesKeys.HOTROUTER_CARD_VERBOSE.key, v)
+                                .apply()
+                }
+        )
+}
+
+@Composable
+private fun DashboardHotRouterChipView(
+        primaryIcon: ImageVector,
+        reasonIcon: ImageVector?,
+        label: String?,
+        tint: Color,
+        onToggleHotspot: () -> Unit,
+        onToggleVerbose: () -> Unit
+) {
+        Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier =
+                        Modifier.background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                                .border(
+                                        1.dp,
+                                        Color.White.copy(alpha = 0.12f),
+                                        RoundedCornerShape(8.dp)
+                                )
+                                .combinedClickable(
+                                        onClick = onToggleHotspot,
+                                        onLongClick = onToggleVerbose
+                                )
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+        ) {
+                Icon(
+                        imageVector = primaryIcon,
+                        contentDescription = null,
+                        tint = tint,
+                        modifier = Modifier.size(18.dp)
+                )
+                if (reasonIcon != null) {
+                        Icon(
+                                imageVector = reasonIcon,
+                                contentDescription = null,
+                                tint = tint,
+                                modifier = Modifier.size(15.dp)
+                        )
+                }
+                if (!label.isNullOrBlank()) {
+                        Text(
+                                text = label,
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontFamily = DashboardReadableFont,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1
+                        )
+                }
+        }
+}
+
+@Composable
+private fun rememberConnectivityStatus(): ConnectivityStatusManager.Status? {
+        val context = LocalContext.current
+        var status by remember { mutableStateOf<ConnectivityStatusManager.Status?>(null) }
+        LaunchedEffect(Unit) {
+                while (true) {
+                        // computeFresh SHELLA (HotRouter) + le estado de 4G/WiFi — NUNCA na main; tem
+                        // cache interno de 1s. Devolve o Status pronto (texto/nivel/icone) pro card.
+                        val s =
+                                withContext(Dispatchers.IO) {
+                                        try {
+                                                ConnectivityStatusManager.computeFresh(context)
+                                        } catch (t: Throwable) {
+                                                null
+                                        }
+                                }
+                        if (s != null) status = s
+                        delay(4000)
+                }
+        }
+        return status
 }
 
 // Chip de 12V: mostra TENSÃO e %. A % vem da chave real (CAR_BASIC_BATTERY_POWER_LEVEL); se vier
