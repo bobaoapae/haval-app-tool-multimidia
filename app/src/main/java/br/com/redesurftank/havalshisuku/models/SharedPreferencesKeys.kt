@@ -404,5 +404,10 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     DATATRACK_DISABLED_BY_APP("datatrackDisabledByApp", "Controle interno: DataTrack desabilitado por este app"),
     MOBILE_DATA_TRAFFIC_ACCUM_BYTES("mobileDataTrafficAccumBytes", "Acumulado de bytes móveis no ciclo (fallback TrafficStats)"),
     MOBILE_DATA_TRAFFIC_LAST_READING("mobileDataTrafficLastReading", "Última leitura do TrafficStats móvel (controle interno)"),
-    MOBILE_DATA_TRAFFIC_CYCLE_TAG("mobileDataTrafficCycleTag", "Ciclo atual do acumulador de bytes (controle interno)")
+    MOBILE_DATA_TRAFFIC_CYCLE_TAG("mobileDataTrafficCycleTag", "Ciclo atual do acumulador de bytes (controle interno)"),
+    // ===== Captura de navegação do Android Auto (ETA/km/manobra) para o painel =====
+    ENABLE_AA_NAV_CAPTURE(
+            "enableAaNavCapture",
+            "Capturar navegação (ETA, km, próxima manobra) do Android Auto para o painel"
+    )
 }

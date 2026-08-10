@@ -9,6 +9,11 @@
 -keepclassmembers class com.autolink.** implements android.os.Parcelable {
     public static final android.os.Parcelable$Creator CREATOR;
 }
+# SDK vendorizado do host do Android Auto (com.ts.androidauto.sdk.aidl.data.*): mantém o CREATOR
+# dos Parcelables de navegação p/ o wire-format do LinkCallback bater com o do host.
+-keepclassmembers class com.ts.androidauto.** implements android.os.Parcelable {
+    public static final android.os.Parcelable$Creator CREATOR;
+}
 
 # Preview/release builds must not emit diagnostic logcat output. The debug and internalDebug
 # variants keep logs available for bench/central diagnostics.

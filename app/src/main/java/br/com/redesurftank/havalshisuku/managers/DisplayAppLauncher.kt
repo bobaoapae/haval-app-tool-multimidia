@@ -138,6 +138,7 @@ object DisplayAppLauncher {
         Pattern.compile("\\bstate\\s*[:=]\\s*started\\b", Pattern.CASE_INSENSITIVE)
     private const val ANDROID_AUTO_LINK_COMMAND_INTERFACE = "com.ts.androidauto.sdk.aidl.LinkCommand"
     private const val ANDROID_AUTO_LINK_COMMAND_CONNECT_TRANSACTION = 0x07
+    private const val ANDROID_AUTO_LINK_COMMAND_ADD_CALLBACK_TRANSACTION = 0x01
     private const val ANDROID_AUTO_LINK_COMMAND_SEND_KEY_EVENT_TRANSACTION = 0x0a
     private const val ANDROID_AUTO_LINK_COMMAND_SEND_VEHICLE_INFO_TRANSACTION = 0x0c
     private const val ANDROID_AUTO_LINK_COMMAND_GET_DEVICE_LIST_TRANSACTION = 0x0d
@@ -433,6 +434,7 @@ object DisplayAppLauncher {
     @Volatile private var androidAutoLinkCommandBindingStarted = false
     @Volatile private var androidAutoLinkCommandBindRequestedAtMs = 0L
     @Volatile private var lastAndroidAutoLinkCommandReconnectAtMs = 0L
+    @Volatile private var androidAutoNavCallbackRegistered = false
     private val carPlayServiceLock = Any()
     @Volatile private var carPlayServiceBinder: IBinder? = null
     @Volatile private var carPlayServiceBindingStarted = false
@@ -447,6 +449,7 @@ object DisplayAppLauncher {
             Log.w(TAG, "[ANDROID_AUTO_LINK_COMMAND_BIND] Connected to $name")
             scope.launch {
                 subscribeAndroidAutoHmiKeys("ANDROID_AUTO_LINK_COMMAND_BIND")
+                registerAndroidAutoNavCallbackIfEnabled("ANDROID_AUTO_LINK_COMMAND_BIND")
             }
         }
 
@@ -455,6 +458,7 @@ object DisplayAppLauncher {
                 androidAutoLinkCommandBinder = null
                 androidAutoLinkCommandBindingStarted = false
                 androidAutoLinkCommandBindRequestedAtMs = 0L
+                androidAutoNavCallbackRegistered = false
             }
             Log.w(TAG, "[ANDROID_AUTO_LINK_COMMAND_BIND] Disconnected from $name")
         }
@@ -1882,6 +1886,33 @@ object DisplayAppLauncher {
         } finally {
             reply.recycle()
             data.recycle()
+        }
+    }
+
+    /**
+     * Registra o nosso LinkCallback PASSIVO no host do AA (LinkCommand.addLinkCallback, txn 1) pra
+     * receber os eventos de navegação (ETA/km/próxima manobra). Reaproveita o binder do LinkCommand
+     * que já mantemos vivo. Idempotente por conexão (re-registra a cada onServiceConnected; o flag
+     * zera no onServiceDisconnected). Só leitura — o host itera uma lista de callbacks, então não
+     * atrapalha o callback do próprio cluster.
+     */
+    private fun registerAndroidAutoNavCallbackIfEnabled(reason: String) {
+        if (!br.com.redesurftank.havalshisuku.bridge.AndroidAutoNavManager.isEnabled()) return
+        if (androidAutoNavCallbackRegistered) return
+        val ok =
+            transactAndroidAutoLinkCommandSync(
+                ANDROID_AUTO_LINK_COMMAND_ADD_CALLBACK_TRANSACTION,
+                "${reason}_NAV_CALLBACK"
+            ) { data ->
+                data.writeStrongBinder(
+                    br.com.redesurftank.havalshisuku.bridge.AndroidAutoNavManager.callbackBinder
+                )
+            }
+        if (ok) {
+            androidAutoNavCallbackRegistered = true
+            Log.w(TAG, "[$reason] Android Auto nav callback registrado")
+        } else {
+            Log.w(TAG, "[$reason] Falha ao registrar nav callback do Android Auto (retenta no próximo bind)")
         }
     }
 
