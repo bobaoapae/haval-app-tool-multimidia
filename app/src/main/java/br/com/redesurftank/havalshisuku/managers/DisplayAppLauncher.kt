@@ -2654,16 +2654,17 @@ object DisplayAppLauncher {
         val res = getDisplayResolution(displayId)
         // Cluster (display 3): desloca a janela do AA pra direita. Borda direita fixa (res.first),
         // então aumentar o offset só estreita a esquerda, nunca corta a direita. Contorna a coluna
-        // esquerda dos layouts de mapa do tema Sport.
+        // esquerda dos layouts de mapa dos temas.
         //
-        // AUTOMÁTICO: nos 3 displays de MAPA do Sport (Mapa / Mapa Graduado / Mapa Limpo) o offset
-        // é aplicado sozinho; nos demais displays (Analógico V2, Normal, Digital) o AA fica em tela
-        // cheia. O toggle manual ENABLE_AA_CLUSTER_OFFSET continua funcionando como força-sempre.
+        // AUTOMÁTICO: em QUALQUER display de mapa, de QUALQUER tema, o offset é aplicado sozinho.
+        // Detecção GENÉRICA por nome — todo display de mapa começa com "Mapa" (ex.: "Mapa",
+        // "Mapa Graduado", "Mapa Limpo") independente do tema (Sport, default, minimalist, baixados).
+        // Nos demais displays (Analógico V2, Normal, Digital, Clean…) o AA fica em tela cheia.
+        // O toggle manual ENABLE_AA_CLUSTER_OFFSET continua funcionando como força-sempre.
         if (displayId == 3) {
             val display = getPrefs()
                 .getString(SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key, "").orEmpty()
-            val isMapDisplay =
-                display == "Mapa" || display == "Mapa Graduado" || display == "Mapa Limpo"
+            val isMapDisplay = display.trim().startsWith("Mapa", ignoreCase = true)
             val manualForce =
                 getPrefs().getBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, false)
             if (isMapDisplay || manualForce) {

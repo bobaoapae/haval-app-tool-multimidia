@@ -3336,6 +3336,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 .putString(SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key, normalizedDisplay)
                 .apply()
         Log.d(TAG, "Cluster display saved: $normalizedDisplay")
+        // Re-aplica o offset do AA no cluster AO VIVO ao trocar de display pela UI do tema:
+        // entrar num display de mapa desloca a projeção; sair restaura a tela cheia — sem
+        // reprojetar. Antes só o seletor nativo antigo e o slider re-aplicavam; este caminho
+        // (tema -> ThemeBridge -> saveClusterDisplay) não, então o offset não pegava em temas
+        // como o minimalist/default. No-op se o AA não estiver no cluster (D3).
+        try {
+            br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.reapplyAndroidAutoClusterBounds()
+        } catch (e: Exception) {
+            Log.e(TAG, "reapply AA cluster bounds on display change failed", e)
+        }
     }
 
     /**
