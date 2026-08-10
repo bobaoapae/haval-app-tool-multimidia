@@ -182,6 +182,12 @@ object DisplayAppLauncher {
     private const val ANDROID_AUTO_WIRELESS_CLUSTER_RESTORE_INTERVAL_MS = 2_500L
     private const val ANDROID_AUTO_SURFACE_PROBE_COOLDOWN_MS = 1_200L
     private const val ANDROID_AUTO_SURFACE_VISUAL_RESTART_COOLDOWN_MS = 5_000L
+    // Recuperacao do "valido-mas-preto": surface do AA no cluster valida mas o decoder do host
+    // (VideoPlayer/MediaCodec) em loop de IllegalState pos move-stack -> zero frame. Cooldown pra nao
+    // ciclar o servico em loop; threshold = quantas linhas do loop de erro no logcat recente contam
+    // como "preto".
+    private const val ANDROID_AUTO_BLACK_RECOVERY_COOLDOWN_MS = 8_000L
+    private const val ANDROID_AUTO_VIDEO_DECODER_ERROR_THRESHOLD = 12
     private const val ANDROID_AUTO_USB_DISCONNECT_CLEANUP_COOLDOWN_MS = 10_000L
     private const val ANDROID_AUTO_STALE_VISUAL_STACK_CLEANUP_GRACE_MS = 30_000L
     private const val ANDROID_AUTO_OEM_INPUT_ECHO_BLOCK_MS = 2_500L
@@ -411,6 +417,7 @@ object DisplayAppLauncher {
     @Volatile private var lastAndroidAutoUsbDisconnectCleanupAt = 0L
     @Volatile private var lastAndroidAutoSurfaceProbeAt = 0L
     @Volatile private var lastAndroidAutoSurfaceVisualRestartAt = 0L
+    @Volatile private var lastAndroidAutoBlackRecoveryAt = 0L
     @Volatile private var androidAutoStaleVisualStackFirstSeenAt = 0L
     @Volatile private var lastAndroidAutoNativeRadioFocusBlockLogAt = 0L
     @Volatile private var lastAndroidAutoVisualProjectionEvidenceLogAt = 0L
@@ -2608,6 +2615,13 @@ object DisplayAppLauncher {
                 TAG,
                 "[$reason] Android Auto live on D3 stack ${clusterTask.stackId}; Surface buffer is not stale"
             )
+            // Surface VÁLIDA -> mas pode estar PRETA: o decoder do host (VideoPlayer/MediaCodec) entra
+            // em loop de IllegalState pós move-stack (ex.: cluster->MMI->cluster) e não produz frame.
+            // Só age se o toggle estiver ligado E o decoder estiver de fato erroando (a própria
+            // recovery checa antes de mexer); senão NÃO toca no caminho bom (return false = atual).
+            if (isAndroidAutoClusterBlackRecoveryEnabled()) {
+                return recoverAndroidAutoClusterBlackByCyclingProjectionService(reason)
+            }
             return false
         }
 
@@ -2642,6 +2656,85 @@ object DisplayAppLauncher {
         )
         delay(900)
         inspectAndroidAutoClusterSurfaceBuffer("${reason}_SURFACE_AFTER_VISUAL_RESTART")
+        return true
+    }
+
+    private fun isAndroidAutoClusterBlackRecoveryEnabled(): Boolean =
+        try {
+            getPrefs().getBoolean(SharedPreferencesKeys.AA_CLUSTER_BLACK_RECOVERY.key, true)
+        } catch (t: Throwable) {
+            true
+        }
+
+    // Conta as linhas do loop de erro do decoder do host no logcat recente
+    // (com.ts.androidauto...VideoPlayer$Decode(Input|Output)Thread). One-shot via Shizuku, chamado SÓ
+    // no caminho de recover (cooldown-gated) — NÃO é poll contínuo. '.' casa o '$' do nome interno.
+    private fun androidAutoVideoDecoderErrorCount(reason: String): Int {
+        return try {
+            val out = sh(
+                "logcat -d -b main -t 500 2>/dev/null | grep -cE 'VideoPlayer.Decode(Input|Output)Thread' || true"
+            ).trim()
+            val n = out.lineSequence().mapNotNull { it.trim().toIntOrNull() }.firstOrNull() ?: 0
+            Log.w(TAG, "[$reason] AA host video-decoder error lines (recentes) = $n")
+            n
+        } catch (t: Throwable) {
+            Log.e(TAG, "[$reason] androidAutoVideoDecoderErrorCount falhou", t)
+            0
+        }
+    }
+
+    // Recupera o "válido-mas-preto": só age se o decoder do host está em loop de erro (>= threshold).
+    // Cicla o SERVIÇO de projeção (NÃO o app visual — force-stopar o app órfã o serviço e PIORA, lição
+    // do vc7153) pra re-criar o VideoPlayer/codec, emulando um reconnect de USB. Auto-verifica (o loop
+    // parou?) e REPORTA o resultado no GitHub privado, pra dá pra saber offline se resolveu.
+    private suspend fun recoverAndroidAutoClusterBlackByCyclingProjectionService(reason: String): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastAndroidAutoBlackRecoveryAt < ANDROID_AUTO_BLACK_RECOVERY_COOLDOWN_MS) {
+            Log.w(TAG, "[$reason] black-recovery em cooldown; pulando")
+            return false
+        }
+        val errBefore = androidAutoVideoDecoderErrorCount("${reason}_BLACK_DETECT")
+        if (errBefore < ANDROID_AUTO_VIDEO_DECODER_ERROR_THRESHOLD) {
+            // Surface válida E decoder ok -> não é preto -> não faz nada (caminho bom intacto).
+            return false
+        }
+        lastAndroidAutoBlackRecoveryAt = now
+        ClusterPersistentEventLogger.log(
+            "aa_cluster_black_recovery",
+            mapOf("phase" to "detected", "errBefore" to errBefore, "reason" to reason)
+        )
+        Log.w(
+            TAG,
+            "[$reason] AA D3 VALIDO-MAS-PRETO (decoder em loop, err=$errBefore); ciclando o SERVICO de projecao"
+        )
+
+        // Cicla o SERVIÇO (não o app): re-cria o pipeline de vídeo do host.
+        sh("am force-stop $ANDROID_AUTO_SERVICE_PACKAGE")
+        delay(800)
+        configureAndroidAutoProjection("${reason}_BLACK_SVC_CYCLE")
+        startAndroidAutoActivity(3, "${reason}_BLACK_SVC_CYCLE")
+        delay(1_500)
+        findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 3)?.let { t ->
+            resizeAndFocusAndroidAuto(t, 3, getAndroidAutoDisplayBounds(3), "${reason}_BLACK_SVC_CYCLE_POST")
+        }
+        delay(2_000)
+
+        // AUTO-VERIFICA: o loop de erro do decoder parou?
+        val errAfter = androidAutoVideoDecoderErrorCount("${reason}_BLACK_VERIFY")
+        val recovered = errAfter < ANDROID_AUTO_VIDEO_DECODER_ERROR_THRESHOLD
+        ClusterPersistentEventLogger.log(
+            "aa_cluster_black_recovery",
+            mapOf(
+                "phase" to if (recovered) "recovered" else "still_black",
+                "errBefore" to errBefore,
+                "errAfter" to errAfter,
+                "reason" to reason
+            )
+        )
+        Log.w(
+            TAG,
+            "[$reason] black-recovery: ${if (recovered) "RECUPEROU" else "AINDA PRETO"} (err $errBefore->$errAfter)"
+        )
         return true
     }
 

@@ -404,5 +404,13 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     DATATRACK_DISABLED_BY_APP("datatrackDisabledByApp", "Controle interno: DataTrack desabilitado por este app"),
     MOBILE_DATA_TRAFFIC_ACCUM_BYTES("mobileDataTrafficAccumBytes", "Acumulado de bytes móveis no ciclo (fallback TrafficStats)"),
     MOBILE_DATA_TRAFFIC_LAST_READING("mobileDataTrafficLastReading", "Última leitura do TrafficStats móvel (controle interno)"),
-    MOBILE_DATA_TRAFFIC_CYCLE_TAG("mobileDataTrafficCycleTag", "Ciclo atual do acumulador de bytes (controle interno)")
+    MOBILE_DATA_TRAFFIC_CYCLE_TAG("mobileDataTrafficCycleTag", "Ciclo atual do acumulador de bytes (controle interno)"),
+    HOTROUTER_CARD_VERBOSE(
+            "hotRouterCardVerbose",
+            "Card de conectividade da barra mostra o texto completo (toque longo alterna com só ícone)"
+    ),
+    AA_CLUSTER_BLACK_RECOVERY(
+            "aaClusterBlackRecovery",
+            "Recuperar tela preta do AA no cluster (surface válida mas decoder travado) ciclando o serviço de projeção"
+    )
 }
