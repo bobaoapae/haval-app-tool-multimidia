@@ -2745,22 +2745,26 @@ object DisplayAppLauncher {
 
     private fun getAndroidAutoDisplayBounds(displayId: Int): IntArray {
         val res = getDisplayResolution(displayId)
-        // Cluster (display 3): desloca a janela do AA pra direita. Borda direita fixa (res.first),
-        // então aumentar o offset só estreita a esquerda, nunca corta a direita. Contorna a coluna
-        // esquerda dos layouts de mapa dos temas.
+        // Cluster (display 3): desloca a janela do AA pra direita pra contornar a COLUNA ESQUERDA dos
+        // layouts de mapa do tema Sport. Borda direita fixa (res.first); aumentar o offset só estreita
+        // a esquerda, nunca corta a direita.
         //
-        // AUTOMÁTICO: em QUALQUER display de mapa, de QUALQUER tema, o offset é aplicado sozinho.
-        // Detecção GENÉRICA por nome — todo display de mapa começa com "Mapa" (ex.: "Mapa",
-        // "Mapa Graduado", "Mapa Limpo") independente do tema (Sport, default, minimalist, baixados).
-        // Nos demais displays (Analógico V2, Normal, Digital, Clean…) o AA fica em tela cheia.
-        // O toggle manual ENABLE_AA_CLUSTER_OFFSET continua funcionando como força-sempre.
+        // AUTOMÁTICO só em tema que RESERVA essa coluna (Sport). Os temas FULL-BLEED (minimalist e o
+        // Default do catálogo v1.0) declaram o "Mapa" cobrindo 1920 — neles o offset deixava uma FAIXA
+        // PRETA na esquerda (o mapa recuava e o tema não preenchia). Por isso o AUTO é gated pelo tema.
+        // O toggle manual ENABLE_AA_CLUSTER_OFFSET continua como força-sempre (qualquer tema).
         if (displayId == 3) {
             val display = getPrefs()
                 .getString(SharedPreferencesKeys.CURRENT_CLUSTER_DISPLAY.key, "").orEmpty()
             val isMapDisplay = display.trim().startsWith("Mapa", ignoreCase = true)
+            val theme = getPrefs()
+                .getString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "").orEmpty()
+            val themeReservesLeftColumn =
+                theme.equals("SportRed", ignoreCase = true) ||
+                    theme.equals("SportRedLite", ignoreCase = true)
             val manualForce =
                 getPrefs().getBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, false)
-            if (isMapDisplay || manualForce) {
+            if ((isMapDisplay && themeReservesLeftColumn) || manualForce) {
                 val offset = getPrefs()
                     .getInt(SharedPreferencesKeys.AA_CLUSTER_LEFT_OFFSET.key, 135)
                     .coerceIn(0, maxOf(0, res.first - 200))
