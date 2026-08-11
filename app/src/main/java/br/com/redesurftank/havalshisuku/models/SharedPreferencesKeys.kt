@@ -409,5 +409,10 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ENABLE_AA_NAV_CAPTURE(
             "enableAaNavCapture",
             "Capturar navegação (ETA, km, próxima manobra) do Android Auto para o painel"
+    ),
+    // Diagnóstico: expõe a lista inteira de passos (com cueData) no canal de nav — caça ao nome do destino no Waze
+    ENABLE_AA_NAV_DEBUG_STEPS(
+            "enableAaNavDebugSteps",
+            "Diagnóstico: incluir a lista inteira de passos (steps + cues) no canal de navegação"
     )
 }

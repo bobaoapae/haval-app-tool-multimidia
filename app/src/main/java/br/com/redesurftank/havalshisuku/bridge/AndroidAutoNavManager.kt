@@ -58,6 +58,9 @@ object AndroidAutoNavManager {
     private var stepTurnAngle = -1
     private var stepTurnNumber = -1
     private var stepLanes: JSONArray? = null
+    // diagnóstico: lista inteira de passos (com cueData) + palpite de destino derivado do último passo
+    private var stepsDump: JSONArray? = null
+    private var destinationGuess: String? = null
     // distância/tempo até a próxima manobra (de onNavigationCurrentPosition)
     private var nextMeters = 0
     private var nextValue: String? = null
@@ -80,6 +83,21 @@ object AndroidAutoNavManager {
                 .getBoolean(SharedPreferencesKeys.ENABLE_AA_NAV_CAPTURE.key, true)
         } catch (e: Exception) {
             true
+        }
+    }
+
+    /**
+     * Debug: incluir a lista inteira de passos (com cueData) no payload, sob a key `steps`.
+     * Default OFF — enriquece o diagnóstico (localizar o destino quando o host não popula
+     * navigationDestinations, ex. Waze). Ligue a pref pra inspecionar a rota inteira.
+     */
+    private fun isDebugStepsEnabled(): Boolean {
+        return try {
+            App.getDeviceProtectedContext()
+                .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+                .getBoolean(SharedPreferencesKeys.ENABLE_AA_NAV_DEBUG_STEPS.key, false)
+        } catch (e: Exception) {
+            false
         }
     }
 
@@ -113,6 +131,10 @@ object AndroidAutoNavManager {
                 stepTurnNumber = first.turnNumber
                 stepLanes = buildLanes(first)
             }
+            // diagnóstico + fallback do destino: o host NÃO popula navigationDestinations pro Waze,
+            // mas stepData vem completo — guarda a lista inteira (com cueData) e tenta o destino no último passo.
+            stepsDump = buildStepsDump(steps)
+            destinationGuess = guessDestination(steps)
             rebuild()
         }
     }
@@ -155,11 +177,43 @@ object AndroidAutoNavManager {
         return if (arr.length() > 0) arr else null
     }
 
+    /** Diagnóstico: lista inteira de passos com cueData (caça ao nome do destino no Waze). */
+    private fun buildStepsDump(steps: List<IfNavigationStepData?>?): JSONArray? {
+        if (steps.isNullOrEmpty()) return null
+        val arr = JSONArray()
+        steps.forEachIndexed { i, st ->
+            if (st == null) return@forEachIndexed
+            val o = JSONObject()
+            o.put("i", i)
+            o.put("event", st.event)
+            o.put("icon", maneuverIcon(st.event))
+            st.road?.let { if (it.isNotEmpty()) o.put("road", it) }
+            if (st.turnNumber > 0) o.put("turnNumber", st.turnNumber)
+            if (st.turnAngle >= 0) o.put("turnAngle", st.turnAngle)
+            val cues = st.navigationCue
+            if (!cues.isNullOrEmpty()) o.put("cues", JSONArray(cues))
+            arr.put(o)
+        }
+        return if (arr.length() > 0) arr else null
+    }
+
+    /**
+     * Fallback do destino: eventos 39..42 = "destination". Se o último passo for um deles, o road
+     * (ou o 1º cue) costuma trazer o nome do destino — usado quando navigationDestinations vem vazio (Waze).
+     */
+    private fun guessDestination(steps: List<IfNavigationStepData?>?): String? {
+        val last = steps?.lastOrNull { it != null } ?: return null
+        if (last.event !in 39..42) return null
+        last.road?.let { if (it.isNotEmpty()) return it }
+        return last.navigationCue?.firstOrNull { !it.isNullOrEmpty() }
+    }
+
     private fun clear() {
         synchronized(lock) {
             active = false
             destinations = null; currentRoad = null
             stepEvent = -1; stepRoad = null; stepTurnAngle = -1; stepTurnNumber = -1; stepLanes = null
+            stepsDump = null; destinationGuess = null
             nextMeters = 0; nextValue = null; nextUnit = 0; nextTimeSeconds = 0L
             destMeters = 0; destValue = null; destUnit = 0; destEta = null; destTimeSeconds = 0L
             directionsJson = EMPTY
@@ -177,6 +231,10 @@ object AndroidAutoNavManager {
                     o.put("destination", list[0] ?: "")
                     o.put("destinations", JSONArray(list))
                 }
+            }
+            // fallback Waze: host não popula navigationDestinations → destino derivado do último passo (evento 39..42)
+            if (!o.has("destination")) destinationGuess?.let {
+                if (it.isNotEmpty()) { o.put("destination", it); o.put("destinationSource", "lastStep") }
             }
             currentRoad?.let { if (it.isNotEmpty()) o.put("currentRoad", it) }
             // destino: ETA + distância/tempo restante
@@ -202,6 +260,8 @@ object AndroidAutoNavManager {
                 stepLanes?.let { n.put("lanes", it) }
                 o.put("next", n)
             }
+            // diagnóstico (gated, default OFF): lista inteira de passos c/ cueData p/ localizar o destino
+            if (isDebugStepsEnabled()) stepsDump?.let { o.put("steps", it) }
             directionsJson = o.toString()
         } catch (e: Exception) {
             Log.e(TAG, "rebuild failed", e)
