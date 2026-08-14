@@ -94,12 +94,13 @@ object SettingsGroups {
     const val SPEED = "Por velocidade"
     const val DRIVE = "Condução & energia"
     const val CLIMATE = "Climatização & conforto"
+    const val COMFORT = "Conforto & conveniência"
     const val SAFETY = "Segurança & avisos"
     const val DISPLAY = "Tela & som"
     const val FEATURES = "Recursos & integração"
     // Subaba "Performance" — último grupo de Configurações (depois de Recursos & integração).
     const val PERFORMANCE = "Performance"
-    val ORDER = listOf(SHUTDOWN, SPEED, DRIVE, CLIMATE, SAFETY, DISPLAY, FEATURES, PERFORMANCE)
+    val ORDER = listOf(SHUTDOWN, SPEED, DRIVE, CLIMATE, COMFORT, SAFETY, DISPLAY, FEATURES, PERFORMANCE)
 }
 
 // ---------------------------------------------------------------------------

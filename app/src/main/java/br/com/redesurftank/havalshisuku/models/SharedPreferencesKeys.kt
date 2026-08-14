@@ -257,6 +257,14 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "openSunroofCurtainMaxTemp",
             "Temperatura externa máxima para abrir cortina"
     ),
+    ENABLE_CLOSE_SUNROOF_CURTAIN_ON_TIME(
+            "enableCloseSunroofCurtainOnTime",
+            "Habilitar fechamento da cortina do teto solar por horário"
+    ),
+    CLOSE_SUNROOF_CURTAIN_START_HOUR("closeSunroofCurtainStartHour", "Hora de início para fechar cortina"),
+    CLOSE_SUNROOF_CURTAIN_START_MINUTE("closeSunroofCurtainStartMinute", "Minuto de início para fechar cortina"),
+    CLOSE_SUNROOF_CURTAIN_END_HOUR("closeSunroofCurtainEndHour", "Hora fim para fechar cortina"),
+    CLOSE_SUNROOF_CURTAIN_END_MINUTE("closeSunroofCurtainEndMinute", "Minuto fim para fechar cortina"),
     PENDING_RESET_TARGET_VERSION(
             "pendingResetTargetVersion",
             "Versão alvo para resetar dados ao voltar para canal estável"
