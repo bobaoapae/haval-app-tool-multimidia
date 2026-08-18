@@ -32,6 +32,18 @@ public class ProjectorManager {
     private InstrumentProjector2 instrumentProjector2;
     private boolean initialized = false;
 
+    /**
+     * O listener de dados do carro e registrado UMA vez so. Antes ele vinha carona na criacao das
+     * Presentations, e como initialize() saia cedo sempre que algum projector ja existia, nunca
+     * duplicava. Agora que os projetores dependem das preferencias, initialize() pode rodar
+     * inteiro varias vezes sem criar nada (as duas prefs desligadas) — sem esta trava, cada
+     * chamada empilharia mais um listener sobre o mesmo evento de ignicao.
+     */
+    private boolean dataChangedListenerRegistered = false;
+
+    private final int maskDisplayId;
+    private final int hudDisplayId;
+
     private final Map<Integer, BiConsumer<android.content.Context, Display>> projectorCreators = new HashMap<>();
 
     public static synchronized ProjectorManager getInstance() {
@@ -44,9 +56,14 @@ public class ProjectorManager {
     private ProjectorManager() {
         sharedPreferences = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
 
-        int maskDisplayId = br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE ? 0 : 3;
-        int hudDisplayId = br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE ? -1 : 1;
+        maskDisplayId = br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE ? 0 : 3;
+        hudDisplayId = br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE ? -1 : 1;
 
+        populateCreators();
+    }
+
+    /** Receita de como criar cada projector. Usada pelo construtor e pelo refresh(). */
+    private void populateCreators() {
         projectorCreators.put(maskDisplayId, (ctx, disp) -> {
             instrumentProjector2 = new InstrumentProjector2(ctx, disp);
             instrumentProjector2.show();
@@ -60,9 +77,81 @@ public class ProjectorManager {
         });
     }
 
+    /**
+     * A preferencia que decide se o projector daquele display deve EXISTIR.
+     *
+     * PORQUE AQUI E NAO LA DENTRO: uma Presentation viva nao e "so o desenho". Ela e uma JANELA
+     * NOSSA ocupando o display do painel — enquanto existir, o painel e do app, mesmo que o
+     * conteudo pintado dentro dela esteja vazio. Ate agora estas duas prefs so controlavam o que
+     * era pintado; a janela era criada de qualquer jeito. Resultado: desligar o Virtual Cluster
+     * nao devolvia o painel ao nativo.
+     *
+     * E POR QUE NAO DERRUBAR DEPOIS: derrubar (stopProjectors) e fragil por construcao — basta um
+     * caminho chamar initialize()/refresh() de novo, ou o processo reiniciar, para a Presentation
+     * voltar. Sempre escapa um caminho. A decisao tem que estar na origem, na criacao.
+     *
+     * Os defaults sao os MESMOS que o resto do app ja usa ao ler estas chaves
+     * (ENABLE_VIRTUAL_CLUSTER: true, como em DisplayAppLauncher e InstrumentProjector2;
+     * ENABLE_INSTRUMENT_PROJECTOR: false, como em ServiceManager e shouldShowProjector),
+     * para que quem nunca mexeu nessas preferencias nao veja mudanca nenhuma.
+     */
+    private boolean isProjectorEnabled(int displayId) {
+        try {
+            if (displayId == maskDisplayId) {
+                return sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.getKey(), true);
+            }
+            if (displayId == hudDisplayId) {
+                // O HUD fica de fora desta regra no uso normal, de proposito. A pref tem default
+                // `false`, entao aplicar a checagem aqui deixaria de criar o projector do display 1
+                // para TODO mundo — e ele existia (mesmo sem pintar) desde sempre. Nao ha ganho em
+                // arriscar essa mudanca no dia a dia so para atender o Modo Concessionaria, que ja
+                // e atendido pelo cluster. No modo, ai sim, ele nao sobe.
+                return !StealthModeManager.isActive();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to read projector preference for display " + displayId + "; assuming enabled", e);
+        }
+        return true;
+    }
+
+    /**
+     * A pref caiu com a janela ja no ar: derruba agora, senao ela fica por cima do painel ate o
+     * proximo boot. Presentation.dismiss() exige a UI thread — os dois pontos que chamam
+     * initialize()/refresh() ja postam no main looper.
+     */
+    private void dismissProjectorForDisplay(int displayId, String reason) {
+        if (displayId == maskDisplayId && instrumentProjector2 != null) {
+            Log.w(TAG, "Dismissing InstrumentProjector2 (Mask): " + reason);
+            try {
+                instrumentProjector2.dismiss();
+            } catch (Exception e) {
+                Log.e(TAG, "Error dismissing instrumentProjector2", e);
+            }
+            instrumentProjector2 = null;
+        }
+        if (displayId == hudDisplayId && instrumentProjector != null) {
+            Log.w(TAG, "Dismissing InstrumentProjector (HUD): " + reason);
+            try {
+                instrumentProjector.dismiss();
+            } catch (Exception e) {
+                Log.e(TAG, "Error dismissing instrumentProjector", e);
+            }
+            instrumentProjector = null;
+        }
+    }
+
     public void initialize() {
         Log.w(TAG, "Initializing ProjectorManager");
         try {
+            // Preferencia desligada = a janela nao pode existir. Se sobrou uma viva de antes
+            // (a pref caiu com o app rodando), derruba antes de qualquer outra coisa.
+            if (!isProjectorEnabled(maskDisplayId)) {
+                dismissProjectorForDisplay(maskDisplayId, "ENABLE_VIRTUAL_CLUSTER desligado");
+            }
+            if (!isProjectorEnabled(hudDisplayId)) {
+                dismissProjectorForDisplay(hudDisplayId, "ENABLE_INSTRUMENT_PROJECTOR desligado");
+            }
+
             if (initialized && (instrumentProjector != null || instrumentProjector2 != null)) {
                 Log.w(TAG, "ProjectorManager already initialized; skipping duplicate presentations");
                 return;
@@ -74,13 +163,20 @@ public class ProjectorManager {
                 Log.w(TAG, "Display found: " + display.getName() + " (ID: " + display.getDisplayId() + ")");
             }
 
-            Set<Integer> pending = new HashSet<>(projectorCreators.keySet());
+            Set<Integer> pending = new HashSet<>();
 
             for (Integer id : projectorCreators.keySet()) {
+                // A pref e consultada ANTES de criar: o que esta desligado simplesmente nao nasce,
+                // e nem entra na fila de espera do display (senao voltaria pelo listener).
+                if (!isProjectorEnabled(id)) {
+                    Log.w(TAG, "Projector for display " + id + " is disabled by preference; not creating it");
+                    continue;
+                }
                 Display display = getDisplayById(id);
                 if (display != null) {
                     projectorCreators.get(id).accept(App.getContext(), display);
-                    pending.remove(id);
+                } else {
+                    pending.add(id);
                 }
             }
 
@@ -89,6 +185,11 @@ public class ProjectorManager {
             }
 
             initialized = true;
+
+            if (dataChangedListenerRegistered) {
+                return;
+            }
+            dataChangedListenerRegistered = true;
 
             ServiceManager.getInstance().addDataChangedListener((key, value) -> {
                 if (key.equals(CarConstants.CAR_BASIC_ENGINE_STATE.getValue())) {
@@ -155,22 +256,10 @@ public class ProjectorManager {
     public void refresh() {
         Log.w(TAG, "Refreshing ProjectorManager");
         stopProjectors();
-        
-        // Re-read preferences and re-populate creators
-        int maskDisplayId = br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE ? 0 : 3;
-        int hudDisplayId = br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE ? -1 : 1;
 
-        projectorCreators.put(maskDisplayId, (ctx, disp) -> {
-            instrumentProjector2 = new InstrumentProjector2(ctx, disp);
-            instrumentProjector2.show();
-            Log.w(TAG, "InstrumentProjector2 (Mask) refreshed on Display " + disp.getDisplayId());
-        });
-
-        projectorCreators.put(hudDisplayId, (ctx, disp) -> {
-            instrumentProjector = new InstrumentProjector(ctx, disp);
-            instrumentProjector.show();
-            Log.w(TAG, "InstrumentProjector (HUD) refreshed on Display " + disp.getDisplayId());
-        });
+        // Repopula as receitas; quem decide o que de fato nasce e o initialize(), consultando as
+        // preferencias (ver isProjectorEnabled).
+        populateCreators();
 
         initialize();
     }
@@ -190,9 +279,20 @@ public class ProjectorManager {
             public void onDisplayAdded(int displayId) {
                 Log.w(TAG, "Display added: " + displayId);
                 if (pending.contains(displayId)) {
+                    // O display pode aparecer muito depois; a pref pode ter caido nesse meio tempo.
+                    // Sem esta checagem, a janela voltaria por aqui mesmo com a feature desligada.
+                    BiConsumer<android.content.Context, Display> creator = projectorCreators.get(displayId);
+                    if (creator == null || !isProjectorEnabled(displayId)) {
+                        Log.w(TAG, "Display " + displayId + " appeared, but its projector is disabled/unknown; ignoring");
+                        pending.remove(displayId);
+                        if (pending.isEmpty()) {
+                            displayManager.unregisterDisplayListener(this);
+                        }
+                        return;
+                    }
                     Display display = displayManager.getDisplay(displayId);
                     if (display != null) {
-                        projectorCreators.get(displayId).accept(App.getContext(), display);
+                        creator.accept(App.getContext(), display);
                         pending.remove(displayId);
                         if (pending.isEmpty()) {
                             displayManager.unregisterDisplayListener(this);
