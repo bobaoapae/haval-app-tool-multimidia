@@ -156,6 +156,20 @@
                 <action android:name="br.com.redesurftank.havalshisuku.FRIDA_START" />
             </intent-filter>
         </receiver>
+        <!-- Porta de serviço do Modo Concessionária: reverte por telnet/adb quando o ícone
+             do launcher está escondido e a sequência do volante não estiver disponível.
+             O broadcast PRECISA ser explícito (-n); implícito não chega em receiver de
+             manifest no Android 8+ (testado no carro):
+             am broadcast -n br.com.redesurftank.havalshisuku/.broadcastReceivers.StealthExitReceiver
+                 -a br.com.redesurftank.havalshisuku.STEALTH_EXIT -->
+        <receiver
+            android:name=".broadcastReceivers.StealthExitReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.STEALTH_EXIT" />
+            </intent-filter>
+        </receiver>
         <receiver
             android:name=".broadcastReceivers.DispatchAllDatasReceiver"
             android:enabled="true"

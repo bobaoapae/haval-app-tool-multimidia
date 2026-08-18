@@ -110,6 +110,17 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ENABLE_AA_CLUSTER_OFFSET("enableAaClusterOffset", "Habilitar deslocamento do Android Auto no cluster"),
     AA_CLUSTER_LEFT_OFFSET("aaClusterLeftOffset", "Deslocamento horizontal do Android Auto no cluster (px)"),
     CAR_MONITOR_PROPERTIES("carMonitorProperties", "Propriedades do monitoramento do carro"),
+    // ===== Modo Concessionária =====
+    // Ao ENTRAR, o modo grava um retrato (JSON, com os tipos) de TODAS as preferências em
+    // STEALTH_PREFS_SNAPSHOT e então DESLIGA DE VERDADE as preferências que ativam
+    // funcionalidades. O app passa a rodar pelo caminho já testado de quem não usa nenhuma delas,
+    // em vez de por gates espalhados. Ao SAIR, o retrato é restaurado chave a chave (tipos
+    // originais, removendo o que não existia) e apagado. Ver StealthModeManager.
+    STEALTH_MODE_ACTIVE("stealthModeActive", "Modo Concessionária ativo"),
+    STEALTH_PREFS_SNAPSHOT(
+            "stealthPrefsSnapshot",
+            "Retrato das preferências gravado ao entrar no Modo Concessionária (JSON com tipos)"
+    ),
     BYPASS_SELF_INSTALLATION_INTEGRITY_CHECK(
             "bypassSelfInstallationIntegrityCheck",
             "Ignorar verificação de integridade da instalação"
