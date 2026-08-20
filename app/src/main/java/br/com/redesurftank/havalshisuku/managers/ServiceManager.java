@@ -75,6 +75,8 @@ import rikka.shizuku.ShizukuBinderWrapper;
 @SuppressLint("PrivateApi")
 public class ServiceManager {
     private static final String TAG = "ServiceManager";
+    /** Public request to re-broadcast every cached car value. See the receiver in init. */
+    public static final String ACTION_REQUEST_SNAPSHOT = "com.haval.vehicle.REQUEST_SNAPSHOT";
     public static final CarConstants[] DEFAULT_KEYS = {
             CarConstants.CAR_BASIC_ACCUMULATED_DIRVETIME,
             CarConstants.CAR_BASIC_GEAR_STATUS,
@@ -103,6 +105,26 @@ public class ServiceManager {
             CarConstants.CAR_BASIC_TOTAL_ODOMETER,
             CarConstants.CAR_BASIC_VEHICLE_SPEED,
             CarConstants.CAR_BASIC_WINDOW_STATUS,
+            // Glass roof state, consumed by the H6 3D viewer (com.havalh6.viewer)
+            // over the public telemetry broadcast. Read-only: nothing in
+            // OnDataChanged branches on either key.
+            CarConstants.CAR_BASIC_SUNROOF_STATUS,
+            CarConstants.CAR_BASIC_SUNSHADE_STATUS,
+            // Position/DRL hunt: no published key tracks the front position lamp
+            // (verified lit across three vehicle states with every *_light_status
+            // at 0). These are the last unsubscribed light candidates.
+            CarConstants.CAR_CONFIGURE_AUTO_HEADLIGHT,
+            CarConstants.CAR_CONFIGURE_LIGHT_AUTO_SWITCH_SYSTEM,
+            CarConstants.CAR_CONFIGURE_COMB_FRONT_LIGHT_SRC,
+            CarConstants.CAR_CONFIGURE_PARKING_LIGHT,
+            // Regen level — the only plausible proxy for brake lamps, since no
+            // brake-pedal key exists anywhere in CarConstants.
+            CarConstants.CAR_EV_INFO_ENERGY_RECOVERY_INFO,
+            // Brake lamps: AutoHold keeps brake pressure applied at a standstill,
+            // which is exactly the case a deceleration-derived brake cannot see.
+            // EPB state distinguishes "parked" from "held".
+            CarConstants.CAR_INTELLIGENT_DRIVING_INFO_AUTO_HOLD_STATE,
+            CarConstants.CAR_BASIC_EPB_STATE,
             CarConstants.CAR_DMS_WORK_STATE,
             CarConstants.CAR_EV_SETTING_AVAS_CONFIG,
             CarConstants.CAR_EV_SETTING_AVAS_ENABLE,
@@ -314,16 +336,16 @@ public class ServiceManager {
     private boolean isClusterHeartbeatRunning = false;
     private int clusterHeartBeatCount = 0;
     private int clusterCardView = 0;
-    private static final int[] CLUSTER_CARD_SEQUENCE = new int[] {0, 1, 3};
+    // False until the car's first msgId=133 is accepted. Until then clusterCardView is still its
+    // initial 0, which means "we have not synced", not "the map is showing" — the sync policy
+    // needs to tell those apart or it swallows the car's opening report.
+    private volatile boolean hasSyncedNativeClusterCard = false;
     private long lastClusterInputAtMs = 0L;
     private int lastClusterInputKeyCode = -1;
     private String lastClusterInputKeyName = "";
     private static final long CLUSTER_INPUT_DEDUP_WINDOW_MS = 220L;
     private int lastHandledClusterInputKeyCode = -1;
     private long lastHandledClusterInputAtMs = 0L;
-    private long lastSyntheticClusterCardNavigationAtMs = 0L;
-    private int lastSyntheticClusterCardTarget = -1;
-    private volatile boolean syntheticAirconCardOwned = false;
     // Cluster callback liveness. The car's ClusterService keeps callbacks registered by
     // previous instances of this process; when it hits a dead one it throws
     // DeadObjectException while dispatching (seen in its own logs), after which card
@@ -706,52 +728,21 @@ public class ServiceManager {
                                 lastClusterInputAtMs == 0L
                                         ? -1L
                                         : now - lastClusterInputAtMs;
-                        long sinceSyntheticMs =
-                                lastSyntheticClusterCardNavigationAtMs == 0L
-                                        ? -1L
-                                        : now - lastSyntheticClusterCardNavigationAtMs;
-                        boolean protectAirconProjectionExit =
-                                DisplayAppLauncher.INSTANCE.shouldProtectAirconCardDuringCarPlayClusterTransition();
-                        boolean protectSyntheticAirconExit = syntheticAirconCardOwned;
-                        if (ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
-                                previousCard,
-                                whichCard,
-                                sinceInputMs,
-                                lastClusterInputKeyCode,
-                                sinceSyntheticMs,
-                                lastSyntheticClusterCardTarget,
-                                protectAirconProjectionExit,
-                                protectSyntheticAirconExit
-                        )) {
-                            Log.w(
-                                    TAG,
-                                    "Ignoring stale native cluster card change: "
-                                            + previousCard + " -> " + whichCard
-                                            + " lastInputKey=" + lastClusterInputKeyName
-                                            + "(" + lastClusterInputKeyCode + ")"
-                                            + " sinceInputMs=" + sinceInputMs
-                                            + " syntheticTarget=" + lastSyntheticClusterCardTarget
-                                            + " sinceSyntheticMs=" + sinceSyntheticMs
-                                            + " protectAirconProjectionExit=" + protectAirconProjectionExit
-                                            + " protectSyntheticAirconExit=" + protectSyntheticAirconExit
-                            );
-                            logPersistentClusterEvent(
-                                    "native_cluster_card_ignored",
-                                    "from=" + previousCard + " to=" + whichCard
-                                            + " lastInputKey=" + lastClusterInputKeyName
-                                            + "(" + lastClusterInputKeyCode + ")"
-                                            + " sinceInputMs=" + sinceInputMs
-                                            + " syntheticTarget=" + lastSyntheticClusterCardTarget
-                                            + " sinceSyntheticMs=" + sinceSyntheticMs
-                                            + " protectAirconProjectionExit=" + protectAirconProjectionExit
-                                            + " protectSyntheticAirconExit=" + protectSyntheticAirconExit
-                            );
+                        // The car owns the active card, so the only report worth skipping is one
+                        // restating the card we already hold — and even that must go through once,
+                        // so a theme whose static initial cardId is not 0 gets corrected on boot.
+                        //
+                        // Nothing else is filtered. The previous ClusterCardSyncPolicy also rejected
+                        // "spontaneous" rises to the menu/aircon card, on the theory that the OEM
+                        // raised them by itself on passive climate activity. Three days of on-car
+                        // logs did not contain a single such event: every rise it suppressed was the
+                        // car truthfully answering "which card am I on?" seconds after our callback
+                        // registered, which is exactly when previousCard is still its initial 0.
+                        if (whichCard == previousCard && hasSyncedNativeClusterCard) {
                             return;
                         }
                         clusterCardView = whichCard;
-                        if (previousCard == 3 && whichCard != 3) {
-                            syntheticAirconCardOwned = false;
-                        }
+                        hasSyncedNativeClusterCard = true;
                         // Fan-out runs off the car's binder thread. dispatchServiceManagerEvent
                         // notifies every listener synchronously, and this callback is invoked by
                         // com.autolink.clusterservice — holding its thread risks it treating the
@@ -773,10 +764,6 @@ public class ServiceManager {
                                         + lastClusterInputKeyCode
                                         + ") sinceInputMs="
                                         + sinceInputMs
-                                        + " protectAirconProjectionExit="
-                                        + protectAirconProjectionExit
-                                        + " protectSyntheticAirconExit="
-                                        + protectSyntheticAirconExit
                         );
                         logPersistentClusterEvent(
                                 "native_cluster_card_changed",
@@ -785,8 +772,6 @@ public class ServiceManager {
                                         + " lastInputKey=" + lastClusterInputKeyName
                                         + "(" + lastClusterInputKeyCode + ")"
                                         + " sinceInputMs=" + sinceInputMs
-                                        + " protectAirconProjectionExit=" + protectAirconProjectionExit
-                                        + " protectSyntheticAirconExit=" + protectSyntheticAirconExit
                         );
                     } else if (msgId == 134) {
                         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
@@ -957,18 +942,9 @@ public class ServiceManager {
                                 lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
                                 lastHandledClusterInputAtMs = now;
                                 // refreshClusterCallbackIfStale(); // Disabled: unregistering/re-registering callback drops native 133 events
-                                if (ClusterCardNavigationPolicy.isCardNavigationKey(key)) {
-                                    // Keep the v301 immediate synthetic transition while the car's
-                                    // msgId=133 echo remains the eventual source of confirmation.
-                                    handleClusterCardNavigationKey(key);
-                                } else {
-                                    if (ClusterCardSyncPolicy.shouldReleaseSyntheticAirconOwnershipForInput(
-                                            lastClusterInputKeyCode
-                                    )) {
-                                        syntheticAirconCardOwned = false;
-                                        lastSyntheticClusterCardNavigationAtMs = 0L;
-                                        lastSyntheticClusterCardTarget = -1;
-                                    }
+                                {
+                                    // LEFT/RIGHT are NOT predicted here. The wheel drives the car
+                                    // directly; we learn the resulting card only from msgId=133.
                                     if (key == ClusterKey.BACK) {
                                         dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
                                     }
@@ -1120,6 +1096,26 @@ public class ServiceManager {
                     }
                 }
             }, wifiFilter);
+
+            // Snapshot on request. External consumers (the H6 3D viewer) start
+            // long after this service and would otherwise see nothing until a
+            // value happens to change — a car parked with its lights on looks
+            // identical to one with them off. dispatchAllData() re-broadcasts
+            // current values through dispatchTelemetryOnly, so this only reads
+            // and publishes; it never actuates hardware.
+            IntentFilter snapshotFilter = new IntentFilter(ACTION_REQUEST_SNAPSHOT);
+            context.registerReceiver(new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (!ACTION_REQUEST_SNAPSHOT.equals(intent.getAction())) return;
+                    Log.w(TAG, "Telemetry snapshot requested by " + intent.getStringExtra("requester"));
+                    // backgroundHandler is nulled on teardown while this receiver
+                    // may still be registered.
+                    Handler handler = backgroundHandler;
+                    if (handler == null) return;
+                    handler.post(() -> dispatchAllData());
+                }
+            }, snapshotFilter);
 
             dispatchAllData();
             if (sharedPreferences.getBoolean(SharedPreferencesKeys.SET_STARTUP_VOLUME.getKey(), false)) {
@@ -1497,58 +1493,6 @@ public class ServiceManager {
                 );
         return "SportRed".equalsIgnoreCase(activeTheme)
                 || "SportRedLite".equalsIgnoreCase(activeTheme);
-    }
-
-    private void handleClusterCardNavigationKey(ClusterKey key) {
-        int currentCard = clusterCardView;
-        if (!isKnownClusterCard(currentCard) && isLegacySportThemeActive()) {
-            currentCard = MainUiManager.getInstance().getCurrentCard();
-        }
-        if (!isKnownClusterCard(currentCard)) {
-            currentCard = 0;
-        }
-
-        int currentIndex = indexOfClusterCard(currentCard);
-        int direction = key == ClusterKey.RIGHT ? 1 : -1;
-        int nextIndex =
-                (currentIndex + direction + CLUSTER_CARD_SEQUENCE.length)
-                        % CLUSTER_CARD_SEQUENCE.length;
-        int nextCard = CLUSTER_CARD_SEQUENCE[nextIndex];
-        int previousCard = clusterCardView;
-        clusterCardView = nextCard;
-        lastSyntheticClusterCardNavigationAtMs = SystemClock.uptimeMillis();
-        lastSyntheticClusterCardTarget = nextCard;
-        syntheticAirconCardOwned = nextCard == 3;
-
-        Log.w(
-                TAG,
-                "Synthetic cluster card navigation: "
-                        + currentCard + " -> " + nextCard
-                        + " key=" + key
-                        + " previousServiceCard=" + previousCard
-        );
-        logPersistentClusterEvent(
-                "synthetic_cluster_card_navigation",
-                "from=" + currentCard
-                        + " to=" + nextCard
-                        + " key=" + key
-                        + " previousServiceCard=" + previousCard
-        );
-        dispatchClusterEventOffBinderThread(
-                ServiceManagerEventType.CLUSTER_CARD_CHANGED,
-                clusterCardView
-        );
-    }
-
-    private boolean isKnownClusterCard(int card) {
-        return indexOfClusterCard(card) >= 0;
-    }
-
-    private int indexOfClusterCard(int card) {
-        for (int i = 0; i < CLUSTER_CARD_SEQUENCE.length; i++) {
-            if (CLUSTER_CARD_SEQUENCE[i] == card) return i;
-        }
-        return -1;
     }
 
     private void handleSteeringWheelProjectionDisplayToggle(int button) {
@@ -2637,6 +2581,15 @@ public class ServiceManager {
         }
     }
 
+    /**
+     * Sentinelas de "sinal indisponível/erro" do outside_temp. Sob a escala usual deste
+     * barramento (C = raw * 0.5 - 40), 87.0 e 87.5 são exatamente os raws 254 (0xFE) e
+     * 255 (0xFF) — os codigos classicos de "nao disponivel"/"erro", nao uma temperatura.
+     * Aparecem so em boot frio: em 3 dias de log, todas as leituras reais ficaram entre
+     * 20.5 e 28.0, e as duas unicas fora disso foram 87.0 e 87.5, ambas logo apos o boot.
+     */
+    private static final float[] OUTSIDE_TEMP_INVALID_SENTINELS = {87.0f, 87.5f};
+
     /** Leitura de outside_temp p/ a cortina; null quando o dado ainda não veio ou não parseia. */
     private Float readOutsideTempForCurtain() {
         String raw = getUpdatedData(CarConstants.CAR_BASIC_OUTSIDE_TEMP.getValue());
@@ -2647,6 +2600,16 @@ public class ServiceManager {
         }
         try {
             float parsed = Float.parseFloat(raw.trim());
+            for (float sentinel : OUTSIDE_TEMP_INVALID_SENTINELS) {
+                if (parsed == sentinel) {
+                    // Devolve null de proposito: o chamador ja reagenda (CURTAIN_TEMP_*), que e
+                    // exatamente o que faltava — antes o sentinela parseava, valia como "quente"
+                    // e a cortina era pulada de vez (hasRun fica true e nao tenta mais).
+                    Log.w(TAG, "Outside temp is an invalid sentinel for curtain check (raw=" + raw + ")");
+                    traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "invalid_sentinel");
+                    return null;
+                }
+            }
             traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "ok", "parsed", parsed);
             return parsed;
         } catch (NumberFormatException e) {
