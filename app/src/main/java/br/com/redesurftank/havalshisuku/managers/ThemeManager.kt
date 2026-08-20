@@ -9,6 +9,7 @@ import br.com.redesurftank.havalshisuku.models.ThemeVersionInfo
 import br.com.redesurftank.havalshisuku.models.ThemeConfig
 import br.com.redesurftank.havalshisuku.models.ThemeDisplayMode
 import br.com.redesurftank.havalshisuku.bridge.CompatTranslationLayer
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -290,18 +291,62 @@ class ThemeManager private constructor(val context: Context) {
     }
 
     /**
+     * True once credential-protected storage is readable. [themesDir] lives in CE storage
+     * (/data/user/0/...) while the prefs this class writes live in DE storage
+     * (/data/user_de/0/...), so between LOCKED_BOOT_COMPLETED and user unlock every theme
+     * folder reads as absent even though it is on disk and perfectly valid.
+     */
+    private fun isCredentialStorageUnlocked(): Boolean {
+        val userManager = context.getSystemService(android.os.UserManager::class.java) ?: return true
+        return userManager.isUserUnlocked
+    }
+
+    /**
      * Startup pass (before the cluster projector loads): if the active theme is
      * legacy / missing / contract-incompatible, switch to the APK-bundled Default.
      * Compatible custom themes (e.g. Minimalist) are left alone.
+     *
+     * Returns false when the pass was skipped because CE storage was still locked; the
+     * caller is then responsible for re-running it on ACTION_USER_UNLOCKED. Running it
+     * anyway would reset a valid theme on every boot that wins the race — the app process
+     * starts ~15s after boot and user unlock lands at roughly the same moment.
      */
-    fun runStartupThemeMigrations() {
+    fun runStartupThemeMigrations(): Boolean {
+        if (!isCredentialStorageUnlocked()) {
+            Log.w(TAG, "Deferring startup theme migration: credential-protected storage is locked")
+            ClusterPersistentEventLogger.log(
+                "theme_migration_deferred",
+                mapOf("reason" to "credential_storage_locked")
+            )
+            return false
+        }
         sanitizeActiveThemeContract()
+        return true
     }
 
     fun sanitizeActiveThemeContract(@Suppress("UNUSED_PARAMETER") context: Context? = null) {
         val prefs = themePrefs()
         val activeFolder = prefs.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
         val virtualTheme = prefs.getString(br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default") ?: "Default"
+
+        // Second line of defence for any other early caller: a locked themesDir makes every
+        // theme look missing, which is indistinguishable from "legacy" to the checks below.
+        if (!isCredentialStorageUnlocked()) {
+            Log.w(
+                TAG,
+                "Skipping theme contract sanitize (folder='$activeFolder', virtual='$virtualTheme'): " +
+                    "credential-protected storage is locked, themes are unreadable"
+            )
+            ClusterPersistentEventLogger.log(
+                "theme_sanitize_skipped",
+                mapOf(
+                    "reason" to "credential_storage_locked",
+                    "activeFolder" to activeFolder,
+                    "virtualTheme" to virtualTheme
+                )
+            )
+            return
+        }
 
         val isFolderInvalid = isLegacyOrIncompatibleThemeFolder(activeFolder)
 
@@ -316,6 +361,18 @@ class ThemeManager private constructor(val context: Context) {
                 TAG,
                 "Active theme (folder='$activeFolder', virtual='$virtualTheme') is legacy or " +
                     "incompatible with contract $CURRENT_CONTRACT_VERSION. Falling back to Default."
+            )
+            // Persisted because this decision is usually made seconds after boot, long before
+            // anyone can attach to logcat, and it silently rewrites the user's theme choice.
+            ClusterPersistentEventLogger.log(
+                "theme_sanitize_reset_to_default",
+                mapOf(
+                    "activeFolder" to activeFolder,
+                    "virtualTheme" to virtualTheme,
+                    "folderInvalid" to isFolderInvalid,
+                    "virtualInvalid" to isVirtualInvalid,
+                    "localThemeCount" to getLocalThemes().size
+                )
             )
             applyBundledDefaultTheme(bumpReloadNonce = true)
         }
