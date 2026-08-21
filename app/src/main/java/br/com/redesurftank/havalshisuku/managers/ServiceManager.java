@@ -287,6 +287,9 @@ public class ServiceManager {
     private IClusterCallback.Stub clusterCallback;
     private boolean servicesInitialized = false;
     private boolean hasRunStartupCurtainAutomation = false;
+    // Armado no init, consumido por quem chegar primeiro (evento de driving_ready, leitura tardia
+    // ou fallback). compareAndSet garante disparo único mesmo com a thread do binder concorrendo.
+    private final java.util.concurrent.atomic.AtomicBoolean curtainAutomationArmed = new java.util.concurrent.atomic.AtomicBoolean(false);
     private boolean isFridaInitialized = false;
     private final List<Runnable> pendingTasks = new ArrayList<>();
     private static long timeBootReceived;
@@ -303,6 +306,16 @@ public class ServiceManager {
     // sem retry ela simplesmente nunca abriria. 6 tentativas x 5s = 30s cobre o boot deste OEM.
     private static final long CURTAIN_TEMP_RETRY_MS = 5000L;
     private static final int CURTAIN_TEMP_MAX_ATTEMPTS = 6;
+    // Comandar a cortina aos ~25-45s do boot não funciona: o módulo do teto ainda não executa o
+    // comando (visto em 20/08 20:10 e 21/08 06:28 — set_100 com levelBefore=0 e a cortina fechada).
+    // Espera driving_ready + settle antes de mandar. Tudo é event-driven/timer: nenhum polling,
+    // nada roda durante a janela de boot.
+    private static final long CURTAIN_SETTLE_AFTER_READY_MS = 20000L;
+    // Cobre o caso "app subiu com o carro já ligado": a transição de driving_ready não vem mais,
+    // então uma única leitura ao vivo (bem depois do boot) resolve. O cache não serve: é defasado.
+    private static final long CURTAIN_READY_CHECK_DELAY_MS = 30000L;
+    // Rede de segurança: se nem evento nem leitura confirmarem, tenta assim mesmo.
+    private static final long CURTAIN_ARM_FALLBACK_MS = 120000L;
     private static final long RADIO_RESTORE_RETRY_MS = 4000L;
     // 8 tentativas x 4s ≈ 28s: o tether (hotspot) pode demorar a subir no boot deste OEM.
     // O loop para assim que o rádio liga, então tentativas extras são de graça p/ o BT (rápido).
@@ -1149,8 +1162,7 @@ public class ServiceManager {
         boolean curtainOnStartEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
         traceCurtain("sunroof_curtain_init", "enabled", curtainOnStartEnabled, "hasRun", hasRunStartupCurtainAutomation);
         if (curtainOnStartEnabled && !hasRunStartupCurtainAutomation) {
-            hasRunStartupCurtainAutomation = true;
-            autoOpenSunroofCurtain(0);
+            armStartupCurtainAutomation();
         }
         scheduleStartupReportReconciliations();
         // HEV Prioritário: no boot o carro costuma resetar o % (ex.: 45->80) e o app pode subir
@@ -2347,6 +2359,8 @@ public class ServiceManager {
                     }
                     // Ao ligar o carro, reaplica o % de bateria do HEV Prioritario (o carro costuma resetar).
                     applyHevSocTargetIfActive("POWER_ON");
+                    // Carro pronto: é aqui que a cortina pode ser comandada com o módulo do teto acordado.
+                    triggerStartupCurtainAutomation("driving_ready_event");
                 }
             } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
                 syncDriverSeatVentilationWithHvac(value, "HVAC_POWER_EVENT");
@@ -2513,6 +2527,39 @@ public class ServiceManager {
         }
     }
 
+    /**
+     * Arma a automação da cortina sem comandar nada agora. Não faz trabalho nenhum no boot:
+     * só marca a flag e agenda dois timers. Quem disparar primeiro (evento de driving_ready,
+     * leitura tardia ou fallback) consome o armamento via compareAndSet.
+     */
+    private void armStartupCurtainAutomation() {
+        if (backgroundHandler == null) return;
+        curtainAutomationArmed.set(true);
+        traceCurtain("sunroof_curtain_armed", "settleMs", CURTAIN_SETTLE_AFTER_READY_MS,
+                "readyCheckMs", CURTAIN_READY_CHECK_DELAY_MS, "fallbackMs", CURTAIN_ARM_FALLBACK_MS);
+
+        // Carro já ligado quando o app subiu: a transição não vem, então confere ao vivo mais tarde.
+        backgroundHandler.postDelayed(() -> {
+            if (!curtainAutomationArmed.get()) return;
+            String readyState = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
+            if (isVehicleReadyStateOn(readyState)) {
+                triggerStartupCurtainAutomation("driving_ready_poll");
+            } else {
+                traceCurtain("sunroof_curtain_wait", "readyState", readyState);
+            }
+        }, CURTAIN_READY_CHECK_DELAY_MS);
+
+        backgroundHandler.postDelayed(() -> triggerStartupCurtainAutomation("fallback_timeout"), CURTAIN_ARM_FALLBACK_MS);
+    }
+
+    /** Consome o armamento (uma vez só) e comanda a cortina após o settle. */
+    private void triggerStartupCurtainAutomation(String trigger) {
+        if (!curtainAutomationArmed.compareAndSet(true, false)) return;
+        hasRunStartupCurtainAutomation = true;
+        traceCurtain("sunroof_curtain_trigger", "trigger", trigger, "settleMs", CURTAIN_SETTLE_AFTER_READY_MS);
+        backgroundHandler.postDelayed(() -> autoOpenSunroofCurtain(0), CURTAIN_SETTLE_AFTER_READY_MS);
+    }
+
     private void autoOpenSunroofCurtain(int attempt) {
         Calendar now = Calendar.getInstance();
         float outsideTemp = 99;
@@ -2589,6 +2636,8 @@ public class ServiceManager {
      * 20.5 e 28.0, e as duas unicas fora disso foram 87.0 e 87.5, ambas logo apos o boot.
      */
     private static final float[] OUTSIDE_TEMP_INVALID_SENTINELS = {87.0f, 87.5f};
+    private static final float OUTSIDE_TEMP_INVALID_MAX = 85.0f;
+    private static final float OUTSIDE_TEMP_INVALID_MIN = -40.0f;
 
     /** Leitura de outside_temp p/ a cortina; null quando o dado ainda não veio ou não parseia. */
     private Float readOutsideTempForCurtain() {
@@ -2600,6 +2649,13 @@ public class ServiceManager {
         }
         try {
             float parsed = Float.parseFloat(raw.trim());
+            // Além dos sentinelas exatos, rejeita a faixa fisicamente impossível — mesma banda que
+            // enableMaxAcOnWithRetry já usa p/ inside_temp. Sem isso um 86/88 passaria como "quente".
+            if (parsed >= OUTSIDE_TEMP_INVALID_MAX || parsed <= OUTSIDE_TEMP_INVALID_MIN) {
+                Log.w(TAG, "Outside temp out of plausible range for curtain check (raw=" + raw + ")");
+                traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "out_of_range");
+                return null;
+            }
             for (float sentinel : OUTSIDE_TEMP_INVALID_SENTINELS) {
                 if (parsed == sentinel) {
                     // Devolve null de proposito: o chamador ja reagenda (CURTAIN_TEMP_*), que e
