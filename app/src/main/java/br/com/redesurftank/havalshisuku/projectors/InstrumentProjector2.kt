@@ -2242,9 +2242,37 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         if (changed) {
             lastAppliedConfigs.clear() // Invalidate cache on warning toggle to force re-sync
+            // Record which keys are holding the badge up, and at what raw value. Without this
+            // a badge with nothing behind it is unreadable after the fact: a key that reports
+            // sensor data rather than a lamp state trips the denylist in isWarningValueActive
+            // and looks exactly like a real warning in the log.
             logClusterPerfEvent(
                     "warning_state_changed",
-                    mapOf("active" to active, "dismissed" to dismissed, "reason" to reason)
+                    mapOf(
+                            "active" to active,
+                            "dismissed" to dismissed,
+                            "reason" to reason,
+                            "holding" to
+                                    unacknowledgedBadgeWarnings()
+                                            .take(6)
+                                            .joinToString("|") { (k, v) -> "$k=$v" }
+                                            .ifEmpty { "none" },
+                            // Every monitored key the denylist currently calls "active",
+                            // exempt ones included. Exempting a key hides it from `holding`,
+                            // which is precisely when you most want to see what it carries:
+                            // a data channel stuck at a non-idle value looks identical to a
+                            // real fault until you can read the value itself.
+                            "activeRaw" to
+                                    monitoredWarningKeys
+                                            .mapNotNull { k ->
+                                                currentWarningValue(k)
+                                                        ?.takeIf { ClusterWarningPolicy.isWarningValueActive(it) }
+                                                        ?.let { "$k=$it" }
+                                            }
+                                            .take(10)
+                                            .joinToString("|")
+                                            .ifEmpty { "none" }
+                    )
             )
             updateVirtualClusterVisibility(
                     reason = "WARNING_STATE_CHANGED",
