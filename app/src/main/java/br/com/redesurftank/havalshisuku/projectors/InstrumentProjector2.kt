@@ -132,7 +132,17 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var currentCard = ServiceManager.getInstance().clusterCardView
     override var isWarningActive = false
     private var testDefaultDisplayOverrideActive = FORCE_MAP_DISPLAY_AS_DEFAULT_FOR_TESTS
-    private val dismissedWarnings = java.util.concurrent.ConcurrentHashMap<String, String>()
+    /**
+     * Cards the driver has acknowledged, by [ClusterWarningPolicy.cardIdFor].
+     *
+     * Held against the card rather than the key's value: the car rewrites warning values
+     * while a condition stands, and keying on the value made every repaint look like a fresh
+     * fault. An entry is dropped only once every key behind that card reads inactive, so a
+     * condition that genuinely goes away and comes back warns again.
+     */
+    private val dismissedCards: MutableSet<String> =
+            java.util.Collections.newSetFromMap(
+                    java.util.concurrent.ConcurrentHashMap<String, Boolean>())
     override var isWarningDismissed = false
     private var lastWarningActiveTime = 0L
     /** Last value seen per monitored warning key, so a re-emission of an unchanged value
@@ -212,6 +222,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var lastHeartbeatTime = System.currentTimeMillis()
     private var lastCarPlayInDash: Boolean? = null
     private var lastProjectionMirrorInDash: Boolean? = null
+    /** Dedupes control('appInDash'|...) pushes so theme render does not re-enter bounds sync. */
+    private var lastAppInDashJsKey: String? = null
     private var lastProjectionPreparingD3: Boolean? = null
     private var lastProjectionCardOverlayAllowed: Boolean? = null
     private var lastHealthyCarPlayD3AtMs = 0L
@@ -1316,12 +1328,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             dismissWarnings()
                         }
                         ServiceManagerEventType.APP_GEOMETRY_CHANGED -> {
+                            // Mask hole only. Do NOT syncSecondaryDisplayApps here:
+                            // sync → resizeApp → this event was a feedback loop that
+                            // hammered Shizuku (~200-450 geometry events/min) and briefly
+                            // flipped display3Active=false, burying the D3 app under d3_mask.
                             logClusterPerfEvent("app_geometry_changed")
                             updateVirtualClusterVisibility(
                                     reason = "APP_GEOMETRY_CHANGED",
                                     forceNativeMaskRefresh = true
                             )
-                            syncSecondaryDisplayApps(3)
                         }
                         ServiceManagerEventType.PREPARE_DISPLAY3_APP_HOLE -> {
                             val bounds = args.getOrNull(0) as? IntArray
@@ -1662,28 +1677,24 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 // --- Warning Management Logic ---
                 if (key in monitoredWarningKeys) {
                     val currentValue = value?.toString() ?: "0"
-                    val isNewOnset = trackWarningOnset(key, currentValue)
+                    trackWarningOnset(key, currentValue)
 
-                    // A new warning re-opens the car's own warning popup, and that popup
-                    // lists *every* warning currently active — so the car has just put the
-                    // driver's previously dismissed warnings back on screen. Their
-                    // acknowledgements no longer describe what is being displayed, and
-                    // holding on to them would collapse our layout out from under a popup
-                    // that is still up (dismiss the belt, open a door, close it again, and
-                    // the belt warning is still sitting there on the car's popup).
-                    if (isNewOnset &&
-                            ClusterWarningPolicy.raisesWarningBadge(key, currentValue) &&
-                            dismissedWarnings.isNotEmpty()) {
-                        Log.d(TAG, "New warning $key voids ${dismissedWarnings.size} prior acknowledgement(s)")
-                        dismissedWarnings.clear()
+                    // An acknowledgement lapses only when the condition behind the card
+                    // actually goes away — not when the car rewrites the value while it
+                    // stands. A belt fault alternating {1,0,0,0,0} / {1,1,1,1,1} is one
+                    // standing fault being repainted; treating each value as a new warning
+                    // un-dismissed it, and clearing the whole map on "new onset" took every
+                    // other card down with it, seconds after the driver dealt with them.
+                    val cardId = ClusterWarningPolicy.cardIdFor(key)
+                    if (cardId in dismissedCards && !isCardConditionStanding(cardId)) {
+                        Log.d(TAG, "Card $cardId cleared; acknowledgement dropped")
+                        dismissedCards.remove(cardId)
                     }
-                    if (dismissedWarnings[key] != currentValue) {
-                        dismissedWarnings.remove(key)
-                        // Informational only — the theme renders from the warningActive
-                        // boolean below, not from this. Kept so a theme that wants to list
-                        // individual warnings has the raw material.
-                        evaluateJsIfReady(webView, "updateWarning('$key', '$currentValue')")
-                    }
+
+                    // Informational only — the theme renders from the warningActive boolean
+                    // below, not from this. Kept so a theme that wants to list individual
+                    // warnings has the raw material.
+                    evaluateJsIfReady(webView, "updateWarning('$key', '$currentValue')")
                     if (key in ClusterWarningPolicy.bsdIndicatorKeys) {
                         pushBsdIndicatorsToTheme()
                     }
@@ -1798,6 +1809,39 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     ) {
                                         super.onPageStarted(view, url, favicon)
                                         view?.let { markWebViewLoading(it, "PAGE_STARTED", url) }
+                                    }
+
+                                    override fun onReceivedError(
+                                            view: WebView?,
+                                            request: android.webkit.WebResourceRequest?,
+                                            error: android.webkit.WebResourceError?
+                                    ) {
+                                        super.onReceivedError(view, request, error)
+                                        // A missing icon or font must not take the theme down; only a
+                                        // main-frame failure means there is nothing behind the masks.
+                                        if (request?.isForMainFrame != true) return
+                                        handleThemeLoadFailure(
+                                                view,
+                                                reason = "RESOURCE_ERROR",
+                                                detail = error?.errorCode?.toString() ?: "unknown",
+                                                url = request.url?.toString()
+                                        )
+                                    }
+
+                                    override fun onReceivedHttpError(
+                                            view: WebView?,
+                                            request: android.webkit.WebResourceRequest?,
+                                            errorResponse: android.webkit.WebResourceResponse?
+                                    ) {
+                                        super.onReceivedHttpError(view, request, errorResponse)
+                                        if (request?.isForMainFrame != true) return
+                                        handleThemeLoadFailure(
+                                                view,
+                                                reason = "HTTP_ERROR",
+                                                detail = errorResponse?.statusCode?.toString()
+                                                        ?: "unknown",
+                                                url = request.url?.toString()
+                                        )
                                     }
 
                                     override fun onPageFinished(view: WebView?, url: String?) {
@@ -2170,7 +2214,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             // the cache. Either way it is the same value the badge is computed from.
             val value = currentWarningValue(key) ?: "0"
             trackWarningOnset(key, value)
-            if (dismissedWarnings[key] == value) continue
+            if (ClusterWarningPolicy.cardIdFor(key) in dismissedCards) continue
             evaluateJsIfReady(webView, "updateWarning('$key', '$value')")
         }
 
@@ -2229,7 +2273,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun applyWarningState(active: Boolean, reason: String) {
-        val dismissed = !active && dismissedWarnings.isNotEmpty()
+        val dismissed = !active && dismissedCards.isNotEmpty()
         val changed = active != isWarningActive || dismissed != isWarningDismissed
 
         if (active && !isWarningActive) {
@@ -2353,10 +2397,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 .mapNotNull { key -> currentWarningValue(key)?.let { key to it } }
                 .filter { (key, value) ->
                     ClusterWarningPolicy.raisesWarningBadge(key, value) &&
-                            dismissedWarnings[key] != value
+                            ClusterWarningPolicy.cardIdFor(key) !in dismissedCards
                 }
                 .sortedByDescending { (key, _) -> warningOnsetTimes[key] ?: 0L }
     }
+
+    /** True while any key behind [cardId] still reports an active value. */
+    private fun isCardConditionStanding(cardId: String): Boolean =
+            ClusterWarningPolicy.cardKeysFor(cardId).any { key ->
+                ClusterWarningPolicy.raisesWarningBadge(key, currentWarningValue(key))
+            }
 
     private fun getClusterFuelDisplayUnit(): String {
         val unit =
@@ -2796,11 +2846,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 }
 
         val clusterBackground = isClusterBackgroundApplied()
-
-        evaluateJsIfReady(
-                webView,
-                "(function(){control('clusterEnabled', $clusterEnabled);control('clusterBackground', $clusterBackground);control('appInDash', $appInDashValue);})()"
-        )
+        val visibilityJsKey =
+                "clusterEnabled=$clusterEnabled|clusterBackground=$clusterBackground|appInDash=$appInDashValue"
+        if (visibilityJsKey != lastAppInDashJsKey) {
+            lastAppInDashJsKey = visibilityJsKey
+            evaluateJsIfReady(
+                    webView,
+                    "(function(){control('clusterEnabled', $clusterEnabled);control('clusterBackground', $clusterBackground);control('appInDash', $appInDashValue);})()"
+            )
+        }
 
         // Deferred until after the theme has been told: the AA probe is the
         // expensive part of this method and nothing above depends on it.
@@ -2950,13 +3004,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             ) {
 
                 lastAppliedConfigs[app.packageName] = targetConfig
-                Log.d(
+                Log.w(
                         TAG,
                         "Syncing app ${app.packageName} (Display $displayId): card=$currentCard warn=$isWarningActive -> width=$targetWidth"
                 )
                 scope.launch {
+                    // notifyGeometry=false: we already own the hole refresh path; echoing
+                    // APP_GEOMETRY_CHANGED would re-enter sync and storm Shizuku.
                     br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.resizeApp(
-                            targetConfig
+                            targetConfig,
+                            notifyGeometry = false
                     )
                 }
             }
@@ -3023,6 +3080,36 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             }
             queue.add(js)
         }
+    }
+
+    /**
+     * A main-frame load failure on display 3. Until this existed the theme had no failure path
+     * at all: [webViewsLoaded] simply never flipped true, which is indistinguishable from a page
+     * still loading, and the native masks painted regardless. Drop the loaded flag and re-run the
+     * mask pass so the insets come down instead of framing an empty dash.
+     *
+     * Deliberately does NOT touch [lastHeartbeatTime] — the watchdog should still see a stale
+     * heartbeat and attempt its reload, which is the only automatic recovery here.
+     */
+    private fun handleThemeLoadFailure(
+            view: WebView?,
+            reason: String,
+            detail: String,
+            url: String?
+    ) {
+        val wv = view ?: return
+        webViewsLoaded[wv] = false
+        Log.e(TAG, "Theme load failed on display 3: reason=$reason detail=$detail url=$url")
+        ClusterPersistentEventLogger.log(
+                "cluster_theme_load_failed",
+                mapOf(
+                        "reason" to reason,
+                        "detail" to detail,
+                        "url" to (url ?: ""),
+                        "card" to currentCard
+                )
+        )
+        ensureUi { updateNativeMaskViews() }
     }
 
     private fun markWebViewLoading(webView: WebView, reason: String, url: String? = null) {
@@ -3377,17 +3464,20 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     /**
-     * BACK closes the car's warning popup, which acknowledges everything listed in it.
+     * BACK closes one of the car's warning cards, so it acknowledges one card here.
      *
-     * Acknowledging only the newest was tried and is wrong: the car's popup shows every
-     * active warning at once, so one BACK dismisses the lot from the driver's point of view.
-     * Holding back the others left our layout collapsed under a popup that was still up, and
-     * meant one physical condition reported over several CAN keys (tyres are four, oil is
-     * three) needed a BACK press each.
+     * Acknowledging every active warning at once was tried and is wrong: the car stacks a
+     * card per condition and pops a single card per BACK. Clearing the lot dropped our badge
+     * while a card the driver had not dealt with was still on screen — start the car with a
+     * belt and a tyre warning, press BACK once, and the tyre card stays up.
      *
-     * The lockout is still measured per-warning, against the most recent onset, so a warning
-     * that has only just appeared cannot be swallowed by a BACK press already in flight —
-     * that part of the per-warning work was worth keeping.
+     * A card is a group of CAN keys ([ClusterWarningPolicy.cardKeysFor]), so a condition the
+     * car reports over several keys still clears in a single press, and the acknowledgement
+     * is recorded against the card rather than the values — the car repaints those while the
+     * condition stands.
+     *
+     * The lockout measures against the newest onset within the card being dismissed, so a
+     * card that has only just appeared cannot be swallowed by a BACK press already in flight.
      */
     override fun dismissWarnings() {
         ensureUi {
@@ -3397,25 +3487,33 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 return@ensureUi
             }
 
-            // Sorted newest-first, so the head is the warning that most recently appeared.
-            val newestKey = showing.first().first
-            val onset = warningOnsetTimes[newestKey] ?: lastWarningActiveTime
+            // Sorted newest-first, so the head names the card the car is showing on top.
+            val topKey = showing.first().first
+            val cardId = ClusterWarningPolicy.cardIdFor(topKey)
+            val card = ClusterWarningPolicy.cardKeysFor(topKey)
+            val cardsShowing =
+                    showing.map { ClusterWarningPolicy.cardIdFor(it.first) }.distinct().size
+            val onset =
+                    card.mapNotNull { warningOnsetTimes[it] }.maxOrNull() ?: lastWarningActiveTime
             val timeSinceWarning = System.currentTimeMillis() - onset
-            Log.d(TAG, "dismissWarnings called. newest=$newestKey timeSinceWarning=${timeSinceWarning}ms (onset=$onset)")
+
+            Log.d(TAG, "dismissWarnings called. card=$cardId timeSinceWarning=${timeSinceWarning}ms (onset=$onset)")
             logClusterPerfEvent(
                     "dismiss_warning",
-                    mapOf("newest" to newestKey, "count" to showing.size, "timeSinceWarningMs" to timeSinceWarning)
+                    mapOf(
+                            "card" to cardId,
+                            "cardsShowing" to cardsShowing,
+                            "timeSinceWarningMs" to timeSinceWarning
+                    )
             )
             if (timeSinceWarning < WARNING_DISMISS_LOCKOUT_MS) {
-                Log.w(TAG, "DISMISS_WARNING ignored: newest=$newestKey timeSinceWarning=${timeSinceWarning}ms < ${WARNING_DISMISS_LOCKOUT_MS}ms lockout")
+                Log.w(TAG, "DISMISS_WARNING ignored: card=$cardId timeSinceWarning=${timeSinceWarning}ms < ${WARNING_DISMISS_LOCKOUT_MS}ms lockout")
                 return@ensureUi
             }
 
-            for ((key, value) in showing) {
-                dismissedWarnings[key] = value
-            }
-            Log.d(TAG, "dismissWarnings: acknowledged ${showing.size} warning(s): ${showing.map { it.first }}")
-            // No hold-off here: the car's popup closes with the same BACK press.
+            dismissedCards.add(cardId)
+            Log.d(TAG, "dismissWarnings: acknowledged card=$cardId; ${cardsShowing - 1} card(s) still showing")
+            // No hold-off here: that card closes with the same BACK press.
             recomputeWarningState("DISMISS", immediate = true)
         }
     }
@@ -3433,9 +3531,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     override fun refreshDisplayBounds() {
-        Log.d(TAG, "refreshDisplayBounds: Triggering display app sync from frontend")
+        Log.w(TAG, "refreshDisplayBounds: Triggering display app sync from frontend")
         ensureUi {
-            lastAppliedConfigs.clear()
+            // Do not clear lastAppliedConfigs up front. Clearing forced a resize on every
+            // identical setAppDefaultDimensions call from theme render(); sync itself
+            // compares target vs lastApplied and only resizes when the rect changed.
             listOf(1, 3).forEach { displayId ->
                 if (hasManagedSecondaryDisplayWork(displayId)) {
                     syncSecondaryDisplayApps(displayId)
@@ -3516,7 +3616,31 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         parent.addView(container, 0)
     }
 
+    /**
+     * Whether the theme is actually painting on display 3 right now.
+     *
+     * The native masks exist to hide parts of the car's own dash *behind the theme*. On their
+     * own they are just opaque rectangles, so painting them while the theme is absent leaves
+     * insets framing nothing — which is exactly what a failed or still-loading theme looked
+     * like before this gate existed. [webViewsLoaded] flips true in onPageFinished and back to
+     * false in [markWebViewLoading] (page start, watchdog reload) and on a load error, so it is
+     * the honest "there is something behind the masks" signal.
+     */
+    private fun isThemeLiveOnDisplay3(): Boolean {
+        val view = webView ?: return false
+        return webViewsLoaded.getOrDefault(view, false)
+    }
+
     fun updateNativeMaskViews() {
+        if (!isThemeLiveOnDisplay3()) {
+            // Re-runs on its own: onPageFinished calls back into this method once the theme
+            // is up, so the masks appear together with the content they belong to.
+            Log.d(TAG, "updateNativeMaskViews: theme not live on display 3; keeping masks down")
+            nativeMaskContainer?.isVisible = false
+            setDisplayedGlobalMask(null)
+            return
+        }
+
         val customThemeDir = getActiveCustomThemeName()
         val themeMgr = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext)
         val metadata = activeThemeMetadata ?: if (customThemeDir.isNotEmpty()) {

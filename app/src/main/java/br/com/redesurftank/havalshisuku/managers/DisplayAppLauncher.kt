@@ -7716,8 +7716,15 @@ object DisplayAppLauncher {
 
     /**
      * Resizes an already-running app on its target display. Used for live preview slider updates.
+     *
+     * @param notifyGeometry when false, skip [APP_GEOMETRY_CHANGED]. The cluster projector's
+     *   sync path must pass false: that event used to call sync again and re-enter resizeApp,
+     *   saturating Shizuku and closing the D3 native-mask hole.
      */
-    suspend fun resizeApp(config: DisplayAppConfig) = withContext(Dispatchers.IO) {
+    suspend fun resizeApp(
+        config: DisplayAppConfig,
+        notifyGeometry: Boolean = true
+    ) = withContext(Dispatchers.IO) {
         try {
             val bounds = when {
                 isCarPlayPackage(config.packageName) -> getCarPlayDisplayBounds(config.displayId)
@@ -7731,10 +7738,22 @@ object DisplayAppLauncher {
 
             val stackId = findStackIdForPackage(config.packageName, config.displayId)
             if (stackId != null) {
+                val live = findTaskForPackageOnDisplay(config.packageName, config.displayId)?.bounds
+                if (live != null &&
+                    live.size >= 4 &&
+                    live[0] == x &&
+                    live[1] == y &&
+                    live[2] == right &&
+                    live[3] == bottom
+                ) {
+                    return@withContext
+                }
                 sh("am stack resize $stackId $x $y $right $bottom")
-                ServiceManager.getInstance().dispatchServiceManagerEvent(
-                    br.com.redesurftank.havalshisuku.models.ServiceManagerEventType.APP_GEOMETRY_CHANGED
-                )
+                if (notifyGeometry) {
+                    ServiceManager.getInstance().dispatchServiceManagerEvent(
+                        br.com.redesurftank.havalshisuku.models.ServiceManagerEventType.APP_GEOMETRY_CHANGED
+                    )
+                }
             }
         } catch (e: Exception) {
             if (BuildConfig.DEBUG) {
@@ -8396,24 +8415,19 @@ object DisplayAppLauncher {
         return getTopPackageOnDisplay(displayId) != null
     }
 
+    /**
+     * Client-facing resize for [TaskBoundsReceiver]: typed ints only, no shell from the caller.
+     * Used by the 3D viewer after maximize / YouTube reopen-at-remembered-rect.
+     */
+    fun resizeStackForClient(stackId: Int, left: Int, top: Int, right: Int, bottom: Int) {
+        if (stackId < 0 || right <= left || bottom <= top) return
+        sh("am stack resize $stackId $left $top $right $bottom")
+    }
+
     fun getTopPackageOnDisplay(displayId: Int): String? {
         try {
-            val stackList = getStackList()
-            var currentDisplayId: Int? = null
-            val regex = Regex("""taskId=\d+:\s*([a-zA-Z0-9._]+)/""")
-
-            for (line in stackList.lines()) {
-                val stackMatch = Regex("""displayId=(\d+)""").find(line)
-                if (stackMatch != null) {
-                    currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
-                }
-                if (currentDisplayId == displayId) {
-                    val match = regex.find(line)
-                    if (match != null) {
-                        return match.groupValues[1]
-                    }
-                }
-            }
+            val fromStacks = topPackageFromStackListForTest(getStackList(), displayId)
+            if (fromStacks != null) return fromStacks
 
             // Fallback to dumpsys if am stack list is not helping
             val output = ShizukuUtils.runCommandAndGetOutput(
@@ -8424,6 +8438,30 @@ object DisplayAppLauncher {
             return match?.groupValues?.get(1)
         } catch (e: Exception) {
             Log.e(TAG, "Error getting top package for display $displayId", e)
+        }
+        return null
+    }
+
+    /**
+     * Parse [am stack list] for the first task package on [displayId].
+     * Only stack-header `displayId=` counts — configuration lines also embed
+     * displayId and must be ignored.
+     */
+    internal fun topPackageFromStackListForTest(stackList: String, displayId: Int): String? {
+        var currentDisplayId: Int? = null
+        val regex = Regex("""taskId=\d+:\s*([a-zA-Z0-9._]+)/""")
+        for (line in stackList.lines()) {
+            val stackMatch = Regex("""Stack id=\d+.*displayId=(\d+)""").find(line)
+            if (stackMatch != null) {
+                currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
+                continue
+            }
+            if (currentDisplayId == displayId) {
+                val match = regex.find(line)
+                if (match != null) {
+                    return match.groupValues[1]
+                }
+            }
         }
         return null
     }

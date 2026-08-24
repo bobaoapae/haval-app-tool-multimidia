@@ -53,13 +53,27 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
         val safeY = y.coerceIn(0, 719)
         val safeWidth = width.coerceIn(1, 1920 - safeX)
         val safeHeight = height.coerceIn(1, 720 - safeY)
-        Log.d(
+        val next = intArrayOf(safeX, safeY, safeWidth, safeHeight)
+        // Themes call this from render() on every state tick. Same rect must be a
+        // no-op: refreshDisplayBounds used to clear lastAppliedConfigs and kick
+        // resizeApp → APP_GEOMETRY_CHANGED → appInDash push → render → here again,
+        // which buried D3 apps under the native mask and starved Shizuku.
+        val prev = DisplayAppLauncher.dynamicThemeBounds
+        if (prev != null &&
+            prev.size == 4 &&
+            prev[0] == next[0] &&
+            prev[1] == next[1] &&
+            prev[2] == next[2] &&
+            prev[3] == next[3]
+        ) {
+            return
+        }
+        Log.w(
             TAG,
             "setAppDefaultDimensions requested=($x,$y ${width}x$height) " +
                 "applied=($safeX,$safeY ${safeWidth}x$safeHeight)"
         )
-        DisplayAppLauncher.dynamicThemeBounds =
-            intArrayOf(safeX, safeY, safeWidth, safeHeight)
+        DisplayAppLauncher.dynamicThemeBounds = next
         context.refreshDisplayBounds()
     }
 

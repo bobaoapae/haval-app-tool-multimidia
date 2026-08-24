@@ -210,7 +210,14 @@ public class ServiceManager {
             CarConstants.CAR_BASIC_REMAIN_ODOMETER,
             CarConstants.CAR_BASIC_CUR_JOURNEY_AVG_FUEL_CONSUME,
             CarConstants.CAR_EV_INFO_AVG_ENERGY_CONSUME_INFO_SINCE_STARTUP,
-            CarConstants.CAR_EV_INFO_POWER_BATTERY_CURRENT
+            CarConstants.CAR_EV_INFO_POWER_BATTERY_CURRENT,
+            // Fluxo / POWER widget in com.havalh6.viewer (BeanEnergyAssistant
+            // energy flow). Without these the viewer gets V×I + SOC but motors
+            // and lanes stay on Parado — energy_drive_state never arrives.
+            CarConstants.CAR_EV_INFO_ENERGY_DRIVE_STATE,
+            CarConstants.CAR_EV_INFO_CYCLE_ENERGY_CONSUME_INFO,
+            CarConstants.CAR_EV_INFO_CHARGING_STATE,
+            CarConstants.CAR_CONFIGURE_EV_DRIVE_ARCHITECTURE
     };
 
     private static final CarConstants[] KEYS_TO_SAVE = {
@@ -3668,6 +3675,19 @@ public class ServiceManager {
     public boolean isMainScreenOn() {
         try {
             String engineState = getData(CarConstants.CAR_BASIC_ENGINE_STATE.getValue());
+            if (engineState == null) {
+                // Data absent, not "off": getData() returns null while the key is still
+                // missing from dataCache and the control binder isn't alive yet. Callers
+                // hide the whole cluster surface on false and only re-evaluate on an
+                // unrelated event, so a projector that samples inside this window latches
+                // hidden for the rest of the session. Observed 2026-08-24: ProjectorManager
+                // builds display 1 before display 3, D1 sampled null -> hid its background,
+                // D3 sampled a real value moments later -> painted its masks, and the
+                // cluster showed insets framing nothing. Unknown must never read as OFF;
+                // this mirrors the catch below, which already defaults to ON.
+                Log.w(TAG, "[HavalDev] Engine state not available yet; defaulting main screen to ON");
+                return true;
+            }
             return br.com.redesurftank.havalshisuku.models.EngineState.isMainScreenOn(engineState);
         } catch (Exception e) {
             Log.w(TAG, "[HavalDev] Failed to read engine state during visibility check; defaulting main screen to ON", e);
