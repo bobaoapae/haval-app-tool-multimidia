@@ -110,6 +110,45 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ENABLE_AA_CLUSTER_OFFSET("enableAaClusterOffset", "Habilitar deslocamento do Android Auto no cluster"),
     AA_CLUSTER_LEFT_OFFSET("aaClusterLeftOffset", "Deslocamento horizontal do Android Auto no cluster (px)"),
     CAR_MONITOR_PROPERTIES("carMonitorProperties", "Propriedades do monitoramento do carro"),
+    // ===== Modo Concessionária =====
+    // Ao ENTRAR, o modo grava um retrato (JSON, com os tipos) de TODAS as preferências em
+    // STEALTH_PREFS_SNAPSHOT e então DESLIGA DE VERDADE as preferências que ativam
+    // funcionalidades. O app passa a rodar pelo caminho já testado de quem não usa nenhuma delas,
+    // em vez de por gates espalhados. Ao SAIR, o retrato é restaurado chave a chave (tipos
+    // originais, removendo o que não existia) e apagado. Ver StealthModeManager.
+    STEALTH_MODE_ACTIVE("stealthModeActive", "Modo Concessionária ativo"),
+    ENABLE_UPDATE_NOTICE(
+            "enableUpdateNotice",
+            "Avisar quando houver versão nova"
+    ),
+    UPDATE_NOTICE_DISMISSED_VERSION(
+            "updateNoticeDismissedVersion",
+            "Última versão cujo aviso o dono dispensou"
+    ),
+    STEALTH_EXIT_SEQUENCE_CUSTOM(
+            "stealthExitSequenceCustom",
+            "Usar sequência própria de saída (em vez da padrão das setas)"
+    ),
+    STEALTH_EXIT_SEQUENCE(
+            "stealthExitSequence",
+            "Sequência que tira o carro do Modo Concessionária (ex.: L,R,B1,B1)"
+    ),
+    ENABLE_STEALTH_EXIT_PIN(
+            "enableStealthExitPin",
+            "Pedir PIN depois da sequência de saída do Modo Concessionária"
+    ),
+    STEALTH_EXIT_PIN_HASH(
+            "stealthExitPinHash",
+            "Hash do PIN de saída (o número nunca é gravado)"
+    ),
+    STEALTH_EXIT_PIN_SALT(
+            "stealthExitPinSalt",
+            "Sal do hash do PIN de saída"
+    ),
+    STEALTH_PREFS_SNAPSHOT(
+            "stealthPrefsSnapshot",
+            "Retrato das preferências gravado ao entrar no Modo Concessionária (JSON com tipos)"
+    ),
     BYPASS_SELF_INSTALLATION_INTEGRITY_CHECK(
             "bypassSelfInstallationIntegrityCheck",
             "Ignorar verificação de integridade da instalação"
@@ -257,6 +296,14 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "openSunroofCurtainMaxTemp",
             "Temperatura externa máxima para abrir cortina"
     ),
+    ENABLE_CLOSE_SUNROOF_CURTAIN_ON_TIME(
+            "enableCloseSunroofCurtainOnTime",
+            "Habilitar fechamento da cortina do teto solar por horário"
+    ),
+    CLOSE_SUNROOF_CURTAIN_START_HOUR("closeSunroofCurtainStartHour", "Hora de início para fechar cortina"),
+    CLOSE_SUNROOF_CURTAIN_START_MINUTE("closeSunroofCurtainStartMinute", "Minuto de início para fechar cortina"),
+    CLOSE_SUNROOF_CURTAIN_END_HOUR("closeSunroofCurtainEndHour", "Hora fim para fechar cortina"),
+    CLOSE_SUNROOF_CURTAIN_END_MINUTE("closeSunroofCurtainEndMinute", "Minuto fim para fechar cortina"),
     PENDING_RESET_TARGET_VERSION(
             "pendingResetTargetVersion",
             "Versão alvo para resetar dados ao voltar para canal estável"

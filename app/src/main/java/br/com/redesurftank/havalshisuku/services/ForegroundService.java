@@ -40,6 +40,7 @@ import br.com.redesurftank.havalshisuku.managers.AndroidAutoPatchManager;
 import br.com.redesurftank.havalshisuku.managers.CarPlayPatchManager;
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher;
 import br.com.redesurftank.havalshisuku.managers.ServiceManager;
+import br.com.redesurftank.havalshisuku.managers.StealthModeManager;
 import br.com.redesurftank.havalshisuku.managers.HotRouterManager;
 import br.com.redesurftank.havalshisuku.models.CommandListener;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
@@ -53,7 +54,24 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
 
     private static final String TAG = "ForegroundService";
     private static final String CHANNEL_ID = "ForegroundServiceChannel";
+    /**
+     * Canal do Modo Concessionaria. IMPORTANCE_MIN e o mais discreto que o Android 9 aceita para
+     * um foreground service: sem som, sem vibracao e sem icone na barra de status. Um FGS NAO pode
+     * ficar sem notificacao nenhuma nesta versao do Android, entao o alvo e "nao chamar atencao e
+     * nao dizer o nome do app", nao "sumir".
+     *
+     * Canal SEPARADO de proposito: a importancia de um NotificationChannel nao pode ser rebaixada
+     * pelo app depois de criado (so o usuario mexe), entao reaproveitar o canal normal deixaria a
+     * notificacao presa em IMPORTANCE_LOW.
+     */
+    private static final String QUIET_CHANNEL_ID = "ForegroundServiceChannelQuiet";
     private static final int NOTIFICATION_ID = 1;
+
+    /**
+     * Instancia viva do servico, para o StealthModeManager pedir a troca da notificacao no
+     * instante em que o modo entra ou sai. volatile: quem chama vem de outra thread.
+     */
+    private static volatile ForegroundService runningInstance;
     private static final int MAX_AUTOMATIC_SHIZUKU_BOOTSTRAP_UID = 10999;
     private static final long SHIZUKU_BINDER_RECEIVE_TIMEOUT_MS = 15000L;
     private static final int SHIZUKU_BINDER_TIMEOUTS_BEFORE_RESTART = 3;
@@ -284,6 +302,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     public void onCreate() {
         super.onCreate();
         ClusterPersistentEventLogger.logText("foreground_service_on_create", "created=true");
+        runningInstance = this;
         createNotificationChannel();
         handlerThread = new HandlerThread("BackgroundThread");
         handlerThread.start();
@@ -323,6 +342,8 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     private void startCarPlaySystemUiIconWatchdogSafely(String reason) {
         try {
             DisplayAppLauncher.INSTANCE.startCarPlaySystemUiIconWatchdog();
+            // Verifica UMA vez por partida se saiu versao nova (espera a rede aparecer sozinho).
+            br.com.redesurftank.havalshisuku.managers.UpdateNoticeManager.checkOnStart();
         } catch (Exception e) {
             Log.e(TAG, "CarPlay SystemUI icon watchdog scheduling failed (" + reason + "): " + e.getMessage(), e);
         }
@@ -378,9 +399,8 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
             backgroundHandler.removeCallbacksAndMessages(null);
 
             var context = getApplicationContext();
-            // Criar notificação para o Foreground Service
-            Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID).setContentTitle("Aplicação em execução").setContentText("Seu app está rodando em segundo plano").setSmallIcon(android.R.drawable.ic_notification_overlay) // Ícone de notificação
-                    .build();
+            // Criar notificacao para o Foreground Service (discreta no Modo Concessionaria).
+            Notification notification = buildServiceNotification();
 
             startForeground(NOTIFICATION_ID, notification);
 
@@ -503,11 +523,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
         }
         Log.w(TAG, "Simulator Service started");
 
-        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Haval App (Simulator)")
-                .setContentText("Simulador em execução")
-                .setSmallIcon(android.R.drawable.ic_notification_overlay)
-                .build();
+        Notification notification = buildServiceNotification();
 
         startForeground(NOTIFICATION_ID, notification);
 
@@ -736,9 +752,90 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     }
 
     private void createNotificationChannel() {
-        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Background Service Channel", NotificationManager.IMPORTANCE_LOW);
         NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager == null) {
+            Log.e(TAG, "NotificationManager indisponivel; nao da pra criar os canais");
+            return;
+        }
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Background Service Channel", NotificationManager.IMPORTANCE_LOW);
         manager.createNotificationChannel(channel);
+
+        // Criado junto do normal: o modo pode entrar a qualquer momento e o canal precisa existir
+        // antes da primeira notificacao postada nele.
+        NotificationChannel quiet = new NotificationChannel(QUIET_CHANNEL_ID, "Servico do sistema", NotificationManager.IMPORTANCE_MIN);
+        quiet.setShowBadge(false);
+        quiet.enableLights(false);
+        quiet.enableVibration(false);
+        quiet.setSound(null, null);
+        quiet.setLockscreenVisibility(Notification.VISIBILITY_SECRET);
+        manager.createNotificationChannel(quiet);
+    }
+
+    /**
+     * O UNICO lugar que monta a notificacao do foreground service. Antes ela era construida em
+     * dois pontos (o start normal e o do simulador), o que faria a decisao do Modo Concessionaria
+     * valer num e no outro nao.
+     *
+     * No modo, a notificacao nao pode DIZER que o Impulse esta rodando: titulo neutro, sem
+     * subtitulo, sem relogio, no canal IMPORTANCE_MIN.
+     */
+    private Notification buildServiceNotification() {
+        boolean stealth = false;
+        try {
+            stealth = StealthModeManager.isActive();
+        } catch (Throwable t) {
+            Log.e(TAG, "Falha lendo a flag do Modo Concessionaria; usando a notificacao normal", t);
+        }
+
+        if (stealth) {
+            return new NotificationCompat.Builder(this, QUIET_CHANNEL_ID)
+                    .setContentTitle("Servico do sistema")
+                    .setSmallIcon(android.R.drawable.ic_notification_overlay)
+                    .setPriority(NotificationCompat.PRIORITY_MIN)
+                    .setShowWhen(false)
+                    .setSilent(true)
+                    .setOngoing(true)
+                    .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+                    .build();
+        }
+
+        String title = br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE
+                ? "Haval App (Simulator)"
+                : "Aplicacao em execucao";
+        String text = br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE
+                ? "Simulador em execucao"
+                : "Seu app esta rodando em segundo plano";
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.ic_notification_overlay)
+                .build();
+    }
+
+    /**
+     * Reemite a notificacao com o mesmo NOTIFICATION_ID para a troca de canal/conteudo valer na
+     * hora — sem isso, a notificacao antiga ficaria na tela ate o proximo start do servico.
+     * Chamado pelo StealthModeManager ao entrar e ao sair do modo.
+     *
+     * Estatico e tolerante a servico morto: se nao ha instancia viva, nao ha notificacao para
+     * trocar, e o proximo onStartCommand ja monta a certa.
+     */
+    public static void refreshNotificationForStealth() {
+        ForegroundService service = runningInstance;
+        if (service == null) {
+            Log.w(TAG, "Sem ForegroundService vivo; nada a reemitir");
+            return;
+        }
+        try {
+            NotificationManager manager = service.getSystemService(NotificationManager.class);
+            if (manager == null) {
+                return;
+            }
+            manager.notify(NOTIFICATION_ID, service.buildServiceNotification());
+            Log.w(TAG, "Notificacao do foreground service reemitida (stealth=" + StealthModeManager.isActive() + ")");
+        } catch (Throwable t) {
+            Log.e(TAG, "Falha ao reemitir a notificacao do foreground service", t);
+        }
     }
 
     @Override
@@ -765,6 +862,9 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
         }
         Shizuku.removeBinderReceivedListener(this::shizukuBinderReceived);
         Shizuku.removeBinderDeadListener(this);
+        if (runningInstance == this) {
+            runningInstance = null;
+        }
         Log.w(TAG, "Service destroyed");
         super.onDestroy();
     }

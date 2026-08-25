@@ -14,13 +14,21 @@ import br.com.redesurftank.havalshisuku.ui.theme.HavalShisukuTheme
 const val TAG = "HavalShisuku"
 
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        /** Título da aba em que o app deve abrir. Usado pelo chip de atualização do dashboard. */
+        const val EXTRA_SCREEN = "br.com.redesurftank.havalshisuku.EXTRA_SCREEN"
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             HavalShisukuTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    MainScreen(modifier = Modifier.padding(innerPadding))
+                    MainScreen(
+                            modifier = Modifier.padding(innerPadding),
+                            initialScreen = intent?.getStringExtra(EXTRA_SCREEN)
+                    )
                 }
             }
         }

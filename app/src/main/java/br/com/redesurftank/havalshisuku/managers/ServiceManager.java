@@ -265,6 +265,19 @@ public class ServiceManager {
     private IClusterCallback.Stub clusterCallback;
     private boolean servicesInitialized = false;
     private boolean hasRunStartupCurtainAutomation = false;
+    // Cortina automática por horário — guarda "uma vez por ENTRADA na janela". Reseta ao SAIR
+    // da janela (respeita ajuste manual e permite disparar de novo na próxima entrada).
+    private boolean curtainOpenActedThisWindow = false;
+    private boolean curtainCloseActedThisWindow = false;
+    // Reavaliação event-driven: em vez de pollar (CPU à toa), reagenda p/ o PRÓXIMO boundary de
+    // janela — dorme quando longe; teto de 15min só por segurança (mudança de relógio). Um
+    // listener de prefs reagenda na hora quando a config muda.
+    private static final long CURTAIN_RESCHEDULE_CAP_MS = 15 * 60_000L;
+    private android.content.SharedPreferences.OnSharedPreferenceChangeListener curtainPrefsListener;
+    private final Runnable curtainScheduleRunnable = () -> {
+        evaluateCurtainSchedule("TIMER");
+        rescheduleCurtainEvaluation();
+    };
     private boolean isFridaInitialized = false;
     private final List<Runnable> pendingTasks = new ArrayList<>();
     private static long timeBootReceived;
@@ -342,6 +355,32 @@ public class ServiceManager {
     private static final long STEERING_WHEEL_PROJECTION_TOGGLE_DEDUP_WINDOW_MS = 800L;
     private static final long STEERING_WHEEL_DASHBOARD_TOGGLE_DEDUP_WINDOW_MS = 800L;
     private static final long STEERING_WHEEL_CLIMATE_COMMAND_DEDUP_WINDOW_MS = 800L;
+    // ===== Modo Concessionária: sequência de saída pelo volante =====
+    // Com o modo ativo o ícone do launcher some, então esta é a ÚNICA porta de volta pela tela do
+    // carro: 3 toques CURTOS no botão 1, com até 8s entre eles. Roda MESMO com
+    // ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS desligado (que é justamente o estado do modo). Fora do
+    // modo é inerte — não interfere no uso normal do botão.
+    // ===== Saída do Modo Concessionária pelas SETAS: esquerda, direita, esquerda, direita =====
+    // Escolhido no lugar do volante porque não depende de NADA que o modo desliga: as setas são
+    // do carro, sempre funcionam, e não deixam vestígio de app instalado. A contagem avança na
+    // TROCA de lado, não por tempo — então tanto faz dar um toque ou travar a alavanca, e a seta
+    // piscando não conta várias vezes.
+    private static final String[] STEALTH_EXIT_TURN_SEQUENCE = {"L", "R", "L", "R"};
+    private static final long STEALTH_EXIT_TURN_WINDOW_MS = 20000L; // folga entre um lado e outro
+    private int stealthExitTurnIndex = 0;
+    private String stealthExitLastTurnSide = null;
+    private long stealthExitLastTurnAtMs = 0L;
+
+    private static final int STEALTH_EXIT_BUTTON_1_KEY = 517;      // botão 1, toque curto
+    private static final int STEALTH_EXIT_PRESSES = 3;
+    private static final long STEALTH_EXIT_WINDOW_MS = 8000L;      // janela máxima ENTRE toques
+    // O input service deste head unit reporta o toque como evento de RELEASE (ver
+    // ClusterCardNavigationPolicy.shouldHandleInputAction). Não filtramos por action — se o
+    // firmware mandar DOWN+UP, este debounce colapsa o par em um toque só. Ele também é a defesa
+    // contra auto-repeat: repetição de firmware chega bem mais rápido que 300ms.
+    private static final long STEALTH_EXIT_DEBOUNCE_MS = 300L;
+    private int stealthExitPressCount = 0;
+    private long stealthExitLastPressAtMs = 0L;
     private int lastDashboardToggleButton = -1;
     private long lastDashboardToggleAtMs = 0L;
     private static final int[] INPUT_LISTENER_KEY_CODES = new int[] {
@@ -850,6 +889,14 @@ public class ServiceManager {
                 public void dispatchKeyEvent(KeyEvent keyEvent) {
                     final long dispatchStartedAt = SystemClock.uptimeMillis();
                     final int dispatchKeyCode = keyEvent.getKeyCode();
+                    // PRIMEIRA coisa do dispatch, antes de qualquer handler que possa dar return:
+                    // é a única porta de volta do Modo Concessionária e não pode depender de
+                    // nenhuma preferência nem de nenhum outro caminho ter deixado passar.
+                    try {
+                        handleStealthExitSequence(keyEvent);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error in stealth exit sequence detection", e);
+                    }
                     try {
                     Log.w(
                             TAG,
@@ -873,7 +920,13 @@ public class ServiceManager {
                         Log.w(TAG, "Android Auto handled steering media key: " + keyEvent.getKeyCode());
                         return;
                     }
-                    if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
+                    // As ações CUSTOM do volante ficam suspensas no Modo Concessionária: senão os
+                    // 3 toques curtos da sequência de saída disparariam a ação de toque curto
+                    // configurada pelo usuário (e a de toque DUPLO, que a janela de 350ms detecta no
+                    // meio da sequência). A pref já está desligada no modo, então isto é rede de
+                    // segurança. A detecção da sequência já rodou lá em cima, antes de tudo.
+                    if (!StealthModeManager.isActive()
+                            && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
                         switch (keyEvent.getKeyCode()) {
                             case 517: onSteeringCustomShortPress(1); break;   // botao 1 curto
                             case 1031: onSteeringCustomShortPress(2); break;  // botao 2 curto
@@ -1152,9 +1205,12 @@ public class ServiceManager {
         Log.w(TAG, "Services initialized successfully");
         boolean curtainOnStartEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
         traceCurtain("sunroof_curtain_init", "enabled", curtainOnStartEnabled, "hasRun", hasRunStartupCurtainAutomation);
-        if (curtainOnStartEnabled && !hasRunStartupCurtainAutomation) {
+        if (!hasRunStartupCurtainAutomation) {
             hasRunStartupCurtainAutomation = true;
-            autoOpenSunroofCurtain(0);
+            // Avalia agora (caso ligue já dentro da janela) e passa a se auto-reagendar p/ o
+            // próximo boundary. O listener cobre habilitar/mudar a config depois, sem polling.
+            registerCurtainPrefsListener();
+            backgroundHandler.post(curtainScheduleRunnable);
         }
         scheduleStartupReportReconciliations();
         // HEV Prioritário: no boot o carro costuma resetar o % (ex.: 45->80) e o app pode subir
@@ -1173,6 +1229,35 @@ public class ServiceManager {
     }
 
     public void ensureSteeringWheelButtonIntegration() {
+        // Modo Concessionária: as preferências do usuário estão desligadas (inclusive a dos botões
+        // custom), então o caminho normal aqui embaixo devolveria os botões à função NATIVA do head
+        // unit — e os toques nunca mais chegariam ao dispatchKeyEvent. Como este método roda a cada
+        // boot (initialize()), sem esta guarda o primeiro ciclo de ignição mataria a sequência de
+        // saída e trancaria o app por dentro. É a mesma razão do force_steering_integration do
+        // enter(); a saída limpa a flag ANTES de chamar este método, então o estado do usuário volta
+        // normalmente.
+        // Vale também durante o ENSAIO: ele roda antes de ativar, e é aqui que os botões usados pela
+        // sequência precisam estar capturados — senão o dono não consegue concluir o ensaio.
+        if (StealthModeManager.isActive() || StealthModeManager.isAwaitingConfirmation()) {
+            // O botão 1 fica sempre integrado (porta de saída histórica). O botão 2 só entra quando a
+            // sequência ESCOLHIDA pelo dono usa ele: integrar à toa mudaria a função nativa do botão
+            // à vista do mecânico, que é justamente o que este modo evita. Mas se a sequência precisa
+            // dele e a integração não subir, os toques nunca chegam ao dispatchKeyEvent e o dono fica
+            // trancado do lado de fora — por isso a checagem, e não uma escolha fixa.
+            boolean needsButton2 = false;
+            try {
+                needsButton2 = StealthExitSequence.current().contains(StealthExitSequence.Step.BUTTON2);
+            } catch (Exception e) {
+                Log.e(TAG, "não deu pra ler a sequência de saída; assumindo que o botão 2 é necessário", e);
+                needsButton2 = true; // lado seguro: sobra integração, não falta porta de saída
+            }
+            Log.w(TAG, "Modo Concessionária ativo; botão 1 integrado (porta de saída), botão 2 = " + needsButton2);
+            enableSteeringWheelButton1Integration();
+            if (needsButton2) {
+                enableSteeringWheelButton2Integration();
+            }
+            return;
+        }
         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
             // habilita o botao se QUALQUER toque (curto/duplo/longo) tiver acao configurada
             boolean button1Used = steeringActionConfigured(1, "SHORT") || steeringActionConfigured(1, "DOUBLE") || steeringActionConfigured(1, "LONG");
@@ -1235,8 +1320,141 @@ public class ServiceManager {
                 && !k.equals(SteeringWheelCustomActionType.DEFAULT.name());
     }
 
-    // Toque curto. Se houver acao de DUPLO configurada, espera ~350ms pra ver se vem um 2o toque
-    // (senao dispara o curto na hora, sem atraso). O 2o toque dentro da janela vira DUPLO.
+    /**
+     * Modo Concessionária — detecção da sequência de saída: 3 toques CURTOS no botão 1 do volante,
+     * com até 8s entre eles. Chamada no TOPO de dispatchKeyEvent, antes de qualquer outro handler,
+     * porque com o modo ativo o ícone do app some e esta é a única porta de volta pela tela do
+     * carro.
+     *
+     * Deliberadamente NÃO consulta preferência nenhuma: no modo, ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS
+     * está desligado de propósito, e a volta não pode depender de nada que o modo desliga. Quando o
+     * modo NÃO está ativo a sequência é inerte — só zera o contador e sai, sem consumir o evento nem
+     * alterar o comportamento normal do botão (o handler custom logo abaixo continua recebendo a
+     * tecla).
+     *
+     * O que garante que a tecla CHEGUE aqui é a integração custom do botão estar habilitada no head
+     * unit — por isso enter() a força e ensureSteeringWheelButtonIntegration() a mantém enquanto o
+     * modo está ativo.
+     */
+    /**
+     * Sequência de saída do Modo Concessionária pelas setas: esquerda, direita, esquerda, direita.
+     *
+     * Avança na TROCA de lado, não por tempo nem por número de piscadas — a seta ligada emite o
+     * sinal repetidamente, e contar cada emissão faria um único acionamento valer por vários.
+     * Fora do modo é inerte: só zera o progresso e sai.
+     */
+    private void handleStealthExitTurnSignal(String key, String value) {
+        if (key == null) return;
+        // A LUZ da seta, não o switch da alavanca: este carro responde
+        // "is not support for dataId car.basic.left_turn_switch_status" e nunca emite nada por lá.
+        // Estas três chaves já estavam em DEFAULT_KEYS, então chegam sem configuração extra.
+        boolean isLeft = CarConstants.CAR_BASIC_LEFT_TURN_LIGHT_STATUS.getValue().equals(key);
+        boolean isRight = CarConstants.CAR_BASIC_RIGHT_TURN_LIGHT_STATUS.getValue().equals(key);
+        // A luz alta tambem serve de passo: ja esta em DEFAULT_KEYS, entao chega por evento como as
+        // setas, sem configuracao extra.
+        boolean isHighBeam = CarConstants.CAR_BASIC_HIGH_BEAM_LIGHT_STATUS.getValue().equals(key);
+        if (!isLeft && !isRight && !isHighBeam) return;
+
+        // O mesmo detector serve a dois momentos: o ENSAIO (o dono prova que sabe sair, antes de
+        // ativar) e a SAÍDA de verdade. Fora dos dois, é inerte.
+        boolean rehearsing = StealthModeManager.isAwaitingConfirmation();
+        if (!StealthModeManager.isActive() && !rehearsing) {
+            stealthExitTurnIndex = 0;
+            stealthExitLastTurnSide = null;
+            stealthExitLastTurnAtMs = 0L;
+            return;
+        }
+
+        boolean on = "1".equals(value == null ? "" : value.trim());
+        if (!on) return; // apagar a luz não conta; só o acendimento
+
+        // Pisca-alerta acende os dois lados alternando: sozinho ele completaria a sequência e
+        // tiraria o carro do modo sem ninguém pedir. Enquanto estiver ligado, nada conta.
+        try {
+            String hazard = getData(CarConstants.CAR_BASIC_HAZARD_LIGHT_STATUS.getValue());
+            if (hazard != null && "1".equals(hazard.trim())) {
+                stealthExitTurnIndex = 0;
+                stealthExitLastTurnSide = null;
+                return;
+            }
+        } catch (Exception ignored) {
+        }
+
+        StealthExitSequence.Step step = isLeft
+                ? StealthExitSequence.Step.LEFT
+                : isRight
+                        ? StealthExitSequence.Step.RIGHT
+                        : StealthExitSequence.Step.HIGH_BEAM;
+        feedStealthExitStep(step, rehearsing);
+    }
+
+    /**
+     * Ponto unico onde os passos da sequencia de saida entram, venham das setas ou dos botoes do
+     * volante. Antes eram dois detectores separados com contadores proprios, o que impedia uma
+     * sequencia MISTA ("seta esquerda, botao 1, seta direita"): cada um so enxergava a propria
+     * metade e nenhum dos dois fechava. Os guardas de contexto (pisca-alerta, carro parado, modo
+     * inativo) ficam com quem chama, que e quem tem os dados do CAN.
+     */
+    private void feedStealthExitStep(StealthExitSequence.Step step, boolean rehearsing) {
+        // Gate de MARCHA P, no ponto único: antes ele estava só no caminho das setas, então pelos
+        // botões do volante a sequência avançava com o carro andando. Exigir P deixa a saída ser um
+        // ato deliberado, com o carro estacionado — parado num semáforo o gesto poderia sair sem
+        // querer, e manobrar produz seta-seta naturalmente.
+        //
+        // Marcha ilegível conta como "não está em P": lado seguro. No pior caso o dono repete o
+        // gesto; sair sozinho na garagem de terceiros seria bem pior.
+        boolean inPark;
+        try {
+            String gear = getData(CarConstants.CAR_BASIC_GEAR_STATUS.getValue());
+            inPark = gear != null && "3".equals(gear.trim());   // 3 = P (ver getGearLabel)
+        } catch (Exception e) {
+            inPark = false;
+        }
+        if (!inPark) {
+            StealthExitSequence.reset();
+            // No ensaio o dono está olhando a tela: sem este aviso ele repetiria o gesto sem
+            // entender por que o contador não anda.
+            if (rehearsing) {
+                StealthModeManager.onConfirmationBlocked("Coloque o carro em P para fazer a sequência.");
+            }
+            return;
+        }
+
+        StealthExitSequence.Outcome outcome = StealthExitSequence.feed(step, StealthExitSequence.current());
+        if (outcome == StealthExitSequence.Outcome.IGNORED) return;
+
+        if (outcome == StealthExitSequence.Outcome.PROGRESS) {
+            if (rehearsing) StealthModeManager.onConfirmationStep(StealthExitSequence.progress(), false);
+            return;
+        }
+
+        int total = StealthExitSequence.current().size();
+        if (rehearsing) {
+            Log.w(TAG, "Ensaio da saida concluido");
+            StealthModeManager.onConfirmationStep(total, true);
+            return;
+        }
+        Log.w(TAG, "Sequencia de saida completa; confirmando");
+        StealthModeManager.onExitSequenceCompleted(App.getContext(), "EXIT_SEQUENCE");
+    }
+
+    private void handleStealthExitSequence(KeyEvent keyEvent) {
+        if (keyEvent == null) return;
+        StealthExitSequence.Step step;
+        switch (keyEvent.getKeyCode()) {
+            case 517:  step = StealthExitSequence.Step.BUTTON1; break;  // botao 1, toque curto
+            case 1031: step = StealthExitSequence.Step.BUTTON2; break;  // botao 2, toque curto
+            default: return;
+        }
+
+        boolean rehearsing = StealthModeManager.isAwaitingConfirmation();
+        if (!StealthModeManager.isActive() && !rehearsing) {
+            StealthExitSequence.reset();
+            return;
+        }
+        feedStealthExitStep(step, rehearsing);
+    }
+
     private void onSteeringCustomShortPress(int button) {
         final int idx = button - 1;
         long now = System.currentTimeMillis();
@@ -2275,7 +2493,25 @@ public class ServiceManager {
             Log.w(TAG, "[DOOR_DEBUG] key=" + key + " value=" + value);
         }
         dispatchTelemetryOnly(key, value);
+        // Antes de qualquer gate: com o Modo Concessionária ativo esta é a porta de saída, e ela
+        // não pode depender de nada que o modo tenha desligado.
+        try {
+            handleStealthExitTurnSignal(key, value);
+        } catch (Exception e) {
+            Log.e(TAG, "Error in stealth exit turn-signal detection", e);
+        }
         if (!servicesInitialized) {
+            return;
+        }
+        // ===== GATE do Modo Concessionária =====
+        // Com o modo ativo NENHUMA automação de CAN age (cortina, ventilação, brilho, BT/hotspot,
+        // AVM, HEV, janelas/teto...). A telemetria acima continua rodando de propósito: ela só
+        // alimenta a UI/tema/listeners internos, não escreve nada no carro.
+        //
+        // ISENÇÃO DAS TECLAS DO VOLANTE: elas NÃO passam por aqui. Chegam pelo callback separado
+        // IInputListener.dispatchKeyEvent (com.beantechs.inputservice), onde a sequência de saída
+        // é avaliada como primeiríssima etapa. Por isso este gate não pode trancar o app fora.
+        if (StealthModeManager.isActive()) {
             return;
         }
         try {
@@ -2654,6 +2890,131 @@ public class ServiceManager {
             traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "unparseable");
             return null;
         }
+    }
+
+    /**
+     * Cortina automática do teto por horário (feature unificada "Conforto & conveniência").
+     * Event-driven: roda no boot e é reagendada p/ o PRÓXIMO boundary de janela
+     * (rescheduleCurtainEvaluation — sem polling), então pega a virada do horário mesmo com o
+     * carro ligado parado. Abrir e Fechar têm janelas próprias. Cada ação dispara UMA vez por
+     * ENTRADA na janela e rearma ao sair — respeita ajuste manual e não refaz a cada disparo.
+     * Fechar tem precedência se as janelas casarem. Temperatura condiciona SOMENTE a abertura.
+     */
+    private void evaluateCurtainSchedule(String trigger) {
+        boolean openEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
+        boolean closeEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CLOSE_SUNROOF_CURTAIN_ON_TIME.getKey(), false);
+        if (!openEnabled && !closeEnabled) return;
+
+        Calendar now = Calendar.getInstance();
+        int t = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE);
+
+        boolean inOpen = openEnabled && isTimeInRange(t,
+                sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_START_HOUR.getKey(), 18),
+                sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_START_MINUTE.getKey(), 0),
+                sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_END_HOUR.getKey(), 9),
+                sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_END_MINUTE.getKey(), 0));
+        boolean inClose = closeEnabled && isTimeInRange(t,
+                sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_START_HOUR.getKey(), 9),
+                sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_START_MINUTE.getKey(), 0),
+                sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_END_HOUR.getKey(), 17),
+                sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_END_MINUTE.getKey(), 0));
+
+        // Rearma ao SAIR da janela (permite disparar de novo na próxima entrada).
+        if (!inOpen) curtainOpenActedThisWindow = false;
+        if (!inClose) curtainCloseActedThisWindow = false;
+
+        // Fechar tem precedência se (config equivocada) as janelas casarem — nunca abrir+fechar juntos.
+        if (inClose && !curtainCloseActedThisWindow) {
+            curtainCloseActedThisWindow = true;
+            traceCurtain("curtain_schedule_act", "trigger", trigger, "action", "close", "nowMin", t);
+            autoCloseSunroofCurtain();
+            return;
+        }
+        if (inOpen && !curtainOpenActedThisWindow) {
+            curtainOpenActedThisWindow = true;
+            traceCurtain("curtain_schedule_act", "trigger", trigger, "action", "open", "nowMin", t);
+            autoOpenSunroofCurtain(0);
+        }
+    }
+
+    /** Fecha a cortina do teto (janela já validada em evaluateCurtainSchedule). Idempotente. */
+    private void autoCloseSunroofCurtain() {
+        Log.w(TAG, "Auto-closing sunroof curtain (schedule)");
+        // Pequeno atraso p/ garantir serviços prontos no boot (igual à abertura).
+        backgroundHandler.postDelayed(this::closeSunRoofShade, 2000);
+    }
+
+    /** Janela [sh:sm, eh:em) com virada de meia-noite. Janela vazia (s==e) = nunca. */
+    private boolean isTimeInRange(int t, int sh, int sm, int eh, int em) {
+        int s = sh * 60 + sm, e = eh * 60 + em;
+        if (s == e) return false;
+        return (s < e) ? (t >= s && t < e) : (t >= s || t < e);
+    }
+
+    /** Reagenda a próxima avaliação p/ o próximo boundary de janela (ou o teto). No-op se desligado. */
+    private void rescheduleCurtainEvaluation() {
+        if (backgroundHandler == null) return;
+        backgroundHandler.removeCallbacks(curtainScheduleRunnable);
+        boolean openEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
+        boolean closeEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CLOSE_SUNROOF_CURTAIN_ON_TIME.getKey(), false);
+        if (!openEnabled && !closeEnabled) return; // desligado: não fica acordando
+        long delay = computeCurtainDelayMs(openEnabled, closeEnabled);
+        traceCurtain("curtain_schedule_next", "delayMs", delay);
+        backgroundHandler.postDelayed(curtainScheduleRunnable, delay);
+    }
+
+    /** ms até o próximo boundary (start/end das janelas habilitadas), alinhado ao minuto, com teto. */
+    private long computeCurtainDelayMs(boolean openEnabled, boolean closeEnabled) {
+        Calendar now = Calendar.getInstance();
+        int nowMin = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE);
+        int nowSec = now.get(Calendar.SECOND);
+
+        int[] edges = new int[4];
+        int n = 0;
+        if (openEnabled) {
+            edges[n++] = clampMinuteOfDay(sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_START_HOUR.getKey(), 18),
+                    sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_START_MINUTE.getKey(), 0));
+            edges[n++] = clampMinuteOfDay(sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_END_HOUR.getKey(), 9),
+                    sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_END_MINUTE.getKey(), 0));
+        }
+        if (closeEnabled) {
+            edges[n++] = clampMinuteOfDay(sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_START_HOUR.getKey(), 9),
+                    sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_START_MINUTE.getKey(), 0));
+            edges[n++] = clampMinuteOfDay(sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_END_HOUR.getKey(), 17),
+                    sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_END_MINUTE.getKey(), 0));
+        }
+
+        int bestAheadMin = 24 * 60;
+        for (int i = 0; i < n; i++) {
+            int ahead = ((edges[i] - nowMin) % 1440 + 1440) % 1440;
+            if (ahead == 0) ahead = 1440; // estamos no minuto do boundary: o próximo é o de amanhã
+            if (ahead < bestAheadMin) bestAheadMin = ahead;
+        }
+
+        long delay = (long) bestAheadMin * 60_000L - (long) nowSec * 1000L + 2_000L; // alinha ao minuto +2s
+        if (delay < 5_000L) delay = 5_000L;
+        if (delay > CURTAIN_RESCHEDULE_CAP_MS) delay = CURTAIN_RESCHEDULE_CAP_MS;
+        return delay;
+    }
+
+    private int clampMinuteOfDay(int h, int m) {
+        int v = h * 60 + m;
+        if (v < 0) return 0;
+        if (v > 1439) return 1439;
+        return v;
+    }
+
+    /** Reagenda na hora quando qualquer pref da cortina muda (senão a config nova só valeria no teto). */
+    private void registerCurtainPrefsListener() {
+        if (curtainPrefsListener != null) return;
+        curtainPrefsListener = (prefs, key) -> {
+            if (key != null && key.contains("SunroofCurtain") && backgroundHandler != null) {
+                // Debounce: hora+minuto viram 2 escritas; coalesce e re-avalia/reagenda 1x.
+                backgroundHandler.removeCallbacks(curtainScheduleRunnable);
+                backgroundHandler.postDelayed(curtainScheduleRunnable, 800);
+            }
+        };
+        sharedPreferences.registerOnSharedPreferenceChangeListener(curtainPrefsListener);
     }
 
     public boolean isTurnLightOn() {

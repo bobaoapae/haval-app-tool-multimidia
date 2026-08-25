@@ -49,11 +49,18 @@ object ReleaseUpdateChecker {
                     }
 
                     if (downloadUrl != null) {
-                        val info = ReleaseInfo(tag, downloadUrl, isPrerelease)
-                        if (isPrerelease && latestPreview == null) {
-                            latestPreview = info
-                        } else if (!isPrerelease && latestRelease == null) {
-                            latestRelease = info
+                        // optString: release publicada sem descricao devolve null no JSON, e um
+                        // getString ali derrubaria a verificacao inteira por causa do texto.
+                        val notes = release.optString("body", "").trim()
+                        val info = ReleaseInfo(tag, downloadUrl, isPrerelease, notes)
+                        // Escolhe a MAIOR versão (compareVersions), NÃO a 1ª da lista: a ordem da API do
+                        // GitHub é por created_at = data do commit que a tag aponta, que fura fácil (tag
+                        // ancorada num commit antigo / releases por mirror). Sem break precoce. Regressão
+                        // reintroduzida na base PR119 — ver memória haval-ota-self-hosted-releases.
+                        if (isPrerelease) {
+                            if (latestPreview == null || compareVersions(tag, latestPreview!!.tag) > 0) latestPreview = info
+                        } else {
+                            if (latestRelease == null || compareVersions(tag, latestRelease!!.tag) > 0) latestRelease = info
                         }
                     }
 

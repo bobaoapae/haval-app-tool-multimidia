@@ -235,7 +235,13 @@ class BottomBarService : LifecycleService() {
     private val REFERENCE_OVERSCAN = 20
     private val MAX_HOLD_CORRECTIONS = 4
     private val HOLD_SETTLE_MS = 250L
-    private val LEFT_NAV_PANE_REHIDE_DELAY_MS = 5_000L
+    /** De quanto em quanto tempo conferir se o painel voltou. */
+    private val LEFT_NAV_PANE_POLL_MS = 5_000L
+
+
+    /** Esconde a navegacao para todos os apps. */
+    private val LEFT_NAV_PANE_HIDE_VALUE = "immersive.navigation=*"
+
 
     /**
      * Physical width of the left navigation pane, in px: the largest on-screen offset our bar window
@@ -277,27 +283,68 @@ class BottomBarService : LifecycleService() {
      * value is a no-op that SettingsProvider will not broadcast - so clear it first to force
      * PolicyControl to re-read and re-apply the flags.
      */
-    private fun scheduleLeftNavPaneRehide() {
+    /**
+     * Enquanto a preferencia pedir o painel oculto, confere a cada [LEFT_NAV_PANE_POLL_MS] se ele
+     * voltou (deslize do dono) e, se voltou, esconde.
+     *
+     * **Por que ler antes de escrever:** esconder de verdade exige apagar e reescrever o
+     * `policy_control` — reescrever o mesmo valor e um no-op que o sistema nao anuncia, e sem
+     * anuncio ele nao reaplica. Mas a chave vazia significa "nao esconda nada", entao o apagar
+     * REVELA o painel por um instante. Foi isso que fez a versao anterior piscar sozinha a cada 5s:
+     * ela escrevia sem saber se havia algo a esconder, e a propria escrita criava o que esconder.
+     *
+     * Conferindo antes, a escrita so acontece com o painel JA visivel — e ai o "apagar" nao revela
+     * coisa alguma, porque ele ja esta a mostra. Mesmo mecanismo, sem piscar nenhum.
+     */
+    private fun startLeftNavPaneWatcher() {
         if (leftNavPaneRehideJob?.isActive == true) return
-
         leftNavPaneRehideJob =
                 lifecycleScope.launch(Dispatchers.IO) {
-                    delay(LEFT_NAV_PANE_REHIDE_DELAY_MS)
-                    if (!BottomBarState.leftNavPaneHidden) return@launch
-                    Log.w("BottomBarService", "[NAV_PANE] re-hiding after swipe reveal")
-                    ShizukuUtils.runCommandAndGetOutput(
-                            arrayOf("settings", "delete", "global", "policy_control")
-                    )
-                    ShizukuUtils.runCommandAndGetOutput(
-                            arrayOf(
-                                    "settings",
-                                    "put",
-                                    "global",
-                                    "policy_control",
-                                    "immersive.navigation=*"
-                            )
-                    )
+                    while (true) {
+                        delay(LEFT_NAV_PANE_POLL_MS)
+                        if (!BottomBarState.leftNavPaneHidden) continue
+                        // Tela apagada nao tem painel pra esconder; nao gasta leitura.
+                        if (!ServiceManager.getInstance().isMainScreenOn) continue
+                        if (!isLeftNavPaneVisible()) continue
+                        Log.w("BottomBarService", "[NAV_PANE] painel visivel; escondendo")
+                        hideLeftNavPaneNow()
+                    }
                 }
+    }
+
+    /**
+     * Le do WindowManager se a barra de navegacao esta na tela. `isVisible` alterna limpo entre os
+     * dois estados (medido no carro: true/true/false com o painel aberto, false/false/true com ele
+     * fechado), entao basta ele.
+     *
+     * O grep roda NO CARRO: o dump lista todas as janelas, e so as poucas linhas que importam
+     * atravessam.
+     */
+    private fun isLeftNavPaneVisible(): Boolean = try {
+        val out = ShizukuUtils.runCommandAndGetOutput(
+                arrayOf(
+                        "sh", "-c",
+                        "dumpsys window windows 2>/dev/null | " +
+                                "grep -A 40 'Window{.*NavigationBar}' | grep -m1 'isVisible='"
+                )
+        )
+        out.contains("isVisible=true")
+    } catch (t: Throwable) {
+        Log.w("BottomBarService", "[NAV_PANE] nao deu pra ler o estado do painel", t)
+        false // na duvida NAO escreve: escrever as cegas e o que fazia piscar
+    }
+
+    /** Apaga e reescreve pra forcar o sistema a reaplicar. Só chamado com o painel JÁ visível. */
+    private fun hideLeftNavPaneNow() {
+        ShizukuUtils.runCommandAndGetOutput(
+                arrayOf("settings", "delete", "global", "policy_control")
+        )
+        ShizukuUtils.runCommandAndGetOutput(
+                arrayOf(
+                        "settings", "put", "global", "policy_control",
+                        LEFT_NAV_PANE_HIDE_VALUE
+                )
+        )
     }
 
     /** Real display width in px (1920 here) - the width both overlay windows are held at. */
@@ -378,12 +425,10 @@ class BottomBarService : LifecycleService() {
             cachedLeftGutterPx = observedPaneWidth
         }
 
-        // The pane can be swiped back in from the left edge even while the user has asked for it to
-        // stay hidden. Its frame inset reappearing is the only signal we get, so use that to re-arm
-        // the hide.
-        if (BottomBarState.leftNavPaneHidden && observedPaneWidth > 0) {
-            scheduleLeftNavPaneRehide()
-        }
+        // O inset do painel NAO muda quando ele volta por deslize — medido no carro: zero eventos
+        // [NAV_PANE] no logcat depois de varios deslizes. O que escondia antes era o proprio ciclo
+        // de piscar, por acidente; ao mata-lo, a ilusao de "auto-ocultar" caiu junto. Quem detecta
+        // agora e o watcher abaixo, que le o estado real da janela.
 
         // With the pane hidden on purpose there is nothing to stay clear of, so hand the content the
         // full width instead of leaving a permanent empty gutter.
@@ -451,6 +496,7 @@ class BottomBarService : LifecycleService() {
         updateFridaStatus(prefs)
 
         showBottomBar()
+        startLeftNavPaneWatcher()
         observeMenuState()
         observeDashboardActivityState()
         observeVisibility()
