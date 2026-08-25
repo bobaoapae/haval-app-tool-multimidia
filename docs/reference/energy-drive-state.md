@@ -65,8 +65,11 @@ with a drive capture rather than assuming.
 ### `_re300` is a variant override, not a value
 
 `flow_name_value_3_re300`, `_18_re300`, `_24_re300` are model-specific label overrides (RE300 is one
-of several platforms, each with its own `*FlowView`). Raw state **3 is "only driven by engine"** — do
-not treat `3_re300` as a distinct raw value.
+of several platforms, each with its own `*FlowView`). Do not treat `3_re300` as a distinct raw value.
+
+**This vehicle is the RE300 HEV** — the H6 3D viewer's POWER card says so in its own source comment
+("BeanEnergyAssistant Fluxo de energia (RE300 HEV)"). So for this car the `_re300` overrides are the
+ones that apply, and state 3 reads **"Condução paralela"**, not the generic "only driven by engine".
 
 ## Invalid-value sentinels
 
@@ -125,6 +128,29 @@ adb shell am broadcast -a br.com.redesurftank.havalshisuku.ACTION_DISPATCH_ALL_D
 
 then `adb logcat -d -s H6Viewer`. `scripts/Capture-Energy-Flow.ps1` wraps both — `-Snapshot` for a
 one-shot dump, no flag to record a drive to CSV.
+
+## Shared decoder
+
+`cluster-widgets/source/v1.0/shared/car/powerFlow.js` ports this table for theme use. It exposes
+`derivePowerFlow({driveState, chargingState, packKw, speedKmh, engineOn, awd})` returning
+`{tone, label, ice, batt, wheel, iceBatt, battWheel, iceWheel, front, rear}`, where `front`/`rear`
+are `+1` driving, `-1` regenerating, `0` off.
+
+It is a port of `CAR_POWER_FLOW` from the **installed** H6 3D viewer
+(`com.havalh6.viewer`, `assets/www/index.html` — note the on-car APK is much newer than the copy in
+the `haval-app-tool-multimidia-h6-3d` repo, which has no POWER card at all). Three deliberate
+differences from that source:
+
+- **States 31 and 37 are corrected.** The viewer marks both axles as driving. The OEM strings say P2
+  is *generating* while P4 drives, so `front` is `-1`. These are the only two states where the axles
+  run in opposite directions — exactly the case a per-axle indicator exists to show.
+- **Rear-axle inference is opt-in.** The viewer's `_powerInferAwd` always lights both axles when it
+  recovers from an unmapped enum, which invents a P4 motor on a front-drive car. The port gates this
+  behind `awd`, default false.
+- **States 43, 44 and 73 are added** — present in the OEM string table, absent from the viewer's map.
+
+The port also folds in `flow.ice`, so state 11 ("stationary, engine running") keeps its engine-on
+fact through the idle-recovery path instead of depending on a separately supplied `engineOn`.
 
 ## Reaching these keys from a cluster theme
 
