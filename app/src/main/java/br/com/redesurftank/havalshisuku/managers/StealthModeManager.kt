@@ -82,7 +82,12 @@ object StealthModeManager {
             // Não aparecem na tela e desligar a pref não desfaz o que já está injetado — só tiraria
             // capacidade do app, sem ganho nenhum de disfarce.
             SharedPreferencesKeys.ENABLE_FRIDA_HOOKS,
-            SharedPreferencesKeys.ENABLE_FRIDA_HOOK_SYSTEM_SERVER
+            SharedPreferencesKeys.ENABLE_FRIDA_HOOK_SYSTEM_SERVER,
+            // O PIN de saída. A varredura automática pega tudo que começa com ENABLE_, e isso
+            // desligava justamente a trava da porta de saída ao entrar no modo: na hora de sair,
+            // isEnabled() era false e a sequência saía direto, sem pedir nada. Não é disfarce
+            // nenhum desligá-lo — ele só existe DENTRO do modo.
+            SharedPreferencesKeys.ENABLE_STEALTH_EXIT_PIN
         )
 
     /**
@@ -183,10 +188,36 @@ object StealthModeManager {
 
     /** Arma o ensaio. [onProgress] recebe (passos de 0 a 4, concluído). */
     @JvmStatic
-    fun armConfirmation(onProgress: (Int, Boolean) -> Unit) {
+    @Volatile private var confirmationBlockedListener: ((String) -> Unit)? = null
+
+    /** Avisa a tela do ensaio que uma condição não foi atendida (ex.: carro fora de P). */
+    @JvmStatic
+    fun onConfirmationBlocked(reason: String) {
+        if (!awaitingConfirmation) return
+        val listener = confirmationBlockedListener ?: return
+        Handler(Looper.getMainLooper()).post { listener.invoke(reason) }
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun armConfirmation(
+            onProgress: (Int, Boolean) -> Unit,
+            onBlocked: ((String) -> Unit)? = null
+    ) {
+        confirmationBlockedListener = onBlocked
         awaitingConfirmation = true
         confirmationProgress = 0
         confirmationListener = onProgress
+        StealthExitSequence.reset()
+        // O ensaio acontece ANTES de ativar, e é justamente na ativação que os botões do volante
+        // passam a ser capturados. Sem isto, uma sequência com ① ou ② nunca completaria o ensaio:
+        // o toque continuaria indo pra função nativa e o dono ficaria preso na tela de ensaio,
+        // sem conseguir ativar — e sem entender por quê.
+        try {
+            ServiceManager.getInstance().ensureSteeringWheelButtonIntegration()
+        } catch (t: Throwable) {
+            Log.w(TAG, "não deu pra preparar os botões do volante pro ensaio", t)
+        }
         onProgress(0, false)
     }
 
@@ -195,6 +226,14 @@ object StealthModeManager {
         awaitingConfirmation = false
         confirmationProgress = 0
         confirmationListener = null
+        confirmationBlockedListener = null
+        StealthExitSequence.reset()
+        // Desistiu de ativar: devolve os botões à configuração normal do dono.
+        try {
+            ServiceManager.getInstance().ensureSteeringWheelButtonIntegration()
+        } catch (t: Throwable) {
+            Log.w(TAG, "não deu pra restaurar os botões do volante", t)
+        }
     }
 
     /** Chamado pelo detector de setas a cada troca de lado válida durante o ensaio. */
@@ -205,6 +244,7 @@ object StealthModeManager {
         if (done) {
             awaitingConfirmation = false
             confirmationListener = null
+            confirmationBlockedListener = null
         }
         Handler(Looper.getMainLooper()).post { listener?.invoke(step, done) }
     }
@@ -789,6 +829,30 @@ object StealthModeManager {
         // o sistema em pe deixa a tela travada em preto, e o reinicio e o que faz o painel voltar
         // ao nativo de verdade (no boot seguinte os projetores nem sobem).
         step("reboot_head_unit") { rebootHeadUnitAfterEnter(appContext) }
+    }
+
+    /**
+     * A sequência fechou. Se o dono ligou o PIN, ainda falta provar QUEM é: a sequência mostra
+     * intenção (não foi sem querer), o PIN mostra identidade. Sem PIN, sai direto como antes.
+     */
+    @JvmStatic
+    fun onExitSequenceCompleted(context: Context, reason: String) {
+        if (!StealthExitPin.isEnabled()) {
+            exit(context, reason)
+            return
+        }
+        Log.w(TAG, "[$reason] sequência ok; pedindo PIN")
+        // Janela sobreposta, NÃO Activity: com o app escondido não há tela em primeiro plano, e o
+        // Android recusa abrir Activity a partir de segundo plano. A primeira versão usava Activity
+        // e no carro ela nunca apareceu — a saída acontecia sem pedir PIN nenhum, que é o oposto do
+        // que a feature promete.
+        val shown = StealthPinOverlay.show { exit(context, "${reason}_PIN_OK") }
+        if (!shown) {
+            // Nem o overlay subiu (sem permissão de sobreposição, por exemplo). Ficar preso no modo
+            // sem nenhum recurso é pior que o modo ser burlável: sai e registra.
+            Log.e(TAG, "[$reason] teclado do PIN não subiu; saindo sem ele")
+            exit(context, "${reason}_PIN_UI_FALHOU")
+        }
     }
 
     @JvmStatic

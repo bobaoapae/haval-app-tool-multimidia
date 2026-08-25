@@ -1236,9 +1236,26 @@ public class ServiceManager {
         // saída e trancaria o app por dentro. É a mesma razão do force_steering_integration do
         // enter(); a saída limpa a flag ANTES de chamar este método, então o estado do usuário volta
         // normalmente.
-        if (StealthModeManager.isActive()) {
-            Log.w(TAG, "Modo Concessionária ativo; mantendo o botão 1 do volante integrado (porta de saída)");
+        // Vale também durante o ENSAIO: ele roda antes de ativar, e é aqui que os botões usados pela
+        // sequência precisam estar capturados — senão o dono não consegue concluir o ensaio.
+        if (StealthModeManager.isActive() || StealthModeManager.isAwaitingConfirmation()) {
+            // O botão 1 fica sempre integrado (porta de saída histórica). O botão 2 só entra quando a
+            // sequência ESCOLHIDA pelo dono usa ele: integrar à toa mudaria a função nativa do botão
+            // à vista do mecânico, que é justamente o que este modo evita. Mas se a sequência precisa
+            // dele e a integração não subir, os toques nunca chegam ao dispatchKeyEvent e o dono fica
+            // trancado do lado de fora — por isso a checagem, e não uma escolha fixa.
+            boolean needsButton2 = false;
+            try {
+                needsButton2 = StealthExitSequence.current().contains(StealthExitSequence.Step.BUTTON2);
+            } catch (Exception e) {
+                Log.e(TAG, "não deu pra ler a sequência de saída; assumindo que o botão 2 é necessário", e);
+                needsButton2 = true; // lado seguro: sobra integração, não falta porta de saída
+            }
+            Log.w(TAG, "Modo Concessionária ativo; botão 1 integrado (porta de saída), botão 2 = " + needsButton2);
             enableSteeringWheelButton1Integration();
+            if (needsButton2) {
+                enableSteeringWheelButton2Integration();
+            }
             return;
         }
         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
@@ -1333,7 +1350,10 @@ public class ServiceManager {
         // Estas três chaves já estavam em DEFAULT_KEYS, então chegam sem configuração extra.
         boolean isLeft = CarConstants.CAR_BASIC_LEFT_TURN_LIGHT_STATUS.getValue().equals(key);
         boolean isRight = CarConstants.CAR_BASIC_RIGHT_TURN_LIGHT_STATUS.getValue().equals(key);
-        if (!isLeft && !isRight) return;
+        // A luz alta tambem serve de passo: ja esta em DEFAULT_KEYS, entao chega por evento como as
+        // setas, sem configuracao extra.
+        boolean isHighBeam = CarConstants.CAR_BASIC_HIGH_BEAM_LIGHT_STATUS.getValue().equals(key);
+        if (!isLeft && !isRight && !isHighBeam) return;
 
         // O mesmo detector serve a dois momentos: o ENSAIO (o dono prova que sabe sair, antes de
         // ativar) e a SAÍDA de verdade. Fora dos dois, é inerte.
@@ -1360,93 +1380,81 @@ public class ServiceManager {
         } catch (Exception ignored) {
         }
 
-        // Só com o carro PARADO. Manobrar para estacionar produz esquerda-direita-esquerda-direita
-        // sem nenhuma intenção de sair do modo; parado, a alternância só acontece de propósito.
-        // Velocidade ilegível conta como "em movimento": é o lado seguro (no pior caso o dono
-        // repete o gesto), e sair sozinho na garagem de terceiros seria bem pior.
+        StealthExitSequence.Step step = isLeft
+                ? StealthExitSequence.Step.LEFT
+                : isRight
+                        ? StealthExitSequence.Step.RIGHT
+                        : StealthExitSequence.Step.HIGH_BEAM;
+        feedStealthExitStep(step, rehearsing);
+    }
+
+    /**
+     * Ponto unico onde os passos da sequencia de saida entram, venham das setas ou dos botoes do
+     * volante. Antes eram dois detectores separados com contadores proprios, o que impedia uma
+     * sequencia MISTA ("seta esquerda, botao 1, seta direita"): cada um so enxergava a propria
+     * metade e nenhum dos dois fechava. Os guardas de contexto (pisca-alerta, carro parado, modo
+     * inativo) ficam com quem chama, que e quem tem os dados do CAN.
+     */
+    private void feedStealthExitStep(StealthExitSequence.Step step, boolean rehearsing) {
+        // Gate de MARCHA P, no ponto único: antes ele estava só no caminho das setas, então pelos
+        // botões do volante a sequência avançava com o carro andando. Exigir P deixa a saída ser um
+        // ato deliberado, com o carro estacionado — parado num semáforo o gesto poderia sair sem
+        // querer, e manobrar produz seta-seta naturalmente.
+        //
+        // Marcha ilegível conta como "não está em P": lado seguro. No pior caso o dono repete o
+        // gesto; sair sozinho na garagem de terceiros seria bem pior.
+        boolean inPark;
         try {
-            String rawSpeed = getData(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue());
-            float speed = rawSpeed == null || rawSpeed.trim().isEmpty()
-                    ? Float.MAX_VALUE
-                    : Float.parseFloat(rawSpeed.trim());
-            if (speed > 0.5f) {
-                stealthExitTurnIndex = 0;
-                stealthExitLastTurnSide = null;
-                return;
-            }
+            String gear = getData(CarConstants.CAR_BASIC_GEAR_STATUS.getValue());
+            inPark = gear != null && "3".equals(gear.trim());   // 3 = P (ver getGearLabel)
         } catch (Exception e) {
-            stealthExitTurnIndex = 0;
-            stealthExitLastTurnSide = null;
+            inPark = false;
+        }
+        if (!inPark) {
+            StealthExitSequence.reset();
+            // No ensaio o dono está olhando a tela: sem este aviso ele repetiria o gesto sem
+            // entender por que o contador não anda.
+            if (rehearsing) {
+                StealthModeManager.onConfirmationBlocked("Coloque o carro em P para fazer a sequência.");
+            }
             return;
         }
 
-        String side = isLeft ? "L" : "R";
-        if (side.equals(stealthExitLastTurnSide)) return; // mesma seta piscando: não avança
+        StealthExitSequence.Outcome outcome = StealthExitSequence.feed(step, StealthExitSequence.current());
+        if (outcome == StealthExitSequence.Outcome.IGNORED) return;
 
-        long now = SystemClock.uptimeMillis();
-        if (stealthExitLastTurnAtMs != 0L && now - stealthExitLastTurnAtMs > STEALTH_EXIT_TURN_WINDOW_MS) {
-            stealthExitTurnIndex = 0; // demorou demais entre os lados -> recomeça
-        }
-        stealthExitLastTurnSide = side;
-        stealthExitLastTurnAtMs = now;
-
-        if (!STEALTH_EXIT_TURN_SEQUENCE[stealthExitTurnIndex].equals(side)) {
-            // Lado fora de ordem: recomeça, mas já aproveita este acionamento se ele serve de 1º.
-            stealthExitTurnIndex = STEALTH_EXIT_TURN_SEQUENCE[0].equals(side) ? 1 : 0;
-            Log.w(TAG, "Stealth exit (setas): fora de ordem, recomeçando em " + stealthExitTurnIndex);
+        if (outcome == StealthExitSequence.Outcome.PROGRESS) {
+            if (rehearsing) StealthModeManager.onConfirmationStep(StealthExitSequence.progress(), false);
             return;
         }
 
-        stealthExitTurnIndex++;
-        Log.w(TAG, "Stealth exit (setas): " + stealthExitTurnIndex + "/" + STEALTH_EXIT_TURN_SEQUENCE.length);
-        if (stealthExitTurnIndex < STEALTH_EXIT_TURN_SEQUENCE.length) {
-            if (rehearsing) StealthModeManager.onConfirmationStep(stealthExitTurnIndex, false);
-            return;
-        }
-
-        stealthExitTurnIndex = 0;
-        stealthExitLastTurnSide = null;
-        stealthExitLastTurnAtMs = 0L;
+        int total = StealthExitSequence.current().size();
         if (rehearsing) {
-            Log.w(TAG, "Ensaio da saída concluído");
-            StealthModeManager.onConfirmationStep(STEALTH_EXIT_TURN_SEQUENCE.length, true);
+            Log.w(TAG, "Ensaio da saida concluido");
+            StealthModeManager.onConfirmationStep(total, true);
             return;
         }
-        Log.w(TAG, "Stealth exit (setas) completo; saindo do Modo Concessionária");
-        StealthModeManager.exit(App.getContext(), "TURN_SIGNAL_SEQUENCE");
+        Log.w(TAG, "Sequencia de saida completa; confirmando");
+        StealthModeManager.onExitSequenceCompleted(App.getContext(), "EXIT_SEQUENCE");
     }
 
     private void handleStealthExitSequence(KeyEvent keyEvent) {
         if (keyEvent == null) return;
-        if (keyEvent.getKeyCode() != STEALTH_EXIT_BUTTON_1_KEY) return;
+        StealthExitSequence.Step step;
+        switch (keyEvent.getKeyCode()) {
+            case 517:  step = StealthExitSequence.Step.BUTTON1; break;  // botao 1, toque curto
+            case 1031: step = StealthExitSequence.Step.BUTTON2; break;  // botao 2, toque curto
+            default: return;
+        }
 
-        if (!StealthModeManager.isActive()) {
-            stealthExitPressCount = 0;
-            stealthExitLastPressAtMs = 0L;
+        boolean rehearsing = StealthModeManager.isAwaitingConfirmation();
+        if (!StealthModeManager.isActive() && !rehearsing) {
+            StealthExitSequence.reset();
             return;
         }
-
-        long now = SystemClock.uptimeMillis();
-        if (stealthExitLastPressAtMs != 0L && now - stealthExitLastPressAtMs < STEALTH_EXIT_DEBOUNCE_MS) {
-            return; // repique do mesmo toque
-        }
-        if (stealthExitLastPressAtMs != 0L && now - stealthExitLastPressAtMs > STEALTH_EXIT_WINDOW_MS) {
-            stealthExitPressCount = 0; // demorou demais entre toques -> recomeça
-        }
-        stealthExitLastPressAtMs = now;
-
-        stealthExitPressCount++;
-        Log.w(TAG, "Stealth exit sequence: toque " + stealthExitPressCount + "/" + STEALTH_EXIT_PRESSES);
-        if (stealthExitPressCount < STEALTH_EXIT_PRESSES) return;
-
-        stealthExitPressCount = 0;
-        stealthExitLastPressAtMs = 0L;
-        Log.w(TAG, "Stealth exit sequence complete; leaving Modo Concessionária");
-        StealthModeManager.exit(App.getContext(), "STEERING_SEQUENCE");
+        feedStealthExitStep(step, rehearsing);
     }
 
-    // Toque curto. Se houver acao de DUPLO configurada, espera ~350ms pra ver se vem um 2o toque
-    // (senao dispara o curto na hora, sem atraso). O 2o toque dentro da janela vira DUPLO.
     private void onSteeringCustomShortPress(int button) {
         final int idx = button - 1;
         long now = System.currentTimeMillis();

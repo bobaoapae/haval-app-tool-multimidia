@@ -117,6 +117,26 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     // em vez de por gates espalhados. Ao SAIR, o retrato é restaurado chave a chave (tipos
     // originais, removendo o que não existia) e apagado. Ver StealthModeManager.
     STEALTH_MODE_ACTIVE("stealthModeActive", "Modo Concessionária ativo"),
+    STEALTH_EXIT_SEQUENCE_CUSTOM(
+            "stealthExitSequenceCustom",
+            "Usar sequência própria de saída (em vez da padrão das setas)"
+    ),
+    STEALTH_EXIT_SEQUENCE(
+            "stealthExitSequence",
+            "Sequência que tira o carro do Modo Concessionária (ex.: L,R,B1,B1)"
+    ),
+    ENABLE_STEALTH_EXIT_PIN(
+            "enableStealthExitPin",
+            "Pedir PIN depois da sequência de saída do Modo Concessionária"
+    ),
+    STEALTH_EXIT_PIN_HASH(
+            "stealthExitPinHash",
+            "Hash do PIN de saída (o número nunca é gravado)"
+    ),
+    STEALTH_EXIT_PIN_SALT(
+            "stealthExitPinSalt",
+            "Sal do hash do PIN de saída"
+    ),
     STEALTH_PREFS_SNAPSHOT(
             "stealthPrefsSnapshot",
             "Retrato das preferências gravado ao entrar no Modo Concessionária (JSON com tipos)"
