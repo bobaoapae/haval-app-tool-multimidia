@@ -1,5 +1,6 @@
 package br.com.redesurftank.havalshisuku.ui.components
 
+import br.com.redesurftank.havalshisuku.managers.UpdateNoticeManager
 import android.content.Context
 import android.media.AudioManager
 import android.os.SystemClock
@@ -2774,6 +2775,7 @@ private fun DashboardHeader(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                        DashboardUpdateChip()
                         DashboardStatusChip(
                                 icon = Icons.Default.DeviceThermostat,
                                 text = "Cabine ${formatTemperature(snapshot.insideTemp)}"
@@ -2838,6 +2840,72 @@ private fun DashboardHeaderControlButton(
                 }
         }
 }
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DashboardUpdateChip() {
+        // Só existe quando há versão nova. Nada de placeholder "tudo atualizado": o dashboard é
+        // olhado de relance dirigindo, e um chip permanente que quase sempre diz "nada a fazer" só
+        // gasta espaço e atenção.
+        val version = UpdateNoticeManager.availableVersion ?: return
+        val context = LocalContext.current
+        val accent = Color(0xFF4A9EFF)
+        Surface(
+                modifier = Modifier
+                        .height(44.dp)
+                        .combinedClickable(
+                                onClick = { openInformacoesScreen(context) },
+                                // Toque longo dispensa: quem não quer atualizar agora silencia esta
+                                // versão e só volta a ser avisado quando sair OUTRA.
+                                onLongClick = { UpdateNoticeManager.dismiss() }
+                        ),
+                color = accent.copy(alpha = 0.20f),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, accent.copy(alpha = 0.55f))
+        ) {
+                Row(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                        Icon(
+                                Icons.Default.FileDownload,
+                                contentDescription = "Nova versão disponível",
+                                tint = accent,
+                                modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                                text = version,
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontFamily = DashboardReadableFont,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                        )
+                }
+        }
+}
+
+/** Abre o app já na tela de Informações, onde fica o botão de atualizar. */
+private fun openInformacoesScreen(context: android.content.Context) {
+        try {
+                context.startActivity(
+                        android.content.Intent(
+                                        context,
+                                        br.com.redesurftank.havalshisuku.MainActivity::class.java
+                                )
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                .putExtra(
+                                        br.com.redesurftank.havalshisuku.MainActivity.EXTRA_SCREEN,
+                                        "Informações"
+                                )
+                )
+        } catch (t: Throwable) {
+                android.util.Log.e("BottomBarUI", "não deu pra abrir Informações", t)
+        }
+}
+
+
 
 @Composable
 private fun DashboardNativeMenuButton(onClick: () -> Unit) {

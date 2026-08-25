@@ -117,6 +117,14 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     // em vez de por gates espalhados. Ao SAIR, o retrato é restaurado chave a chave (tipos
     // originais, removendo o que não existia) e apagado. Ver StealthModeManager.
     STEALTH_MODE_ACTIVE("stealthModeActive", "Modo Concessionária ativo"),
+    ENABLE_UPDATE_NOTICE(
+            "enableUpdateNotice",
+            "Avisar quando houver versão nova"
+    ),
+    UPDATE_NOTICE_DISMISSED_VERSION(
+            "updateNoticeDismissedVersion",
+            "Última versão cujo aviso o dono dispensou"
+    ),
     STEALTH_EXIT_SEQUENCE_CUSTOM(
             "stealthExitSequenceCustom",
             "Usar sequência própria de saída (em vez da padrão das setas)"

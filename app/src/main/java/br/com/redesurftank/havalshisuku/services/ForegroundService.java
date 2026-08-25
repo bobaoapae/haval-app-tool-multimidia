@@ -342,6 +342,8 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     private void startCarPlaySystemUiIconWatchdogSafely(String reason) {
         try {
             DisplayAppLauncher.INSTANCE.startCarPlaySystemUiIconWatchdog();
+            // Verifica UMA vez por partida se saiu versao nova (espera a rede aparecer sozinho).
+            br.com.redesurftank.havalshisuku.managers.UpdateNoticeManager.checkOnStart();
         } catch (Exception e) {
             Log.e(TAG, "CarPlay SystemUI icon watchdog scheduling failed (" + reason + "): " + e.getMessage(), e);
         }
