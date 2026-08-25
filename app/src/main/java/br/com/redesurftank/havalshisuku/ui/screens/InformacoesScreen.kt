@@ -1012,6 +1012,7 @@ fun InformacoesTab() {
                                                                                                 8.dp
                                                                                         )
                                                                         )
+                                                                        ReleaseNotes(result.latestPreview!!.notes)
                                                                         Button(
                                                                                 onClick = {
                                                                                         showUpdateCheckDialog =
@@ -1189,6 +1190,7 @@ fun InformacoesTab() {
                                                                                                 8.dp
                                                                                         )
                                                                         )
+                                                                        ReleaseNotes(result.latestRelease.notes)
                                                                         Button(
                                                                                 onClick = {
                                                                                         showUpdateCheckDialog =
@@ -1452,4 +1454,33 @@ fun InformacoesTab() {
                         }
                 )
         }
+}
+
+/**
+ * Mostra o que mudou na versao, com o texto escrito na propria release.
+ *
+ * Ate agora quem atualizava ficava procurando pelo app o que tinha mudado. A nota ja vinha na
+ * MESMA consulta que busca a versao — estava sendo descartada no parser. Nao precisa de arquivo
+ * separado no repositorio nem de outra requisicao.
+ *
+ * Altura limitada com rolagem: nota longa nao pode empurrar o botao de atualizar pra fora da tela,
+ * que e a razao de o dialogo existir.
+ */
+@Composable
+private fun ReleaseNotes(notes: String) {
+        if (notes.isBlank()) return
+        Column(
+                modifier =
+                        Modifier.fillMaxWidth()
+                                .heightIn(max = 180.dp)
+                                .verticalScroll(rememberScrollState())
+        ) {
+                Text(
+                        text = notes,
+                        color = AppColors.TextSecondary,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
+                )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
 }
