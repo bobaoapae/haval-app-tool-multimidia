@@ -77,13 +77,55 @@ private fun applyLeftNavPaneVisibility(hidden: Boolean) {
                                                 "immersive.navigation=*"
                                         )
                                 else arrayOf("settings", "delete", "global", "policy_control")
-                        val result =
+                        // CONFERE depois de aplicar, e insiste ate 3 vezes.
+                        //
+                        // Antes era disparo cego: mandava o comando e so registrava a saida, sem
+                        // olhar se pegou. Quando o Shizuku esta fora naquele instante, o comando
+                        // falha em silencio — e no DESLIGAR o estrago e grande: a politica
+                        // `immersive.navigation` fica valendo, a barra de navegacao continua
+                        // transitoria e o Android passa a IGNORAR o toque no botao home. Aconteceu
+                        // no carro: funcao desligada e home morto, enquanto os outros icones da
+                        // mesma faixa (grade de apps, temperatura) seguiam normais — sao interface
+                        // da montadora, nao da barra de navegacao.
+                        var aplicado = false
+                        for (tentativa in 1..3) {
                                 br.com.redesurftank.havalshisuku.utils.ShizukuUtils
                                         .runCommandAndGetOutput(command)
-                        android.util.Log.w(
-                                "BasicSettingsScreen",
-                                "[NAV_PANE] hidden=$hidden result=$result"
-                        )
+                                val agora =
+                                        runCatching {
+                                                        br.com.redesurftank.havalshisuku.utils
+                                                                .ShizukuUtils
+                                                                .runCommandAndGetOutput(
+                                                                        arrayOf(
+                                                                                "settings",
+                                                                                "get",
+                                                                                "global",
+                                                                                "policy_control"
+                                                                        )
+                                                                )
+                                                }
+                                                .getOrDefault("")
+                                                .trim()
+                                // `settings get` devolve a string "null" quando a chave nao existe.
+                                aplicado =
+                                        if (hidden) agora.contains("immersive.navigation")
+                                        else agora.isEmpty() || agora == "null"
+                                android.util.Log.w(
+                                        "BasicSettingsScreen",
+                                        "[NAV_PANE] hidden=$hidden tentativa=$tentativa " +
+                                                "policy_control='$agora' ok=$aplicado"
+                                )
+                                if (aplicado) break
+                                runCatching { Thread.sleep(700) }
+                        }
+                        if (!aplicado) {
+                                android.util.Log.e(
+                                        "BasicSettingsScreen",
+                                        "[NAV_PANE] NAO consegui deixar policy_control no estado " +
+                                                "pedido (hidden=$hidden); com hidden=false isso " +
+                                                "mantem o botao home inerte"
+                                )
+                        }
                 }
                 .start()
 }
@@ -2326,7 +2368,7 @@ fun BasicSettingsTab() {
                                                                                                 16.sp
                                                                                 )
                                                                                 Text(
-                                                                                        "O painel fica oculto e libera os 128px da esquerda para a barra. Deslize da borda esquerda para trazê-lo de volta; ele se esconde de novo após 5s.",
+                                                                                        "O painel fica oculto e libera os 128px da esquerda para a barra. Deslize da borda esquerda para trazê-lo de volta; ele se esconde de novo após 5s.\n\nAtenção: o botão home nativo fica nesse painel, então ele sai junto. Para usá-lo, deslize o painel de volta — ou configure o deslizar para cima da barra como \"Ir para a Home Haval\".",
                                                                                         color =
                                                                                                 Color.Gray,
                                                                                         fontSize =
