@@ -13,39 +13,37 @@ class PowerFlowMapperTest {
     @Test
     fun mappedEvDoesNotLightIceWithoutRpm() {
         val flow = PowerFlowMapper.resolve("14", iceOn = false, speedKmh = 40.0, packKw = 12.0, charging = false)
-        assertEquals(PowerFlow.TONE_EV, flow.tone)
+        assertEquals(PowerFlow.STATE_EV, flow.state)
         assertFalse(flow.iceOn)
         assertEquals(1, flow.front)
         assertEquals(0, flow.rear)
-        assertEquals("Elétrico", flow.label)
     }
 
     @Test
     fun mappedHybridLightsIceOnlyWhenRpmSaysSo() {
         val off = PowerFlowMapper.resolve("16", iceOn = false, speedKmh = 80.0, packKw = 18.0, charging = false)
-        assertEquals(PowerFlow.TONE_HYBRID, off.tone)
+        assertEquals(PowerFlow.STATE_HYBRID, off.state)
         assertFalse(off.iceOn)
         assertEquals(1, off.front)
 
         val on = PowerFlowMapper.resolve("16", iceOn = true, speedKmh = 80.0, packKw = 18.0, charging = false)
         assertTrue(on.iceOn)
-        assertEquals("Híbrido", on.label)
+        assertEquals(PowerFlow.STATE_HYBRID, on.state)
     }
 
     @Test
     fun unmappedAwdWithPackPowerAndIceOffIsEvBothMotors() {
         val flow = PowerFlowMapper.resolve("0", iceOn = false, speedKmh = 50.0, packKw = 8.0, charging = false)
-        assertEquals(PowerFlow.TONE_EV, flow.tone)
+        assertEquals(PowerFlow.STATE_EV, flow.state)
         assertFalse(flow.iceOn)
         assertEquals(1, flow.front)
         assertEquals(1, flow.rear)
-        assertEquals("P2 + P4", flow.label)
     }
 
     @Test
     fun unmappedAwdWithPackPowerAndIceOnIsHybrid() {
         val flow = PowerFlowMapper.resolve("", iceOn = true, speedKmh = 50.0, packKw = 8.0, charging = false)
-        assertEquals(PowerFlow.TONE_HYBRID, flow.tone)
+        assertEquals(PowerFlow.STATE_HYBRID, flow.state)
         assertTrue(flow.iceOn)
         assertEquals(1, flow.front)
         assertEquals(1, flow.rear)
@@ -54,16 +52,15 @@ class PowerFlowMapperTest {
     @Test
     fun parkedIdleDoesNotInferAwd() {
         val flow = PowerFlowMapper.resolve("0", iceOn = true, speedKmh = 0.0, packKw = 0.4, charging = false)
-        assertEquals(PowerFlow.TONE_IDLE, flow.tone)
+        assertEquals(PowerFlow.STATE_IDLE, flow.state)
         assertTrue(flow.iceOn)
         assertEquals(0, flow.front)
-        assertEquals("Parado", flow.label)
     }
 
     @Test
     fun chargingOverridesDriveStateAndIce() {
         val flow = PowerFlowMapper.resolve("16", iceOn = true, speedKmh = 0.0, packKw = -3.0, charging = true)
-        assertEquals(PowerFlow.TONE_CHARGE, flow.tone)
+        assertEquals(PowerFlow.STATE_CHARGE, flow.state)
         assertFalse(flow.iceOn)
         assertEquals(0, flow.front)
         assertEquals(0, flow.rear)
@@ -72,7 +69,7 @@ class PowerFlowMapperTest {
     @Test
     fun dualMotorEvEnum() {
         val flow = PowerFlowMapper.resolve("40", iceOn = false, speedKmh = 60.0, packKw = 20.0, charging = false)
-        assertEquals(PowerFlow.TONE_EV, flow.tone)
+        assertEquals(PowerFlow.STATE_EV, flow.state)
         assertEquals(1, flow.front)
         assertEquals(1, flow.rear)
         assertFalse(flow.iceOn)
@@ -80,10 +77,11 @@ class PowerFlowMapperTest {
 
     @Test
     fun packRoundTrip() {
-        val original = PowerFlow(PowerFlow.TONE_HYBRID, true, 1, -1, "P4, carga P2")
+        val original = PowerFlow(PowerFlow.STATE_HYBRID, true, 1, -1)
         val packed = original.pack()
-        assertEquals("v1|hybrid|1|1|-1|P4, carga P2", packed)
+        assertEquals("v1|hybrid|1|1|-1", packed)
         assertEquals(original, PowerFlow.unpack(packed))
+        assertEquals(original, PowerFlow.unpack("v1|hybrid|1|1|-1|ignored-label"))
         assertNull(PowerFlow.unpack("nope"))
         assertNull(PowerFlow.unpack(null))
     }
@@ -107,7 +105,7 @@ class PowerFlowTrackerTest {
         val flow = tracker.ingest(CarConstants.CAR_BASIC_ENGINE_SPEED.value, c)
         assertNotNull(flow)
         assertFalse(flow!!.iceOn)
-        assertEquals(PowerFlow.TONE_EV, flow.tone)
+        assertEquals(PowerFlow.STATE_EV, flow.state)
     }
 
     @Test

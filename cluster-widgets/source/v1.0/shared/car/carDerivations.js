@@ -90,23 +90,22 @@ export function getRegenPower(outputPercentage) {
 }
 
 /**
- * Unpack Impulse's derived hybrid flow (`v1|tone|ice|front|rear|label`).
+ * Unpack Impulse's derived hybrid flow (`v1|state|ice|front|rear`).
  * ICE is RPM-gated on the native side; front/rear are -1 regen, 0 off, 1 drive.
  */
 export function parsePowerFlow(raw) {
     const str = String(raw == null ? '' : raw);
     const parts = str.split('|');
-    if (parts.length < 6 || parts[0] !== 'v1') return null;
+    if (parts.length < 5 || parts[0] !== 'v1') return null;
     const ice = parts[2] === '1';
     const front = parseInt(parts[3], 10);
     const rear = parseInt(parts[4], 10);
     if (!isFinite(front) || !isFinite(rear)) return null;
     return {
-        tone: parts[1],
+        state: parts[1],
         ice: ice,
         front: front,
         rear: rear,
-        label: parts.slice(5).join('|'),
     };
 }
 
@@ -171,11 +170,10 @@ export function createGraphTelemetryHandler(setState, options = {}) {
                 const flow = parsePowerFlow(value);
                 if (flow) {
                     setState('powerFlow', flow);
-                    setState('powerTone', flow.tone);
+                    setState('powerState', flow.state);
                     setState('powerIce', flow.ice);
                     setState('powerFront', flow.front);
                     setState('powerRear', flow.rear);
-                    setState('powerLabel', flow.label);
                 }
                 return true;
             }
