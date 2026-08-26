@@ -60,6 +60,7 @@ import br.com.redesurftank.havalshisuku.listeners.IServiceManagerEvent;
 import br.com.redesurftank.havalshisuku.models.CarConstants;
 import br.com.redesurftank.havalshisuku.models.CarInfo;
 import br.com.redesurftank.havalshisuku.models.ClusterKey;
+import br.com.redesurftank.havalshisuku.models.PowerFlow;
 import br.com.redesurftank.havalshisuku.models.MainUiManager;
 import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
@@ -195,6 +196,8 @@ public class ServiceManager {
             CarConstants.CAR_IPK_LIGHT_TPMS_WARNING,
             CarConstants.CAR_BASIC_ENGINE_SPEED,
             CarConstants.CAR_EV_INFO_INSTANT_ENERGY_CONSUMPTION,
+            CarConstants.CAR_EV_INFO_ENERGY_DRIVE_STATE,
+            CarConstants.CAR_EV_INFO_CHARGING_STATE,
             CarConstants.CAR_IPK_LIGHT_FUEL_LOW,
             CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT,
             CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT_SIGN_STATUS,
@@ -275,6 +278,7 @@ public class ServiceManager {
     private final List<IDataChanged> dataChangedListeners;
     private final List<IServiceManagerEvent> serviceManagerEventListeners;
     private final Map<String, String> dataCache;
+    private final PowerFlowTracker powerFlowTracker;
     private SharedPreferences sharedPreferences;
     private Boolean closeWindowDueToeSpeed = false;
     private Boolean closeSunroofDueToeSpeed = false;
@@ -553,6 +557,7 @@ public class ServiceManager {
         dataChangedListeners = new ArrayList<>();
         dataCache = new HashMap<>();
         serviceManagerEventListeners = new ArrayList<>();
+        powerFlowTracker = new PowerFlowTracker();
     }
 
     public static synchronized ServiceManager getInstance() {
@@ -2231,6 +2236,24 @@ public class ServiceManager {
             }
         }
         dataCache.put(key, value);
+        maybePublishPowerFlow(key);
+    }
+
+    /**
+     * Recompute the derived hybrid flow after a raw CAN write. Synthetic
+     * keys must not re-enter. RPM is hot; only dispatch when the packed
+     * mode string actually changes.
+     */
+    private void maybePublishPowerFlow(String key) {
+        if (PowerFlow.KEY_FLOW.equals(key) || PowerFlow.KEY_ICE.equals(key)) return;
+        try {
+            PowerFlow flow = powerFlowTracker.ingest(key, dataCache);
+            if (flow == null) return;
+            dispatchTelemetryOnly(PowerFlow.KEY_FLOW, flow.pack());
+            dispatchTelemetryOnly(PowerFlow.KEY_ICE, flow.getIceOn() ? "1" : "0");
+        } catch (Exception e) {
+            Log.w(TAG, "power flow derive failed", e);
+        }
     }
 
     public void OnDataChanged(String key, String value) {

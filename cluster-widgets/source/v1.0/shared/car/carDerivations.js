@@ -90,6 +90,27 @@ export function getRegenPower(outputPercentage) {
 }
 
 /**
+ * Unpack Impulse's derived hybrid flow (`v1|tone|ice|front|rear|label`).
+ * ICE is RPM-gated on the native side; front/rear are -1 regen, 0 off, 1 drive.
+ */
+export function parsePowerFlow(raw) {
+    const str = String(raw == null ? '' : raw);
+    const parts = str.split('|');
+    if (parts.length < 6 || parts[0] !== 'v1') return null;
+    const ice = parts[2] === '1';
+    const front = parseInt(parts[3], 10);
+    const rear = parseInt(parts[4], 10);
+    if (!isFinite(front) || !isFinite(rear)) return null;
+    return {
+        tone: parts[1],
+        ice: ice,
+        front: front,
+        rear: rear,
+        label: parts.slice(5).join('|'),
+    };
+}
+
+/**
  * Creates the common reducer used by every v1.0 theme for live graph telemetry.
  * Raw voltage/current and fuel payloads need combining/translation before they
  * match the state keys consumed by graphs.js.
@@ -145,6 +166,21 @@ export function createGraphTelemetryHandler(setState, options = {}) {
             }
             case 'car.ev_info.Instant_energy_consumption':
                 setState('instantEVConsumption', asNumber(value));
+                return true;
+            case 'haval.power.flow': {
+                const flow = parsePowerFlow(value);
+                if (flow) {
+                    setState('powerFlow', flow);
+                    setState('powerTone', flow.tone);
+                    setState('powerIce', flow.ice);
+                    setState('powerFront', flow.front);
+                    setState('powerRear', flow.rear);
+                    setState('powerLabel', flow.label);
+                }
+                return true;
+            }
+            case 'haval.power.ice':
+                setState('powerIce', String(value) === '1');
                 return true;
             default:
                 return false;
