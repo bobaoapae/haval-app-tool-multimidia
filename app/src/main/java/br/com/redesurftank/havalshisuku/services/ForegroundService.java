@@ -726,6 +726,12 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
         });
 
         try {
+            br.com.redesurftank.havalshisuku.gestures.ScreenGestureManager.INSTANCE.onServicesReady();
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting ScreenGestures: " + e.getMessage(), e);
+        }
+
+        try {
             HotRouterManager.getInstance().onServicesReady();
         } catch (Exception e) {
             Log.e(TAG, "Error starting HotRouter: " + e.getMessage(), e);

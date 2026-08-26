@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Construction
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -39,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.gestures.GestureSettingsScreen
 import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightSettingsScreen
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
@@ -50,15 +52,21 @@ fun FeaturesHubScreen() {
     when (selectedFeature) {
         "score" -> TripConsistencyScreen(onBackToFeatures = { selectedFeature = null })
         "ambient_light" -> AmbientLightSettingsScreen(onBackToFeatures = { selectedFeature = null })
+        "gestures" -> GestureSettingsScreen(onBackToFeatures = { selectedFeature = null })
         else -> FeaturesHome(
             onOpenScore = { selectedFeature = "score" },
-            onOpenAmbientLight = { selectedFeature = "ambient_light" }
+            onOpenAmbientLight = { selectedFeature = "ambient_light" },
+            onOpenGestures = { selectedFeature = "gestures" }
         )
     }
 }
 
 @Composable
-private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit) {
+private fun FeaturesHome(
+    onOpenScore: () -> Unit,
+    onOpenAmbientLight: () -> Unit,
+    onOpenGestures: () -> Unit
+) {
     val prefs =
         App.getDeviceProtectedContext()
             .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
@@ -115,8 +123,17 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
             }
         }
 
-        if (ambientLightEnabled) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            FeatureCard(
+                title = "Gestos na tela",
+                description = "Arraste com varios dedos, por cima de qualquer app, para volume, temperatura e ventilacao.",
+                status = "Disponivel",
+                icon = Icons.Default.TouchApp,
+                enabled = true,
+                modifier = Modifier.weight(1f),
+                onClick = onOpenGestures
+            )
+            if (ambientLightEnabled) {
                 FeatureCard(
                     title = "Vallet",
                     description = "Área reservada para controles e regras de uso em modo manobrista.",
@@ -126,6 +143,7 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
                     modifier = Modifier.weight(1f),
                     onClick = {}
                 )
+            } else {
                 Spacer(modifier = Modifier.weight(1f))
             }
         }

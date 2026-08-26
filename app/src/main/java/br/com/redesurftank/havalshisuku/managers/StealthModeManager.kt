@@ -150,6 +150,8 @@ object StealthModeManager {
             SharedPreferencesKeys.MOBILE_DATA_BLOCK_ON_PROJECTION,
             SharedPreferencesKeys.BLOCK_DATATRACK_TELEMETRY,
             // --- Aviso de voz do cinto: o duck da música é ativação própria ---
+            // --- Gestos na tela: leem o toque e desenham por cima de qualquer app ---
+            SharedPreferencesKeys.ENABLE_SCREEN_GESTURES,
         )
 
     /**
@@ -815,6 +817,9 @@ object StealthModeManager {
             step("unmount_carplay") { CarPlayPatchManager.removeMounts() }
             // onServicesReady() só LIGA; para desligar é o setEnabled(false) (a pref já está false).
             step("stop_hot_router") { HotRouterManager.getInstance().setEnabled(false) }
+            step("stop_screen_gestures") {
+                br.com.redesurftank.havalshisuku.gestures.ScreenGestureManager.setEnabled(false)
+            }
             // Devolve o 4G e a telemetria OEM: no modo o carro tem que se comportar como de fábrica.
             step("release_mobile_data") { MobileDataManager.recomputeAndApply(appContext) }
             step("release_datatrack") { MobileDataManager.applyDatatrackState() }
@@ -901,6 +906,9 @@ object StealthModeManager {
             }
             // onServicesReady() é o ponto do boot: liga só se a pref restaurada mandar.
             step("restart_hot_router") { HotRouterManager.getInstance().onServicesReady() }
+            step("restart_screen_gestures") {
+                br.com.redesurftank.havalshisuku.gestures.ScreenGestureManager.onServicesReady()
+            }
             step("reapply_mobile_data") { MobileDataManager.recomputeAndApply(appContext) }
             step("reapply_datatrack") { MobileDataManager.applyDatatrackState() }
             step("reapply_debloat") { ServiceManager.getInstance().ensureDebloatedSystemApps() }
