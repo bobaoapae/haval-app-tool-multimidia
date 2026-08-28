@@ -2561,26 +2561,43 @@ public class ServiceManager {
                 if (closeSunRoofOnPowerOff) {
                     closeSunRoof(true);
                 }
-            } else if ((key.equals(CarConstants.CAR_DRIVE_SETTING_OUTSIDE_VIEW_MIRROR_FOLD_STATE.getValue()) && value.equals("0"))) {
-                float speedValue = Float.parseFloat(getUpdatedData(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue()));
-                String currentGear = getUpdatedData(CarConstants.CAR_BASIC_GEAR_STATUS.getValue());
-                if (speedValue > 0 || !currentGear.equals("3")) {
-                    Log.w(TAG, "Ignoring mirror fold event due to speed or gear state");
+            } else if (key.equals(CarConstants.CAR_BASIC_DOOR_LOCK_STATUS.getValue()) && value.equals("1")) {
+                // 1 = TRANCADO, 3 = destrancado. Medido no carro (seis transicoes alternando com o
+                // dono trancando e destrancando), nao deduzido do nome.
+                //
+                // Os guardas abaixo nao sao zelo: sao o que impede um acidente. O carro TRANCA
+                // SOZINHO ao atingir velocidade (car.door_lock_setting.locked_by_speed). Sem exigir
+                // carro parado e em P, essa funcao fecharia os vidros com o carro andando,
+                // possivelmente no braco de alguem.
+                float lockSpeed = Float.parseFloat(getUpdatedData(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue()));
+                String lockGear = getUpdatedData(CarConstants.CAR_BASIC_GEAR_STATUS.getValue());
+                if (lockSpeed > 0 || !lockGear.equals("3")) {
+                    Log.w(TAG, "Ignoring lock event due to speed or gear state");
                     return;
                 }
-                boolean closeWindowOnFoldMirror = sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_WINDOW_ON_FOLD_MIRROR.getKey(), false);
-                if (closeWindowOnFoldMirror) {
+                // Carro LIGADO nao e "estou saindo": trancar com o motorista dentro (o carro tranca
+                // sozinho, e da pra trancar pelo botao interno) nao pode fechar os vidros na cara de
+                // ninguem. Leitura FORCADA, nao o cache: este arquivo ja registra que o cache de
+                // driving_ready fica defasado no boot e chegou a re-desligar o BT por isso.
+                //
+                // Exige explicitamente o estado DESLIGADO em vez de "nao ligado": vazio nao e nem um
+                // nem outro, e leitura que falhou nao pode virar permissao para mexer em vidro.
+                String lockReadyState = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
+                if (!isVehicleReadyStateOff(lockReadyState)) {
+                    Log.w(TAG, "Ignoring lock event: vehicle not confirmed off (readyState=" + lockReadyState + ")");
+                    return;
+                }
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_WINDOW_ON_LOCK.getKey(), false)) {
                     closeAllWindow();
                 }
-                boolean closeSunRoofOnFoldMirror = sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_FOLD_MIRROR.getKey(), false);
-                if (closeSunRoofOnFoldMirror) {
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_LOCK.getKey(), false)) {
                     closeSunRoof(true);
                 }
-                // Desligar BT/hotspot ao recolher retrovisores (salvam o estado p/ religar ao ligar o carro).
-                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_FOLD_MIRROR.getKey(), false)) {
-                    shutdownBluetoothForRestore("MIRROR_FOLD");
+                // BT/hotspot guardam o estado pra religar quando o carro voltar a ligar.
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_LOCK.getKey(), false)) {
+                    shutdownBluetoothForRestore("LOCK");
                 }
-                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_FOLD_MIRROR.getKey(), false)) {
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_LOCK.getKey(), false)) {
                     shutdownWifiTetherForRestore();
                 }
             } else if (key.equals(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue())) {
@@ -2630,7 +2647,7 @@ public class ServiceManager {
                     }
                 } else {
                     carPoweredOff = false;
-                    // Religa BT/hotspot que NÓS desligamos (por power-off OU ao recolher retrovisor),
+                    // Religa BT/hotspot que NÓS desligamos (por power-off OU ao trancar o carro),
                     // com delay+retry: no power-on o adapter/serviços podem não estar prontos ainda.
                     restoreBluetoothIfWasDisabled("POWER_ON_EVENT");
                     restoreWifiTetherIfWasDisabled();

@@ -3,14 +3,16 @@ package br.com.redesurftank.havalshisuku.models
 enum class SharedPreferencesKeys(val key: String, val description: String) {
     DISABLE_MONITORING("disableMonitoring", "Manter desativado monitoramento de distrações"),
     CLOSE_WINDOW_ON_POWER_OFF("closeWindowOnPowerOff", "Fechar janela ao desligar o veículo"),
-    CLOSE_WINDOW_ON_FOLD_MIRROR(
-            "closeWindowOnFoldMirror",
-            "Fechar janela ao recolher retrovisores"
-    ),
     CLOSE_SUNROOF_ON_POWER_OFF("closeSunroofOnPowerOff", "Fechar teto solar ao desligar o veículo"),
-    CLOSE_SUNROOF_ON_FOLD_MIRROR(
-            "closeSunroofOnFoldMirror",
-            "Fechar teto solar ao recolher retrovisores"
+    CLOSE_WINDOW_ON_LOCK("closeWindowOnLock", "Fechar janela ao trancar o carro"),
+    CLOSE_SUNROOF_ON_LOCK("closeSunroofOnLock", "Fechar teto solar ao trancar o carro"),
+    DISABLE_BLUETOOTH_ON_LOCK(
+            "disableBluetoothOnLock",
+            "Desligar bluetooth ao trancar o carro (restaurado ao ligar)"
+    ),
+    DISABLE_HOTSPOT_ON_LOCK(
+            "disableHotspotOnLock",
+            "Desligar ponto de acesso ao trancar o carro (restaurado ao ligar)"
     ),
     CLOSE_WINDOWS_ON_SPEED("closeWindowsOnSpeed", "Fechar janelas ao atingir velocidade"),
     CLOSE_SUNROOF_ON_SPEED("closeSunroofOnSpeed", "Fechar teto solar ao atingir velocidade"),
@@ -178,14 +180,6 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     HOTSPOT_STATE_ON_POWER_OFF(
             "hotspotStateOnPowerOff",
             "Estado do ponto de acesso ao desligar o veículo"
-    ),
-    DISABLE_BLUETOOTH_ON_FOLD_MIRROR(
-            "disableBluetoothOnFoldMirror",
-            "Desativar Bluetooth ao recolher retrovisores"
-    ),
-    DISABLE_HOTSPOT_ON_FOLD_MIRROR(
-            "disableHotspotOnFoldMirror",
-            "Desativar ponto de acesso ao recolher retrovisores"
     ),
     ENABLE_SEAT_VENTILATION_ON_AC_ON(
             "enableSeatVentilationOnAcOn",

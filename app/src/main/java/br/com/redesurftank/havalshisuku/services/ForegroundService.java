@@ -726,6 +726,18 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
         });
 
         try {
+            // Quem usava o gatilho do retrovisor (retirado) precisa acordar com a funcao ligada no
+            // gatilho novo, nao sem ela. Idempotente: apaga as chaves antigas ao migrar.
+            br.com.redesurftank.havalshisuku.managers.FoldMirrorTriggerMigration.run(
+                    App.getDeviceProtectedContext()
+                            .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE),
+                    StealthModeManager.INSTANCE.isActive()
+            );
+        } catch (Exception e) {
+            Log.e(TAG, "Error migrating fold-mirror trigger: " + e.getMessage(), e);
+        }
+
+        try {
             HotRouterManager.getInstance().onServicesReady();
         } catch (Exception e) {
             Log.e(TAG, "Error starting HotRouter: " + e.getMessage(), e);
