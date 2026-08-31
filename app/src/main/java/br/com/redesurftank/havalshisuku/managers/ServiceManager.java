@@ -2565,14 +2565,32 @@ public class ServiceManager {
                 // 1 = TRANCADO, 3 = destrancado. Medido no carro (seis transicoes alternando com o
                 // dono trancando e destrancando), nao deduzido do nome.
                 //
-                // Os guardas abaixo nao sao zelo: sao o que impede um acidente. O carro TRANCA
-                // SOZINHO ao atingir velocidade (car.door_lock_setting.locked_by_speed). Sem exigir
-                // carro parado e em P, essa funcao fecharia os vidros com o carro andando,
-                // possivelmente no braco de alguem.
-                float lockSpeed = Float.parseFloat(getUpdatedData(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue()));
-                String lockGear = getUpdatedData(CarConstants.CAR_BASIC_GEAR_STATUS.getValue());
-                if (lockSpeed > 0 || !lockGear.equals("3")) {
-                    Log.w(TAG, "Ignoring lock event due to speed or gear state");
+                // DOIS guardas, e cada um responde uma pergunta diferente: o carro esta desligado?
+                // o carro esta parado? A marcha em P saiu daqui de proposito — ela vinha do galho do
+                // retrovisor, que NAO tinha verificacao de ignicao nenhuma e precisava dela como
+                // aproximacao de "estacionou". Com o estado de ignicao sendo consultado de verdade,
+                // P nao acrescenta caso que os outros dois nao cubram: carro desligado e com
+                // velocidade zero nao esta indo a lugar nenhum.
+                //
+                // Por que os guardas existem: o carro TRANCA SOZINHO ao atingir velocidade
+                // (car.door_lock_setting.locked_by_speed), e da pra trancar pelo botao interno com
+                // gente dentro. Sem eles, esta funcao fecharia vidro em quem esta no carro.
+                //
+                // NULO NAO E PERMISSAO. getUpdatedData devolve null com o canal de controle fora, e
+                // fazer parseFloat/equals direto no retorno estoura NullPointerException — que
+                // aborta o handler INTEIRO em silencio (o try/catch externo evita o crash, so que o
+                // resto do tratamento daquele evento nunca roda). Leitura que falhou BLOQUEIA a
+                // acao, como ja vale pro estado de ignicao logo abaixo.
+                String lockSpeedRaw = getUpdatedData(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue());
+                Float lockSpeed = null;
+                if (lockSpeedRaw != null) {
+                    try {
+                        lockSpeed = Float.parseFloat(lockSpeedRaw.trim());
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+                if (lockSpeed == null || lockSpeed > 0) {
+                    Log.w(TAG, "Ignoring lock event: vehicle not confirmed stopped (speed=" + lockSpeedRaw + ")");
                     return;
                 }
                 // Carro LIGADO nao e "estou saindo": trancar com o motorista dentro (o carro tranca

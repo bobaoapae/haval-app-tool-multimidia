@@ -1224,7 +1224,7 @@ fun BasicSettingsTab() {
                                 title = "Fechar janela ao trancar o carro",
                                 group = SettingsGroups.SHUTDOWN,
                                 description =
-                                        "Fecha os vidros quando o carro é trancado. Só age com o carro PARADO, em P e DESLIGADO — o carro tranca sozinho ao atingir velocidade, e trancar com alguém dentro não pode fechar vidro na cara de ninguém.",
+                                        "Fecha os vidros quando o carro é trancado. Só age com o carro PARADO e DESLIGADO — o carro tranca sozinho ao atingir velocidade, e trancar com alguém dentro não pode fechar vidro na cara de ninguém.",
                                 checked = closeWindowOnLock,
                                 onCheckedChange = {
                                         closeWindowOnLock = it
@@ -1241,7 +1241,7 @@ fun BasicSettingsTab() {
                                 title = "Fechar teto solar ao trancar o carro",
                                 group = SettingsGroups.SHUTDOWN,
                                 description =
-                                        "Fecha o teto quando o carro é trancado, com as mesmas condições de segurança: parado, em P e desligado.",
+                                        "Fecha o teto quando o carro é trancado, com as mesmas condições de segurança: parado e desligado.",
                                 checked = closeSunroofOnLock,
                                 onCheckedChange = {
                                         closeSunroofOnLock = it
