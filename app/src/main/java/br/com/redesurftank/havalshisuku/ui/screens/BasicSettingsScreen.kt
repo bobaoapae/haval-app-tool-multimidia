@@ -307,14 +307,6 @@ fun BasicSettingsTab() {
                         prefs.getBoolean(SharedPreferencesKeys.CLOSE_WINDOW_ON_POWER_OFF.key, false)
                 )
         }
-        var closeWindowOnFoldMirror by remember {
-                mutableStateOf(
-                        prefs.getBoolean(
-                                SharedPreferencesKeys.CLOSE_WINDOW_ON_FOLD_MIRROR.key,
-                                false
-                        )
-                )
-        }
         var closeSunroofOnPowerOff by remember {
                 mutableStateOf(
                         prefs.getBoolean(
@@ -323,26 +315,28 @@ fun BasicSettingsTab() {
                         )
                 )
         }
-        var closeSunroofOnFoldMirror by remember {
+        var closeWindowOnLock by remember {
+                mutableStateOf(
+                        prefs.getBoolean(SharedPreferencesKeys.CLOSE_WINDOW_ON_LOCK.key, false)
+                )
+        }
+        var closeSunroofOnLock by remember {
+                mutableStateOf(
+                        prefs.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_LOCK.key, false)
+                )
+        }
+        var disableBluetoothOnLock by remember {
                 mutableStateOf(
                         prefs.getBoolean(
-                                SharedPreferencesKeys.CLOSE_SUNROOF_ON_FOLD_MIRROR.key,
+                                SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_LOCK.key,
                                 false
                         )
                 )
         }
-        var disableBluetoothOnFoldMirror by remember {
+        var disableHotspotOnLock by remember {
                 mutableStateOf(
                         prefs.getBoolean(
-                                SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_FOLD_MIRROR.key,
-                                false
-                        )
-                )
-        }
-        var disableHotspotOnFoldMirror by remember {
-                mutableStateOf(
-                        prefs.getBoolean(
-                                SharedPreferencesKeys.DISABLE_HOTSPOT_ON_FOLD_MIRROR.key,
+                                SharedPreferencesKeys.DISABLE_HOTSPOT_ON_LOCK.key,
                                 false
                         )
                 )
@@ -1208,24 +1202,6 @@ fun BasicSettingsTab() {
                                 }
                         ),
                         SettingItem(
-                                title = "Fechar janela ao recolher retrovisores",
-                                group = SettingsGroups.SHUTDOWN,
-                                description =
-                                        "Sincroniza fechamento das janelas com o recolhimento dos retrovisores",
-                                checked = closeWindowOnFoldMirror,
-                                onCheckedChange = {
-                                        closeWindowOnFoldMirror = it
-                                        prefs.edit {
-                                                putBoolean(
-                                                        SharedPreferencesKeys
-                                                                .CLOSE_WINDOW_ON_FOLD_MIRROR
-                                                                .key,
-                                                        it
-                                                )
-                                        }
-                                }
-                        ),
-                        SettingItem(
                                 title = "Fechar teto solar ao desligar",
                                 group = SettingsGroups.SHUTDOWN,
                                 description =
@@ -1245,18 +1221,33 @@ fun BasicSettingsTab() {
                                 }
                         ),
                         SettingItem(
-                                title = "Fechar teto solar ao recolher retrovisores",
+                                title = "Fechar janela ao trancar o carro",
                                 group = SettingsGroups.SHUTDOWN,
                                 description =
-                                        SharedPreferencesKeys.CLOSE_SUNROOF_ON_FOLD_MIRROR
-                                                .description,
-                                checked = closeSunroofOnFoldMirror,
+                                        "Fecha os vidros quando o carro é trancado. Só age com o carro PARADO e DESLIGADO — o carro tranca sozinho ao atingir velocidade, e trancar com alguém dentro não pode fechar vidro na cara de ninguém.",
+                                checked = closeWindowOnLock,
                                 onCheckedChange = {
-                                        closeSunroofOnFoldMirror = it
+                                        closeWindowOnLock = it
                                         prefs.edit {
                                                 putBoolean(
-                                                        SharedPreferencesKeys
-                                                                .CLOSE_SUNROOF_ON_FOLD_MIRROR
+                                                        SharedPreferencesKeys.CLOSE_WINDOW_ON_LOCK
+                                                                .key,
+                                                        it
+                                                )
+                                        }
+                                }
+                        ),
+                        SettingItem(
+                                title = "Fechar teto solar ao trancar o carro",
+                                group = SettingsGroups.SHUTDOWN,
+                                description =
+                                        "Fecha o teto quando o carro é trancado, com as mesmas condições de segurança: parado e desligado.",
+                                checked = closeSunroofOnLock,
+                                onCheckedChange = {
+                                        closeSunroofOnLock = it
+                                        prefs.edit {
+                                                putBoolean(
+                                                        SharedPreferencesKeys.CLOSE_SUNROOF_ON_LOCK
                                                                 .key,
                                                         it
                                                 )
@@ -2760,18 +2751,18 @@ fun BasicSettingsTab() {
                                 }
                         ),
                         SettingItem(
-                                title = "Desativar Bluetooth ao recolher retrovisores",
+                                title = "Desativar Bluetooth ao trancar o carro",
                                 group = SettingsGroups.SHUTDOWN,
                                 description =
-                                        SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_FOLD_MIRROR
+                                        SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_LOCK
                                                 .description,
-                                checked = disableBluetoothOnFoldMirror,
+                                checked = disableBluetoothOnLock,
                                 onCheckedChange = {
-                                        disableBluetoothOnFoldMirror = it
+                                        disableBluetoothOnLock = it
                                         prefs.edit {
                                                 putBoolean(
                                                         SharedPreferencesKeys
-                                                                .DISABLE_BLUETOOTH_ON_FOLD_MIRROR
+                                                                .DISABLE_BLUETOOTH_ON_LOCK
                                                                 .key,
                                                         it
                                                 )
@@ -2779,18 +2770,18 @@ fun BasicSettingsTab() {
                                 }
                         ),
                         SettingItem(
-                                title = "Desativar ponto de acesso ao recolher retrovisores",
+                                title = "Desativar ponto de acesso ao trancar o carro",
                                 group = SettingsGroups.SHUTDOWN,
                                 description =
-                                        SharedPreferencesKeys.DISABLE_HOTSPOT_ON_FOLD_MIRROR
+                                        SharedPreferencesKeys.DISABLE_HOTSPOT_ON_LOCK
                                                 .description,
-                                checked = disableHotspotOnFoldMirror,
+                                checked = disableHotspotOnLock,
                                 onCheckedChange = {
-                                        disableHotspotOnFoldMirror = it
+                                        disableHotspotOnLock = it
                                         prefs.edit {
                                                 putBoolean(
                                                         SharedPreferencesKeys
-                                                                .DISABLE_HOTSPOT_ON_FOLD_MIRROR
+                                                                .DISABLE_HOTSPOT_ON_LOCK
                                                                 .key,
                                                         it
                                                 )
