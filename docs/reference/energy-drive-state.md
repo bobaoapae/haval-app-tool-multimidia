@@ -151,21 +151,44 @@ On the JS side `carDerivations.js` unpacks it via `parsePowerFlow()` into the th
 `powerState`, `powerIce`, `powerFront`, `powerRear`. A malformed payload sets nothing, so the last
 good flow is held rather than reset.
 
-### Known gaps in the native mapper
+### Verified against the H6 3D viewer
 
-Cross-checking `PowerFlowMapper.TABLE` against the OEM strings above turns up four things worth a
-second look:
+`PowerFlowMapper.TABLE` is a faithful port of `CAR_POWER_FLOW` in the installed viewer
+(`com.havalh6.viewer`), which is the field-tested implementation. Diffed state by state on
+tone/front/rear: **32 states, 32 identical, zero differences.** Re-run the check by extracting both
+tables and comparing; do that before "fixing" either one.
 
-1. **States 31 and 37 mark both axles as driving** (`front = 1`). The OEM strings say P2 is
-   *generating* while P4 drives — "Engine & P4 drive P2 to generate electricity" and "Driven by P4,
-   power generation by engine & P2". These are the only two states where the axles run in opposite
-   directions, so a per-axle indicator renders them wrong today.
-2. **States 43, 44 and 73 are absent** from the table and fall through to idle.
-3. **`inferAwd` always lights both axles**, which invents a rear motor on a front-drive car whenever
-   the enum is unmapped and the vehicle is moving.
-4. **`resolve` lets the idle-inference override enums that positively assert standstill** (11
-   "stationary, engine running", 21 "idling"), because it branches on `state == IDLE` rather than on
-   "the enum was unrecognised".
+An earlier revision of this document claimed states 31 and 37 were wrong in the mapper because the
+OEM strings describe P2 as *generating* while P4 drives. That was an inference from label text, not
+an observation — the viewer sets `front = 1` for both and has been tested, so the mapper matching it
+is correct behaviour, not a porting slip. Both are AWD states that a front-drive vehicle cannot
+produce anyway, so neither reading is confirmed on this car.
+
+### The one real divergence: the charging override
+
+| | condition | effect |
+|---|---|---|
+| viewer | `charging && flow.tone === "idle"` | substitutes state 23 **only when the flow is otherwise idle** |
+| mapper | `if (charging) return CHARGE` | overrides **every** state, before the table is consulted |
+
+So when `charging_state` is `1` while the car also reports a live drive or regen state, the viewer
+keeps the axles and the mapper blanks them to `charge, front=0, rear=0`. In practice
+`charging_state` tracks external (plug-in) charging, which should not coincide with driving, so the
+two agree in every situation seen so far — but the mapper is the stricter of the two.
+
+A second, smaller one: with a non-finite speed the viewer still runs the idle inference while the
+mapper does not (`moving` requires `isFinite`). The mapper's behaviour is the safer default.
+
+### Genuine gaps, shared by both
+
+- **States 43, 44 and 73 are absent from both tables** and fall through to idle. They are in the OEM
+  string table ("engine direct drive, battery charging/discharging" and "discharging"), and 43/44 are
+  plausible on a front-drive HEV, unlike the P2/P4 set.
+- **`inferAwd` lights both axles** when recovering from an unmapped enum, which attributes a rear
+  motor to a vehicle that may not have one.
+- **The idle inference can override enums that positively assert standstill** (11 "stationary, engine
+  running", 21 "idling"), because it branches on `state == IDLE` rather than on "the enum was
+  unrecognised".
 
 The packed payload also drops the engine-to-battery channel, so a consumer cannot tell that state 13
 ("energy recovery **+ driving charging**") or 17 ("series driven, **battery charging**") involve the
