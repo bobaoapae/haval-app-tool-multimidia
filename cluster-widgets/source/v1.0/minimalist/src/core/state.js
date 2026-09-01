@@ -88,6 +88,14 @@ var stateManager = new StateManager({
     outside_temp: '--',
     inside_temp: '--',
 
+    // Derived hybrid power flow, published by the native PowerFlowTracker as
+    // `haval.power.flow` (v1|state|ice|front|rear) and unpacked in
+    // shared/car/carDerivations.js. front/rear: 0 off, 1 drive, -1 regen.
+    powerState: 'idle',
+    powerIce: false,
+    powerFront: 0,
+    powerRear: 0,
+
     // Regen / HEV reserve states
     regenMode: 'Normal',
     lastRegenValue: 0,

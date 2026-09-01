@@ -413,6 +413,9 @@ function render() {
         if (get('showRpmIcon') === false) {
             classes.push('hide-rpm-icon');
         }
+        if (get('showTractionIcon') === false) {
+            classes.push('hide-traction-icon');
+        }
         const isProjActive = isProjectionMapDisplayActive();
         const appInDashVal = get('appInDash');
         const isAppActive = appInDashVal === true || appInDashVal === 'left' || appInDashVal === 'right';
@@ -597,6 +600,7 @@ subscribe('clusterEnabled', render);
 subscribe('mapInDash', render);
 subscribe('showRegenIcon', render);
 subscribe('showRpmIcon', render);
+subscribe('showTractionIcon', render);
 render();
 
 
@@ -1038,7 +1042,13 @@ const GRAPH_KEYS_TO_SUBSCRIBE = [
     KEYS.ENERGY_OUTPUT_PERCENTAGE,
     KEYS.CHARGE_CURRENT,
     KEYS.BATTERY_VOLTAGE,
-    KEYS.INSTANT_ENERGY_CONSUMPTION
+    KEYS.INSTANT_ENERGY_CONSUMPTION,
+    // Derived by native rather than decoded here: PowerFlowTracker already
+    // owns the energy_drive_state table, RPM hysteresis and change-gating, and
+    // createGraphTelemetryHandler unpacks the payload into powerState/
+    // powerIce/powerFront/powerRear for us.
+    KEYS.POWER_FLOW,
+    KEYS.POWER_ICE
 ];
 
 const GAUGE_KEYS_TO_SUBSCRIBE = [
@@ -1155,6 +1165,7 @@ async function initMinimalistBridge() {
     bindSetting('projectionKeepVisible', 'Gauges, Hora, Marcha, HEV, Regen');
     bindSetting('showRegenIcon', true);
     bindSetting('showRpmIcon', true);
+    bindSetting('showTractionIcon', true);
     bindSetting('navigationDisplayMode', 'Clean');
     bindSetting('appDisplayMode', 'Reduzido');
     bindSetting('display', 'Normal');

@@ -94,7 +94,7 @@ the motor speeds.
 | Key | Notes |
 |---|---|
 | `car.configure.ev_drive_architecture` | Topology selector (`6` on this car). Picks which OEM `*FlowView` renders — `EVFlowView`, `P2FlowView`, `P2P4FlowView`, `PSP4PHEVFlowView`, `Re300HEVFlowView`, `Re300PHEVFlowView`, `P0OilFlowView`, `P2FuelFlowView`. Static config, **not** a live 4x2/4x4 state. |
-| `car.basic.engine_state` | `11` observed with `engine_speed = 0` and `driving_ready_state = 1`. Full map not yet decoded. |
+| `car.basic.engine_state` | Tracks ignition, **not combustion** — `11` observed with `engine_speed = 0`. Use the RPM-gated `haval.power.ice` instead. |
 | `car.ev_info.energy_output_percentage` | Signed global battery flow; negative = regen. Already reaches themes as `evPowerFactor`. |
 | `car.ev_info.charging_state` | `0` when not plugged in. |
 | `car.ipk_light.brake_energe_recycle` | Regen telltale lamp. |
@@ -129,28 +129,48 @@ adb shell am broadcast -a br.com.redesurftank.havalshisuku.ACTION_DISPATCH_ALL_D
 then `adb logcat -d -s H6Viewer`. `scripts/Capture-Energy-Flow.ps1` wraps both — `-Snapshot` for a
 one-shot dump, no flag to record a drive to CSV.
 
-## Shared decoder
+## Derived event: `haval.power.flow`
 
-`cluster-widgets/source/v1.0/shared/car/powerFlow.js` ports this table for theme use. It exposes
-`derivePowerFlow({driveState, chargingState, packKw, speedKmh, engineOn, awd})` returning
-`{tone, label, ice, batt, wheel, iceBatt, battWheel, iceWheel, front, rear}`, where `front`/`rear`
-are `+1` driving, `-1` regenerating, `0` off.
+Consumers should **not** re-implement the table. `PowerFlowTracker` /
+`PowerFlowMapper` own it natively and publish a derived snapshot that any internal or external
+component can read:
 
-It is a port of `CAR_POWER_FLOW` from the **installed** H6 3D viewer
-(`com.havalh6.viewer`, `assets/www/index.html` — note the on-car APK is much newer than the copy in
-the `haval-app-tool-multimidia-h6-3d` repo, which has no POWER card at all). Three deliberate
-differences from that source:
+| key | payload |
+|---|---|
+| `haval.power.flow` | `v1|{state}|{ice}|{front}|{rear}` |
+| `haval.power.ice` | `1` / `0` |
 
-- **States 31 and 37 are corrected.** The viewer marks both axles as driving. The OEM strings say P2
-  is *generating* while P4 drives, so `front` is `-1`. These are the only two states where the axles
-  run in opposite directions — exactly the case a per-axle indicator exists to show.
-- **Rear-axle inference is opt-in.** The viewer's `_powerInferAwd` always lights both axles when it
-  recovers from an unmapped enum, which invents a P4 motor on a front-drive car. The port gates this
-  behind `awd`, default false.
-- **States 43, 44 and 73 are added** — present in the OEM string table, absent from the viewer's map.
+`state` is one of `idle` / `ev` / `hybrid` / `ice` / `regen` / `charge`; `front` and `rear` are
+`1` driving, `-1` regenerating, `0` off. It is published only when the packed string changes, so RPM
+ticks do not spam the bus.
 
-The port also folds in `flow.ice`, so state 11 ("stationary, engine running") keeps its engine-on
-fact through the idle-recovery path instead of depending on a separately supplied `engineOn`.
+`ice` is **RPM-gated with hysteresis** (on at >=400, off below 200, ignoring the 65535/1023/2047
+sentinels), deliberately *not* `car.basic.engine_state` — that enum tracks ignition, not combustion.
+
+On the JS side `carDerivations.js` unpacks it via `parsePowerFlow()` into the theme state keys
+`powerState`, `powerIce`, `powerFront`, `powerRear`. A malformed payload sets nothing, so the last
+good flow is held rather than reset.
+
+### Known gaps in the native mapper
+
+Cross-checking `PowerFlowMapper.TABLE` against the OEM strings above turns up four things worth a
+second look:
+
+1. **States 31 and 37 mark both axles as driving** (`front = 1`). The OEM strings say P2 is
+   *generating* while P4 drives — "Engine & P4 drive P2 to generate electricity" and "Driven by P4,
+   power generation by engine & P2". These are the only two states where the axles run in opposite
+   directions, so a per-axle indicator renders them wrong today.
+2. **States 43, 44 and 73 are absent** from the table and fall through to idle.
+3. **`inferAwd` always lights both axles**, which invents a rear motor on a front-drive car whenever
+   the enum is unmapped and the vehicle is moving.
+4. **`resolve` lets the idle-inference override enums that positively assert standstill** (11
+   "stationary, engine running", 21 "idling"), because it branches on `state == IDLE` rather than on
+   "the enum was unrecognised".
+
+The packed payload also drops the engine-to-battery channel, so a consumer cannot tell that state 13
+("energy recovery **+ driving charging**") or 17 ("series driven, **battery charging**") involve the
+engine charging the pack. Anything colouring engine-charging separately from regen sees those two as
+plain regen/hybrid.
 
 ## Reaching these keys from a cluster theme
 

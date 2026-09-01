@@ -470,3 +470,38 @@ setTimeout(() => {
 }, 5000);
 
 initTestHarness(stateManager, menuItems);
+
+// ---------------------------------------------------------------------------
+// Traction indicator simulation
+//
+// Walks the six cases the indicator exists to distinguish, so the shape can be
+// judged in motion rather than one frozen state at a time. Payloads are the
+// real `haval.power.flow` strings (v1|state|ice|front|rear) the native
+// PowerFlowTracker publishes, fed through the same window.onDataChanged the car
+// uses — nothing here bypasses the parser.
+// ---------------------------------------------------------------------------
+const TRACTION_SIMULATION = [
+    { label: 'FWD',          flow: 'v1|ev|0|1|0' },
+    { label: 'AWD',          flow: 'v1|ev|0|1|1' },
+    { label: 'AWD + engine', flow: 'v1|hybrid|1|1|1' },
+    { label: 'FWD regen',    flow: 'v1|regen|0|-1|0' },
+    { label: 'AWD regen',    flow: 'v1|regen|0|-1|-1' },
+    // Charging: both axles idle, so only the pack animates.
+    { label: 'Recharge',     flow: 'v1|charge|1|0|0' }
+];
+const TRACTION_SIMULATION_MS = 3000;
+
+let tractionPhase = 0;
+
+function pushTractionPhase() {
+    const phase = TRACTION_SIMULATION[tractionPhase % TRACTION_SIMULATION.length];
+    tractionPhase++;
+    console.log(`[Traction Simulation] ${phase.label} -> ${phase.flow}`);
+    if (typeof window.onDataChanged === 'function') {
+        window.onDataChanged('haval.power.flow', phase.flow);
+    }
+}
+
+if (window.tractionSimulationInterval) clearInterval(window.tractionSimulationInterval);
+pushTractionPhase();
+window.tractionSimulationInterval = setInterval(pushTractionPhase, TRACTION_SIMULATION_MS);

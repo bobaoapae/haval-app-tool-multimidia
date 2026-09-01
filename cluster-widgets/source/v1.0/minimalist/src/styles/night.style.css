@@ -3412,7 +3412,8 @@ canvas.graph-chart {
   justify-content: center;
   pointer-events: none;
   bottom: 0px;
-  right: 220px;
+  left: 220px;
+  right: auto;
   transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -4141,8 +4142,8 @@ canvas.graph-chart {
 .dashboard-bottom-ev-mode {
   position: absolute !important;
   bottom: 0px !important;
-  right: 220px !important;
-  left: auto !important;
+  left: 220px !important;
+  right: auto !important;
   display: flex !important;
   align-items: center !important;
   height: 72px !important;
@@ -5247,7 +5248,7 @@ body.nav-mask-reduced .info-item-val,
    never slide this icon; only the graph/menus ride that offset. */
 .dashboard-bottom-regen {
   position: absolute;
-  left: calc(var(--mask-right-x) - 40px);
+  left: calc(var(--mask-right-x) - 100px);
   bottom: 22px;
   display: flex;
   flex-direction: column;
@@ -5482,4 +5483,129 @@ body.native-mock-enabled .dev-background,
 /* showRpmIcon = false */
 .hide-rpm-icon .dashboard-rpm-container {
   display: none !important;
+}
+
+/* showTractionIcon = false */
+.hide-traction-icon .dashboard-power-flow {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Traction indicator (bottom bar, right-hand group)
+
+   Reads left to right as [engine] I-[||||]-I, front of the car on the left.
+   Each axle is a roman "I": an upright with a serif top and bottom, the serifs
+   being that axle's two tyres. The pack sits amidships with four level bars.
+   One active axle reads as 4x2, both as 4x4, with no text.
+
+   Palette is deliberately narrow — white means active, green means recovering
+   energy, grey means not in use. Only the sub-10% pack warning adds a colour.
+
+   Fed by `haval.power.flow`, the derived flow the native PowerFlowTracker
+   publishes for every app on the head unit.
+
+   Hidden by the `showTractionIcon` theme config (default on), which follows the
+   same flag-class pattern as the regen and RPM indicators.
+   --------------------------------------------------------------------------- */
+.dashboard-power-flow {
+  position: absolute;
+  right: 190px;
+  bottom: 17px;
+  width: 100px;
+  height: 35px;
+  z-index: 100;
+
+  --pf-active-color: #f2f5f8;
+  --pf-regen-color: #3ee08a;
+  --pf-idle-color: #6f7a85;
+  --pf-off-color: #2a3138;
+  --pf-battery-critical-color: #ff4d4f;
+
+  pointer-events: none;
+}
+
+.power-flow-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Grey is the resting state for every stroke; the axle classes below repaint
+   it. Grey rather than dimmed white, so an idle axle reads as deliberately
+   inactive instead of merely faint. */
+.dashboard-power-flow line {
+  stroke: var(--pf-idle-color);
+  stroke-linecap: round;
+  transition: stroke 0.25s linear;
+}
+
+.pf-upright {
+  stroke-width: 2;
+}
+
+.pf-tyre {
+  stroke-width: 3.4;
+}
+
+.pf-shaft {
+  stroke-width: 1.8;
+}
+
+/* Consuming — the axle is driving the car. */
+.pf-axle.consume line {
+  stroke: var(--pf-active-color);
+}
+
+/* Regenerating — the axle is recovering energy. The one colour that earns its
+   place, because it is the state a driver cannot infer from anything else. */
+.pf-axle.regen line {
+  stroke: var(--pf-regen-color);
+  filter: drop-shadow(0 0 2.5px var(--pf-regen-color));
+}
+
+/* Engine block at the nose: dark when off, white while actually firing. */
+.pf-engine {
+  fill: var(--pf-off-color);
+  stroke: none;
+  transition: fill 0.25s linear;
+}
+
+.pf-engine.on {
+  fill: var(--pf-active-color);
+}
+
+/* Traction battery amidships, drawn over the shafts so the pack reads as the
+   thing they connect to. */
+.pf-battery-shell {
+  fill: #05070a;
+  stroke: var(--pf-idle-color);
+  stroke-width: 1.4;
+}
+
+.pf-battery-bar {
+  fill: var(--pf-off-color);
+  transition: fill 0.25s linear;
+}
+
+.pf-battery-bar.on {
+  fill: var(--pf-regen-color);
+}
+
+/* Below 10% the last remaining bar goes red instead of green. */
+.pf-battery-bar.on.critical {
+  fill: var(--pf-battery-critical-color);
+  filter: drop-shadow(0 0 3px var(--pf-battery-critical-color));
+}
+
+/* Charging: the bar above the current level pulses. Opacity only, so the whole
+   animation stays on the compositor — this WebView is CPU-bound and a fill
+   animation would repaint every frame. */
+.pf-battery-bar.pulse {
+  fill: var(--pf-regen-color);
+  animation: pf-battery-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pf-battery-pulse {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 1; }
 }

@@ -98,6 +98,14 @@
             <group>Exibição</group>
         </configuration>
         <configuration>
+            <id>show_traction_icon</id>
+            <label>Exibir Indicador de Tração</label>
+            <type>boolean</type>
+            <default>true</default>
+            <stateVariable>showTractionIcon</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+        <configuration>
             <id>show_rpm_icon</id>
             <label>Exibir Indicador de RPM</label>
             <type>boolean</type>

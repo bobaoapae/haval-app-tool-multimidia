@@ -2,6 +2,7 @@ import { getState, setState, subscribe } from '../state.js';
 import { div, span, img } from '../../../../shared/utils/createElement.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { createOdometerInfo } from './display/odometer/odometerInfo.js';
+import { createPowerFlowIcon } from './powerFlowIcon.js';
 
 const fuelIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xLDEyTDUsOVYxNVoiLz48cGF0aCBkPSJNMjIsMTBWOGEyLDIsMCwwLDAtMi0yaC0zVjRhMiwyLDAsMCwwLTItMkg5QTIsMiwwLDAsMCw3LDR2MTZhMiwyLDAsMCwwLDIsMmg4YTIsMiwwLDAsMCw2LTJWMTJoMXY0YTIsMiwwLDAsMCw0LDBWMTBaTTksNGg4djZIOVptOCwxNkg5VjEyaDhaIi8+PC9zdmc+";
 const batteryIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjwhLS0gQm9keSAtLT48cGF0aCBkPSJNMyw2aDE4YzEuMSwwLDIsMC45LDIsMnYxMGMwLDEuMS0wLjksMi0yLDJIM2MtMS4xLDAtMi0wLjktMi0yVjhDMSw2LjksMS45LDYsMyw2eiBNMyw4djEwaDE4VjhIM3oiLz48IS0tIFBvbGVzIC0tPjxyZWN0IHg9IjUiIHk9IjMiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48cmVjdCB4PSIxNSIgeT0iMyIgd2lkdGg9IjQiIGhlaWdodD0iMyIvPjwhLS0gTWludXMgc2lnbiAoLSkgLS0+PHJlY3QgeD0iNiIgeT0iMTIiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48IS0tIFBsdXMgc2lnbiAoKykgLS0+PHBhdGggZD0iTTE2LDEwaC0ydjJoLTJ2MmgydjJoMnYtMmgydi0yaC0yVjEweiIvPjwvc3ZnPg==";
@@ -432,6 +433,11 @@ export function createDashboardInfo() {
     container.appendChild(bottomEvMode);
     container.appendChild(bottomRegenContainer);
 
+    // Powertrain flow sits in the clear span between the battery gauge (ends at
+    // x=1470) and REGEN (starts at x=1590). Nothing else occupies that band.
+    const { element: powerFlowElement, cleanup: powerFlowCleanup } = createPowerFlowIcon();
+    container.appendChild(powerFlowElement);
+
     const fixedOverlay = div({
         className: 'dashboard-fixed-overlay',
         children: [
@@ -591,6 +597,7 @@ export function createDashboardInfo() {
         clearInterval(clockInterval);
         subscriptions.forEach(unsubscribe => unsubscribe());
         if (odometerCleanup) odometerCleanup();
+        if (powerFlowCleanup) powerFlowCleanup();
     };
 
     return { element: container, menuWrapper, cleanup };
