@@ -104,8 +104,14 @@ if (-not $NoRestart) {
     $ErrorActionPreference = "Continue"
     & $adb -s $Serial shell monkey -p $pkg -c android.intent.category.LAUNCHER 1 2>&1 | Out-Null
     $ErrorActionPreference = $prev
-    Start-Sleep -Seconds 3
-    $appPid = (& $adb -s $Serial shell pidof $pkg).Trim()
+    # The app can take longer than one sleep to come back, and pidof returns
+    # nothing at all until it does — so poll, and never call .Trim() on null.
+    $appPid = ""
+    foreach ($attempt in 1..10) {
+        Start-Sleep -Seconds 2
+        $appPid = "$(& $adb -s $Serial shell pidof $pkg)".Trim()
+        if ($appPid) { break }
+    }
     if ($appPid) {
         Write-Host "Restarted (pid $appPid). Give the cluster ~15s to rebuild the projector." -ForegroundColor Green
     } else {
