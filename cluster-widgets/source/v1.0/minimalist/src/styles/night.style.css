@@ -5493,7 +5493,8 @@ body.native-mock-enabled .dev-background,
 /* ---------------------------------------------------------------------------
    Traction indicator (bottom bar, right-hand group)
 
-   Reads left to right as [engine] I-[||||]-I, front of the car on the left.
+   Reads left to right as I-[||||]-I, front of the car on the left. The engine
+   sits between the front axle's tyres, painted over the middle of its upright.
    Each axle is a roman "I": an upright with a serif top and bottom, the serifs
    being that axle's two tyres. The pack sits amidships with four level bars.
    One active axle reads as 4x2, both as 4x4, with no text.
@@ -5572,6 +5573,14 @@ body.native-mock-enabled .dev-background,
 
 .pf-engine.on {
   fill: var(--pf-active-color);
+}
+
+/* Regenerating overrides firing: some regen states keep the engine spinning
+   (engine braking, or 13 "energy recovery + driving charging"), and staying
+   white there would read as the engine producing power, not the opposite. */
+.pf-engine.regen {
+  fill: var(--pf-regen-color);
+  filter: drop-shadow(0 0 3px var(--pf-regen-color));
 }
 
 /* Traction battery amidships, drawn over the shafts so the pack reads as the

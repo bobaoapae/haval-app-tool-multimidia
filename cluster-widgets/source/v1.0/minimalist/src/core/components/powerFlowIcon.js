@@ -5,14 +5,16 @@ import { div } from '../../../../shared/utils/createElement.js';
  * Traction indicator for the bottom bar, between the temperature readout
  * and the fuel gauge. Hidden by the `showTractionIcon` theme config.
  *
- * Reads left to right as `[engine] I-[||||]-I`, front of the car on the left:
+ * Reads left to right as `I-[||||]-I`, front of the car on the left, with the
+ * engine sitting between the front axle's two tyres rather than ahead of it:
  *
- *   - a narrow engine block at the nose
  *   - each axle drawn as a roman "I" — an upright stroke with a serif at top
  *     and bottom, the serifs being that axle's two tyres
  *   - the traction battery amidships, four bars for the level, the next bar
  *     up pulsing while the pack is charging
  *   - a short shaft joining each axle to the pack
+ *   - the engine block, painted over the middle of the front axle's upright:
+ *     dark idle, white firing, green while the state is regen
  *
  * Each "I" and its shaft take that axle's colour:
  *   grey   - idle, that axle is doing nothing
@@ -38,6 +40,15 @@ const TYRE_HALF_W = 5;
 
 const FRONT_AXLE_X = 22;
 const REAR_AXLE_X = 76;
+
+// Engine box: same 11x14 proportions as before, now centred on the front
+// axle instead of sitting ahead of it, so it reads as sitting between the
+// two front tyres rather than at the nose. The axle upright is drawn first
+// and runs full height regardless; the engine paints over its middle third.
+const ENGINE_W = 11;
+const ENGINE_H = 14;
+const ENGINE_X = FRONT_AXLE_X - ENGINE_W / 2;
+const ENGINE_Y = MID_Y - ENGINE_H / 2;
 
 const BATTERY_X = 34;
 const BATTERY_Y = 7;
@@ -139,16 +150,19 @@ export function createPowerFlowIcon() {
 
     const engine = svg('rect', {
         class: 'pf-engine',
-        x: 4, y: 10, width: 11, height: 14, rx: 1.5
+        x: ENGINE_X, y: ENGINE_Y, width: ENGINE_W, height: ENGINE_H, rx: 1.5
     });
 
     const frontAxle = createAxle('front', FRONT_AXLE_X, BATTERY_X);
     const rearAxle = createAxle('rear', REAR_AXLE_X, BATTERY_X + BATTERY_W);
     const battery = createBattery();
 
-    root.appendChild(engine);
+    // Front axle first so the engine paints over its middle third — the
+    // upright still runs full height underneath, tyres stay clear above
+    // and below the block.
     root.appendChild(frontAxle);
     root.appendChild(rearAxle);
+    root.appendChild(engine);
     root.appendChild(battery.group);
     container.appendChild(root);
 
@@ -171,8 +185,13 @@ export function createPowerFlowIcon() {
         frontAxle.setAttribute('class', `pf-axle front${front ? ' ' + front : ''}`);
         rearAxle.setAttribute('class', `pf-axle rear${rear ? ' ' + rear : ''}`);
         // `ice` is RPM-gated natively, so it means the engine is actually
-        // firing rather than merely that the ignition is on.
-        engine.setAttribute('class', `pf-engine${ice ? ' on' : ''}`);
+        // firing rather than merely that the ignition is on. Regen overrides
+        // that: some regen states keep the engine spinning (engine braking,
+        // or 13 "energy recovery + driving charging"), and colouring it white
+        // there would read as "producing power" during the one state where
+        // it is doing the opposite.
+        const engineClass = state === 'regen' ? ' regen' : ice ? ' on' : '';
+        engine.setAttribute('class', `pf-engine${engineClass}`);
         container.setAttribute('data-tone', state);
     };
 
