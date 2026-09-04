@@ -14,7 +14,8 @@ import { div } from '../../../../shared/utils/createElement.js';
  *     up pulsing while the pack is charging
  *   - a short shaft joining each axle to the pack
  *   - the engine block, painted over the middle of the front axle's upright:
- *     dark idle, white firing, green while the state is regen
+ *     dark idle/off, white firing, green while firing during regen (engine
+ *     braking) — regen with the engine off stays dark, not green
  *
  * Each "I" and its shaft take that axle's colour:
  *   grey   - idle, that axle is doing nothing
@@ -185,12 +186,14 @@ export function createPowerFlowIcon() {
         frontAxle.setAttribute('class', `pf-axle front${front ? ' ' + front : ''}`);
         rearAxle.setAttribute('class', `pf-axle rear${rear ? ' ' + rear : ''}`);
         // `ice` is RPM-gated natively, so it means the engine is actually
-        // firing rather than merely that the ignition is on. Regen overrides
-        // that: some regen states keep the engine spinning (engine braking,
-        // or 13 "energy recovery + driving charging"), and colouring it white
-        // there would read as "producing power" during the one state where
-        // it is doing the opposite.
-        const engineClass = state === 'regen' ? ' regen' : ice ? ' on' : '';
+        // firing rather than merely that the ignition is on. Regen only
+        // overrides the colour while the engine is actually spinning (engine
+        // braking, or 13 "energy recovery + driving charging") — colouring it
+        // white there would read as "producing power" during the one state
+        // where it is doing the opposite. When the engine is off, regen is
+        // happening purely electrically and the block must stay idle, not
+        // green — green implies the ICE itself is recovering energy.
+        const engineClass = state === 'regen' && ice ? ' regen' : ice ? ' on' : '';
         engine.setAttribute('class', `pf-engine${engineClass}`);
         container.setAttribute('data-tone', state);
     };
