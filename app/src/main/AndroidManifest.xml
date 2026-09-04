@@ -184,6 +184,14 @@
                 <action android:name="br.com.redesurftank.havalshisuku.ACTION_UPDATE_OVERSCAN" />
             </intent-filter>
         </receiver>
+        <receiver
+            android:name=".broadcastReceivers.VehicleCommandReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_VEHICLE_COMMAND" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="rikka.shizuku.ShizukuProvider"

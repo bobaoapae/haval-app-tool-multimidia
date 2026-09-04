@@ -2558,6 +2558,206 @@ public class ServiceManager {
     }
 
     /**
+     * Hotspot / viewer body commands. Returns false when the vehicle binder is
+     * not ready or the command is unknown.
+     */
+    public boolean invokeVehicleCommand(String command, String value) {
+        if (command == null || command.isEmpty()) return false;
+        if (vehicle == null) {
+            Log.w(TAG, "invokeVehicleCommand: vehicle binder not ready (" + command + ")");
+            return false;
+        }
+        try {
+            switch (command) {
+                case "open_windows":
+                    return openAllWindows();
+                case "close_windows":
+                    return closeAllWindow();
+                case "toggle_windows":
+                    return toggleAllWindows();
+                case "open_sunroof":
+                    return setSunroofLevel(100);
+                case "close_sunroof":
+                    closeSunRoof(false);
+                    return true;
+                case "toggle_sunroof":
+                    return toggleSunRoof();
+                case "open_curtain":
+                    openSunRoofShade();
+                    return true;
+                case "close_curtain":
+                    closeSunRoofShade();
+                    return true;
+                case "toggle_curtain":
+                    return toggleCurtain();
+                case "set_curtain_level":
+                    return setCurtainLevel(parseLevel(value));
+                case "set_sunroof_level":
+                    return setSunroofLevel(parseLevel(value));
+                case "toggle_trunk":
+                    return toggleDoor(5);
+                case "toggle_door_fl":
+                    return toggleDoor(0);
+                case "toggle_door_fr":
+                    return toggleDoor(1);
+                case "toggle_door_rl":
+                    return toggleDoor(2);
+                case "toggle_door_rr":
+                    return toggleDoor(3);
+                case "toggle_doors_all":
+                    return toggleAllDoors();
+                default:
+                    Log.w(TAG, "Unknown vehicle command: " + command);
+                    return false;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "invokeVehicleCommand failed: " + command, e);
+            return false;
+        }
+    }
+
+    private static int parseLevel(String value) {
+        if (value == null || value.isEmpty()) return 0;
+        try {
+            return Math.max(0, Math.min(100, Integer.parseInt(value.trim())));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /** IVehicle window status: 1 = closed (see closeAllWindow). */
+    public boolean openAllWindows() {
+        try {
+            int[] windowsStatus = vehicle.getWindowsStatus(0);
+            for (int i = 0; i < windowsStatus.length; i++) {
+                if (windowsStatus[i] != 0) {
+                    vehicle.setWindowStatus(i, 0);
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening all windows", e);
+            return false;
+        }
+    }
+
+    /** IVehicle window status: 1 = closed (see closeAllWindow). */
+    public boolean toggleAllWindows() {
+        try {
+            int[] windowsStatus = vehicle.getWindowsStatus(0);
+            boolean anyOpen = false;
+            for (int status : windowsStatus) {
+                if (status != 1) {
+                    anyOpen = true;
+                    break;
+                }
+            }
+            for (int i = 0; i < windowsStatus.length; i++) {
+                vehicle.setWindowStatus(i, anyOpen ? 1 : 0);
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling windows", e);
+            return false;
+        }
+    }
+
+    public boolean toggleSunRoof() {
+        try {
+            int level = vehicle.getSkylightLevel(0);
+            if (level != 0) {
+                vehicle.setSkylightLevel(0);
+            } else {
+                vehicle.setSkylightLevel(100);
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling sunroof", e);
+            return false;
+        }
+    }
+
+    public boolean toggleCurtain() {
+        try {
+            int level = vehicle.getShadeScreensLevel(0);
+            if (level > 50) {
+                closeSunRoofShade();
+            } else {
+                openSunRoofShade();
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling curtain", e);
+            return false;
+        }
+    }
+
+    /** 0–100 UI percent → skylight level (0 / tilt up to 200 / slide up to 100). */
+    public boolean setCurtainLevel(int pct) {
+        try {
+            vehicle.setShadeScreensLevel(pct);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting curtain level", e);
+            return false;
+        }
+    }
+
+    public boolean setSunroofLevel(int pct) {
+        try {
+            int level;
+            if (pct <= 0) {
+                level = 0;
+            } else if (pct <= 25) {
+                level = Math.round(200f * pct / 25f);
+            } else {
+                level = Math.round(100f * (pct - 25f) / 75f);
+            }
+            vehicle.setSkylightLevel(level);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting sunroof level", e);
+            return false;
+        }
+    }
+
+    /**
+     * Door slot matches the viewer's CAR_DOOR_SLOTS (trunk = 5). param2 is
+     * 1 = open, 0 = closed on the voice-adapter binder.
+     */
+    public boolean toggleDoor(int slot) {
+        try {
+            int open = vehicle.isDoorOpened(slot, 0, 0);
+            vehicle.setDoorOpen(slot, open == 1 ? 0 : 1);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling door slot " + slot, e);
+            return false;
+        }
+    }
+
+    /** Toggle only the four passenger doors; the tailgate remains independent. */
+    public boolean toggleAllDoors() {
+        try {
+            boolean anyOpen = false;
+            for (int slot = 0; slot < 4; slot++) {
+                if (vehicle.isDoorOpened(slot, 0, 0) == 1) {
+                    anyOpen = true;
+                    break;
+                }
+            }
+            int target = anyOpen ? 0 : 1;
+            for (int slot = 0; slot < 4; slot++) {
+                vehicle.setDoorOpen(slot, target);
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling all doors", e);
+            return false;
+        }
+    }
+
+    /**
      * Arma a automação da cortina sem comandar nada agora. Não faz trabalho nenhum no boot:
      * só marca a flag e agenda dois timers. Quem disparar primeiro (evento de driving_ready,
      * leitura tardia ou fallback) consome o armamento via compareAndSet.
