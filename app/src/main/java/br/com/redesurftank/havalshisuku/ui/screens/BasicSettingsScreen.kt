@@ -43,6 +43,7 @@ import br.com.redesurftank.havalshisuku.ui.components.GroupedSettingsLayout
 import br.com.redesurftank.havalshisuku.ui.components.SettingsGroups
 import br.com.redesurftank.havalshisuku.ui.components.TwoColumnSettingsLayout
 import br.com.redesurftank.havalshisuku.managers.HotRouterManager
+import br.com.redesurftank.havalshisuku.managers.ViewerAutostartManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -853,6 +854,14 @@ fun BasicSettingsTab() {
         var enableHotRouter by remember {
                 mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_HOT_ROUTER.key, false))
         }
+        var autoStartViewer by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.AUTO_START_VIEWER_ON_BOOT.key,
+                                false
+                        )
+                )
+        }
         // ===== Controle de dados móveis do carro (master + regras) =====
         val mdm = br.com.redesurftank.havalshisuku.managers.MobileDataManager
         var mobileControlEnabled by remember { mutableStateOf(mdm.isControlEnabled()) }
@@ -887,6 +896,53 @@ fun BasicSettingsTab() {
         }
 
         val settingsList = mutableListOf<SettingItem>()
+
+        // Abre o viewer 3D no boot. Esta ROM nao permite trocar o app de HOME (set-home-activity e
+        // pm disable-user sao no-op no CarPackageManagerService), entao em vez de disputar o papel
+        // de HOME simplesmente abrimos o viewer por cima assim que o carro liga.
+        settingsList.add(
+                SettingItem(
+                        title = "Abrir o Haval H6 3D ao ligar",
+                        group = SettingsGroups.FEATURES,
+                        description =
+                                SharedPreferencesKeys.AUTO_START_VIEWER_ON_BOOT.description +
+                                        ". Tenta algumas vezes nos primeiros segundos, porque o " +
+                                        "launcher do carro ainda esta subindo; para se voce abrir " +
+                                        "outro app antes.",
+                        checked = autoStartViewer,
+                        onCheckedChange = {
+                                autoStartViewer = it
+                                prefs.edit {
+                                        putBoolean(
+                                                SharedPreferencesKeys
+                                                        .AUTO_START_VIEWER_ON_BOOT
+                                                        .key,
+                                                it
+                                        )
+                                }
+                        },
+                        customContent =
+                                if (autoStartViewer) {
+                                        {
+                                                Column(
+                                                        verticalArrangement =
+                                                                Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                        HorizontalDivider(
+                                                                color = Color(0xFF3A3F47),
+                                                                thickness = 1.dp
+                                                        )
+                                                        Button(
+                                                                onClick = {
+                                                                        ViewerAutostartManager
+                                                                                .launchNow()
+                                                                }
+                                                        ) { Text("Abrir agora") }
+                                                }
+                                        }
+                                } else null
+                )
+        )
 
         // HotRouter: roteia o hotspot pela WLAN externa (Starlink) com fallback pro 4G.
         settingsList.add(
