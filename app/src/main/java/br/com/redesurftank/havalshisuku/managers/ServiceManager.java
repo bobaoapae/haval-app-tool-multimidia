@@ -183,6 +183,21 @@ public class ServiceManager {
             CarConstants.CAR_BASIC_TIREPRESS_WARNING,
             CarConstants.CAR_BASIC_TIRETEMP_WARNING,
             CarConstants.CAR_BASIC_TPMS_WARNING,
+            // The *_WARNING keys above are flags ({0,0,0,0}), not readings, which is why nothing
+            // could show a tyre pressure: the key that carries the actual data was never
+            // subscribed, so it was never dispatched. Measured on the car 2026-09-09, parked:
+            //
+            //   car.basic.tpms_status = {2.48922,25.0,2.48922,24.0,2.2559,24.0,2.48922,24.0}
+            //   car.basic.tpms_units  = 1
+            //
+            // i.e. 8 values = 4 wheels x (pressure in bar, temperature in C); the temperatures
+            // sat on ambient (outside_temp 23.0) as a parked car's should. Wheel order is assumed
+            // to follow tirepress_warning's, but has NOT been confirmed against the physical
+            // corners. NOMINAL_TIRE_PRESSURE reads 0 and looks useless; it stays subscribed so a
+            // non-zero value would surface rather than being written off a second time.
+            CarConstants.CAR_BASIC_TPMS_STATUS,
+            CarConstants.CAR_BASIC_TPMS_UNITS,
+            CarConstants.CAR_CONFIGURE_NOMINAL_TIRE_PRESSURE,
             CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQLEFT,
             CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQRIGHT,
             CarConstants.CAR_IPK_INFO_DOW_WARNING_REQLEFT,
