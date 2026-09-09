@@ -185,6 +185,30 @@
             </intent-filter>
         </receiver>
         <receiver
+            android:name=".broadcastReceivers.CarDataWriteReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_UPDATE_CAR_DATA" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.TaskResolveReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_RESOLVE_TASK" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.TaskBoundsReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_SET_TASK_BOUNDS" />
+            </intent-filter>
+        </receiver>
+        <receiver
             android:name=".broadcastReceivers.VehicleCommandReceiver"
             android:enabled="true"
             android:exported="true">
