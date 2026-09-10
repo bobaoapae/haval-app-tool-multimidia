@@ -55,6 +55,7 @@ class VehicleCommandReceiver : BroadcastReceiver() {
         /** Commands that must not carry a value payload. */
         private val NO_VALUE_COMMANDS = setOf(
             "open_windows", "close_windows", "toggle_windows",
+            "toggle_window_fl", "toggle_window_fr", "toggle_window_rl", "toggle_window_rr",
             "open_sunroof", "close_sunroof", "toggle_sunroof",
             "open_curtain", "close_curtain", "toggle_curtain",
             "toggle_doors_all", "toggle_trunk",

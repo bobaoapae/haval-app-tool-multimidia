@@ -2590,6 +2590,14 @@ public class ServiceManager {
                     return closeAllWindow();
                 case "toggle_windows":
                     return toggleAllWindows();
+                case "toggle_window_fl":
+                    return toggleWindow(0);
+                case "toggle_window_fr":
+                    return toggleWindow(1);
+                case "toggle_window_rl":
+                    return toggleWindow(2);
+                case "toggle_window_rr":
+                    return toggleWindow(3);
                 case "open_sunroof":
                     return setSunroofLevel(100);
                 case "close_sunroof":
@@ -2674,6 +2682,36 @@ public class ServiceManager {
      */
     public boolean setWindowsLevel(int level) {
         return level >= 50 ? openAllWindows() : closeAllWindow();
+    }
+
+    /**
+     * One corner. Slot order is front-left, front-right, rear-left, rear-right, confirmed on the
+     * car because only slot 0 moved while the driver's window did.
+     *
+     * Anything not CLOSED shuts, so a partially open window (3) closes rather than opening
+     * further - there is no "open a bit more" to ask for. A corner reading 0 is mid-travel; the
+     * car ignores commands during travel anyway, so this reports false instead of pretending.
+     */
+    public boolean toggleWindow(int index) {
+        try {
+            int[] windowsStatus = vehicle.getWindowsStatus(0);
+            if (index < 0 || index >= windowsStatus.length) {
+                Log.w(TAG, "toggleWindow: index " + index + " outside " + windowsStatus.length);
+                return false;
+            }
+            int current = windowsStatus[index];
+            if (current == 0) {
+                Log.w(TAG, "toggleWindow(" + index + "): glass is moving, ignoring");
+                return false;
+            }
+            int target = current == WINDOW_CLOSED ? WINDOW_OPEN : WINDOW_CLOSED;
+            Log.w(TAG, "toggleWindow(" + index + "): " + current + " -> " + target);
+            vehicle.setWindowStatus(index, target);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "toggleWindow failed for index " + index, e);
+            return false;
+        }
     }
 
     public boolean openAllWindows() {
