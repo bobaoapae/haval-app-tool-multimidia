@@ -62,7 +62,8 @@ class VehicleCommandReceiver : BroadcastReceiver() {
         )
 
         /** Commands whose value is a UI percentage, inclusive. */
-        private val LEVEL_COMMANDS = setOf("set_curtain_level", "set_sunroof_level")
+        private val LEVEL_COMMANDS =
+            setOf("set_curtain_level", "set_sunroof_level", "set_windows_level")
 
         /** Reject malformed values rather than treating them as a request to close. */
         private fun canonicalLevel(raw: String?): String? {

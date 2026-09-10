@@ -2506,8 +2506,8 @@ public class ServiceManager {
         try {
             int[] windowsStatus = vehicle.getWindowsStatus(0);
             for (int i = 0; i < windowsStatus.length; i++) {
-                if (windowsStatus[i] != 1) {
-                    vehicle.setWindowStatus(i, 1);
+                if (windowsStatus[i] != WINDOW_CLOSED) {
+                    vehicle.setWindowStatus(i, WINDOW_CLOSED);
                 }
             }
             return true;
@@ -2609,6 +2609,8 @@ public class ServiceManager {
                     return setCurtainLevel(parseLevel(value));
                 case "set_sunroof_level":
                     return setSunroofLevel(parseLevel(value));
+                case "set_windows_level":
+                    return setWindowsLevel(parseLevel(value));
                 case "toggle_trunk":
                     return toggleDoor(5);
                 case "toggle_door_fl":
@@ -2640,13 +2642,46 @@ public class ServiceManager {
         }
     }
 
-    /** IVehicle window status: 1 = closed (see closeAllWindow). */
+    /**
+     * Window vocabulary, measured on the car 2026-09-09 by moving the driver window by hand and
+     * reading car.basic.window_status after each position:
+     *
+     *   1 = closed        2 = fully open        3 = partially open
+     *
+     * Index 0 is the driver window (only slot 0 moved). This method used to write 0 to open, which
+     * is not in that vocabulary at all: sending open_windows left {1,1,1,1} untouched, while
+     * close_windows (writing 1) closed a fully open window in the same session. So the command side
+     * speaks the same vocabulary as the status side, and "open" is 2.
+     *
+     * setWindowStatus is a passthrough - the voice adapter packs {index,status} into
+     * car.basic.window_control_action - so nothing below the adapter constrains these values.
+     */
+    public static final int WINDOW_CLOSED = 1;
+    public static final int WINDOW_OPEN = 2;
+    public static final int WINDOW_PARTIAL = 3;
+
+    /**
+     * Windows have no intermediate position, so a "level" can only ever mean open or shut.
+     *
+     * There is no stop command. Measured on the car 2026-09-09 by interrupting a 2.5s travel at
+     * 1000ms and sampling window_status every 500ms afterwards: repeating the same command is
+     * ignored, the opposite command reverses and runs to completion, and raw 0 (the moving state),
+     * 3 (partially open) and 4 (out of range) were all ignored. Every run finished its travel.
+     *
+     * So timed positioning - open for 40% of travel, then halt - is impossible, and a percentage
+     * cannot be honoured. The threshold keeps a dragged UI control meaningful: past halfway opens,
+     * below it closes.
+     */
+    public boolean setWindowsLevel(int level) {
+        return level >= 50 ? openAllWindows() : closeAllWindow();
+    }
+
     public boolean openAllWindows() {
         try {
             int[] windowsStatus = vehicle.getWindowsStatus(0);
             for (int i = 0; i < windowsStatus.length; i++) {
-                if (windowsStatus[i] != 0) {
-                    vehicle.setWindowStatus(i, 0);
+                if (windowsStatus[i] != WINDOW_OPEN) {
+                    vehicle.setWindowStatus(i, WINDOW_OPEN);
                 }
             }
             return true;
@@ -2656,19 +2691,19 @@ public class ServiceManager {
         }
     }
 
-    /** IVehicle window status: 1 = closed (see closeAllWindow). */
+    /** Anything not CLOSED counts as open, so a partially open window (3) toggles shut. */
     public boolean toggleAllWindows() {
         try {
             int[] windowsStatus = vehicle.getWindowsStatus(0);
             boolean anyOpen = false;
             for (int status : windowsStatus) {
-                if (status != 1) {
+                if (status != WINDOW_CLOSED) {
                     anyOpen = true;
                     break;
                 }
             }
             for (int i = 0; i < windowsStatus.length; i++) {
-                vehicle.setWindowStatus(i, anyOpen ? 1 : 0);
+                vehicle.setWindowStatus(i, anyOpen ? WINDOW_CLOSED : WINDOW_OPEN);
             }
             return true;
         } catch (Exception e) {
