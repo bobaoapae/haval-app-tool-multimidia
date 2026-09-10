@@ -2517,6 +2517,38 @@ public class ServiceManager {
         }
     }
 
+    /** IVehicle mirror fold: 0 = folded, 1 = unfolded. */
+    public boolean foldMirrors() {
+        try {
+            vehicle.setRearViewMirrorFoldState(0);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error folding mirrors", e);
+            return false;
+        }
+    }
+
+    public boolean unfoldMirrors() {
+        try {
+            vehicle.setRearViewMirrorFoldState(1);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error unfolding mirrors", e);
+            return false;
+        }
+    }
+
+    public boolean toggleMirrors() {
+        try {
+            int state = vehicle.getRearViewMirrorFoldState();
+            vehicle.setRearViewMirrorFoldState(state == 0 ? 1 : 0);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling mirrors", e);
+            return false;
+        }
+    }
+
     public void closeSunRoof(boolean checkCloseShade) {
         try {
             int sunRoofStatus = vehicle.getSkylightLevel(0);
@@ -2631,6 +2663,12 @@ public class ServiceManager {
                     return toggleDoor(3);
                 case "toggle_doors_all":
                     return toggleAllDoors();
+                case "fold_mirrors":
+                    return foldMirrors();
+                case "unfold_mirrors":
+                    return unfoldMirrors();
+                case "toggle_mirrors":
+                    return toggleMirrors();
                 default:
                     Log.w(TAG, "Unknown vehicle command: " + command);
                     return false;

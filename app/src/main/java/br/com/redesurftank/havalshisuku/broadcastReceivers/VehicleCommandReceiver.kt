@@ -60,6 +60,7 @@ class VehicleCommandReceiver : BroadcastReceiver() {
             "open_curtain", "close_curtain", "toggle_curtain",
             "toggle_doors_all", "toggle_trunk",
             "toggle_door_fl", "toggle_door_fr", "toggle_door_rl", "toggle_door_rr",
+            "fold_mirrors", "unfold_mirrors", "toggle_mirrors",
         )
 
         /** Commands whose value is a UI percentage, inclusive. */
