@@ -27,8 +27,13 @@ import java.io.File
  * The retry loop stops as soon as either:
  *
  *  * the viewer is on top — done, or
- *  * something that is neither the viewer nor the OEM launcher is on top — the driver has opened
- *    something in the meantime and stealing focus back would be hostile.
+ *  * the top package CHANGED from whatever was already there when the ladder began — the driver
+ *    opened something mid-boot, and stealing focus back would be hostile.
+ *
+ * The yield rule keys on a CHANGE rather than a fixed allowlist. The first version assumed the OEM
+ * launcher was the only thing that could legitimately be on top at boot; measured on the car,
+ * `com.beantechs.mediacenter` is what comes up (media auto-resumes), so the ladder yielded at
+ * attempt 0 and never called startActivity at all.
  *
  * A boot token (`/proc/sys/kernel/random/boot_id`, read directly rather than through Shizuku,
  * because this runs before Shizuku is necessarily up) makes the whole thing run once per boot, so
@@ -48,6 +53,10 @@ object ViewerAutostartManager {
 
     private val handler = Handler(Looper.getMainLooper())
     private var running = false
+
+    /** Whatever was on top when the ladder began. Anything else later means the driver acted. */
+    private var baselineTop: String? = null
+    private var baselineCaptured = false
 
     private fun prefs() =
         App.getDeviceProtectedContext()
@@ -90,6 +99,8 @@ object ViewerAutostartManager {
         }
 
         running = true
+        baselineTop = null
+        baselineCaptured = false
         ClusterPersistentEventLogger.log("viewer_autostart_started", mapOf("reason" to reason))
         ATTEMPT_DELAYS_MS.forEachIndexed { index, delay ->
             handler.postDelayed({ attempt(index) }, delay)
@@ -111,6 +122,14 @@ object ViewerAutostartManager {
         val top = runCatching { DisplayAppLauncher.getTopPackageOnDisplay(MAIN_DISPLAY_ID) }
             .getOrNull()
 
+        // The first reading is the boot state, whatever it happens to be - the OEM launcher on
+        // some boots, the media centre on others. Only a change away from it counts as the driver.
+        if (!baselineCaptured && top != null) {
+            baselineTop = top
+            baselineCaptured = true
+            Log.w(TAG, "Boot baseline top package is '$top'")
+        }
+
         when {
             top == VIEWER_PACKAGE -> {
                 Log.w(TAG, "Viewer is on top after attempt $index; autostart done")
@@ -121,11 +140,11 @@ object ViewerAutostartManager {
                 running = false
                 return
             }
-            top != null && top != STOCK_LAUNCHER_PACKAGE -> {
-                Log.w(TAG, "'$top' is on top; leaving it alone and stopping viewer autostart")
+            top != null && top != baselineTop && top != STOCK_LAUNCHER_PACKAGE -> {
+                Log.w(TAG, "'$top' replaced '$baselineTop'; leaving it alone and stopping autostart")
                 ClusterPersistentEventLogger.log(
                     "viewer_autostart_yielded",
-                    mapOf("attempt" to index, "top" to top)
+                    mapOf("attempt" to index, "top" to top, "baseline" to baselineTop.orEmpty())
                 )
                 running = false
                 return
