@@ -2517,37 +2517,45 @@ public class ServiceManager {
         }
     }
 
-    /** IVehicle mirror fold: 0 = folded, 1 = unfolded. */
-    public boolean foldMirrors() {
-        try {
-            vehicle.setRearViewMirrorFoldState(0);
-            return true;
-        } catch (Exception e) {
-            Log.e(TAG, "Error folding mirrors", e);
-            return false;
-        }
-    }
-
-    public boolean unfoldMirrors() {
-        try {
-            vehicle.setRearViewMirrorFoldState(1);
-            return true;
-        } catch (Exception e) {
-            Log.e(TAG, "Error unfolding mirrors", e);
-            return false;
-        }
-    }
-
-    public boolean toggleMirrors() {
-        try {
-            int state = vehicle.getRearViewMirrorFoldState();
-            vehicle.setRearViewMirrorFoldState(state == 0 ? 1 : 0);
-            return true;
-        } catch (Exception e) {
-            Log.e(TAG, "Error toggling mirrors", e);
-            return false;
-        }
-    }
+    /**
+     * IVehicle mirror fold: 0 = folded, 1 = unfolded.
+     * Commented out 2026-09-10: on this GWM config the binder call succeeds
+     * ({@code ok=true}) but never changes
+     * {@code car.drive.setting.outside_view_mirror_fold_state}. Voice-adapter
+     * {@code isSupportRearViewMirrorFold} also requires
+     * {@code persist.vendor.gwm.cfg.osrvm.fold.virtual.sw.control == 1}; even
+     * with that forced to 1 after reboot the set remained a no-op.
+     */
+    // public boolean foldMirrors() {
+    //     try {
+    //         vehicle.setRearViewMirrorFoldState(0);
+    //         return true;
+    //     } catch (Exception e) {
+    //         Log.e(TAG, "Error folding mirrors", e);
+    //         return false;
+    //     }
+    // }
+    //
+    // public boolean unfoldMirrors() {
+    //     try {
+    //         vehicle.setRearViewMirrorFoldState(1);
+    //         return true;
+    //     } catch (Exception e) {
+    //         Log.e(TAG, "Error unfolding mirrors", e);
+    //         return false;
+    //     }
+    // }
+    //
+    // public boolean toggleMirrors() {
+    //     try {
+    //         int state = vehicle.getRearViewMirrorFoldState();
+    //         vehicle.setRearViewMirrorFoldState(state == 0 ? 1 : 0);
+    //         return true;
+    //     } catch (Exception e) {
+    //         Log.e(TAG, "Error toggling mirrors", e);
+    //         return false;
+    //     }
+    // }
 
     public void closeSunRoof(boolean checkCloseShade) {
         try {
@@ -2663,12 +2671,12 @@ public class ServiceManager {
                     return toggleDoor(3);
                 case "toggle_doors_all":
                     return toggleAllDoors();
-                case "fold_mirrors":
-                    return foldMirrors();
-                case "unfold_mirrors":
-                    return unfoldMirrors();
-                case "toggle_mirrors":
-                    return toggleMirrors();
+                // case "fold_mirrors":
+                //     return foldMirrors();
+                // case "unfold_mirrors":
+                //     return unfoldMirrors();
+                // case "toggle_mirrors":
+                //     return toggleMirrors();
                 default:
                     Log.w(TAG, "Unknown vehicle command: " + command);
                     return false;
