@@ -593,6 +593,7 @@ public class ServiceManager {
         servicesInitialized = true;
         timeInitialized = SystemClock.uptimeMillis();
         AndroidAutoClusterController.INSTANCE.start();
+        br.com.redesurftank.havalshisuku.services.AndroidAutoNavigationMonitor.INSTANCE.start(context);
 
         Log.w(TAG, "Starting SimulatorGateway");
         try {
@@ -1178,6 +1179,7 @@ public class ServiceManager {
 
         servicesInitialized = true;
         AndroidAutoClusterController.INSTANCE.start();
+        br.com.redesurftank.havalshisuku.services.AndroidAutoNavigationMonitor.INSTANCE.start(context);
         synchronized (pendingTasks) {
             for (Runnable task : pendingTasks) backgroundHandler.post(task);
             pendingTasks.clear();
