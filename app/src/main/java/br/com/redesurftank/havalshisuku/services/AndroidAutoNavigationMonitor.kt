@@ -215,13 +215,13 @@ object AndroidAutoNavigationMonitor {
             "onNavigationState steps=$stepCount road=$road event=$event " +
                 "angle=$turnAngle number=$turnNumber"
         )
-        publish(accumulator.onRouteStep(road, event, turnAngle, hasRoute))
+        publish(accumulator.onRouteStep(road, event, hasRoute))
     }
 
     /**
      * `IfNavigationPositionData`: display string, metres, units, time, current
-     * road, then a destination-distance list. Only the prefix through the
-     * current road is read; the trailing list is left unparsed.
+     * road, then a list of `IfNavigationDestDistanceData`. The first entry of
+     * that list is the trip total the AA screen shows as "4,8 km · 10:35".
      */
     private fun readNavigationPosition(parcel: Parcel) {
         val displayValue = parcel.readString()
@@ -229,12 +229,38 @@ object AndroidAutoNavigationMonitor {
         val displayUnits = parcel.readInt()
         val timeSeconds = parcel.readLong()
         val currentRoad = parcel.readString()
+
+        var remainingMeters: Int? = null
+        var remainingSeconds: Int? = null
+        var estimatedTime: String? = null
+        val destCount = parcel.readInt()
+        if (destCount > 0) {
+            val n = parcel.readInt()
+            if (n > 0 && parcel.readInt() != 0) {
+                // IfNavigationDestDistanceData: value, metres, units, eta, seconds.
+                parcel.readString()
+                remainingMeters = parcel.readInt()
+                parcel.readInt()
+                estimatedTime = parcel.readString()
+                remainingSeconds = parcel.readLong().toInt()
+            }
+        }
         Log.w(
             TAG,
             "onNavigationCurrentPosition display=$displayValue m=$meters " +
-                "units=$displayUnits s=$timeSeconds road=$currentRoad"
+                "units=$displayUnits s=$timeSeconds road=$currentRoad " +
+                "remainingM=$remainingMeters remainingS=$remainingSeconds eta=$estimatedTime"
         )
-        publish(accumulator.onPosition(meters, displayValue, displayUnits))
+        publish(
+            accumulator.onPosition(
+                meters,
+                displayValue,
+                displayUnits,
+                remainingMeters,
+                remainingSeconds,
+                estimatedTime
+            )
+        )
     }
 
     private fun publish(update: AndroidAutoNavigationTelemetry.Directions) {
@@ -298,7 +324,7 @@ object AndroidAutoNavigationMonitor {
                     if (data.readInt() != 0) {
                         readNavigationState(data)
                     } else {
-                        publish(accumulator.onRouteStep(null, 0, 0, hasRoute = false))
+                        publish(accumulator.onRouteStep(null, 0, hasRoute = false))
                     }
                     true
                 }

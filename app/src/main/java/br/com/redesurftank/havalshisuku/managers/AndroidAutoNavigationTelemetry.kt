@@ -19,7 +19,8 @@ object AndroidAutoNavigationTelemetry {
         val nextDistanceM: Int? = null,
         val nextTurn: String? = null,
         val remainingM: Int? = null,
-        val remainingS: Int? = null
+        val remainingS: Int? = null,
+        val eta: String = ""
     ) {
         fun identityChanged(other: Directions): Boolean {
             return active != other.active ||
@@ -47,6 +48,7 @@ object AndroidAutoNavigationTelemetry {
                 append(",\"next_turn\":").append(nextTurn?.let { jsonString(it) } ?: "null")
                 append(",\"remaining_m\":").append(jsonNumber(remainingM))
                 append(",\"remaining_s\":").append(jsonNumber(remainingS))
+                append(",\"eta\":").append(jsonString(eta))
                 append('}')
             }
         }
@@ -73,33 +75,60 @@ object AndroidAutoNavigationTelemetry {
         }
     }
 
-    // AAP NextTurnEnum, read from the vendor decompile
-    // (Protos$NavigationNextTurnEvent$NextTurnEnum). These are the values the
-    // head unit actually sends on LinkCallback code 8 — not the invented 1..9
-    // numbering [fromTurnEnum] accepts for the theme-lab mock.
-    const val EVENT_UNKNOWN = 0
-    const val EVENT_DEPART = 1
-    const val EVENT_NAME_CHANGE = 2
-    const val EVENT_SLIGHT_TURN = 3
-    const val EVENT_TURN = 4
-    const val EVENT_SHARP_TURN = 5
-    const val EVENT_U_TURN = 6
-    const val EVENT_ON_RAMP = 7
-    const val EVENT_OFF_RAMP = 8
-    const val EVENT_FORK = 9
-    const val EVENT_MERGE = 10
-    const val EVENT_ROUNDABOUT_ENTER = 11
-    const val EVENT_ROUNDABOUT_EXIT = 12
-    const val EVENT_ROUNDABOUT_ENTER_AND_EXIT = 13
-    const val EVENT_STRAIGHT = 14
-    const val EVENT_FERRY_BOAT = 16
-    const val EVENT_FERRY_TRAIN = 17
-    const val EVENT_DESTINATION = 19
-
-    // Protos$NavigationNextTurnEvent$TurnSide
-    const val SIDE_LEFT = 1
-    const val SIDE_RIGHT = 2
-    const val SIDE_UNSPECIFIED = 3
+    // Vendor maneuver enum, from com/ts/androidauto/sdk/data/NavigationData.smali.
+    // This is what IfNavigationStepData.mEvent actually carries — NOT the Google
+    // proto NextTurnEnum, which numbers things differently (7 is ON_RAMP there
+    // but a normal left turn here). Side is baked into the value, so there is
+    // no side field to consult and no angle to infer from.
+    const val MANEUVER_UNKNOWN = 0x0
+    const val MANEUVER_DEPART = 0x1
+    const val MANEUVER_NAME_CHANGE = 0x2
+    const val MANEUVER_KEEP_LEFT = 0x3
+    const val MANEUVER_KEEP_RIGHT = 0x4
+    const val MANEUVER_TURN_SLIGHT_LEFT = 0x5
+    const val MANEUVER_TURN_SLIGHT_RIGHT = 0x6
+    const val MANEUVER_TURN_NORMAL_LEFT = 0x7
+    const val MANEUVER_TURN_NORMAL_RIGHT = 0x8
+    const val MANEUVER_TURN_SHARP_LEFT = 0x9
+    const val MANEUVER_TURN_SHARP_RIGHT = 0xa
+    const val MANEUVER_U_TURN_LEFT = 0xb
+    const val MANEUVER_U_TURN_RIGHT = 0xc
+    const val MANEUVER_ON_RAMP_SLIGHT_LEFT = 0xd
+    const val MANEUVER_ON_RAMP_SLIGHT_RIGHT = 0xe
+    const val MANEUVER_ON_RAMP_NORMAL_LEFT = 0xf
+    const val MANEUVER_ON_RAMP_NORMAL_RIGHT = 0x10
+    const val MANEUVER_ON_RAMP_SHARP_LEFT = 0x11
+    const val MANEUVER_ON_RAMP_SHARP_RIGHT = 0x12
+    const val MANEUVER_ON_RAMP_U_TURN_LEFT = 0x13
+    const val MANEUVER_ON_RAMP_U_TURN_RIGHT = 0x14
+    const val MANEUVER_OFF_RAMP_SLIGHT_LEFT = 0x15
+    const val MANEUVER_OFF_RAMP_SLIGHT_RIGHT = 0x16
+    const val MANEUVER_OFF_RAMP_NORMAL_LEFT = 0x17
+    const val MANEUVER_OFF_RAMP_NORMAL_RIGHT = 0x18
+    const val MANEUVER_FORK_LEFT = 0x19
+    const val MANEUVER_FORK_RIGHT = 0x1a
+    const val MANEUVER_MERGE_LEFT = 0x1b
+    const val MANEUVER_MERGE_RIGHT = 0x1c
+    const val MANEUVER_MERGE_SIDE_UNSPECIFIED = 0x1d
+    const val MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CW = 0x20
+    const val MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CW_WITH_ANGLE = 0x21
+    const val MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CCW = 0x22
+    const val MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CCW_WITH_ANGLE = 0x23
+    const val MANEUVER_STRAIGHT = 0x24
+    const val MANEUVER_FERRY_BOAT = 0x25
+    const val MANEUVER_FERRY_TRAIN = 0x26
+    const val MANEUVER_DESTINATION = 0x27
+    const val MANEUVER_DESTINATION_STRAIGHT = 0x28
+    const val MANEUVER_DESTINATION_LEFT = 0x29
+    const val MANEUVER_DESTINATION_RIGHT = 0x2a
+    const val MANEUVER_ROUNDABOUT_ENTER_CW = 0x2b
+    const val MANEUVER_ROUNDABOUT_EXIT_CW = 0x2c
+    const val MANEUVER_ROUNDABOUT_ENTER_CCW = 0x2d
+    const val MANEUVER_ROUNDABOUT_EXIT_CCW = 0x2e
+    const val MANEUVER_FERRY_BOAT_LEFT = 0x2f
+    const val MANEUVER_FERRY_BOAT_RIGHT = 0x30
+    const val MANEUVER_FERRY_TRAIN_LEFT = 0x31
+    const val MANEUVER_FERRY_TRAIN_RIGHT = 0x32
 
     // Protos$NavigationNextTurnDistanceEvent$DistanceUnits
     const val UNIT_UNKNOWN = 0
@@ -111,47 +140,46 @@ object AndroidAutoNavigationTelemetry {
     const val UNIT_FEET = 6
     const val UNIT_YARDS = 7
 
-    /**
-     * `IfNavigationStepData` carries no turn side, only a signed angle, so the
-     * side is inferred: negative turns left, positive turns right. Only events
-     * that actually take a side consult it.
-     */
-    fun sideFromAngle(event: Int, turnAngle: Int): Int {
-        return when {
-            turnAngle < 0 -> SIDE_LEFT
-            turnAngle > 0 -> SIDE_RIGHT
-            else -> SIDE_UNSPECIFIED
-        }
-    }
-
-    /** Turn token for the theme, from the real AAP event + side pair. */
-    fun turnFromEvent(event: Int, turnSide: Int): String {
-        val side = when (turnSide) {
-            SIDE_LEFT -> "LEFT"
-            SIDE_RIGHT -> "RIGHT"
-            else -> ""
-        }
-        fun sided(base: String): String = if (side.isEmpty()) base else "${base}_$side"
-        return when (event) {
-            EVENT_DEPART -> "DEPART"
-            EVENT_NAME_CHANGE -> "NAME_CHANGE"
-            EVENT_SLIGHT_TURN -> sided("SLIGHT")
-            EVENT_TURN -> sided("TURN")
-            EVENT_SHARP_TURN -> sided("SHARP")
-            EVENT_U_TURN -> "U_TURN"
-            EVENT_ON_RAMP -> sided("ON_RAMP")
-            EVENT_OFF_RAMP -> sided("OFF_RAMP")
-            EVENT_FORK -> sided("FORK")
-            EVENT_MERGE -> sided("MERGE")
-            EVENT_ROUNDABOUT_ENTER -> "ROUNDABOUT_ENTER"
-            EVENT_ROUNDABOUT_EXIT -> "ROUNDABOUT_EXIT"
-            EVENT_ROUNDABOUT_ENTER_AND_EXIT -> "ROUNDABOUT"
-            EVENT_STRAIGHT -> "STRAIGHT"
-            EVENT_FERRY_BOAT -> "FERRY_BOAT"
-            EVENT_FERRY_TRAIN -> "FERRY_TRAIN"
-            EVENT_DESTINATION -> "DESTINATION"
-            else -> ""
-        }
+    /** Theme turn token for a vendor maneuver value. */
+    fun turnFromManeuver(maneuver: Int): String = when (maneuver) {
+        MANEUVER_DEPART -> "DEPART"
+        MANEUVER_NAME_CHANGE -> "NAME_CHANGE"
+        MANEUVER_KEEP_LEFT -> "KEEP_LEFT"
+        MANEUVER_KEEP_RIGHT -> "KEEP_RIGHT"
+        MANEUVER_TURN_SLIGHT_LEFT -> "SLIGHT_LEFT"
+        MANEUVER_TURN_SLIGHT_RIGHT -> "SLIGHT_RIGHT"
+        MANEUVER_TURN_NORMAL_LEFT -> "TURN_LEFT"
+        MANEUVER_TURN_NORMAL_RIGHT -> "TURN_RIGHT"
+        MANEUVER_TURN_SHARP_LEFT -> "SHARP_LEFT"
+        MANEUVER_TURN_SHARP_RIGHT -> "SHARP_RIGHT"
+        MANEUVER_U_TURN_LEFT, MANEUVER_ON_RAMP_U_TURN_LEFT -> "U_TURN_LEFT"
+        MANEUVER_U_TURN_RIGHT, MANEUVER_ON_RAMP_U_TURN_RIGHT -> "U_TURN_RIGHT"
+        MANEUVER_ON_RAMP_SLIGHT_LEFT,
+        MANEUVER_ON_RAMP_NORMAL_LEFT,
+        MANEUVER_ON_RAMP_SHARP_LEFT -> "ON_RAMP_LEFT"
+        MANEUVER_ON_RAMP_SLIGHT_RIGHT,
+        MANEUVER_ON_RAMP_NORMAL_RIGHT,
+        MANEUVER_ON_RAMP_SHARP_RIGHT -> "ON_RAMP_RIGHT"
+        MANEUVER_OFF_RAMP_SLIGHT_LEFT, MANEUVER_OFF_RAMP_NORMAL_LEFT -> "OFF_RAMP_LEFT"
+        MANEUVER_OFF_RAMP_SLIGHT_RIGHT, MANEUVER_OFF_RAMP_NORMAL_RIGHT -> "OFF_RAMP_RIGHT"
+        MANEUVER_FORK_LEFT -> "FORK_LEFT"
+        MANEUVER_FORK_RIGHT -> "FORK_RIGHT"
+        MANEUVER_MERGE_LEFT -> "MERGE_LEFT"
+        MANEUVER_MERGE_RIGHT -> "MERGE_RIGHT"
+        MANEUVER_MERGE_SIDE_UNSPECIFIED -> "MERGE"
+        MANEUVER_ROUNDABOUT_ENTER_CW, MANEUVER_ROUNDABOUT_ENTER_CCW -> "ROUNDABOUT_ENTER"
+        MANEUVER_ROUNDABOUT_EXIT_CW, MANEUVER_ROUNDABOUT_EXIT_CCW -> "ROUNDABOUT_EXIT"
+        MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CW,
+        MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CW_WITH_ANGLE,
+        MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CCW,
+        MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CCW_WITH_ANGLE -> "ROUNDABOUT"
+        MANEUVER_STRAIGHT -> "STRAIGHT"
+        MANEUVER_FERRY_BOAT, MANEUVER_FERRY_BOAT_LEFT, MANEUVER_FERRY_BOAT_RIGHT -> "FERRY_BOAT"
+        MANEUVER_FERRY_TRAIN, MANEUVER_FERRY_TRAIN_LEFT, MANEUVER_FERRY_TRAIN_RIGHT -> "FERRY_TRAIN"
+        MANEUVER_DESTINATION, MANEUVER_DESTINATION_STRAIGHT -> "DESTINATION"
+        MANEUVER_DESTINATION_LEFT -> "DESTINATION_LEFT"
+        MANEUVER_DESTINATION_RIGHT -> "DESTINATION_RIGHT"
+        else -> ""
     }
 
     /** Unit suffix for a [DistanceUnits] value; empty when unknown. */
@@ -199,12 +227,15 @@ object AndroidAutoNavigationTelemetry {
         private var turnId: Int? = null
         private var distanceText: String = ""
         private var distanceM: Int? = null
+        private var remainingM: Int? = null
+        private var remainingS: Int? = null
+        private var eta: String = ""
         private var active: Boolean = false
 
         fun onNextTurn(road: String?, event: Int, turnSide: Int): Directions {
             active = true
             street = road?.trim().orEmpty()
-            turn = turnFromEvent(event, turnSide)
+            turn = turnFromManeuver(event)
             turnId = event
             return current()
         }
@@ -241,14 +272,14 @@ object AndroidAutoNavigationTelemetry {
          * actually sends — codes 7/8/9 never fire on this head unit. A route
          * with no steps means guidance is off.
          */
-        fun onRouteStep(road: String?, event: Int, turnAngle: Int, hasRoute: Boolean): Directions {
+        fun onRouteStep(road: String?, event: Int, hasRoute: Boolean): Directions {
             if (!hasRoute) {
                 reset()
                 return current()
             }
             active = true
             street = road?.trim().orEmpty()
-            turn = turnFromEvent(event, sideFromAngle(event, turnAngle))
+            turn = turnFromManeuver(event)
             turnId = event
             return current()
         }
@@ -257,7 +288,19 @@ object AndroidAutoNavigationTelemetry {
          * LinkCallback code 11, `onNavigationCurrentPosition`. Carries the live
          * distance to the next manoeuvre, already formatted by the OEM.
          */
-        fun onPosition(meters: Int, displayValue: String?, displayUnits: Int): Directions {
+        /**
+         * LinkCallback code 11. Carries distance to the next manoeuvre plus,
+         * in its destination list, the trip totals the AA screen shows as
+         * "4,8 km · 10:35".
+         */
+        fun onPosition(
+            meters: Int,
+            displayValue: String?,
+            displayUnits: Int,
+            remainingMeters: Int? = null,
+            remainingSeconds: Int? = null,
+            estimatedTime: String? = null
+        ): Directions {
             if (!active) return current()
             distanceM = if (meters >= 0) meters else null
             // The car sends a bare number ("150") with the unit in its own
@@ -267,6 +310,9 @@ object AndroidAutoNavigationTelemetry {
                 val suffix = unitSuffix(displayUnits)
                 if (suffix.isEmpty()) value else "$value $suffix"
             }
+            remainingM = remainingMeters?.takeIf { it >= 0 }
+            remainingS = remainingSeconds?.takeIf { it >= 0 }
+            eta = estimatedTime?.trim().orEmpty()
             return current()
         }
 
@@ -276,6 +322,9 @@ object AndroidAutoNavigationTelemetry {
             turnId = null
             distanceText = ""
             distanceM = null
+            remainingM = null
+            remainingS = null
+            eta = ""
             active = false
         }
 
@@ -287,7 +336,10 @@ object AndroidAutoNavigationTelemetry {
                 distance = distanceText,
                 distanceM = distanceM,
                 turn = turn,
-                turnId = turnId
+                turnId = turnId,
+                remainingM = remainingM,
+                remainingS = remainingS,
+                eta = eta
             )
         }
     }
