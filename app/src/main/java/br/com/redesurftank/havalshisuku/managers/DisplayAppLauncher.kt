@@ -26,6 +26,7 @@ import android.os.SystemClock
 import android.view.KeyEvent
 import br.com.redesurftank.havalshisuku.BuildConfig
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
+import br.com.redesurftank.havalshisuku.icons.IconOverrideWriter
 import br.com.redesurftank.havalshisuku.managers.ThemeManager
 import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.CarConstants
@@ -2101,7 +2102,7 @@ object DisplayAppLauncher {
         )
     }
 
-    private fun readAndroidAutoLinkStatusIfAlreadyBound(reason: String): Int? {
+    fun readAndroidAutoLinkStatusIfAlreadyBound(reason: String): Int? {
         val binder = androidAutoLinkCommandBinder
         if (binder == null || !binder.isBinderAlive) return null
         return transactAndroidAutoLinkCommandInt(
@@ -7443,6 +7444,76 @@ object DisplayAppLauncher {
         return ResolvedAppInfo(label, icon)
     }
 
+    // --- Icon override registry -----------------------------------------------------------
+    // Publishes this app's per-package icon/label overrides to the shared registry any other
+    // app on the MMI can read (see docs/ICON_OVERRIDES.md in the haval-h6-3d repo). Every write
+    // path below calls this; it is debounced so a rename typed keystroke-by-keystroke in the
+    // editor doesn't re-encode a PNG per keystroke.
+    private var iconOverridePublishJob: kotlinx.coroutines.Job? = null
+
+    fun publishIconOverrides() {
+        iconOverridePublishJob?.cancel()
+        iconOverridePublishJob = scope.launch {
+            delay(500)
+            try {
+                val collapsed = getAllConfigs()
+                    .groupBy { it.packageName }
+                    .map { (_, configs) -> configs.find { it.displayId == 0 } ?: configs.first() }
+                val overrides = collapsed.mapNotNull { config ->
+                    val label = config.customName?.takeIf { it.isNotBlank() }
+                    val slug = config.substituteIcon?.takeIf { it.isNotBlank() }
+                    if (label == null && slug == null) return@mapNotNull null
+                    val colorInt = config.iconColor?.let {
+                        try {
+                            android.graphics.Color.parseColor(it)
+                        } catch (e: IllegalArgumentException) {
+                            null
+                        }
+                    }
+                    IconOverrideWriter.Override(
+                        packageName = config.packageName,
+                        label = label,
+                        iconSlug = slug,
+                        iconColor = colorInt
+                    )
+                }
+                IconOverrideWriter.publish(App.getContext(), overrides, ::renderIconOverride)
+            } catch (t: Throwable) {
+                Log.w(TAG, "cannot publish icon overrides", t)
+            }
+        }
+    }
+
+    /**
+     * Renders the substitute-icon slugs that are plain drawables, matching how
+     * [br.com.redesurftank.havalshisuku.ui.components.BottomBarUI]'s
+     * `AppSwitcherSection` draws them — no tint, since those three are
+     * already-colored brand marks, not the generic Material glyphs. Every other
+     * slug (nav, music, video, settings, haval, game, tv, phone, chat, map_alt)
+     * is a Compose Material `ImageVector` with no drawable resource to rasterise
+     * outside composition, so those overrides publish label-only.
+     */
+    private fun renderIconOverride(override: IconOverrideWriter.Override): android.graphics.Bitmap? {
+        val drawableId = when (override.iconSlug) {
+            "youtube" -> R.drawable.ic_youtube_default
+            "youtube_music" -> R.drawable.ic_youtube_music_default
+            "gwm" -> R.drawable.ic_gwm
+            else -> return null
+        }
+        return try {
+            val drawable = App.getContext().getDrawable(drawableId) ?: return null
+            val size = 192
+            val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bmp)
+            drawable.setBounds(0, 0, size, size)
+            drawable.draw(canvas)
+            bmp
+        } catch (t: Throwable) {
+            Log.w(TAG, "cannot render icon override for ${override.packageName}", t)
+            null
+        }
+    }
+
     fun getAllConfigs(): List<DisplayAppConfig> {
         val json = getPrefs().getString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, null)
             ?: return emptyList()
@@ -7477,6 +7548,7 @@ object DisplayAppLauncher {
         getPrefs().edit()
             .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
             .apply()
+        publishIconOverrides()
     }
 
     /**
@@ -7518,12 +7590,14 @@ object DisplayAppLauncher {
         getPrefs().edit()
             .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
             .apply()
+        publishIconOverrides()
     }
 
     fun saveAllConfigs(configs: List<DisplayAppConfig>) {
         getPrefs().edit()
             .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
             .apply()
+        publishIconOverrides()
     }
 
     fun moveConfigUp(packageName: String) {
@@ -7535,6 +7609,7 @@ object DisplayAppLauncher {
             getPrefs().edit()
                 .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
                 .apply()
+            publishIconOverrides()
         }
     }
 
@@ -7547,6 +7622,7 @@ object DisplayAppLauncher {
             getPrefs().edit()
                 .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
                 .apply()
+            publishIconOverrides()
         }
     }
 
@@ -8757,6 +8833,35 @@ object DisplayAppLauncher {
             }
         }
         return null
+    }
+
+    fun isFreeformWindowingModeForTest(raw: String?): Boolean {
+        val token = raw.orEmpty().trim().trimEnd('}').lowercase()
+        return token == "freeform" || token == "5"
+    }
+
+    fun hasVisibleFreeformWindowOnDisplayFromStackList(stackList: String, displayId: Int): Boolean {
+        var currentDisplayId: Int? = null
+        var currentWindowingMode: String? = null
+        for (line in stackList.lineSequence()) {
+            val stackMatch = Regex("""Stack id=\d+.*displayId=(\d+)""").find(line)
+            if (stackMatch != null) {
+                currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
+                currentWindowingMode = null
+            }
+            val wmMatch = Regex("""mWindowingMode=(\S+)""").find(line)
+            if (wmMatch != null && currentWindowingMode == null) {
+                currentWindowingMode = wmMatch.groupValues[1]
+            }
+            if (currentDisplayId == displayId &&
+                isFreeformWindowingModeForTest(currentWindowingMode) &&
+                Regex("""taskId=\d+:""").containsMatchIn(line) &&
+                line.contains("visible=true")
+            ) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun findStackIdForPackage(packageName: String, displayId: Int): Int? {

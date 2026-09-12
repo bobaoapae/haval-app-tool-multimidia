@@ -23,6 +23,9 @@
     <!-- Contador de dados móveis do carro (NetworkStatsManager): concedidas via Shizuku no boot. -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.READ_NETWORK_USAGE_HISTORY" tools:ignore="ProtectedPermissions" />
+    <!-- Publishes the shared /sdcard/AppIconOverrides/ registry; see docs/ICON_OVERRIDES.md
+         in the h6-3d viewer repo. Android 9 (this MMI) has no scoped storage. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
     <application
         android:name="br.com.redesurftank.App"
@@ -206,6 +209,14 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="br.com.redesurftank.havalshisuku.ACTION_SET_TASK_BOUNDS" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.AaClusterCommandReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_AA_CLUSTER" />
             </intent-filter>
         </receiver>
         <receiver

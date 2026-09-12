@@ -26,43 +26,43 @@ class ClusterWarningPolicyTest {
     @Test
     fun visualOnlyWarningKeysDoNotTriggerCriticalWarningFlow() {
         assertFalse(
-                ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(
+                ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_INFO_WARNING_TTS_NOTIFY.value,
                         "1121"
                 )
         )
         assertFalse(
-                ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(
+                ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQLEFT.value,
                         "1"
                 )
         )
         assertFalse(
-                ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(
+                ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQRIGHT.value,
                         "1"
                 )
         )
-        assertFalse(
-                ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(
+        assertTrue(
+                ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_BASIC_SEAT_BELT_WARNING.value,
                         "1"
                 )
         )
-        assertFalse(
-                ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(
+        assertTrue(
+                ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_LIGHT_DOOR_WARNING.value,
                         "1"
                 )
         )
-        assertFalse(
-                ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(
+        assertTrue(
+                ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_LIGHT_FUEL_LOW.value,
                         "1"
                 )
         )
-        assertFalse(
-                ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(
+        assertTrue(
+                ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_LIGHT_TPMS_WARNING.value,
                         "1"
                 )
@@ -72,13 +72,13 @@ class ClusterWarningPolicyTest {
     @Test
     fun criticalWarningKeysTriggerCriticalWarningFlowOnlyWhenActive() {
         assertTrue(
-                ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(
+                ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_BASIC_TIREPRESS_WARNING.value,
                         "1"
                 )
         )
         assertFalse(
-                ClusterWarningPolicy.shouldTriggerCriticalWarningFlow(
+                ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_BASIC_TIREPRESS_WARNING.value,
                         "0"
                 )

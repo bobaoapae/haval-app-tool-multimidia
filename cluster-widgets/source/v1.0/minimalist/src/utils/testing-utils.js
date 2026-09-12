@@ -2,6 +2,7 @@ import { setState, stateManager } from '../core/state.js';
 import { menuItems } from '../core/components/mainMenu.js';
 import { SHOW_SCORE_CARD_IN_SIMULATOR } from './testingFlags.js';
 import { initTestHarness } from '../../../../v1.0/shared/runtime/testing-harness.js';
+import '../../../../v1.0/shared/runtime/clusterRuntime.js';
 
 window.__AIR_CONTROL_TEST_MODE = true;
 setState('enableOdometer', true);
@@ -263,6 +264,20 @@ document.addEventListener('keydown', (e) => {
         console.log(`[Navigation Simulation] Toggle projectionInDash (CarPlay/AA) -> ${nextNav}`);
         setState('carPlayInDash', nextNav);
         setState('projectionMirrorInDash', nextNav);
+        setState('aaClusterInDash', nextNav);
+        if (nextNav) {
+            const dirs = stateManager.getState().navigationDirections;
+            if (!dirs || dirs.active !== true) {
+                setState('navigationDirections', {
+                    active: true,
+                    street: 'Av. Paulista',
+                    distance: '200 m',
+                    turn: 'TURN_RIGHT',
+                    remaining_s: 840,
+                    remaining_m: 12300
+                });
+            }
+        }
     }
 
     if (e.key.toLowerCase() === 'c') {

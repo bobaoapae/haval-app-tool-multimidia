@@ -10,6 +10,7 @@ import android.util.Log;
 import br.com.redesurftank.havalshisuku.services.ForegroundService;
 import br.com.redesurftank.havalshisuku.managers.ServiceManager;
 import br.com.redesurftank.havalshisuku.managers.ViewerAutostartManager;
+import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher;
 
 public class BootReceiver extends BroadcastReceiver {
 
@@ -38,5 +39,9 @@ public class BootReceiver extends BroadcastReceiver {
         } catch (Exception e) {
             Log.e(TAG, "Viewer autostart failed: " + e.getMessage(), e);
         }
+
+        // A car whose overrides were set before this feature shipped never
+        // publishes them until the user happens to edit one otherwise.
+        DisplayAppLauncher.INSTANCE.publishIconOverrides();
     }
 }

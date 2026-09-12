@@ -141,6 +141,19 @@ Author details (XML schema, named children, JS APIs): [`THEME_GUIDE.md` — Nati
 
 Host touchpoints: `ThemeManager` (parse), `InstrumentProjector2` (`updateNativeMaskViews`, punch), `ThemeBridgeImpl.setNativeMaskState` / `setNativeMasksConfig`.
 
+## Additive Android Auto CLUSTER keys (v1.0)
+
+These are additive. Existing themes that never subscribe or call the new method keep working. No contract `v2.0`.
+
+| Key / method | Values | Notes |
+|---|---|---|
+| `app.androidauto.session` | `stopped` \| `active` | From Autolink GET_LINK_STATUS 3/7/8. Also on `EVENT_CHANGED` / snapshot. |
+| `app.navigation.directions` | JSON (`active`, `street`, `distance`, `turn`, `remaining_s`, `remaining_m`, …) | Existing stub; filled from the NAV channel when hooked. Inactive = `{"active":false}`. `remaining_s` is trip ETA in seconds. |
+| `aaClusterInDash` | boolean via `control()` | CLUSTER Surface under the theme WebView. Treat like `projectionMirrorInDash` for masks. Do **not** rewrite persisted `display`. |
+| `setAaClusterMapEnabled(boolean)` | — | Theme request to attach/tear down D3 CLUSTER Surface. MAIN stays on D0. |
+
+Handshake constraint: CLUSTER must be advertised before the AAP session starts. Theme enable after `session=active` only attaches the Surface; the Service patch advertises CLUSTER when mounted.
+
 ## Host-side touchpoints
 
 - `ThemeManager.kt` — catalog crawl, download, contract filter, metadata parse (incl. `nativeMasks`)

@@ -14,6 +14,8 @@ public enum ServiceManagerEventType {
     APP_GEOMETRY_CHANGED,
     /** IntArray[4] = l,t,r,b — punch native-mask hole on D3 before an app/projection lands. */
     PREPARE_DISPLAY3_APP_HOLE,
+    /** Boolean — CLUSTER Surface under the theme WebView is shown or torn down. */
+    AA_CLUSTER_SURFACE,
     DISMISS_WARNING,
     RAW_KEY_EVENT
 }

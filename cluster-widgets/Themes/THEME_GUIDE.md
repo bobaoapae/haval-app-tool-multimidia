@@ -283,6 +283,7 @@ Theme interactions occur via the global `window.Android` namespace and standard 
 | **Native masks** | `setNativeMaskState(maskName, visible)` | JS → Host | Show/hide a Display‑3 OEM-cover mask (`fuelMask`, …). |
 | **Native masks** | `setNativeMasksConfig(jsonConfig)` | JS → Host | Advanced JSON override for native mask geometry/state. |
 | **Wallpaper** | `setClusterBackground(type, val)` | JS → Host | Sets Display-1 cluster background (`THEME`, `PRESET`, `IMAGE_URL`, `FILE`, `COLOR`). |
+| **Android Auto CLUSTER** | `setAaClusterMapEnabled(enabled)` | JS → Host | Additive. Shows/hides the phone CLUSTER map Surface on D3. MAIN AA stays on D0. Missing on older hosts — call only if `typeof window.Android.setAaClusterMapEnabled === 'function'`. |
 | **Wallpaper** | `setThemeBackground(relativePath)` | JS → Host | Registers theme package wallpaper asset (e.g. `car-bg.png`). |
 | **Preferences** | `savePreference(key, val)` | JS → Host | Persists theme-scoped user configuration. |
 | **Preferences** | `getPreference(key, defaultVal): String` | JS → Host | Reads theme-scoped user configuration. |
@@ -290,6 +291,13 @@ Theme interactions occur via the global `window.Android` namespace and standard 
 | **System Actions** | `triggerSystemAction(action, payload)` | JS → Host | Triggers vehicle action (`CANCEL_MAX_AC`, `TRIGGER_AVM_CAMERA`, `BRING_ALL_TO_MAIN`). |
 | **Multi-Display** | `launchApp(packageName, displayId)` | JS → Host | Launches target Android app on main or cluster display. |
 | **Multi-Display** | `killApp(packageName)` | JS → Host | Kills target Android app process. |
+
+Additive Android Auto CLUSTER telemetry (v1.0, no contract bump):
+
+- `app.androidauto.session` — `stopped` \| `active` from Autolink GET_LINK_STATUS 3/7/8.
+- `app.navigation.directions` — JSON; keep `street` / `distance` / `turn`. Additive `remaining_s` (seconds) and `remaining_m` (metres). Inactive = `{"active":false}`.
+- `aaClusterInDash` — `control()` flag for the D3 CLUSTER Surface. Treat like `projectionMirrorInDash` for masks. Do not rewrite persisted `display`.
+- On disconnect (`session=stopped`) the host tears the Surface down. Call `setAaClusterMapEnabled(true)` again when the next session is `active`. Check the method exists before calling.
 
 ### Lifecycle Execution Sequence
 

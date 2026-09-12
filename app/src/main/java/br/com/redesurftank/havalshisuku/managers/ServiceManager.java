@@ -592,6 +592,7 @@ public class ServiceManager {
 
         servicesInitialized = true;
         timeInitialized = SystemClock.uptimeMillis();
+        AndroidAutoClusterController.INSTANCE.start();
 
         Log.w(TAG, "Starting SimulatorGateway");
         try {
@@ -1176,6 +1177,7 @@ public class ServiceManager {
         }
 
         servicesInitialized = true;
+        AndroidAutoClusterController.INSTANCE.start();
         synchronized (pendingTasks) {
             for (Runnable task : pendingTasks) backgroundHandler.post(task);
             pendingTasks.clear();
@@ -1759,6 +1761,25 @@ public class ServiceManager {
         }
     }
 
+    /**
+     * Test-only replay of a cluster key through the same InputService listener
+     * path. Used by TestKeyInjectReceiver when its token gate is armed.
+     */
+    public boolean injectMappedClusterKey(int keyCode, int keyAction) {
+        IInputListener.Stub listener = inputListener;
+        if (listener == null) {
+            Log.w(TAG, "injectMappedClusterKey ignored: input listener not bound key=" + keyCode);
+            return false;
+        }
+        try {
+            listener.dispatchKeyEvent(new KeyEvent(keyAction, keyCode));
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "injectMappedClusterKey failed key=" + keyCode, e);
+            return false;
+        }
+    }
+
     public void dispatchAllData() {
         IIntelligentVehicleControlService svc = controlService;
         if (!isControlServiceAlive(svc)) return;
@@ -1772,8 +1793,18 @@ public class ServiceManager {
                     }
                 }
             }
+            dispatchSyntheticTelemetrySnapshot();
         } catch (Exception e) {
             Log.e(TAG, "Error dispatching data", e);
+        }
+    }
+
+    private void dispatchSyntheticTelemetrySnapshot() {
+        for (String key : AndroidAutoTelemetryKeys.SYNTHETIC_KEYS) {
+            String value = dataCache.get(key);
+            if (value != null) {
+                dispatchTelemetryOnly(key, value);
+            }
         }
     }
 
@@ -2222,6 +2253,11 @@ public class ServiceManager {
 
     public Map<String, String> getAllCurrentCachedData() {
         return new HashMap<>(dataCache);
+    }
+
+    /** Cache-only read. Does not hit the vehicle control service. */
+    public String peekCachedData(String key) {
+        return dataCache.get(key);
     }
 
     public void dispatchTelemetryOnly(String key, String value) {

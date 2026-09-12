@@ -402,7 +402,6 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
         try {
             val jsonArray = JSONArray(keysJson)
             val keysToMonitor = mutableListOf<String>()
-            val contextApp = App.getContext()
             for (i in 0 until jsonArray.length()) {
                 val rawKey = jsonArray.getString(i)
                 val canonicalKey = BridgeContractTranslator.translateThemeKeyToCanonical(rawKey)
@@ -423,7 +422,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
                     // would clobber the correct value with an empty string right after load —
                     // this is only registering for future PreferencePushListener pushes.
                 } else if (canonicalKey.startsWith("app.")) {
-                    val virtualVal = VirtualTelemetryManager.getVirtualValue(contextApp, canonicalKey)
+                    val virtualVal = readAppTelemetry(canonicalKey)
                     pushValueToTheme(rawKey, virtualVal)
                 } else {
                     keysToMonitor.add(canonicalKey)
@@ -470,10 +469,27 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             return context.isWarningDismissed.toString()
         }
         if (canonicalKey.startsWith("app.")) {
-            return VirtualTelemetryManager.getVirtualValue(App.getContext(), canonicalKey)
+            return readAppTelemetry(canonicalKey)
         }
         val valStr = ServiceManager.getInstance().getData(canonicalKey)
         return valStr ?: ""
+    }
+
+    /**
+     * Theme → native: show or hide the Android Auto CLUSTER map on display 3.
+     * MAIN Android Auto stays on display 0. Does not persist across disconnects.
+     */
+    @JavascriptInterface
+    fun setAaClusterMapEnabled(enabled: Boolean) {
+        Log.w(TAG, "setAaClusterMapEnabled enabled=$enabled")
+        br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController
+            .setClusterMapEnabled(enabled, "theme")
+    }
+
+    private fun readAppTelemetry(canonicalKey: String): String {
+        val cached = ServiceManager.getInstance().peekCachedData(canonicalKey)
+        if (!cached.isNullOrEmpty()) return cached
+        return VirtualTelemetryManager.getVirtualValue(App.getContext(), canonicalKey)
     }
 
     @JavascriptInterface
@@ -545,6 +561,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "app.display.3.active_app_label",
             "app.display.3.active_app_icon",
             "app.launcher.apps",
+            "app.androidauto.session",
             "app.navigation.directions",
             "app.media.state",
             "app.media.title",
@@ -561,6 +578,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "bsdRight",
             "carPlayInDash",
             "projectionMirrorInDash",
+            "aaClusterInDash",
             "projectionPreparingD3",
             "projectionCardOverlayAllowed",
             "warningActive",

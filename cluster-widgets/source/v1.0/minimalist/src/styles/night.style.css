@@ -3975,6 +3975,132 @@ canvas.graph-chart {
   align-items: center !important;
 }
 
+/* TBT under the top-centre menu. Wider than the 300px notch; ~20% of 720 cluster height.
+   Frosted dark glass. Stays clear of OEM READY / ESP / speed-limit on the left dial. */
+.dashboard-tbt-strip {
+  position: absolute;
+  left: 50%;
+  top: 80px;
+  transform: translateX(-50%);
+  width: 720px;
+  min-height: 144px;
+  display: none;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 28px;
+  padding: 18px 36px;
+  box-sizing: border-box;
+  z-index: 40;
+  pointer-events: none;
+  color: #f4f7fb;
+  background: rgba(8, 12, 20, 0.62);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
+}
+
+.dashboard-tbt-maneuver {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-width: 88px;
+}
+
+.dashboard-tbt-glyph {
+  font-size: 72px;
+  line-height: 1;
+  flex: 0 0 auto;
+  width: 72px;
+  height: 72px;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.dashboard-tbt-glyph.is-svg {
+  text-shadow: none;
+}
+
+.dashboard-tbt-glyph svg {
+  width: 72px;
+  height: 72px;
+  display: block;
+  fill: currentColor;
+  filter: drop-shadow(0 2px 12px rgba(0, 0, 0, 0.55));
+}
+
+.dashboard-tbt-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dashboard-tbt-street {
+  font-size: 46px;
+  font-weight: 600;
+  line-height: 1.05;
+  max-width: 540px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-tbt-distance {
+  font-size: 32px;
+  font-weight: 600;
+  opacity: 0.95;
+  line-height: 1;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.dashboard-tbt-remaining {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 0;
+  min-width: 0;
+}
+
+.dashboard-tbt-remaining-dist,
+.dashboard-tbt-eta,
+.dashboard-tbt-arrival {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.dashboard-tbt-remaining-dist,
+.dashboard-tbt-eta {
+  color: #f4f7fb;
+}
+
+.dashboard-tbt-arrival {
+  color: var(--color-green);
+  text-shadow: 0 0 8px rgba(0, 255, 136, 0.3), 0 0 4px rgba(0, 0, 0, 0.9);
+}
+
+.dashboard-tbt-eta.has-sep::before,
+.dashboard-tbt-arrival.has-sep::before {
+  content: '|';
+  margin: 0 14px;
+  font-weight: 500;
+  color: rgba(244, 247, 251, 0.45);
+  text-shadow: none;
+}
+
 /* Card 0 (native car content) / card 3 (AC) label — same top-center slot as the
    menu carousel above, shown instead of it since neither card populates the carousel.
    Sized to match .menu-item.focused .menu-label (46px): the carousel only ever shows

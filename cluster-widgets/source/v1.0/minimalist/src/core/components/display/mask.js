@@ -34,7 +34,9 @@ export function createMask() {
 
     const updateVisibility = () => {
         const appInDash = get('appInDash');
-        const carPlayInDash = get('carPlayInDash') === true || get('projectionMirrorInDash') === true;
+        const carPlayInDash = get('carPlayInDash') === true ||
+            get('projectionMirrorInDash') === true ||
+            get('aaClusterInDash') === true;
         const cardId = get('cardId');
         const isCard0 = cardId == 0 || cardId === '0';
 
@@ -59,6 +61,7 @@ export function createMask() {
     const unsub4 = subscribe('warningDismissed', updateVisibility);
     const unsub5 = subscribe('carPlayInDash', updateVisibility);
     const unsub6 = subscribe('projectionMirrorInDash', updateVisibility);
+    const unsub7 = subscribe('aaClusterInDash', updateVisibility);
     updateVisibility();
 
     return {
@@ -71,6 +74,7 @@ export function createMask() {
             unsub4();
             unsub5();
             unsub6();
+            unsub7();
         }
     };
 }

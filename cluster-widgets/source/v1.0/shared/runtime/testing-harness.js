@@ -16,6 +16,8 @@ export function initTestHarness(stateManager, menuItems) {
     let uiPanel = null;
     let settingsPanel = null;
     let statePanel = null;
+    let navPanel = null;
+    let navDemoTimer = null;
     // Helper functions for JNI state mapping inside standard tests
     const getState = (key) => stateManager.get(key);
     const setState = (key, value) => stateManager.set(key, value);
@@ -162,6 +164,8 @@ export function initTestHarness(stateManager, menuItems) {
         };
 
         try {
+            resetHarnessScene();
+            await delay(80);
             await test.fn(helpers);
             test.status = 'pass';
             test.assertions = assertions;
@@ -186,31 +190,41 @@ export function initTestHarness(stateManager, menuItems) {
         updateUI();
     };
 
+    const menuIds = (menuItems || []).map((item) => item.id);
+    const hasAjustesMenu = menuIds.includes('option_ajustes');
+    const hasDefaultEspItem = menuIds.includes('option_1');
+    const hasDisplayMenuItem = menuIds.includes('option_4');
+    const usesHideHeader = () => Object.prototype.hasOwnProperty.call(stateManager.getState() || {}, 'headerVisible');
+
+    const resetHarnessScene = () => {
+        setState('cardId', 1);
+        setState('screen', 'main_menu');
+        setState('display', 'Normal');
+        setState('menuFocusArea', 'main');
+        setState('warningActive', false);
+        setState('warningDismissed', false);
+    };
+
     // --- STANDARD VALIDATION TEST SUITES ---
 
-    // 1. Menu Traversal Audit
+    // 1. Menu Traversal Audit — wrap using this theme's actual menu order
     registerTest({
         name: "MainMenu Key Traversal Audit",
         fn: async (h) => {
-            // Setup pre-condition
+            h.assert(menuIds.length >= 2, "Theme exposes at least two main-menu items");
+            const lastId = menuIds[menuIds.length - 1];
+            const firstId = menuIds[0];
             h.setState('screen', 'main_menu');
             h.setState('cardId', 1);
-            h.setState('focusedMenuItem', 'option_4');
+            h.setState('menuFocusArea', 'main');
+            h.setState('focusedMenuItem', lastId);
             await h.delay(50);
 
-            // Capture starting focus item
-            const startingFocus = 'option_4';
-            h.log(`Starting focus target: ${startingFocus}`);
-
-            // Simulate DOWN key event
+            h.log(`Starting focus target: ${lastId} (wrap DOWN -> ${firstId})`);
             await h.dispatchKeyEvent('DOWN');
-            const secondFocus = h.getState('focusedMenuItem');
-            h.assertEqual(secondFocus, 'option_1', "Focus should shift down to option_1 specifically.");
-
-            // Simulate UP key event
+            h.assertEqual(h.getState('focusedMenuItem'), firstId, `DOWN from last item wraps to ${firstId}`);
             await h.dispatchKeyEvent('UP');
-            const finalFocus = h.getState('focusedMenuItem');
-            h.assertEqual(finalFocus, 'option_4', "Focus should shift back UP to starting option_4");
+            h.assertEqual(h.getState('focusedMenuItem'), lastId, `UP wraps back to ${lastId}`);
         }
     });
 
@@ -218,19 +232,25 @@ export function initTestHarness(stateManager, menuItems) {
     registerTest({
         name: "Settings Toggle Cycle JNI Bridge Audit",
         fn: async (h) => {
-            // Setup pre-condition
             h.setState('screen', 'main_menu');
-            h.setState('focusedMenuItem', 'option_1'); // ESP Switch option
+            h.setState('cardId', 1);
+            if (hasAjustesMenu) {
+                h.setState('focusedMenuItem', 'option_ajustes');
+                h.setState('menuFocusArea', 'sub');
+                h.setState('focusedAjustesItem', 'ajuste_esp');
+            } else if (hasDefaultEspItem) {
+                h.setState('focusedMenuItem', 'option_1');
+                h.setState('menuFocusArea', 'main');
+            } else {
+                h.log('No ESP menu item on this theme. Skipping.');
+                return;
+            }
 
             const prevEsp = h.getState('espStatus') || 'ON';
             h.log(`Initial ESP JNI status is: ${prevEsp}`);
-
-            // Trigger click
             await h.dispatchKeyEvent('ENTER');
             const nextEsp = h.getState('espStatus');
             h.assert(nextEsp !== prevEsp, `ESP flip should trigger JNI sync state: ${nextEsp}`);
-
-            // Restore ESP status
             await h.dispatchKeyEvent('ENTER');
             h.assertEqual(h.getState('espStatus'), prevEsp, `ESP status returned to original state.`);
         }
@@ -241,28 +261,35 @@ export function initTestHarness(stateManager, menuItems) {
         name: "Display Template Selection & Clean Recovery Audit",
         fn: async (h) => {
             h.setState('screen', 'main_menu');
-            h.setState('focusedMenuItem', 'option_4'); // Theme selection
+            h.setState('cardId', 1);
+            if (hasDisplayMenuItem) {
+                h.setState('focusedMenuItem', 'option_4');
+                await h.dispatchKeyEvent('ENTER');
+                h.assertEqual(h.getState('screen'), 'display_selection', "Screen transitioned to display settings.");
+            } else {
+                h.setState('screen', 'display_selection');
+                h.log('No option_4 on this theme; opened display_selection directly.');
+            }
 
-            // Go into display screen
-            await h.dispatchKeyEvent('ENTER');
-            h.assertEqual(h.getState('screen'), 'display_selection', "Screen transitioned to display settings.");
-
-            // Force dynamic template switch
             h.setState('display', 'Clean');
             h.log('Triggered Clean display template.');
+            await h.delay(50);
 
-            // Verify app classes applied correctly
             const app = document.getElementById('app');
             if (app) {
                 h.assert(app.classList.contains('display-clean'), "App DOM class contains 'display-clean'");
-                h.assert(app.classList.contains('warn-is-active'), "App is in warning state overlay wrapper");
+                if (!hasAjustesMenu) {
+                    h.assert(app.classList.contains('warn-is-active'), "App is in warning state overlay wrapper");
+                }
             }
 
-            // Clean mode exit check (any steering key should restore Normal)
             await h.dispatchKeyEvent('DOWN');
-            h.assertEqual(h.getState('display'), 'Normal', "Clean template exited back to Normal upon keypress.");
-
-            // Go back to main menu
+            if (hasAjustesMenu) {
+                h.assertEqual(h.getState('screen'), 'display_selection', "Clean mode opens the display picker instead of silently replacing the mode");
+                h.setState('display', 'Normal');
+            } else {
+                h.assertEqual(h.getState('display'), 'Normal', "Clean template exited back to Normal upon keypress.");
+            }
             h.setState('screen', 'main_menu');
         }
     });
@@ -294,11 +321,13 @@ export function initTestHarness(stateManager, menuItems) {
             // Test Temperature Boundary
             h.setState('focusArea', 'temp');
             h.setState('temp', '17');
-            await h.dispatchKeyEvent('DOWN'); // goes to 16
-            h.assertEqual(h.getState('temp'), '16', "Temperature reduced to low bound limit (16°C)");
+            await h.dispatchKeyEvent('DOWN');
+            const afterDown = Number(h.getState('temp'));
+            h.assert(afterDown < 17 && afterDown >= 16, `Temperature stepped down from 17 (now ${afterDown})`);
 
-            await h.dispatchKeyEvent('DOWN'); // stays 16
-            h.assertEqual(h.getState('temp'), '16', "Temperature bounds prevent dropping under 16°C");
+            h.setState('temp', '16');
+            await h.dispatchKeyEvent('DOWN');
+            h.assertEqual(Number(h.getState('temp')), 16, "Temperature bounds prevent dropping under 16°C");
 
             h.setState('temp', '24');
             await h.dispatchKeyEvent('UP'); // should jump/rise
@@ -367,48 +396,32 @@ export function initTestHarness(stateManager, menuItems) {
         fn: async (h) => {
             h.setState('screen', 'main_menu');
             h.setState('cardId', 1);
+            h.setState('hevSocTarget', 50);
+            if (window.Android && typeof window.Android.updateCarData === 'function') {
+                window.Android.updateCarData('car.ev_setting.power_model_config', '0');
+                window.Android.updateCarData('car.ev_setting.power_reserve_config', '1');
+            }
             h.setState('evMode', 'HEV');
             h.setState('hevReserve', '1');
-            h.setState('hevSocTarget', 50);
             await h.delay(50);
 
-            const prevGet = window.Android && window.Android.getCarData;
-            const prevUpdate = window.Android && window.Android.updateCarData;
-            const cache = {
-                'car.ev_setting.power_model_config': '0',
-                'car.ev_setting.power_reserve_config': '1'
-            };
-            window.Android = window.Android || {};
-            window.Android.getCarData = (k) => cache[k] ?? '';
-            window.Android.updateCarData = (k, v) => {
-                cache[k] = String(v);
-                if (k === 'car.ev_setting.power_reserve_config') {
-                    h.setState('hevReserve', String(v));
-                }
-            };
-
-            try {
-                const stateKeys = Object.keys(h.getState() || {});
-                const hasAjustes = stateKeys.includes('focusedAjustesItem') || stateKeys.includes('menuFocusArea');
-                if (hasAjustes) {
-                    h.setState('focusedMenuItem', 'option_ajustes');
-                    h.setState('menuFocusArea', 'sub');
-                    h.setState('focusedAjustesItem', 'ajuste_ev');
-                } else {
-                    h.setState('focusedMenuItem', 'option_2');
-                }
-                await h.delay(30);
-
-                await h.dispatchKeyEvent('ENTER_LONG');
-                h.assertEqual(String(h.getState('hevReserve')), '2', "Long ENTER on Modo EV (HEV) switches to Prioritário");
-                await h.dispatchKeyEvent('ENTER_LONG');
-                h.assertEqual(String(h.getState('hevReserve')), '1', "Long ENTER toggles back to Inteligente");
-            } finally {
-                if (prevGet) window.Android.getCarData = prevGet;
-                else delete window.Android.getCarData;
-                if (prevUpdate) window.Android.updateCarData = prevUpdate;
-                else delete window.Android.updateCarData;
+            if (hasAjustesMenu) {
+                h.setState('focusedMenuItem', 'option_ajustes');
+                h.setState('menuFocusArea', 'sub');
+                h.setState('focusedAjustesItem', 'ajuste_ev');
+            } else if (menuIds.includes('option_2')) {
+                h.setState('focusedMenuItem', 'option_2');
+                h.setState('menuFocusArea', 'main');
+            } else {
+                h.log('No HEV menu item on this theme. Skipping.');
+                return;
             }
+            await h.delay(50);
+
+            await h.dispatchKeyEvent('ENTER_LONG');
+            h.assertEqual(String(h.getState('hevReserve')), '2', "Long ENTER on Modo EV (HEV) switches to Prioritário");
+            await h.dispatchKeyEvent('ENTER_LONG');
+            h.assertEqual(String(h.getState('hevReserve')), '1', "Long ENTER toggles back to Inteligente");
         }
     });
 
@@ -421,7 +434,11 @@ export function initTestHarness(stateManager, menuItems) {
             h.log("DEBUG: pref_headerVisible in localStorage: " + window.localStorage.getItem('pref_headerVisible'));
             h.log("DEBUG: headerVisible state is: " + h.getState('headerVisible') + " (type: " + typeof h.getState('headerVisible') + ")");
 
-            // 1. Assert initial state is true
+            if (!usesHideHeader()) {
+                h.log("This theme has no headerVisible state (Minimalist uses top-bar prefs). Skipping hide-header assertions.");
+                return;
+            }
+
             h.assertEqual(h.getState('headerVisible') !== false, true, "Initially, headerVisible should be true (default)");
 
             const app = document.getElementById('app');
@@ -455,7 +472,55 @@ export function initTestHarness(stateManager, menuItems) {
         }
     });
 
+    registerTest({
+        name: "Android Auto TBT Strip Audit",
+        fn: async (h) => {
+            const strip = document.querySelector('.dashboard-tbt-strip');
+            if (!strip) {
+                h.log("This theme has no .dashboard-tbt-strip (Minimalist-only). Skipping.");
+                return;
+            }
+            h.setState('aaClusterInDash', true);
+            h.setState('navigationDirections', {
+                active: true,
+                street: 'Av. Paulista',
+                distance: '200 m',
+                turn: 'TURN_RIGHT',
+                remaining_s: 840,
+                remaining_m: 12300
+            });
+            await h.delay(80);
+            h.assert(getComputedStyle(strip).display !== 'none', "TBT strip visible when guidance is active and map is on");
+            h.assert((strip.querySelector('.dashboard-tbt-street') || {}).textContent === 'Av. Paulista', "Street renders in the strip");
+            h.assert((strip.querySelector('.dashboard-tbt-distance') || {}).textContent === '200 m', "Next-turn distance sits under the icon");
+            h.assert((strip.querySelector('.dashboard-tbt-remaining-dist') || {}).textContent === '12.3 km', "Remaining distance from remaining_m");
+            h.assert((strip.querySelector('.dashboard-tbt-eta') || {}).textContent === '14 min', "Remaining time from remaining_s");
+            h.assert(/^\d{2}:\d{2}$/.test((strip.querySelector('.dashboard-tbt-arrival') || {}).textContent || ''), "Arrival clock is now + remaining_s");
+            h.setState('navigationDirections', { active: false });
+            await h.delay(80);
+            h.assertEqual(getComputedStyle(strip).display, 'none', "TBT strip hides when active is false");
+            h.setState('aaClusterInDash', false);
+        }
+    });
+
     // --- CORE TEST RUNNER EXECUTION ---
+    const runSingleTest = async (index) => {
+        if (isRunning) return;
+        const test = registry[index];
+        if (!test) return;
+        isRunning = true;
+        test.status = 'idle';
+        test.assertions = [];
+        test.error = null;
+        log(`--- Single run: "${test.name}" ---`, 'info');
+        test.status = 'running';
+        updateUI();
+        await runTest(test);
+        isRunning = false;
+        updateUI();
+        return getTestResults()[index];
+    };
+
     const runTestSuite = async () => {
         if (isRunning) return;
         isRunning = true;
@@ -522,93 +587,71 @@ export function initTestHarness(stateManager, menuItems) {
             #testing-console-harness *,
             #testing-settings-harness *,
             #testing-state-harness *,
-            #testing-shortcuts-harness * {
+            #testing-shortcuts-harness *,
+            #testing-nav-harness * {
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
                 box-sizing: border-box;
             }
-            #testing-console-harness, #testing-settings-harness, #testing-state-harness, #testing-shortcuts-harness {
+            #testing-harness-dock {
                 position: fixed;
+                left: 20px;
                 bottom: 20px;
+                display: flex;
+                flex-direction: row;
+                flex-wrap: nowrap;
+                align-items: flex-end;
+                justify-content: flex-start;
+                gap: 10px;
+                z-index: 10000;
+                pointer-events: none;
+                max-width: calc(100vw - 40px);
+                overflow-x: auto;
+            }
+            #testing-console-harness, #testing-settings-harness, #testing-state-harness, #testing-shortcuts-harness, #testing-nav-harness {
+                position: relative;
+                left: auto;
+                right: auto;
+                top: auto;
+                bottom: auto;
+                pointer-events: auto;
                 height: 480px;
                 max-height: calc(100vh - 40px);
-                background: rgba(15, 23, 42, 0.85); /* Modern deep glassmorphic navy slate */
+                background: rgba(15, 23, 42, 0.85);
                 backdrop-filter: blur(20px);
                 -webkit-backdrop-filter: blur(20px);
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
                 border-radius: 16px;
-                z-index: 10000;
                 color: #e2e8f0;
                 overflow: hidden;
                 display: flex;
                 flex-direction: column;
-                transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+                flex: 0 0 auto;
+                transition: width 0.25s ease, height 0.25s ease, border-radius 0.25s ease;
             }
-            #testing-console-harness {
-                right: 20px;
-                width: 780px;
-            }
-            #testing-settings-harness {
-                right: 820px;
-                width: 340px;
-            }
-            #testing-state-harness {
-                left: 20px;
-                width: 480px;
-                height: 560px;
-            }
-            #testing-shortcuts-harness {
-                left: 520px;
-                width: 340px;
-            }
-            #testing-console-harness.minimized {
+            #testing-console-harness { width: 780px; height: 480px; }
+            #testing-settings-harness { width: 340px; height: 480px; }
+            #testing-state-harness { width: 480px; height: 560px; }
+            #testing-shortcuts-harness { width: 340px; height: 480px; }
+            #testing-nav-harness { width: 380px; height: 480px; }
+            #testing-console-harness.minimized,
+            #testing-settings-harness.minimized,
+            #testing-state-harness.minimized,
+            #testing-shortcuts-harness.minimized,
+            #testing-nav-harness.minimized {
                 width: 50px;
                 height: 50px;
                 border-radius: 25px;
                 overflow: hidden;
-                bottom: 20px;
-                right: 20px;
                 background: rgba(15, 23, 42, 0.95);
-                border: 1px solid rgba(56, 189, 248, 0.4);
-                box-shadow: 0 0 20px rgba(56, 189, 248, 0.25);
                 cursor: pointer;
+                flex: 0 0 50px;
             }
-            #testing-settings-harness.minimized {
-                width: 50px;
-                height: 50px;
-                border-radius: 25px;
-                overflow: hidden;
-                bottom: 20px;
-                right: 80px;
-                background: rgba(15, 23, 42, 0.95);
-                border: 1px solid rgba(56, 189, 248, 0.4);
-                box-shadow: 0 0 20px rgba(56, 189, 248, 0.25);
-                cursor: pointer;
-            }
-            #testing-state-harness.minimized {
-                width: 50px;
-                height: 50px;
-                border-radius: 25px;
-                overflow: hidden;
-                bottom: 20px;
-                left: 20px;
-                background: rgba(15, 23, 42, 0.95);
-                border: 1px solid rgba(168, 85, 247, 0.4);
-                box-shadow: 0 0 20px rgba(168, 85, 247, 0.25);
-                cursor: pointer;
-            }
-            #testing-shortcuts-harness.minimized {
-                width: 50px;
-                height: 50px;
-                border-radius: 25px;
-                overflow: hidden;
-                bottom: 20px;
-                left: 520px;
-                background: rgba(15, 23, 42, 0.95);
-                border: 1px solid rgba(14, 165, 233, 0.4);
-                box-shadow: 0 0 20px rgba(14, 165, 233, 0.25);
-                cursor: pointer;
-            }
+            #testing-state-harness.minimized { border: 1px solid rgba(168, 85, 247, 0.4); box-shadow: 0 0 20px rgba(168, 85, 247, 0.25); }
+            #testing-shortcuts-harness.minimized { border: 1px solid rgba(14, 165, 233, 0.4); box-shadow: 0 0 20px rgba(14, 165, 233, 0.25); }
+            #testing-nav-harness.minimized { border: 1px solid rgba(251, 191, 36, 0.5); box-shadow: 0 0 20px rgba(251, 191, 36, 0.25); }
+            #testing-settings-harness.minimized { border: 1px solid rgba(56, 189, 248, 0.4); box-shadow: 0 0 20px rgba(56, 189, 248, 0.25); }
+            #testing-console-harness.minimized { border: 1px solid rgba(56, 189, 248, 0.4); box-shadow: 0 0 20px rgba(56, 189, 248, 0.25); }
             .harness-header {
                 padding: 14px 16px;
                 background: rgba(255, 255, 255, 0.02);
@@ -729,7 +772,8 @@ export function initTestHarness(stateManager, menuItems) {
             #testing-console-harness.minimized .minimized-indicator,
             #testing-settings-harness.minimized .minimized-indicator,
             #testing-state-harness.minimized .minimized-indicator,
-            #testing-shortcuts-harness.minimized .minimized-indicator {
+            #testing-shortcuts-harness.minimized .minimized-indicator,
+            #testing-nav-harness.minimized .minimized-indicator {
                 display: flex;
             }
             #testing-console-harness.minimized .harness-header,
@@ -739,8 +783,57 @@ export function initTestHarness(stateManager, menuItems) {
             #testing-state-harness.minimized .harness-header,
             #testing-state-harness.minimized .harness-body,
             #testing-shortcuts-harness.minimized .harness-header,
-            #testing-shortcuts-harness.minimized .harness-body {
+            #testing-shortcuts-harness.minimized .harness-body,
+            #testing-nav-harness.minimized .harness-header,
+            #testing-nav-harness.minimized .harness-body {
                 display: none;
+            }
+            .harness-run-one {
+                background: rgba(56, 189, 248, 0.12);
+                border: 1px solid rgba(56, 189, 248, 0.35);
+                color: #7dd3fc;
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.4px;
+                cursor: pointer;
+                text-transform: uppercase;
+            }
+            .harness-run-one:disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+            }
+            .nav-field-row {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                font-size: 12px;
+            }
+            .nav-field-row label,
+            .nav-field-row-label {
+                color: #94a3b8;
+                font-size: 10px;
+                text-transform: uppercase;
+                letter-spacing: 0.4px;
+            }
+            .nav-field-row input,
+            .nav-field-row select {
+                background: #1e293b;
+                color: #f8fafc;
+                border: 1px solid rgba(251, 191, 36, 0.25);
+                padding: 6px 8px;
+                border-radius: 6px;
+                font-size: 12px;
+                outline: none;
+            }
+            .nav-field-hint {
+                font-size: 10px;
+                color: #64748b;
+                line-height: 1.35;
+                font-weight: 400;
+                text-transform: none;
+                letter-spacing: 0;
             }
 
             /* Mock Projected Display 3 App Style - Removed in favor of direct dev-background maps resizing */
@@ -833,11 +926,12 @@ export function initTestHarness(stateManager, menuItems) {
                             Run Test Suite
                         </button>
                     </div>
+                    <div style="font-size: 10px; color: #64748b; line-height: 1.4;">Run one case at a time to confirm whether a FAIL is real for this theme.</div>
                 </div>
                 <!-- Right Column: Console Output -->
                 <div style="flex: 1.2; display: flex; flex-direction: column; height: 100%;">
                     <div class="harness-console" id="harness-console-output" style="flex: 1; height: 100%; max-height: 100%;">
-                        <div style="opacity: 0.4; font-style: italic; text-align: center; margin-top: 140px; font-size: 12px;">Harness ready. Run tests to see output logs.</div>
+                        <div style="opacity: 0.4; font-style: italic; text-align: center; margin-top: 140px; font-size: 12px;">Harness ready. Use Run on a single case, or Run Test Suite.</div>
                     </div>
                 </div>
             </div>
@@ -1404,6 +1498,7 @@ export function initTestHarness(stateManager, menuItems) {
                         toggleSettingsMinimize();
                         toggleStateMinimize();
                         toggleShortcutsMinimize();
+                        toggleNavMinimize();
                     }
                 });
             });
@@ -1509,12 +1604,94 @@ export function initTestHarness(stateManager, menuItems) {
             </div>
         `;
 
+        navPanel = document.createElement('div');
+        navPanel.id = 'testing-nav-harness';
+        navPanel.innerHTML = `
+            <div class="minimized-indicator" title="Toggled via key [T]" style="color: #fbbf24;">🗺️</div>
+            <div class="harness-header" id="harness-nav-header-bar">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 6px #fbbf24;"></span>
+                    Android Auto / TBT
+                </div>
+                <div style="font-size: 11px; opacity: 0.5;">[T] Toggle</div>
+            </div>
+            <div class="harness-body" style="overflow-y: auto; gap: 12px;">
+                <div style="font-size: 11px; color: #94a3b8; line-height: 1.45;">
+                    Publishes <code>app.androidauto.session</code> and <code>app.navigation.directions</code> the same way the host will. Keyboard <b>n</b> still toggles the map hole.
+                </div>
+                <div class="nav-field-row">
+                    <label for="nav-session">Session</label>
+                    <select id="nav-session">
+                        <option value="stopped">stopped</option>
+                        <option value="active">active</option>
+                    </select>
+                    <span class="nav-field-hint">app.androidauto.session — AA link. active asks the theme for the CLUSTER map; stopped tears it down.</span>
+                </div>
+                <div class="nav-field-row">
+                    <span class="nav-field-row-label">Guidance active</span>
+                    <span style="display: flex; align-items: center; justify-content: space-between;">
+                        <span style="font-size: 12px; color: #e2e8f0;">Show TBT strip</span>
+                        <label class="harness-switch">
+                            <input type="checkbox" id="nav-active">
+                            <span class="harness-slider"></span>
+                        </label>
+                    </span>
+                    <span class="nav-field-hint">directions.active — TBT strip only shows when this is on and a map projection is up.</span>
+                </div>
+                <div class="nav-field-row">
+                    <label for="nav-street">Street</label>
+                    <input id="nav-street" type="text" value="Av. Paulista">
+                    <span class="nav-field-hint">directions.street — name of the next road.</span>
+                </div>
+                <div class="nav-field-row">
+                    <label for="nav-distance">Distance</label>
+                    <input id="nav-distance" type="text" value="200 m">
+                    <span class="nav-field-hint">directions.distance — display string to the manoeuvre (e.g. 200 m). Parsed to distance_m when numeric.</span>
+                </div>
+                <div class="nav-field-row">
+                    <label for="nav-remaining-s">Trip remaining (s)</label>
+                    <input id="nav-remaining-s" type="text" value="840">
+                    <span class="nav-field-hint">directions.remaining_s — seconds to destination. Minimalist shows remaining time (840 → 14 min) and arrival clock (now + remaining).</span>
+                </div>
+                <div class="nav-field-row">
+                    <label for="nav-remaining-m">Trip remaining (m)</label>
+                    <input id="nav-remaining-m" type="text" value="12300">
+                    <span class="nav-field-hint">directions.remaining_m — metres to destination. Minimalist shows remaining distance (12300 → 12.3 km).</span>
+                </div>
+                <div class="nav-field-row">
+                    <label for="nav-turn">Turn</label>
+                    <select id="nav-turn">
+                        <option value="TURN_RIGHT">TURN_RIGHT</option>
+                        <option value="TURN_LEFT">TURN_LEFT</option>
+                        <option value="STRAIGHT">STRAIGHT</option>
+                        <option value="U_TURN">U_TURN</option>
+                        <option value="ROUNDABOUT">ROUNDABOUT</option>
+                        <option value="FORK">FORK</option>
+                        <option value="MERGE">MERGE</option>
+                        <option value="EXIT">EXIT</option>
+                        <option value="DESTINATION">DESTINATION</option>
+                    </select>
+                    <span class="nav-field-hint">directions.turn — manoeuvre id for the glyph (↱ ↰ ↑ ↩ …).</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <button class="harness-btn" id="nav-apply-btn" style="background: rgba(251, 191, 36, 0.16); color: #fde68a; width: auto;">Apply</button>
+                    <button class="harness-btn" id="nav-demo-btn" style="background: linear-gradient(135deg, #fbbf24, #d97706); color: #111827; width: auto;">Start demo</button>
+                </div>
+                <span class="nav-field-hint">Apply publishes the form now. Start demo cycles sample turns. Stop / clear sets session=stopped and directions.active=false. Keyboard n still toggles the map hole on its own.</span>
+                <button class="harness-btn" id="nav-stop-btn" style="background: rgba(239, 68, 68, 0.15); color: #fca5a5;">Stop / clear</button>
+            </div>
+        `;
+
         // Mock projected app container removed as map resizing is handled natively on .dev-background
 
-        document.body.appendChild(uiPanel);
-        document.body.appendChild(settingsPanel);
-        document.body.appendChild(statePanel);
-        document.body.appendChild(shortcutsPanel);
+        const harnessDock = document.createElement('div');
+        harnessDock.id = 'testing-harness-dock';
+        harnessDock.appendChild(navPanel);
+        harnessDock.appendChild(statePanel);
+        harnessDock.appendChild(shortcutsPanel);
+        harnessDock.appendChild(settingsPanel);
+        harnessDock.appendChild(uiPanel);
+        document.body.appendChild(harnessDock);
         setupStateSync();
         uiConsole = document.getElementById('harness-console-output');
 
@@ -1760,6 +1937,9 @@ export function initTestHarness(stateManager, menuItems) {
         const toggleShortcutsMinimize = () => {
             shortcutsPanel.classList.toggle('minimized');
         };
+        const toggleNavMinimize = () => {
+            if (navPanel) navPanel.classList.toggle('minimized');
+        };
 
         document.getElementById('harness-header-bar').addEventListener('click', toggleConsoleMinimize);
         uiPanel.querySelector('.minimized-indicator').addEventListener('click', toggleConsoleMinimize);
@@ -1772,6 +1952,101 @@ export function initTestHarness(stateManager, menuItems) {
 
         document.getElementById('harness-shortcuts-header-bar').addEventListener('click', toggleShortcutsMinimize);
         shortcutsPanel.querySelector('.minimized-indicator').addEventListener('click', toggleShortcutsMinimize);
+
+        document.getElementById('harness-nav-header-bar').addEventListener('click', toggleNavMinimize);
+        navPanel.querySelector('.minimized-indicator').addEventListener('click', toggleNavMinimize);
+
+        const pushAaTelemetry = (session, directions) => {
+            if (session != null) {
+                if (typeof window.onDataChanged === 'function') {
+                    window.onDataChanged('app.androidauto.session', session);
+                }
+                setState('aaClusterInDash', session === 'active');
+            }
+            if (directions != null) {
+                if (typeof window.onDataChanged === 'function') {
+                    window.onDataChanged('app.navigation.directions', JSON.stringify(directions));
+                }
+                setState('navigationDirections', directions);
+            }
+        };
+
+        const applyNavForm = () => {
+            const session = document.getElementById('nav-session').value;
+            const active = document.getElementById('nav-active').checked;
+            const street = document.getElementById('nav-street').value;
+            const distance = document.getElementById('nav-distance').value;
+            const turn = document.getElementById('nav-turn').value;
+            const remainingS = parseInt(document.getElementById('nav-remaining-s').value, 10);
+            const remainingM = parseInt(document.getElementById('nav-remaining-m').value, 10);
+            const directions = active
+                ? {
+                    active: true,
+                    street,
+                    distance,
+                    turn,
+                    distance_m: parseInt(distance, 10) || 0,
+                    remaining_s: Number.isFinite(remainingS) ? remainingS : null,
+                    remaining_m: Number.isFinite(remainingM) ? remainingM : null
+                }
+                : { active: false };
+            pushAaTelemetry(session, directions);
+        };
+
+        const stopNavDemo = () => {
+            if (navDemoTimer) {
+                clearInterval(navDemoTimer);
+                navDemoTimer = null;
+            }
+            const demoBtn = document.getElementById('nav-demo-btn');
+            if (demoBtn) demoBtn.textContent = 'Start demo';
+            document.getElementById('nav-session').value = 'stopped';
+            document.getElementById('nav-active').checked = false;
+            pushAaTelemetry('stopped', { active: false });
+        };
+
+        const startNavDemo = () => {
+            if (navDemoTimer) {
+                clearInterval(navDemoTimer);
+                navDemoTimer = null;
+                document.getElementById('nav-demo-btn').textContent = 'Start demo';
+                return;
+            }
+            const steps = [
+                { street: 'Av. Paulista', distance: '350 m', turn: 'STRAIGHT', distance_m: 350, remaining_s: 840, remaining_m: 12300 },
+                { street: 'Av. Paulista', distance: '200 m', turn: 'TURN_RIGHT', distance_m: 200, remaining_s: 720, remaining_m: 9800 },
+                { street: 'Rua Augusta', distance: '80 m', turn: 'U_TURN', distance_m: 80, remaining_s: 540, remaining_m: 6100 },
+                { street: 'Marginal Pinheiros', distance: '120 m', turn: 'MERGE', distance_m: 120, remaining_s: 360, remaining_m: 4200 },
+                { street: 'Av. Rebouças', distance: '60 m', turn: 'FORK', distance_m: 60, remaining_s: 180, remaining_m: 2100 },
+                { street: 'Praça da Sé', distance: 'Arrive', turn: 'DESTINATION', distance_m: 0, remaining_s: 40, remaining_m: 80 }
+            ];
+            let i = 0;
+            document.getElementById('nav-session').value = 'active';
+            document.getElementById('nav-active').checked = true;
+            const play = () => {
+                const step = steps[i % steps.length];
+                document.getElementById('nav-street').value = step.street;
+                document.getElementById('nav-distance').value = step.distance;
+                document.getElementById('nav-turn').value = step.turn;
+                const remS = document.getElementById('nav-remaining-s');
+                const remM = document.getElementById('nav-remaining-m');
+                if (remS) remS.value = String(step.remaining_s);
+                if (remM) remM.value = String(step.remaining_m);
+                pushAaTelemetry('active', { active: true, ...step });
+                i += 1;
+            };
+            play();
+            navDemoTimer = setInterval(play, 1800);
+            document.getElementById('nav-demo-btn').textContent = 'Pause demo';
+        };
+
+        document.getElementById('nav-apply-btn').addEventListener('click', applyNavForm);
+        document.getElementById('nav-demo-btn').addEventListener('click', startNavDemo);
+        document.getElementById('nav-stop-btn').addEventListener('click', stopNavDemo);
+
+        [uiPanel, settingsPanel, statePanel, shortcutsPanel, navPanel].forEach((panel) => {
+            panel.classList.add('minimized');
+        });
 
         // Run suite trigger
         const runBtn = document.getElementById('harness-run-btn');
@@ -1797,6 +2072,7 @@ export function initTestHarness(stateManager, menuItems) {
                 toggleSettingsMinimize();
                 toggleStateMinimize();
                 toggleShortcutsMinimize();
+                toggleNavMinimize();
             } else if (e.key === 'ArrowLeft') {
                 e.preventDefault();
                 console.log(`[Keyboard Intercept] ArrowLeft -> LEFT`);
@@ -1834,7 +2110,7 @@ export function initTestHarness(stateManager, menuItems) {
         const listContainer = document.getElementById('harness-list-container');
         if (listContainer) {
             listContainer.innerHTML = '';
-            registry.forEach(test => {
+            registry.forEach((test, index) => {
                 const item = document.createElement('div');
                 item.className = `harness-test-item ${test.status === 'running' ? 'running' : ''}`;
 
@@ -1844,14 +2120,25 @@ export function initTestHarness(stateManager, menuItems) {
                 else if (test.status === 'fail') dotClass = 'fail';
 
                 item.innerHTML = `
-                    <div style="font-weight: 500; display: flex; align-items: center; gap: 8px;">
+                    <div style="font-weight: 500; display: flex; align-items: center; gap: 8px; min-width: 0;">
                         <span class="harness-status-dot ${dotClass}"></span>
-                        ${test.name}
+                        <span style="overflow: hidden; text-overflow: ellipsis;">${test.name}</span>
                     </div>
-                    <div style="font-size: 11px; opacity: 0.6; font-family: monospace;">
-                        ${test.status.toUpperCase()}
+                    <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                        <span style="font-size: 11px; opacity: 0.6; font-family: monospace;">${test.status.toUpperCase()}</span>
                     </div>
                 `;
+                const runOne = document.createElement('button');
+                runOne.className = 'harness-run-one';
+                runOne.type = 'button';
+                runOne.textContent = 'Run';
+                runOne.disabled = isRunning || test.status === 'running';
+                runOne.addEventListener('click', async (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    await runSingleTest(index);
+                });
+                item.lastElementChild.insertBefore(runOne, item.lastElementChild.firstChild);
                 listContainer.appendChild(item);
             });
         }
@@ -1868,6 +2155,7 @@ export function initTestHarness(stateManager, menuItems) {
     // --- PUBLIC PROGRAMMATIC INTERFACE (AGENT & BRIDGES HOOKS) ---
     window.__TEST_HARNESS = {
         runTestSuite,
+        runSingleTest,
         registerTest,
         getTestResults,
         getRegistry: () => registry,

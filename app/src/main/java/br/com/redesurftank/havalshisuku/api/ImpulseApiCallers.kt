@@ -33,6 +33,10 @@ object ImpulseApiCallers {
         "br.com.redesurftank.havalshisuku",
     )
 
+    fun isAllowedPackage(pkg: String?): Boolean {
+        return pkg != null && ALLOWED.contains(pkg)
+    }
+
     /** @return the verified caller package, or null if it may not use the API. */
     fun verify(intent: Intent?, action: String): String? {
         val token = intent?.getParcelableExtra<PendingIntent>(EXTRA_CALLER)
@@ -41,7 +45,7 @@ object ImpulseApiCallers {
             return null
         }
         val pkg = token.creatorPackage
-        if (pkg == null || !ALLOWED.contains(pkg)) {
+        if (!isAllowedPackage(pkg)) {
             Log.w(TAG, "$action rejected: $pkg is not a registered client")
             return null
         }

@@ -87,6 +87,7 @@ const screenCache = {};
 function isProjectionMapDisplayActive() {
     return get('projectionMirrorInDash') === true ||
         get('carPlayInDash') === true ||
+        get('aaClusterInDash') === true ||
         get('projectionPreparingD3') === true;
 }
 
@@ -1175,6 +1176,7 @@ async function initMinimalistBridge() {
 
     subscribe('carPlayInDash', render);
     subscribe('projectionMirrorInDash', render);
+    subscribe('aaClusterInDash', render);
     subscribe('projectionPreparingD3', render);
     subscribe('appInDash', render);
     subscribe('clusterBackground', render);
@@ -1187,6 +1189,43 @@ async function initMinimalistBridge() {
             }
         }
     );
+
+    function setAaClusterMapEnabled(enabled) {
+        if (window.Android && typeof window.Android.setAaClusterMapEnabled === 'function') {
+            window.Android.setAaClusterMapEnabled(enabled);
+        }
+    }
+
+    let lastAaSession = null;
+    function handleAndroidAutoSession(value) {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (normalized === lastAaSession) return;
+        lastAaSession = normalized;
+        setAaClusterMapEnabled(normalized === 'active');
+    }
+
+    function parseNavigationDirections(raw) {
+        if (raw == null || raw === '') return { active: false };
+        if (typeof raw === 'object') return raw;
+        try {
+            return JSON.parse(raw);
+        } catch (e) {
+            return { active: false };
+        }
+    }
+
+    bridge.subscribe(
+        [KEYS.APP_ANDROID_AUTO_SESSION, KEYS.APP_NAVIGATION_DIRECTIONS],
+        (key, value) => {
+            if (key === KEYS.APP_ANDROID_AUTO_SESSION) {
+                handleAndroidAutoSession(value);
+            } else if (key === KEYS.APP_NAVIGATION_DIRECTIONS) {
+                setState('navigationDirections', parseNavigationDirections(value));
+            }
+        }
+    );
+    handleAndroidAutoSession(bridge.getCarData(KEYS.APP_ANDROID_AUTO_SESSION));
+    setState('navigationDirections', parseNavigationDirections(bridge.getCarData(KEYS.APP_NAVIGATION_DIRECTIONS)));
 
     // Seed One-Pedal / HEV reserve from the live cache so the first paint matches
     // the car even before card-entry control() or a subscribe echo arrives.

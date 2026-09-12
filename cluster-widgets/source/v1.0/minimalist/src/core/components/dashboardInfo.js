@@ -3,6 +3,7 @@ import { div, span, img } from '../../../../shared/utils/createElement.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { createOdometerInfo } from './display/odometer/odometerInfo.js';
 import { createPowerFlowIcon } from './powerFlowIcon.js';
+import { TBT_TURN_GLYPHS, TBT_TURN_SVGS, formatArrivalClock, formatRemainingDistance, formatTripEta } from './tbtTurnIcons.js';
 
 const fuelIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xLDEyTDUsOVYxNVoiLz48cGF0aCBkPSJNMjIsMTBWOGEyLDIsMCwwLDAtMi0yaC0zVjRhMiwyLDAsMCwwLTItMkg5QTIsMiwwLDAsMCw3LDR2MTZhMiwyLDAsMCwwLDIsMmg4YTIsMiwwLDAsMCw2LTJWMTJoMXY0YTIsMiwwLDAsMCw0LDBWMTBaTTksNGg4djZIOVptOCwxNkg5VjEyaDhaIi8+PC9zdmc+";
 const batteryIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjwhLS0gQm9keSAtLT48cGF0aCBkPSJNMyw2aDE4YzEuMSwwLDIsMC45LDIsMnYxMGMwLDEuMS0wLjksMi0yLDJIM2MtMS4xLDAtMi0wLjktMi0yVjhDMSw2LjksMS45LDYsMyw2eiBNMyw4djEwaDE4VjhIM3oiLz48IS0tIFBvbGVzIC0tPjxyZWN0IHg9IjUiIHk9IjMiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48cmVjdCB4PSIxNSIgeT0iMyIgd2lkdGg9IjQiIGhlaWdodD0iMyIvPjwhLS0gTWludXMgc2lnbiAoLSkgLS0+PHJlY3QgeD0iNiIgeT0iMTIiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48IS0tIFBsdXMgc2lnbiAoKykgLS0+PHBhdGggZD0iTTE2LDEwaC0ydjJoLTJ2MmgydjJoMnYtMmgydi0yaC0yVjEweiIvPjwvc3ZnPg==";
@@ -102,14 +103,6 @@ export function createDashboardInfo() {
     topCenter.appendChild(clock);
     topCenter.appendChild(gear);
     topCenter.appendChild(evMode);
-
-    // Clock auto-update
-    const clockInterval = setInterval(() => {
-        const now = new Date();
-        const hrs = String(now.getHours()).padStart(2, '0');
-        const mins = String(now.getMinutes()).padStart(2, '0');
-        clock.textContent = `${hrs}:${mins}`;
-    }, 30000);
 
     // 2. Speed Gauge Elements (Flat)
     const speedDial = div({ className: 'dashboard-speed-dial minimalist-speed' });
@@ -428,6 +421,79 @@ export function createDashboardInfo() {
     container.appendChild(internalTempContainer);
     container.appendChild(menuWrapper);
     container.appendChild(cardTitle);
+
+    const tbtStrip = div({ className: 'dashboard-tbt-strip' });
+    const tbtManeuver = div({ className: 'dashboard-tbt-maneuver' });
+    const tbtGlyph = span({ className: 'dashboard-tbt-glyph' });
+    const tbtDistance = span({ className: 'dashboard-tbt-distance' });
+    const tbtText = div({ className: 'dashboard-tbt-text' });
+    const tbtStreet = span({ className: 'dashboard-tbt-street' });
+    const tbtRemaining = div({ className: 'dashboard-tbt-remaining' });
+    const tbtRemainingDist = span({ className: 'dashboard-tbt-remaining-dist' });
+    const tbtEta = span({ className: 'dashboard-tbt-eta' });
+    const tbtArrival = span({ className: 'dashboard-tbt-arrival' });
+    tbtManeuver.appendChild(tbtGlyph);
+    tbtManeuver.appendChild(tbtDistance);
+    tbtRemaining.appendChild(tbtRemainingDist);
+    tbtRemaining.appendChild(tbtEta);
+    tbtRemaining.appendChild(tbtArrival);
+    tbtText.appendChild(tbtStreet);
+    tbtText.appendChild(tbtRemaining);
+    tbtStrip.appendChild(tbtManeuver);
+    tbtStrip.appendChild(tbtText);
+    tbtStrip.style.display = 'none';
+    container.appendChild(tbtStrip);
+
+    const applyTurnGlyph = (turn) => {
+        const svg = TBT_TURN_SVGS[turn];
+        if (svg) {
+            tbtGlyph.classList.add('is-svg');
+            tbtGlyph.innerHTML = svg;
+            return;
+        }
+        tbtGlyph.classList.remove('is-svg');
+        tbtGlyph.textContent = TBT_TURN_GLYPHS[turn] || '➤';
+    };
+
+    const isMapProjectionActive = () =>
+        getState('projectionMirrorInDash') === true ||
+        getState('carPlayInDash') === true ||
+        getState('aaClusterInDash') === true ||
+        getState('projectionPreparingD3') === true;
+
+    const updateTbtStrip = () => {
+        const directions = getState('navigationDirections') || {};
+        const active = directions.active === true || directions.active === 'true';
+        const show = active && isMapProjectionActive();
+        tbtStrip.style.display = show ? 'flex' : 'none';
+        if (!show) return;
+        const turn = String(directions.turn || '').toUpperCase();
+        applyTurnGlyph(turn);
+        tbtStreet.textContent = directions.street || '';
+        tbtDistance.textContent = directions.distance ||
+            (Number.isFinite(Number(directions.distance_m)) ? `${Math.round(Number(directions.distance_m))} m` : '');
+        const remainingDist = formatRemainingDistance(directions.remaining_m);
+        tbtRemainingDist.textContent = remainingDist;
+        tbtRemainingDist.style.display = remainingDist ? '' : 'none';
+        const remainingTime = formatTripEta(directions.remaining_s);
+        tbtEta.textContent = remainingTime;
+        tbtEta.style.display = remainingTime ? '' : 'none';
+        tbtEta.classList.toggle('has-sep', Boolean(remainingDist && remainingTime));
+        const arrival = formatArrivalClock(directions.remaining_s);
+        tbtArrival.textContent = arrival;
+        tbtArrival.style.display = arrival ? '' : 'none';
+        tbtArrival.classList.toggle('has-sep', Boolean(arrival && (remainingDist || remainingTime)));
+    };
+    updateTbtStrip();
+
+    const clockInterval = setInterval(() => {
+        const now = new Date();
+        const hrs = String(now.getHours()).padStart(2, '0');
+        const mins = String(now.getMinutes()).padStart(2, '0');
+        clock.textContent = `${hrs}:${mins}`;
+        updateTbtStrip();
+    }, 30000);
+
     container.appendChild(alertIndicatorsContainer);
     container.appendChild(tripAnalysisIndicator);
     container.appendChild(bottomEvMode);
@@ -481,7 +547,15 @@ export function createDashboardInfo() {
 
     const subscriptions = [
         subscribe('cardId', updateCardTitle),
-        subscribe('clockTime', val => clock.textContent = val),
+        subscribe('navigationDirections', updateTbtStrip),
+        subscribe('projectionMirrorInDash', updateTbtStrip),
+        subscribe('carPlayInDash', updateTbtStrip),
+        subscribe('aaClusterInDash', updateTbtStrip),
+        subscribe('projectionPreparingD3', updateTbtStrip),
+        subscribe('clockTime', val => {
+            clock.textContent = val;
+            updateTbtStrip();
+        }),
         subscribe('gearState', val => {
             gear.textContent = val;
             updateGearColor(val);

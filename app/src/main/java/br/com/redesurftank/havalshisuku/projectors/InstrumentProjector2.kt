@@ -24,6 +24,7 @@ import androidx.core.view.isVisible
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
+import br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.managers.VehiclePropertyReader
 import br.com.redesurftank.havalshisuku.listeners.IDataChanged
@@ -225,6 +226,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     /** Dedupes control('appInDash'|...) pushes so theme render does not re-enter bounds sync. */
     private var lastAppInDashJsKey: String? = null
     private var lastProjectionPreparingD3: Boolean? = null
+    private var lastAaClusterInDash: Boolean? = null
     private var lastProjectionCardOverlayAllowed: Boolean? = null
     private var lastHealthyCarPlayD3AtMs = 0L
     private var lastCarPlayD3HoldLogAtMs = 0L
@@ -239,10 +241,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             val carPlayInDash: Boolean,
             val projectionMirrorInDash: Boolean,
             val projectionPreparingD3: Boolean,
-            val usedFastPath: Boolean
+            val usedFastPath: Boolean,
+            val aaClusterInDash: Boolean = false
     ) {
         val active: Boolean
-            get() = carPlayInDash || projectionMirrorInDash || projectionPreparingD3
+            get() = carPlayInDash || projectionMirrorInDash || projectionPreparingD3 || aaClusterInDash
     }
     private val watchdogRunnable =
             object : Runnable {
@@ -696,10 +699,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         }
     }
 
+    private fun isAaClusterInDash(): Boolean {
+        return AndroidAutoClusterController.isSurfaceAttached()
+    }
+
     private fun isCachedProjectionActive(): Boolean {
         return lastCarPlayInDash == true ||
                 lastProjectionMirrorInDash == true ||
                 lastProjectionPreparingD3 == true ||
+                lastAaClusterInDash == true ||
                 isProjectionPreparingD3()
     }
 
@@ -707,15 +715,17 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         lastCarPlayInDash = null
         lastProjectionMirrorInDash = null
         lastProjectionPreparingD3 = null
+        lastAaClusterInDash = null
         lastProjectionCardOverlayAllowed = null
     }
 
     private fun isProjectionActive(
             carPlayInDash: Boolean = isCarPlayInDash(),
             projectionMirrorInDash: Boolean = isProjectionMirrorInDash(),
-            projectionPreparingD3: Boolean = isProjectionPreparingD3()
+            projectionPreparingD3: Boolean = isProjectionPreparingD3(),
+            aaClusterInDash: Boolean = isAaClusterInDash()
     ): Boolean {
-        return carPlayInDash || projectionMirrorInDash || projectionPreparingD3
+        return carPlayInDash || projectionMirrorInDash || projectionPreparingD3 || aaClusterInDash
     }
 
     private fun updateKnownScreenForCard(cardId: Int) {
@@ -805,7 +815,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     carPlayInDash = false,
                     projectionMirrorInDash = false,
                     projectionPreparingD3 = false,
-                    usedFastPath = true
+                    usedFastPath = true,
+                    aaClusterInDash = isAaClusterInDash()
             )
         }
 
@@ -815,7 +826,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 carPlayInDash = carPlayInDash,
                 projectionMirrorInDash = projectionMirrorInDash,
                 projectionPreparingD3 = projectionPreparingD3,
-                usedFastPath = false
+                usedFastPath = false,
+                aaClusterInDash = isAaClusterInDash()
         )
     }
 
@@ -955,10 +967,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             projectionPreparingD3: Boolean = isProjectionPreparingD3(),
             force: Boolean = false
     ) {
+        val aaClusterInDash = isAaClusterInDash()
         val sendCarPlay = force || lastCarPlayInDash != carPlayInDash
         val sendProjectionMirror = force || lastProjectionMirrorInDash != projectionMirrorInDash
         val sendProjectionPreparing = force || lastProjectionPreparingD3 != projectionPreparingD3
-        if (sendCarPlay || sendProjectionMirror || sendProjectionPreparing) {
+        val sendAaCluster = force || lastAaClusterInDash != aaClusterInDash
+        if (sendCarPlay || sendProjectionMirror || sendProjectionPreparing || sendAaCluster) {
             Log.w(
                     TAG,
                     "[PROJECTION_STATE_PUSH] force=$force carPlayInDash=$carPlayInDash projectionMirrorInDash=$projectionMirrorInDash projectionPreparingD3=$projectionPreparingD3 loaded=${
@@ -996,6 +1010,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         if (sendProjectionPreparing) {
             evaluateJsIfReady(webView, "control('projectionPreparingD3', $projectionPreparingD3)")
             lastProjectionPreparingD3 = projectionPreparingD3
+        }
+        if (sendAaCluster) {
+            evaluateJsIfReady(webView, "control('aaClusterInDash', $aaClusterInDash)")
+            lastAaClusterInDash = aaClusterInDash
         }
 
         // May the card menu be drawn over the projection? Only a card-backed menu has
@@ -1344,6 +1362,19 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                 prepareDisplay3AppHole(bounds, reason = "PREPARE_DISPLAY3_APP_HOLE")
                             }
                         }
+                        ServiceManagerEventType.AA_CLUSTER_SURFACE -> {
+                            val enabled = args.getOrNull(0) as? Boolean ?: false
+                            updateVirtualClusterVisibility(
+                                    reason = "AA_CLUSTER_SURFACE",
+                                    forceNativeMaskRefresh = true
+                            )
+                            if (enabled) {
+                                prepareDisplay3AppHole(
+                                        AaClusterVideoHost.DEFAULT_MAP_BOUNDS,
+                                        reason = "AA_CLUSTER_SURFACE"
+                                )
+                            }
+                        }
                         ServiceManagerEventType.RAW_KEY_EVENT -> {
                             val key = args[0] as br.com.redesurftank.havalshisuku.models.ClusterKey
                             // LEFT/RIGHT are the cluster card-navigation keys. Card changes are
@@ -1387,6 +1418,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         root = FrameLayout(outerContext).apply { setBackgroundColor(Color.TRANSPARENT) }
         setContentView(root)
         setupControlView(root)
+        AaClusterVideoHost.attachParent(root)
+        if (AndroidAutoClusterController.isClusterRequested()) {
+            AndroidAutoClusterController.setClusterMapEnabled(true, "projector_attach")
+        }
         isAnyAppOnDisplay3 =
                 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAnyAppOnDisplay(3)
         isAnyAppOnDisplay1 =
@@ -1422,6 +1457,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         dataChangedListener?.let { ServiceManager.getInstance().removeDataChangedListener(it) }
         dataChangedListener = null
         vehiclePropertyReader.close()
+        AaClusterVideoHost.detachParent()
 
         // Hardening: Explicitly destroy WebView to prevent leaks and broken channels
         webView?.let { wv: WebView ->
@@ -1964,6 +2000,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         updates["carPlayInDash"] = carPlayInDash.toString()
         updates["projectionMirrorInDash"] = projectionMirrorInDash.toString()
         updates["projectionPreparingD3"] = projectionPreparingD3.toString()
+        updates["aaClusterInDash"] = isAaClusterInDash().toString()
         updates["warningActive"] = isWarningActive.toString()
         updates["warningDismissed"] = isWarningDismissed.toString()
         // cardId is deliberately NOT in this map: batchEvaluateJs would emit it as
@@ -2718,7 +2755,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         // WebView, so doing the expensive probe first made the theme wait seconds
         // to learn that an app had left the cluster. Compute coverage and tell the
         // theme first; do the projection/overlay bookkeeping afterwards.
-        if (projectionMirrorInDash || projectionPreparingD3) {
+        if (projectionMirrorInDash || projectionPreparingD3 || isAaClusterInDash()) {
             isLeftCovered = true
             isRightCovered = true
         }
@@ -2821,6 +2858,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 appRectOnDisplay3 = projectionHole
                 isLeftCovered = true
                 isRightCovered = true
+            } else if (isAaClusterInDash()) {
+                val bounds = AaClusterVideoHost.DEFAULT_MAP_BOUNDS
+                appRectOnDisplay3 =
+                        android.graphics.Rect(bounds[0], bounds[1], bounds[2], bounds[3])
+                isLeftCovered = true
+                isRightCovered = true
             }
         }
 
@@ -2878,7 +2921,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         applyProjectorViewVisibility(
                 projectorVisible,
                 overlayBypassActive,
-                carPlayInDash || projectionMirrorInDash || projectionPreparingD3
+                carPlayInDash || projectionMirrorInDash || projectionPreparingD3 || isAaClusterInDash()
         )
 
         pushProjectionStateToWebView(carPlayInDash, projectionMirrorInDash, projectionPreparingD3)

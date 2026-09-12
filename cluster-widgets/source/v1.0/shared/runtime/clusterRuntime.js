@@ -56,7 +56,8 @@ class MockCarState {
         this.cache.set('app.display.3.active_app', '');
         this.cache.set('app.display.3.active_app_label', '');
         this.cache.set('app.launcher.apps', '[]');
-        this.cache.set('app.navigation.directions', '{"street": "Av. Paulista", "distance": "200m", "turn": "TURN_RIGHT"}');
+        this.cache.set('app.navigation.directions', '{"active":true,"street":"Av. Paulista","distance":"200 m","distance_m":200,"turn":"TURN_RIGHT","turn_id":103,"next_street":"","next_distance_m":null,"next_turn":null,"remaining_m":12300,"remaining_s":840}');
+        this.cache.set('app.androidauto.session', 'stopped');
         
         // Media Mocks
         this.cache.set('app.media.state', 'playing');
@@ -231,6 +232,7 @@ if (isBrowser) {
                 "app.display.3.active_app_icon",
                 "app.launcher.apps",
                 "app.navigation.directions",
+                "app.androidauto.session",
                 "app.media.state",
                 "app.media.title",
                 "app.media.artist",
@@ -246,6 +248,7 @@ if (isBrowser) {
                 "bsdRight",
                 "carPlayInDash",
                 "projectionMirrorInDash",
+                "aaClusterInDash",
                 "projectionPreparingD3",
                 "projectionCardOverlayAllowed",
                 "warningActive",
@@ -333,6 +336,14 @@ if (isBrowser) {
             localStorage.setItem('pref_customBackgroundTypeD1', String(type || 'THEME'));
             localStorage.setItem('pref_customBackgroundValueD1', String(value || ''));
             localStorage.setItem('pref_enableCustomBackgroundD1', 'true');
+        },
+
+        setAaClusterMapEnabled: (enabled) => {
+            const on = enabled === true || enabled === 'true';
+            console.log(`[Mock Bridge] setAaClusterMapEnabled ${on}`);
+            if (typeof window.control === 'function') {
+                window.control('aaClusterInDash', on);
+            }
         },
 
         setThemeBackground: (relativePath) => {
