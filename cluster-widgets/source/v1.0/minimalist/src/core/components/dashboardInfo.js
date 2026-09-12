@@ -455,16 +455,15 @@ export function createDashboardInfo() {
         tbtGlyph.textContent = TBT_TURN_GLYPHS[turn] || '➤';
     };
 
-    const isMapProjectionActive = () =>
-        getState('projectionMirrorInDash') === true ||
-        getState('carPlayInDash') === true ||
-        getState('aaClusterInDash') === true ||
-        getState('projectionPreparingD3') === true;
-
     const updateTbtStrip = () => {
         const directions = getState('navigationDirections') || {};
         const active = directions.active === true || directions.active === 'true';
-        const show = active && isMapProjectionActive();
+        // The strip used to also require a projected map on the cluster
+        // (projectionMirrorInDash / aaClusterInDash / ...). Turn-by-turn now
+        // arrives over the vendor LinkCallback independently of any CLUSTER
+        // video, so guidance alone is enough to show it — otherwise the strip
+        // stays hidden waiting on a video feed that is a separate problem.
+        const show = active;
         tbtStrip.style.display = show ? 'flex' : 'none';
         if (!show) return;
         const turn = String(directions.turn || '').toUpperCase();
