@@ -9,6 +9,9 @@ package br.com.redesurftank.havalshisuku.managers
 object AndroidAutoSessionTelemetry {
     const val DEBOUNCE_STOPPED_MS = 400L
 
+    /** GET_LINK_STATUS value for ACTIVATED, the plain "a phone is linked" state. */
+    const val LINK_STATUS_ACTIVATED = 3
+
     fun isLinkActive(status: Int?): Boolean {
         return status == 3 || status == 7 || status == 8
     }

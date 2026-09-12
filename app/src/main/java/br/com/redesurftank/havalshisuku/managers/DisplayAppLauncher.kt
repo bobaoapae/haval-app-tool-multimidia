@@ -1229,6 +1229,27 @@ object DisplayAppLauncher {
         )
     }
 
+    /**
+     * Cached "DCM says projection is active" evidence, for the session poller.
+     *
+     * [readAndroidAutoLinkStatusIfAlreadyBound] returns null until something
+     * binds the Autolink command service, and on WIRELESS Android Auto nothing
+     * does — the bind only happens as a side effect of the media-command paths.
+     * Measured on the car 2026-09-12 with Maps actively guiding: the launcher
+     * saw `linkStatus:3` (ACTIVATED), `dumpsys activity services
+     * com.ts.androidauto` listed no havalshisuku connection at all, and this
+     * class logged `linkStatus=UNKNOWN(null)` next to "DCM reports active
+     * projection" every ~10 s. So the evidence was in hand and unread, and
+     * `app.androidauto.session` stayed `stopped` through a whole navigation.
+     *
+     * Deliberately passive: it reads the timestamp the stale-cleanup sweep
+     * already refreshes rather than binding anything itself, so it cannot
+     * perturb the CLUSTER-before-AAP handshake ordering.
+     */
+    fun hasRecentAndroidAutoDcmProjectionActiveEvidenceForSession(): Boolean {
+        return hasRecentAndroidAutoDcmProjectionActiveEvidence()
+    }
+
     private fun hasRecentAndroidAutoDcmProjectionActiveEvidenceForState(
         lastActiveAtMs: Long,
         nowMs: Long,
