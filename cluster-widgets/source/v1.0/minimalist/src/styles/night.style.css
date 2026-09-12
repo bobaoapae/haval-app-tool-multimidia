@@ -3983,11 +3983,12 @@ canvas.graph-chart {
   top: 80px;
   transform: translateX(-50%);
   /* 20 pad + 72 glyph + 20 gap + 278 text + 20 pad. The text column is exactly
-     the three equal 116px metric columns plus their two 10px gaps. 116 is the
-     widest value any column can show ("12 h 34 min"), so the figures line up
-     evenly and nothing reflows as values change length. */
-  width: 500px;
-  min-height: 140px;
+     the three equal 146px metric columns plus their two 10px gaps. 146 is the
+     widest value any column can show ("12 h 34 min") at 38px, so the figures
+     line up evenly and nothing reflows as values change length. The glyph
+     column carries 10px of its own padding on each side. */
+  width: 610px;
+  min-height: 152px;
   display: none;
   flex-direction: row;
   align-items: center;
@@ -4013,7 +4014,11 @@ canvas.graph-chart {
   justify-content: center;
   gap: 6px;
   flex: 0 0 auto;
-  width: 72px;
+  /* 72px of glyph plus a little air on each side, so the indicator is not
+     pressed against the card edge or the street name. */
+  box-sizing: border-box;
+  width: 92px;
+  padding: 0 10px;
 }
 
 .dashboard-tbt-glyph {
@@ -4047,7 +4052,7 @@ canvas.graph-chart {
   justify-content: center;
   gap: 8px;
   /* Fixed, so a long street name can never widen the card. */
-  width: 368px;
+  width: 458px;
   min-width: 0;
 }
 
@@ -4063,7 +4068,7 @@ canvas.graph-chart {
 }
 
 .dashboard-tbt-distance {
-  font-size: 26px;
+  font-size: 32px;
   font-weight: 300;
   opacity: 0.95;
   line-height: 1;
@@ -4096,12 +4101,12 @@ canvas.graph-chart {
 .dashboard-tbt-metric.is-dist,
 .dashboard-tbt-metric.is-eta,
 .dashboard-tbt-metric.is-arrival {
-  flex: 0 0 116px;
-  width: 116px;
+  flex: 0 0 146px;
+  width: 146px;
 }
 
 .dashboard-tbt-metric-value {
-  font-size: 30px;
+  font-size: 38px;
   font-weight: 300;
   line-height: 1.05;
   white-space: nowrap;
@@ -4113,7 +4118,7 @@ canvas.graph-chart {
 }
 
 .dashboard-tbt-metric-label {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 400;
   line-height: 1;
   letter-spacing: 0.09em;

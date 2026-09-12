@@ -57,3 +57,35 @@ export function formatArrivalClock(remainingS, now = new Date()) {
     const mins = String(eta.getMinutes()).padStart(2, '0');
     return `${hrs}:${mins}`;
 }
+
+/**
+ * Folds a precise maneuver token onto the icon set that actually exists here.
+ *
+ * The telemetry now names maneuvers exactly (NAME_CHANGE, SLIGHT_LEFT,
+ * ON_RAMP_RIGHT, ...) because the vendor enum carries that detail, but
+ * TBT_TURN_SVGS only holds the broad shapes. Without this every precise token
+ * missed the table and fell through to the generic arrow — a NAME_CHANGE, which
+ * should read as "carry straight on", drew a plain chevron.
+ *
+ * Dedicated artwork for the slight / sharp / ramp variants is still worth doing;
+ * until then they resolve to the nearest shape that exists.
+ */
+export function resolveTurnIcon(turn) {
+    const token = String(turn || '').toUpperCase();
+    if (!token) return '';
+    if (TBT_TURN_SVGS[token] || TBT_TURN_GLYPHS[token]) return token;
+    // Carrying on along the same road, or departing, reads as straight ahead.
+    if (token === 'NAME_CHANGE' || token === 'DEPART') return 'STRAIGHT';
+    if (token.startsWith('U_TURN')) return 'U_TURN';
+    if (token.startsWith('ROUNDABOUT')) return 'ROUNDABOUT';
+    if (token.startsWith('DESTINATION')) return 'DESTINATION';
+    if (token.startsWith('FERRY')) return 'STRAIGHT';
+    if (token.startsWith('FORK')) return 'FORK';
+    if (token.startsWith('MERGE')) return 'MERGE';
+    if (token.startsWith('OFF_RAMP')) return 'EXIT';
+    if (token.startsWith('ON_RAMP')) return 'MERGE';
+    // Everything left is a plain turn of some sharpness; keep the side.
+    if (token.endsWith('_LEFT')) return 'TURN_LEFT';
+    if (token.endsWith('_RIGHT')) return 'TURN_RIGHT';
+    return token;
+}

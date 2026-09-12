@@ -3,7 +3,7 @@ import { div, span, img } from '../../../../shared/utils/createElement.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { createOdometerInfo } from './display/odometer/odometerInfo.js';
 import { createPowerFlowIcon } from './powerFlowIcon.js';
-import { TBT_TURN_GLYPHS, TBT_TURN_SVGS, formatArrivalClock, formatRemainingDistance, formatTripEta } from './tbtTurnIcons.js';
+import { TBT_TURN_GLYPHS, TBT_TURN_SVGS, formatArrivalClock, formatRemainingDistance, formatTripEta, resolveTurnIcon } from './tbtTurnIcons.js';
 
 const fuelIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xLDEyTDUsOVYxNVoiLz48cGF0aCBkPSJNMjIsMTBWOGEyLDIsMCwwLDAtMi0yaC0zVjRhMiwyLDAsMCwwLTItMkg5QTIsMiwwLDAsMCw3LDR2MTZhMiwyLDAsMCwwLDIsMmg4YTIsMiwwLDAsMCw2LTJWMTJoMXY0YTIsMiwwLDAsMCw0LDBWMTBaTTksNGg4djZIOVptOCwxNkg5VjEyaDhaIi8+PC9zdmc+";
 const batteryIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjwhLS0gQm9keSAtLT48cGF0aCBkPSJNMyw2aDE4YzEuMSwwLDIsMC45LDIsMnYxMGMwLDEuMS0wLjksMi0yLDJIM2MtMS4xLDAtMi0wLjktMi0yVjhDMSw2LjksMS45LDYsMyw2eiBNMyw4djEwaDE4VjhIM3oiLz48IS0tIFBvbGVzIC0tPjxyZWN0IHg9IjUiIHk9IjMiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48cmVjdCB4PSIxNSIgeT0iMyIgd2lkdGg9IjQiIGhlaWdodD0iMyIvPjwhLS0gTWludXMgc2lnbiAoLSkgLS0+PHJlY3QgeD0iNiIgeT0iMTIiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48IS0tIFBsdXMgc2lnbiAoKykgLS0+PHBhdGggZD0iTTE2LDEwaC0ydjJoLTJ2MmgydjJoMnYtMmgydi0yaC0yVjEweiIvPjwvc3ZnPg==";
@@ -459,7 +459,9 @@ export function createDashboardInfo() {
     tbtStrip.style.display = 'none';
     container.appendChild(tbtStrip);
 
-    const applyTurnGlyph = (turn) => {
+    const applyTurnGlyph = (rawTurn) => {
+        // Precise maneuver tokens are folded onto the shapes we actually have.
+        const turn = resolveTurnIcon(rawTurn);
         const svg = TBT_TURN_SVGS[turn];
         if (svg) {
             tbtGlyph.classList.add('is-svg');
