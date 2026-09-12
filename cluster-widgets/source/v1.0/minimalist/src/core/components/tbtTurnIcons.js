@@ -20,12 +20,19 @@ export const TBT_TURN_GLYPHS = {
     DESTINATION: '◎'
 };
 
+/** pt-BR grouping: 1000 -> "1.000". Values under 1000 are returned unchanged. */
+export function groupThousands(value) {
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n)) return '';
+    return String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
 export function formatRemainingDistance(remainingM) {
     const meters = Number(remainingM);
     if (!Number.isFinite(meters) || meters < 0) return '';
     if (meters < 1000) return `${Math.round(meters)} m`;
     const km = meters / 1000;
-    if (km >= 100) return `${Math.round(km)} km`;
+    if (km >= 100) return `${groupThousands(km)} km`;
     return `${km.toFixed(1)} km`;
 }
 

@@ -429,14 +429,29 @@ export function createDashboardInfo() {
     const tbtText = div({ className: 'dashboard-tbt-text' });
     const tbtStreet = span({ className: 'dashboard-tbt-street' });
     const tbtRemaining = div({ className: 'dashboard-tbt-remaining' });
-    const tbtRemainingDist = span({ className: 'dashboard-tbt-remaining-dist' });
-    const tbtEta = span({ className: 'dashboard-tbt-eta' });
-    const tbtArrival = span({ className: 'dashboard-tbt-arrival' });
+    // Each figure is its own fixed-width, right-aligned column with a small
+    // caption underneath, so the three stay in place as their values change
+    // width (3.9 km -> 950 m) instead of sliding around.
+    const makeMetric = (modifier, caption) => {
+        const cell = div({ className: `dashboard-tbt-metric ${modifier}` });
+        const value = span({ className: 'dashboard-tbt-metric-value' });
+        const label = span({ className: 'dashboard-tbt-metric-label' });
+        label.textContent = caption;
+        cell.appendChild(value);
+        cell.appendChild(label);
+        return { cell, value };
+    };
+    const distMetric = makeMetric('is-dist', 'DISTÂNCIA');
+    const etaMetric = makeMetric('is-eta', 'TEMPO');
+    const arrivalMetric = makeMetric('is-arrival', 'CHEGADA');
+    const tbtRemainingDist = distMetric.value;
+    const tbtEta = etaMetric.value;
+    const tbtArrival = arrivalMetric.value;
     tbtManeuver.appendChild(tbtGlyph);
     tbtManeuver.appendChild(tbtDistance);
-    tbtRemaining.appendChild(tbtRemainingDist);
-    tbtRemaining.appendChild(tbtEta);
-    tbtRemaining.appendChild(tbtArrival);
+    tbtRemaining.appendChild(distMetric.cell);
+    tbtRemaining.appendChild(etaMetric.cell);
+    tbtRemaining.appendChild(arrivalMetric.cell);
     tbtText.appendChild(tbtStreet);
     tbtText.appendChild(tbtRemaining);
     tbtStrip.appendChild(tbtManeuver);
@@ -471,17 +486,16 @@ export function createDashboardInfo() {
         tbtStreet.textContent = directions.street || '';
         tbtDistance.textContent = directions.distance ||
             (Number.isFinite(Number(directions.distance_m)) ? `${Math.round(Number(directions.distance_m))} m` : '');
+        // Hide the whole column, caption included, when a figure is missing.
         const remainingDist = formatRemainingDistance(directions.remaining_m);
         tbtRemainingDist.textContent = remainingDist;
-        tbtRemainingDist.style.display = remainingDist ? '' : 'none';
+        distMetric.cell.style.display = remainingDist ? '' : 'none';
         const remainingTime = formatTripEta(directions.remaining_s);
         tbtEta.textContent = remainingTime;
-        tbtEta.style.display = remainingTime ? '' : 'none';
-        tbtEta.classList.toggle('has-sep', Boolean(remainingDist && remainingTime));
+        etaMetric.cell.style.display = remainingTime ? '' : 'none';
         const arrival = formatArrivalClock(directions.remaining_s);
         tbtArrival.textContent = arrival;
-        tbtArrival.style.display = arrival ? '' : 'none';
-        tbtArrival.classList.toggle('has-sep', Boolean(arrival && (remainingDist || remainingTime)));
+        arrivalMetric.cell.style.display = arrival ? '' : 'none';
     };
     updateTbtStrip();
 

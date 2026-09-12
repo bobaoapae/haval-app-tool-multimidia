@@ -3982,14 +3982,18 @@ canvas.graph-chart {
   left: 50%;
   top: 80px;
   transform: translateX(-50%);
-  width: 720px;
-  min-height: 144px;
+  /* 20 pad + 72 glyph + 20 gap + 278 text + 20 pad. The text column is exactly
+     the three equal 116px metric columns plus their two 10px gaps. 116 is the
+     widest value any column can show ("12 h 34 min"), so the figures line up
+     evenly and nothing reflows as values change length. */
+  width: 500px;
+  min-height: 140px;
   display: none;
   flex-direction: row;
   align-items: center;
   justify-content: flex-start;
-  gap: 28px;
-  padding: 18px 36px;
+  gap: 20px;
+  padding: 20px;
   box-sizing: border-box;
   z-index: 40;
   pointer-events: none;
@@ -4007,17 +4011,17 @@ canvas.graph-chart {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   flex: 0 0 auto;
-  min-width: 88px;
+  width: 72px;
 }
 
 .dashboard-tbt-glyph {
-  font-size: 72px;
+  font-size: 68px;
   line-height: 1;
   flex: 0 0 auto;
-  width: 72px;
-  height: 72px;
+  width: 68px;
+  height: 68px;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
   display: flex;
   justify-content: center;
@@ -4029,8 +4033,8 @@ canvas.graph-chart {
 }
 
 .dashboard-tbt-glyph svg {
-  width: 72px;
-  height: 72px;
+  width: 68px;
+  height: 68px;
   display: block;
   fill: currentColor;
   filter: drop-shadow(0 2px 12px rgba(0, 0, 0, 0.55));
@@ -4041,23 +4045,26 @@ canvas.graph-chart {
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
+  /* Fixed, so a long street name can never widen the card. */
+  width: 368px;
   min-width: 0;
 }
 
 .dashboard-tbt-street {
-  font-size: 46px;
-  font-weight: 600;
+  font-size: 42px;
+  font-weight: 400;
   line-height: 1.05;
-  max-width: 540px;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .dashboard-tbt-distance {
-  font-size: 32px;
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 300;
   opacity: 0.95;
   line-height: 1;
   white-space: nowrap;
@@ -4067,39 +4074,61 @@ canvas.graph-chart {
 .dashboard-tbt-remaining {
   display: flex;
   flex-direction: row;
-  align-items: baseline;
+  align-items: flex-start;
   flex-wrap: nowrap;
-  gap: 0;
+  gap: 10px;
+  width: 100%;
   min-width: 0;
 }
 
-.dashboard-tbt-remaining-dist,
-.dashboard-tbt-eta,
-.dashboard-tbt-arrival {
-  font-size: 32px;
-  font-weight: 600;
-  line-height: 1.05;
-  white-space: nowrap;
+.dashboard-tbt-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 2px;
+  min-width: 0;
 }
 
-.dashboard-tbt-remaining-dist,
-.dashboard-tbt-eta {
+/* All three columns share one fixed width so the figures and their captions
+   line up as an even grid. The width is the widest value any column can show,
+   "12 h 34 min" from formatTripEta on a long trip. */
+.dashboard-tbt-metric.is-dist,
+.dashboard-tbt-metric.is-eta,
+.dashboard-tbt-metric.is-arrival {
+  flex: 0 0 116px;
+  width: 116px;
+}
+
+.dashboard-tbt-metric-value {
+  font-size: 30px;
+  font-weight: 300;
+  line-height: 1.05;
+  white-space: nowrap;
+  text-align: left;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: #f4f7fb;
 }
 
-.dashboard-tbt-arrival {
+.dashboard-tbt-metric-label {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0.09em;
+  text-align: left;
+  width: 100%;
+  white-space: nowrap;
+  color: rgba(244, 247, 251, 0.5);
+  text-shadow: none;
+}
+
+.dashboard-tbt-metric.is-arrival .dashboard-tbt-metric-value {
   color: var(--color-green);
   text-shadow: 0 0 8px rgba(0, 255, 136, 0.3), 0 0 4px rgba(0, 0, 0, 0.9);
 }
 
-.dashboard-tbt-eta.has-sep::before,
-.dashboard-tbt-arrival.has-sep::before {
-  content: '|';
-  margin: 0 14px;
-  font-weight: 500;
-  color: rgba(244, 247, 251, 0.45);
-  text-shadow: none;
-}
 
 /* Card 0 (native car content) / card 3 (AC) label — same top-center slot as the
    menu carousel above, shown instead of it since neither card populates the carousel.
