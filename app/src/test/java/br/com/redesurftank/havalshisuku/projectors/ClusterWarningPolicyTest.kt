@@ -1,6 +1,7 @@
 package br.com.redesurftank.havalshisuku.projectors
 
 import br.com.redesurftank.havalshisuku.models.CarConstants
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -82,6 +83,50 @@ class ClusterWarningPolicyTest {
                         CarConstants.CAR_BASIC_TIREPRESS_WARNING.value,
                         "0"
                 )
+        )
+    }
+
+    private val belt = CarConstants.CAR_BASIC_SEAT_BELT_WARNING.value
+    private val door = CarConstants.CAR_IPK_LIGHT_DOOR_WARNING.value
+    private val tirepress = CarConstants.CAR_BASIC_TIREPRESS_WARNING.value
+
+    @Test
+    fun keysBehindOneCardShareOneIdentity() {
+        assertEquals(
+                ClusterWarningPolicy.cardIdFor(belt),
+                ClusterWarningPolicy.cardIdFor(
+                        CarConstants.CAR_IPK_LIGHT_SEAT_BELT_WARNING_INDICATOR.value
+                )
+        )
+        assertEquals(
+                ClusterWarningPolicy.cardIdFor(tirepress),
+                ClusterWarningPolicy.cardIdFor(CarConstants.CAR_IPK_LIGHT_TPMS_WARNING.value)
+        )
+        assertEquals(setOf(door), ClusterWarningPolicy.cardKeysFor(door))
+    }
+
+    @Test
+    fun aNewCardRearmsStandingCardsItPreempts() {
+        // 2026-09-13 19:39–19:43: belt card closed with BACK, door opened over it, and the
+        // belt card was back on the cluster when the door closed.
+        val beltCard = ClusterWarningPolicy.cardIdFor(belt)
+        assertEquals(
+                setOf(beltCard),
+                ClusterWarningPolicy.cardsToRearm(door, setOf(beltCard)) { true }
+        )
+    }
+
+    @Test
+    fun rearmLeavesTheRaisedCardAndClearedCardsAlone() {
+        val beltCard = ClusterWarningPolicy.cardIdFor(belt)
+        val tyreCard = ClusterWarningPolicy.cardIdFor(tirepress)
+        // The raised card's own repaint must not undo its dismissal, and the door has
+        // cleared, so there is nothing for the car to bring back.
+        assertEquals(
+                setOf(tyreCard),
+                ClusterWarningPolicy.cardsToRearm(beltCard, setOf(beltCard, tyreCard, door)) {
+                    it != door
+                }
         )
     }
 }

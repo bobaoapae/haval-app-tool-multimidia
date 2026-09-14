@@ -1713,7 +1713,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 // --- Warning Management Logic ---
                 if (key in monitoredWarningKeys) {
                     val currentValue = value?.toString() ?: "0"
+                    val cardId = ClusterWarningPolicy.cardIdFor(key)
+                    val cardWasStanding = isCardConditionStanding(cardId)
                     trackWarningOnset(key, currentValue)
+                    val cardStanding = isCardConditionStanding(cardId)
 
                     // An acknowledgement lapses only when the condition behind the card
                     // actually goes away — not when the car rewrites the value while it
@@ -1721,10 +1724,31 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     // standing fault being repainted; treating each value as a new warning
                     // un-dismissed it, and clearing the whole map on "new onset" took every
                     // other card down with it, seconds after the driver dealt with them.
-                    val cardId = ClusterWarningPolicy.cardIdFor(key)
-                    if (cardId in dismissedCards && !isCardConditionStanding(cardId)) {
+                    if (cardId in dismissedCards && !cardStanding) {
                         Log.d(TAG, "Card $cardId cleared; acknowledgement dropped")
                         dismissedCards.remove(cardId)
+                    }
+
+                    // A different card newly rising is another matter: the car brings the
+                    // standing cards it preempted back once it closes. See
+                    // ClusterWarningPolicy.cardsToRearm.
+                    if (!cardWasStanding && cardStanding) {
+                        val rearmed =
+                                ClusterWarningPolicy.cardsToRearm(
+                                        cardId,
+                                        dismissedCards,
+                                        ::isCardConditionStanding
+                                )
+                        if (rearmed.isNotEmpty()) {
+                            dismissedCards.removeAll(rearmed)
+                            logClusterPerfEvent(
+                                    "warning_rearm",
+                                    mapOf(
+                                            "raisedCard" to cardId,
+                                            "rearmed" to rearmed.joinToString("|")
+                                    )
+                            )
+                        }
                     }
 
                     // Informational only — the theme renders from the warningActive boolean

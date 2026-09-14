@@ -109,6 +109,27 @@ internal object ClusterWarningPolicy {
      */
     fun cardIdFor(key: String): String = cardKeysFor(key).minOrNull() ?: key
 
+    /**
+     * Acknowledged cards to re-arm because [raisedCard] has just come up over them.
+     *
+     * The car queues standing cards: when a new card preempts one the driver already closed,
+     * the old one returns once the new one goes away. Observed 2026-09-13 — belt card closed
+     * with BACK at 19:39:52, door opened and closed, and the belt card was back on the cluster
+     * (the driver pressed BACK on it at 19:43:13) while the badge stayed down, because the
+     * acknowledgement was still held against a condition that never cleared.
+     *
+     * Only a card that newly rises preempts. A standing card rewriting its own value — the belt
+     * repainting {1,0,0,0,0} / {1,1,1,1,1} — is not a new card, so it re-arms nothing; that is
+     * the loop card-keyed acknowledgement exists to prevent. Cards whose condition has cleared
+     * are not re-armed either: there is nothing left for the car to bring back.
+     */
+    fun cardsToRearm(
+            raisedCard: String,
+            dismissedCards: Set<String>,
+            isCardStanding: (String) -> Boolean
+    ): Set<String> =
+            dismissedCards.filterTo(mutableSetOf()) { it != raisedCard && isCardStanding(it) }
+
     fun isWarningValueActive(value: String?): Boolean {
         if (value == null) return false
         val normalized = value.trim().lowercase()
