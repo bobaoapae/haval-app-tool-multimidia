@@ -130,6 +130,13 @@ object AndroidAutoNavigationTelemetry {
     const val MANEUVER_FERRY_TRAIN_LEFT = 0x31
     const val MANEUVER_FERRY_TRAIN_RIGHT = 0x32
 
+    // Protos$NavigationStatus$NavigationStatusEnum — what LinkCallback code 7
+    // carries (NavigationStatus -> LinkController$5.onStatus ->
+    // notifyNavigationState). A 0 is also sent when the device drops.
+    const val NAV_STATUS_ACTIVE = 1
+    const val NAV_STATUS_INACTIVE = 2
+    const val NAV_STATUS_REROUTING = 3
+
     // Protos$NavigationNextTurnDistanceEvent$DistanceUnits
     const val UNIT_UNKNOWN = 0
     const val UNIT_METERS = 1
@@ -232,6 +239,7 @@ object AndroidAutoNavigationTelemetry {
         private var eta: String = ""
         private var active: Boolean = false
 
+        @Synchronized
         fun onNextTurn(road: String?, event: Int, turnSide: Int): Directions {
             active = true
             street = road?.trim().orEmpty()
@@ -240,6 +248,7 @@ object AndroidAutoNavigationTelemetry {
             return current()
         }
 
+        @Synchronized
         fun onNextTurnDistance(
             distanceMeters: Int,
             displayDistanceE3: Int,
@@ -254,15 +263,18 @@ object AndroidAutoNavigationTelemetry {
         }
 
         /**
-         * LinkCallback code 7. The enum is not in the decompile; 0 is taken as
-         * "no guidance" and anything else as running. The raw value is logged
-         * at the call site so a car run can correct this.
+         * LinkCallback code 7, the AAP NavigationStatus: ACTIVE=1, INACTIVE=2,
+         * REROUTING=3, and 0 when the device drops. Only the end states clear;
+         * ACTIVE and REROUTING wait for the route itself (code 10) rather than
+         * raising an empty card.
+         *
+         * This used to clear on 0 alone, so INACTIVE — the value guidance ends
+         * with — left the last manoeuvre frozen on screen.
          */
+        @Synchronized
         fun onNavigationState(state: Int): Directions {
-            if (state == 0) {
+            if (state == NAV_STATUS_INACTIVE || state == 0) {
                 reset()
-            } else {
-                active = true
             }
             return current()
         }
@@ -272,6 +284,7 @@ object AndroidAutoNavigationTelemetry {
          * actually sends — codes 7/8/9 never fire on this head unit. A route
          * with no steps means guidance is off.
          */
+        @Synchronized
         fun onRouteStep(road: String?, event: Int, hasRoute: Boolean): Directions {
             if (!hasRoute) {
                 reset()
@@ -293,6 +306,7 @@ object AndroidAutoNavigationTelemetry {
          * in its destination list, the trip totals the AA screen shows as
          * "4,8 km · 10:35".
          */
+        @Synchronized
         fun onPosition(
             meters: Int,
             displayValue: String?,
@@ -316,6 +330,7 @@ object AndroidAutoNavigationTelemetry {
             return current()
         }
 
+        @Synchronized
         fun reset() {
             street = ""
             turn = ""
@@ -328,6 +343,7 @@ object AndroidAutoNavigationTelemetry {
             active = false
         }
 
+        @Synchronized
         fun current(): Directions {
             if (!active) return inactive()
             return Directions(

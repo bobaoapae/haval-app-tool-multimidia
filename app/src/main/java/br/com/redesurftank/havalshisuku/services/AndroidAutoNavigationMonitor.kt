@@ -47,6 +47,11 @@ object AndroidAutoNavigationMonitor {
 
     private const val BIND_RETRY_INTERVAL_MS = 5_000L
 
+    // Guidance streams state + position about once a second, even parked at a
+    // turn. If that stops while a card is up, the route has ended without an
+    // explicit INACTIVE reaching us, so clear rather than leave it frozen.
+    private const val STALE_GUIDANCE_MS = 10_000L
+
     private val accumulator = AndroidAutoNavigationTelemetry.Accumulator()
     private val callback = LinkCallbackBinder()
     private val lock = Any()
@@ -58,6 +63,12 @@ object AndroidAutoNavigationMonitor {
     private var retryScheduled = false
 
     private val retryHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private val staleGuidanceRunnable = Runnable {
+        if (accumulator.current().active) {
+            clearNavigation("no navigation update for $STALE_GUIDANCE_MS ms")
+        }
+    }
 
     private val deathRecipient =
         IBinder.DeathRecipient {
@@ -149,6 +160,7 @@ object AndroidAutoNavigationMonitor {
 
     private fun clearNavigation(reason: String) {
         Log.w(TAG, "Clearing navigation: $reason")
+        retryHandler.removeCallbacks(staleGuidanceRunnable)
         accumulator.reset()
         AndroidAutoClusterController.onNavigationUpdate(accumulator.current())
     }
@@ -265,6 +277,11 @@ object AndroidAutoNavigationMonitor {
 
     private fun publish(update: AndroidAutoNavigationTelemetry.Directions) {
         AndroidAutoClusterController.onNavigationUpdate(update, SystemClock.elapsedRealtime())
+        // Every nav transaction lands here, so each one pushes the deadline out.
+        retryHandler.removeCallbacks(staleGuidanceRunnable)
+        if (update.active) {
+            retryHandler.postDelayed(staleGuidanceRunnable, STALE_GUIDANCE_MS)
+        }
     }
 
     private class LinkCallbackBinder : Binder() {
@@ -315,7 +332,7 @@ object AndroidAutoNavigationMonitor {
                 TRANSACTION_ON_NOTIFY_NAVIGATION_STATE -> {
                     data.enforceInterface(LINK_CALLBACK_DESCRIPTOR)
                     val state = data.readInt()
-                    Log.w(TAG, "onNotifyNavigationState state=$state")
+                    Log.w(TAG, "onNotifyNavigationState state=$state (1=active 2=inactive 3=rerouting 0=device lost)")
                     publish(accumulator.onNavigationState(state))
                     true
                 }

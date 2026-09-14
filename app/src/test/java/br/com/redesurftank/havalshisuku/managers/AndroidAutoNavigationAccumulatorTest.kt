@@ -174,4 +174,47 @@ class AndroidAutoNavigationAccumulatorTest {
         assertNull(update.distanceM)
         assertEquals("", update.distance)
     }
+
+    @Test
+    fun inactiveNavigationStatusClearsTheCard() {
+        // On the car the card stayed frozen on the arrival frame after guidance
+        // ended: code 7 carries NavigationStatus, where INACTIVE is 2, and only
+        // 0 used to clear.
+        val accumulator = AndroidAutoNavigationTelemetry.Accumulator()
+        accumulator.onRouteStep(
+            "Colégio pH",
+            AndroidAutoNavigationTelemetry.MANEUVER_DESTINATION,
+            hasRoute = true
+        )
+        val ended = accumulator.onNavigationState(AndroidAutoNavigationTelemetry.NAV_STATUS_INACTIVE)
+        assertFalse(ended.active)
+        assertEquals("""{"active":false}""", ended.toJson())
+    }
+
+    @Test
+    fun deviceLostStatusClearsTheCard() {
+        val accumulator = AndroidAutoNavigationTelemetry.Accumulator()
+        accumulator.onRouteStep(
+            "Rua Dom Bosco",
+            AndroidAutoNavigationTelemetry.MANEUVER_TURN_NORMAL_LEFT,
+            hasRoute = true
+        )
+        assertFalse(accumulator.onNavigationState(0).active)
+    }
+
+    @Test
+    fun activeOrReroutingStatusNeverInventsACard() {
+        val accumulator = AndroidAutoNavigationTelemetry.Accumulator()
+        // ACTIVE before any route must not raise an empty card.
+        assertFalse(accumulator.onNavigationState(AndroidAutoNavigationTelemetry.NAV_STATUS_ACTIVE).active)
+        accumulator.onRouteStep(
+            "Rua Dom Bosco",
+            AndroidAutoNavigationTelemetry.MANEUVER_TURN_NORMAL_LEFT,
+            hasRoute = true
+        )
+        // REROUTING mid-route keeps the current manoeuvre.
+        val rerouting = accumulator.onNavigationState(AndroidAutoNavigationTelemetry.NAV_STATUS_REROUTING)
+        assertTrue(rerouting.active)
+        assertEquals("Rua Dom Bosco", rerouting.street)
+    }
 }
