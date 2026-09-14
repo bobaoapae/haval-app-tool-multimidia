@@ -3,7 +3,7 @@ import { div, span, img } from '../../../../shared/utils/createElement.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { createOdometerInfo } from './display/odometer/odometerInfo.js';
 import { createPowerFlowIcon } from './powerFlowIcon.js';
-import { TBT_TURN_GLYPHS, TBT_TURN_SVGS, formatArrivalClock, formatRemainingDistance, formatTripEta, resolveTurnIcon } from './tbtTurnIcons.js';
+import { createTbtCard } from '../../../../shared/tbt/tbtCard.js';
 
 const fuelIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xLDEyTDUsOVYxNVoiLz48cGF0aCBkPSJNMjIsMTBWOGEyLDIsMCwwLDAtMi0yaC0zVjRhMiwyLDAsMCwwLTItMkg5QTIsMiwwLDAsMCw3LDR2MTZhMiwyLDAsMCwwLDIsMmg4YTIsMiwwLDAsMCw2LTJWMTJoMXY0YTIsMiwwLDAsMCw0LDBWMTBaTTksNGg4djZIOVptOCwxNkg5VjEyaDhaIi8+PC9zdmc+";
 const batteryIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjwhLS0gQm9keSAtLT48cGF0aCBkPSJNMyw2aDE4YzEuMSwwLDIsMC45LDIsMnYxMGMwLDEuMS0wLjksMi0yLDJIM2MtMS4xLDAtMi0wLjktMi0yVjhDMSw2LjksMS45LDYsMyw2eiBNMyw4djEwaDE4VjhIM3oiLz48IS0tIFBvbGVzIC0tPjxyZWN0IHg9IjUiIHk9IjMiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48cmVjdCB4PSIxNSIgeT0iMyIgd2lkdGg9IjQiIGhlaWdodD0iMyIvPjwhLS0gTWludXMgc2lnbiAoLSkgLS0+PHJlY3QgeD0iNiIgeT0iMTIiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48IS0tIFBsdXMgc2lnbiAoKykgLS0+PHBhdGggZD0iTTE2LDEwaC0ydjJoLTJ2MmgydjJoMnYtMmgydi0yaC0yVjEweiIvPjwvc3ZnPg==";
@@ -422,83 +422,10 @@ export function createDashboardInfo() {
     container.appendChild(menuWrapper);
     container.appendChild(cardTitle);
 
-    const tbtStrip = div({ className: 'dashboard-tbt-strip' });
-    const tbtManeuver = div({ className: 'dashboard-tbt-maneuver' });
-    const tbtGlyph = span({ className: 'dashboard-tbt-glyph' });
-    const tbtDistance = span({ className: 'dashboard-tbt-distance' });
-    const tbtText = div({ className: 'dashboard-tbt-text' });
-    const tbtStreet = span({ className: 'dashboard-tbt-street' });
-    const tbtRemaining = div({ className: 'dashboard-tbt-remaining' });
-    // Each figure is its own fixed-width, right-aligned column with a small
-    // caption underneath, so the three stay in place as their values change
-    // width (3.9 km -> 950 m) instead of sliding around.
-    const makeMetric = (modifier, caption) => {
-        const cell = div({ className: `dashboard-tbt-metric ${modifier}` });
-        const value = span({ className: 'dashboard-tbt-metric-value' });
-        const label = span({ className: 'dashboard-tbt-metric-label' });
-        label.textContent = caption;
-        cell.appendChild(value);
-        cell.appendChild(label);
-        return { cell, value };
-    };
-    const distMetric = makeMetric('is-dist', 'DISTÂNCIA');
-    const etaMetric = makeMetric('is-eta', 'TEMPO');
-    const arrivalMetric = makeMetric('is-arrival', 'CHEGADA');
-    const tbtRemainingDist = distMetric.value;
-    const tbtEta = etaMetric.value;
-    const tbtArrival = arrivalMetric.value;
-    tbtManeuver.appendChild(tbtGlyph);
-    tbtManeuver.appendChild(tbtDistance);
-    tbtRemaining.appendChild(distMetric.cell);
-    tbtRemaining.appendChild(etaMetric.cell);
-    tbtRemaining.appendChild(arrivalMetric.cell);
-    tbtText.appendChild(tbtStreet);
-    tbtText.appendChild(tbtRemaining);
-    tbtStrip.appendChild(tbtManeuver);
-    tbtStrip.appendChild(tbtText);
-    tbtStrip.style.display = 'none';
-    container.appendChild(tbtStrip);
-
-    const applyTurnGlyph = (rawTurn) => {
-        // Precise maneuver tokens are folded onto the shapes we actually have.
-        const turn = resolveTurnIcon(rawTurn);
-        const svg = TBT_TURN_SVGS[turn];
-        if (svg) {
-            tbtGlyph.classList.add('is-svg');
-            tbtGlyph.innerHTML = svg;
-            return;
-        }
-        tbtGlyph.classList.remove('is-svg');
-        tbtGlyph.textContent = TBT_TURN_GLYPHS[turn] || '➤';
-    };
-
-    const updateTbtStrip = () => {
-        const directions = getState('navigationDirections') || {};
-        const active = directions.active === true || directions.active === 'true';
-        // The strip used to also require a projected map on the cluster
-        // (projectionMirrorInDash / aaClusterInDash / ...). Turn-by-turn now
-        // arrives over the vendor LinkCallback independently of any CLUSTER
-        // video, so guidance alone is enough to show it — otherwise the strip
-        // stays hidden waiting on a video feed that is a separate problem.
-        const show = active;
-        tbtStrip.style.display = show ? 'flex' : 'none';
-        if (!show) return;
-        const turn = String(directions.turn || '').toUpperCase();
-        applyTurnGlyph(turn);
-        tbtStreet.textContent = directions.street || '';
-        tbtDistance.textContent = directions.distance ||
-            (Number.isFinite(Number(directions.distance_m)) ? `${Math.round(Number(directions.distance_m))} m` : '');
-        // Hide the whole column, caption included, when a figure is missing.
-        const remainingDist = formatRemainingDistance(directions.remaining_m);
-        tbtRemainingDist.textContent = remainingDist;
-        distMetric.cell.style.display = remainingDist ? '' : 'none';
-        const remainingTime = formatTripEta(directions.remaining_s);
-        tbtEta.textContent = remainingTime;
-        etaMetric.cell.style.display = remainingTime ? '' : 'none';
-        const arrival = formatArrivalClock(directions.remaining_s);
-        tbtArrival.textContent = arrival;
-        arrivalMetric.cell.style.display = arrival ? '' : 'none';
-    };
+    // Turn-by-turn card, shared with the default theme (shared/tbt/tbtCard.js).
+    const tbtCard = createTbtCard();
+    container.appendChild(tbtCard.element);
+    const updateTbtStrip = () => tbtCard.update(getState('navigationDirections'));
     updateTbtStrip();
 
     const clockInterval = setInterval(() => {
