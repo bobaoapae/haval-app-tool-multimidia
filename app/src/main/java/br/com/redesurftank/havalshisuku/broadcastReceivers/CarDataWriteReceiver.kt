@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import br.com.redesurftank.havalshisuku.api.ImpulseApiCallers
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 
 /**
@@ -16,25 +17,29 @@ import br.com.redesurftank.havalshisuku.managers.ServiceManager
  * this receiver is that write, as an explicit broadcast, so the viewer's
  * MODES widget can tap a chip and set drive / EV / steer / regen / ESP.
  *
+ * Gated by [ImpulseApiCallers] like the rest of the API: ESP and drive mode are
+ * not something any installed app should be able to flip.
+ *
  * Keep [WRITABLE_CAR_KEYS] in sync with ThemeBridgeImpl's writable set.
  */
 class CarDataWriteReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_UPDATE_CAR_DATA) return
+        val caller = ImpulseApiCallers.verify(intent, ACTION_UPDATE_CAR_DATA) ?: return
         val key = intent.getStringExtra(EXTRA_KEY).orEmpty()
         val value = intent.getStringExtra(EXTRA_VALUE).orEmpty()
         if (key.isEmpty() || key !in WRITABLE_CAR_KEYS) {
-            Log.w(TAG, "Blocked write to non-allowlisted vehicle key: $key")
+            Log.w(TAG, "Blocked write to non-allowlisted vehicle key: $key from $caller")
             return
         }
         if (value.length > 64) {
-            Log.w(TAG, "Blocked oversized write for $key")
+            Log.w(TAG, "Blocked oversized write for $key from $caller")
             return
         }
         try {
             ServiceManager.getInstance().updateData(key, value)
         } catch (t: Throwable) {
-            Log.w(TAG, "updateData failed for $key", t)
+            Log.w(TAG, "updateData failed for $key from $caller", t)
         }
     }
 

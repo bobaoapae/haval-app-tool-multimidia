@@ -17,10 +17,14 @@ import android.util.Log
  * puts a throwaway PendingIntent in [EXTRA_CALLER] and we read the identity off
  * it.
  *
+ * Every command receiver calls [verify]: vehicle body commands, car-setting
+ * writes, the AA cluster toggle, and task resolve/bounds. The read-only
+ * telemetry snapshot does not — telemetry is already public on EVENT_CHANGED.
+ *
  * This proves *which package* sent the command, not that the package is genuine —
- * a same-named app signed by another key would pass. That is acceptable for the
- * operations exposed here (moving and resizing windows). Do not widen this API to
- * anything destructive without also pinning the signature.
+ * a same-named app signed by another key would pass. Body commands and setting
+ * writes are exposed on that basis; pinning the viewer's signing certificate is
+ * the next step if that stops being acceptable.
  */
 object ImpulseApiCallers {
     private const val TAG = "ImpulseApi"
