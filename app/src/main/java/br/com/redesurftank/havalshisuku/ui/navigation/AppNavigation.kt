@@ -1,5 +1,6 @@
 package br.com.redesurftank.havalshisuku.ui.navigation
 
+import br.com.redesurftank.havalshisuku.managers.UpdateNoticeManager
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,7 +33,7 @@ private val RailBackground = Color(0xFF0D0E12)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(modifier: Modifier = Modifier) {
+fun MainScreen(modifier: Modifier = Modifier, initialScreen: String? = null) {
     val prefs = App.getDeviceProtectedContext()
         .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
     val advancedUse = prefs.getBoolean(SharedPreferencesKeys.ADVANCE_USE.key, false)
@@ -41,7 +42,13 @@ fun MainScreen(modifier: Modifier = Modifier) {
         if (item.title == "Frida Hooks") advancedUse else true
     }
 
-    var selectedItem by remember { mutableStateOf(0) }
+    // Abre direto na aba pedida (o chip de atualização manda "Informações"). Título desconhecido
+    // ou ausente cai na primeira aba, como sempre.
+    var selectedItem by remember {
+        mutableStateOf(
+                menuItems.indexOfFirst { it.title == initialScreen }.takeIf { it >= 0 } ?: 0
+        )
+    }
 
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
@@ -169,6 +176,18 @@ private fun RailItem(
             fontSize = 16.sp,
             color = if (selected) ImpTokens.Accent else ImpTokens.TextPrimary
         )
+        // Aviso de versao nova: um ponto ao lado de "Informacoes", que e onde fica o botao de
+        // atualizar. Deliberadamente sem texto e sem popup — quem abriu o app pra fazer outra coisa
+        // nao deve ser interrompido; quem quiser saber, o ponto conduz ate la.
+        if (item.title == "Informações" && UpdateNoticeManager.availableVersion != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(ImpTokens.Accent)
+            )
+        }
     }
 }
 

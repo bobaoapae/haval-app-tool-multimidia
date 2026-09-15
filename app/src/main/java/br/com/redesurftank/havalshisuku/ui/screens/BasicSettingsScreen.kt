@@ -78,13 +78,55 @@ private fun applyLeftNavPaneVisibility(hidden: Boolean) {
                                                 "immersive.navigation=*"
                                         )
                                 else arrayOf("settings", "delete", "global", "policy_control")
-                        val result =
+                        // CONFERE depois de aplicar, e insiste ate 3 vezes.
+                        //
+                        // Antes era disparo cego: mandava o comando e so registrava a saida, sem
+                        // olhar se pegou. Quando o Shizuku esta fora naquele instante, o comando
+                        // falha em silencio — e no DESLIGAR o estrago e grande: a politica
+                        // `immersive.navigation` fica valendo, a barra de navegacao continua
+                        // transitoria e o Android passa a IGNORAR o toque no botao home. Aconteceu
+                        // no carro: funcao desligada e home morto, enquanto os outros icones da
+                        // mesma faixa (grade de apps, temperatura) seguiam normais — sao interface
+                        // da montadora, nao da barra de navegacao.
+                        var aplicado = false
+                        for (tentativa in 1..3) {
                                 br.com.redesurftank.havalshisuku.utils.ShizukuUtils
                                         .runCommandAndGetOutput(command)
-                        android.util.Log.w(
-                                "BasicSettingsScreen",
-                                "[NAV_PANE] hidden=$hidden result=$result"
-                        )
+                                val agora =
+                                        runCatching {
+                                                        br.com.redesurftank.havalshisuku.utils
+                                                                .ShizukuUtils
+                                                                .runCommandAndGetOutput(
+                                                                        arrayOf(
+                                                                                "settings",
+                                                                                "get",
+                                                                                "global",
+                                                                                "policy_control"
+                                                                        )
+                                                                )
+                                                }
+                                                .getOrDefault("")
+                                                .trim()
+                                // `settings get` devolve a string "null" quando a chave nao existe.
+                                aplicado =
+                                        if (hidden) agora.contains("immersive.navigation")
+                                        else agora.isEmpty() || agora == "null"
+                                android.util.Log.w(
+                                        "BasicSettingsScreen",
+                                        "[NAV_PANE] hidden=$hidden tentativa=$tentativa " +
+                                                "policy_control='$agora' ok=$aplicado"
+                                )
+                                if (aplicado) break
+                                runCatching { Thread.sleep(700) }
+                        }
+                        if (!aplicado) {
+                                android.util.Log.e(
+                                        "BasicSettingsScreen",
+                                        "[NAV_PANE] NAO consegui deixar policy_control no estado " +
+                                                "pedido (hidden=$hidden); com hidden=false isso " +
+                                                "mantem o botao home inerte"
+                                )
+                        }
                 }
                 .start()
 }
@@ -841,6 +883,34 @@ fun BasicSettingsTab() {
                         prefs.getFloat(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_MAX_TEMP.key, -1f)
                 )
         }
+        var enableCloseSunroofCurtainOnTime by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.ENABLE_CLOSE_SUNROOF_CURTAIN_ON_TIME.key,
+                                false
+                        )
+                )
+        }
+        var closeCurtainStartHour by remember {
+                mutableIntStateOf(
+                        prefs.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_START_HOUR.key, 9)
+                )
+        }
+        var closeCurtainStartMinute by remember {
+                mutableIntStateOf(
+                        prefs.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_START_MINUTE.key, 0)
+                )
+        }
+        var closeCurtainEndHour by remember {
+                mutableIntStateOf(
+                        prefs.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_END_HOUR.key, 17)
+                )
+        }
+        var closeCurtainEndMinute by remember {
+                mutableIntStateOf(
+                        prefs.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_END_MINUTE.key, 0)
+                )
+        }
         var enablePersistHevSoc by remember {
                 mutableStateOf(
                         prefs.getBoolean(SharedPreferencesKeys.ENABLE_PERSIST_HEV_SOC_TARGET.key, false)
@@ -1532,6 +1602,7 @@ fun BasicSettingsTab() {
                                 title =
                                         SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START
                                                 .description,
+                                group = SettingsGroups.COMFORT,
                                 description =
                                         "Abre automaticamente a cortina do teto solar ao ligar o veículo",
                                 checked = enableOpenSunroofCurtainOnStart,
@@ -1892,6 +1963,209 @@ fun BasicSettingsTab() {
                          ),
 
                         SettingItem(
+                                title =
+                                        SharedPreferencesKeys.ENABLE_CLOSE_SUNROOF_CURTAIN_ON_TIME
+                                                .description,
+                                group = SettingsGroups.COMFORT,
+                                description =
+                                        "Fecha automaticamente a cortina do teto solar por horário (ao ligar dentro da janela ou ao cruzá-la dirigindo)",
+                                checked = enableCloseSunroofCurtainOnTime,
+                                onCheckedChange = { checked ->
+                                        enableCloseSunroofCurtainOnTime = checked
+                                        prefs.edit {
+                                                putBoolean(
+                                                        SharedPreferencesKeys
+                                                                .ENABLE_CLOSE_SUNROOF_CURTAIN_ON_TIME
+                                                                .key,
+                                                        checked
+                                                )
+                                        }
+                                },
+                                customContent =
+                                        if (enableCloseSunroofCurtainOnTime) {
+                                                {
+                                                        var showCloseCurtainStartPicker by remember {
+                                                                mutableStateOf(false)
+                                                        }
+                                                        var showCloseCurtainEndPicker by remember {
+                                                                mutableStateOf(false)
+                                                        }
+
+                                                        if (showCloseCurtainStartPicker) {
+                                                                val timeSetListener =
+                                                                        TimePickerDialog.OnTimeSetListener {
+                                                                                _,
+                                                                                hour,
+                                                                                minute ->
+                                                                                closeCurtainStartHour = hour
+                                                                                closeCurtainStartMinute = minute
+                                                                                prefs.edit {
+                                                                                        putInt(
+                                                                                                SharedPreferencesKeys
+                                                                                                        .CLOSE_SUNROOF_CURTAIN_START_HOUR
+                                                                                                        .key,
+                                                                                                hour
+                                                                                        )
+                                                                                        putInt(
+                                                                                                SharedPreferencesKeys
+                                                                                                        .CLOSE_SUNROOF_CURTAIN_START_MINUTE
+                                                                                                        .key,
+                                                                                                minute
+                                                                                        )
+                                                                                }
+                                                                                showCloseCurtainStartPicker = false
+                                                                        }
+                                                                TimePickerDialog(
+                                                                                LocalContext.current,
+                                                                                timeSetListener,
+                                                                                closeCurtainStartHour,
+                                                                                closeCurtainStartMinute,
+                                                                                true
+                                                                        )
+                                                                        .show()
+                                                        }
+
+                                                        if (showCloseCurtainEndPicker) {
+                                                                val timeSetListener =
+                                                                        TimePickerDialog.OnTimeSetListener {
+                                                                                _,
+                                                                                hour,
+                                                                                minute ->
+                                                                                closeCurtainEndHour = hour
+                                                                                closeCurtainEndMinute = minute
+                                                                                prefs.edit {
+                                                                                        putInt(
+                                                                                                SharedPreferencesKeys
+                                                                                                        .CLOSE_SUNROOF_CURTAIN_END_HOUR
+                                                                                                        .key,
+                                                                                                hour
+                                                                                        )
+                                                                                        putInt(
+                                                                                                SharedPreferencesKeys
+                                                                                                        .CLOSE_SUNROOF_CURTAIN_END_MINUTE
+                                                                                                        .key,
+                                                                                                minute
+                                                                                        )
+                                                                                }
+                                                                                showCloseCurtainEndPicker = false
+                                                                        }
+                                                                TimePickerDialog(
+                                                                                LocalContext.current,
+                                                                                timeSetListener,
+                                                                                closeCurtainEndHour,
+                                                                                closeCurtainEndMinute,
+                                                                                true
+                                                                        )
+                                                                        .show()
+                                                        }
+
+                                                        Column(
+                                                                verticalArrangement =
+                                                                        Arrangement.spacedBy(12.dp)
+                                                        ) {
+                                                                HorizontalDivider(
+                                                                        color = Color(0xFF3A3F47),
+                                                                        thickness = 1.dp
+                                                                )
+
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(12.dp)
+                                                                )
+
+                                                                Row(
+                                                                        modifier =
+                                                                                Modifier.fillMaxWidth(),
+                                                                        horizontalArrangement =
+                                                                                Arrangement.SpaceEvenly
+                                                                ) {
+                                                                        Box(
+                                                                                modifier =
+                                                                                        Modifier.weight(1f)
+                                                                                                .clickable {
+                                                                                                        showCloseCurtainStartPicker =
+                                                                                                                true
+                                                                                                }
+                                                                                                .background(
+                                                                                                        Color(0xFF2A2F37),
+                                                                                                        RoundedCornerShape(8.dp)
+                                                                                                )
+                                                                                                .padding(16.dp),
+                                                                                contentAlignment =
+                                                                                        Alignment.Center
+                                                                        ) {
+                                                                                Column(
+                                                                                        horizontalAlignment =
+                                                                                                Alignment
+                                                                                                        .CenterHorizontally
+                                                                                ) {
+                                                                                        Text(
+                                                                                                "Início",
+                                                                                                color = Color.White,
+                                                                                                fontSize = 14.sp
+                                                                                        )
+                                                                                        Spacer(
+                                                                                                modifier =
+                                                                                                        Modifier.height(4.dp)
+                                                                                        )
+                                                                                        Text(
+                                                                                                "${String.format("%02d", closeCurtainStartHour)}:${String.format("%02d", closeCurtainStartMinute)}",
+                                                                                                color = Color(0xFF4A9EFF),
+                                                                                                fontSize = 18.sp,
+                                                                                                fontWeight =
+                                                                                                        FontWeight.Medium
+                                                                                        )
+                                                                                }
+                                                                        }
+                                                                        Spacer(
+                                                                                modifier =
+                                                                                        Modifier.width(12.dp)
+                                                                        )
+                                                                        Box(
+                                                                                modifier =
+                                                                                        Modifier.weight(1f)
+                                                                                                .clickable {
+                                                                                                        showCloseCurtainEndPicker =
+                                                                                                                true
+                                                                                                }
+                                                                                                .background(
+                                                                                                        Color(0xFF2A2F37),
+                                                                                                        RoundedCornerShape(8.dp)
+                                                                                                )
+                                                                                                .padding(16.dp),
+                                                                                contentAlignment =
+                                                                                        Alignment.Center
+                                                                        ) {
+                                                                                Column(
+                                                                                        horizontalAlignment =
+                                                                                                Alignment
+                                                                                                        .CenterHorizontally
+                                                                                ) {
+                                                                                        Text(
+                                                                                                "Fim",
+                                                                                                color = Color.White,
+                                                                                                fontSize = 14.sp
+                                                                                        )
+                                                                                        Spacer(
+                                                                                                modifier =
+                                                                                                        Modifier.height(4.dp)
+                                                                                        )
+                                                                                        Text(
+                                                                                                "${String.format("%02d", closeCurtainEndHour)}:${String.format("%02d", closeCurtainEndMinute)}",
+                                                                                                color = Color(0xFF4A9EFF),
+                                                                                                fontSize = 18.sp,
+                                                                                                fontWeight =
+                                                                                                        FontWeight.Medium
+                                                                                        )
+                                                                                }
+                                                                        }
+                                                                }
+                                                        }
+                                                }
+                                        } else null
+                        ),
+
+                        SettingItem(
                                 title = "Manter desativado monitoramento de distrações",
                                 group = SettingsGroups.SAFETY,
                                 description = "Desabilita alertas de distração durante a condução",
@@ -2150,7 +2424,7 @@ fun BasicSettingsTab() {
                                                                                                 16.sp
                                                                                 )
                                                                                 Text(
-                                                                                        "O painel fica oculto e libera os 128px da esquerda para a barra. Deslize da borda esquerda para trazê-lo de volta; ele se esconde de novo após 5s.",
+                                                                                        "O painel fica oculto e libera os 128px da esquerda para a barra. Deslize da borda esquerda para trazê-lo de volta; ele se esconde de novo após 5s.\n\nAtenção: o botão home nativo fica nesse painel, então ele sai junto. Para usá-lo, deslize o painel de volta — ou configure o deslizar para cima da barra como \"Ir para a Home Haval\".",
                                                                                         color =
                                                                                                 Color.Gray,
                                                                                         fontSize =
