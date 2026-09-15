@@ -148,9 +148,17 @@ These are additive. Existing themes that never subscribe or call the new method 
 | Key / method | Values | Notes |
 |---|---|---|
 | `app.androidauto.session` | `stopped` \| `active` | From Autolink GET_LINK_STATUS 3/7/8. Also on `EVENT_CHANGED` / snapshot. |
-| `app.navigation.directions` | JSON (`active`, `street`, `distance`, `turn`, `remaining_s`, `remaining_m`, …) | Existing stub; filled from the NAV channel when hooked. Inactive = `{"active":false}`. `remaining_s` is trip ETA in seconds. |
+| `app.navigation.directions` | JSON (`v`, `active`, `street`, `distance`, `turn`, `remaining_s`, `remaining_m`, …) | Existing stub; filled from the NAV channel when hooked. Inactive = `{"v":1,"active":false}`. `remaining_s` is trip ETA in seconds. |
+| `app.impulse.api_version` | `"1"` | Version of the external API. Sent on every snapshot (`REQUEST_SNAPSHOT` / `ACTION_DISPATCH_ALL_DATAS`). |
 | `aaClusterInDash` | boolean via `control()` | CLUSTER Surface under the theme WebView. Treat like `projectionMirrorInDash` for masks. Do **not** rewrite persisted `display`. |
 | `setAaClusterMapEnabled(boolean)` | — | Theme request to attach/tear down D3 CLUSTER Surface. MAIN stays on D0. |
+
+### Versioning the external API
+
+Applies to what other apps consume: `EVENT_CHANGED` keys, the `ACTION_*` command broadcasts and their extras, and structured values (`haval.power.flow` is `v1|…`, `app.navigation.directions` carries `v`).
+
+- **Same version:** new keys, new actions, new optional extras, new JSON fields, new enum values a client can ignore. Clients must ignore what they do not know.
+- **New version:** renaming or removing a key, action or extra; changing a value's type, unit or meaning; making an extra required. Bump `app.impulse.api_version`, and the payload's own `v` when the change is inside it.
 
 Handshake constraint: CLUSTER must be advertised before the AAP session starts. Theme enable after `session=active` only attaches the Surface; the Service patch advertises CLUSTER when mounted.
 

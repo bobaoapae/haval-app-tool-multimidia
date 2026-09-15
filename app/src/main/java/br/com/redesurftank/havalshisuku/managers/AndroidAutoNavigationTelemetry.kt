@@ -31,13 +31,15 @@ object AndroidAutoNavigationTelemetry {
                 nextTurn != other.nextTurn
         }
 
+        /** `v` is the payload schema; bump only for a breaking change (see themes-contract-v1.md). */
         fun toJson(): String {
             if (!active) {
-                return """{"active":false}"""
+                return """{"v":$SCHEMA_VERSION,"active":false}"""
             }
             return buildString {
                 append('{')
-                append("\"active\":true")
+                append("\"v\":").append(SCHEMA_VERSION)
+                append(",\"active\":true")
                 append(",\"street\":").append(jsonString(street))
                 append(",\"distance\":").append(jsonString(distance))
                 append(",\"distance_m\":").append(jsonNumber(distanceM))
@@ -53,6 +55,8 @@ object AndroidAutoNavigationTelemetry {
             }
         }
     }
+
+    const val SCHEMA_VERSION = 1
 
     fun inactive(): Directions = Directions(active = false)
 

@@ -131,7 +131,7 @@ class AndroidAutoNavigationAccumulatorTest {
         )
         val cleared = accumulator.onRouteStep(null, 0, hasRoute = false)
         assertFalse(cleared.active)
-        assertEquals("""{"active":false}""", cleared.toJson())
+        assertEquals("""{"v":1,"active":false}""", cleared.toJson())
     }
 
     @Test
@@ -188,7 +188,7 @@ class AndroidAutoNavigationAccumulatorTest {
         )
         val ended = accumulator.onNavigationState(AndroidAutoNavigationTelemetry.NAV_STATUS_INACTIVE)
         assertFalse(ended.active)
-        assertEquals("""{"active":false}""", ended.toJson())
+        assertEquals("""{"v":1,"active":false}""", ended.toJson())
     }
 
     @Test

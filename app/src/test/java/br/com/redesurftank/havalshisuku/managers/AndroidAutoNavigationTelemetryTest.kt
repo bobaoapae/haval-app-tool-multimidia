@@ -8,7 +8,7 @@ import org.junit.Test
 class AndroidAutoNavigationTelemetryTest {
     @Test
     fun inactiveJsonClearsStaleStreet() {
-        assertEquals("""{"active":false}""", AndroidAutoNavigationTelemetry.inactive().toJson())
+        assertEquals("""{"v":1,"active":false}""", AndroidAutoNavigationTelemetry.inactive().toJson())
     }
 
     @Test

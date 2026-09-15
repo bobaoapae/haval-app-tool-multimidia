@@ -1802,6 +1802,8 @@ public class ServiceManager {
     }
 
     private void dispatchSyntheticTelemetrySnapshot() {
+        // Constant, so it is published rather than cached: every snapshot carries it.
+        dispatchTelemetryOnly(AndroidAutoTelemetryKeys.API_VERSION, AndroidAutoTelemetryKeys.API_VERSION_VALUE);
         for (String key : AndroidAutoTelemetryKeys.SYNTHETIC_KEYS) {
             String value = dataCache.get(key);
             if (value != null) {

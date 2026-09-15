@@ -11,6 +11,14 @@ object AndroidAutoTelemetryKeys {
     const val SESSION_ACTIVE = "active"
     const val SESSION_STOPPED = "stopped"
 
+    /**
+     * Version of Impulse's external API (EVENT_CHANGED keys, command actions and
+     * extras). Always published on snapshot. Bump only for a breaking change;
+     * additive keys, extras and JSON fields stay on the same version.
+     */
+    const val API_VERSION = "app.impulse.api_version"
+    const val API_VERSION_VALUE = "1"
+
     @JvmField
     val SYNTHETIC_KEYS: Array<String> = arrayOf(SESSION, DIRECTIONS)
 }
