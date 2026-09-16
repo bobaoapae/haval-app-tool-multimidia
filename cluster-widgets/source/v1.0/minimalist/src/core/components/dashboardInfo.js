@@ -543,6 +543,11 @@ export function createDashboardInfo() {
         subscribe('warningActive', val => {
             logger.log('[DashboardInfo Light] warningActive changed to:', val);
             warningLabel.style.display = val ? 'block' : 'none';
+            // Unconditional console: production logger is DEBUG-gated; host routes this
+            // into cluster-diagnostics (event=webview_console) for warn-dismiss latency.
+            console.log(
+                `[warn-diag] WARN label redraw active=${!!val} display=${warningLabel.style.display} t=${Date.now()}`
+            );
         }),
         subscribe('bsdLeft', val => bsdLeftIndicator.style.display = val ? 'block' : 'none'),
         subscribe('bsdRight', val => bsdRightIndicator.style.display = val ? 'block' : 'none'),

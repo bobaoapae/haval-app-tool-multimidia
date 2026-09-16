@@ -149,4 +149,16 @@ internal object ClusterWarningPolicy {
     fun raisesWarningBadge(key: String, value: String?): Boolean {
         return key !in badgeExemptWarningKeys && isWarningValueActive(value)
     }
+
+    /**
+     * Instant used for the BACK dismiss lockout.
+     *
+     * Prefer the later of per-key CAN onset and "became top card" so a standing seatbelt that
+     * was buried under a door warning cannot be cleared the moment the door closes.
+     */
+    fun dismissLockoutOnsetMs(
+            keyOnsetMs: Long?,
+            cardTopSinceMs: Long?,
+            fallbackMs: Long
+    ): Long = listOfNotNull(keyOnsetMs, cardTopSinceMs).maxOrNull() ?: fallbackMs
 }

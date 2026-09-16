@@ -152,6 +152,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     /** When each currently-active warning started. BACK dismisses the newest one and the
      *  lockout is measured against that warning, not against whichever fired first. */
     private val warningOnsetTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /**
+     * When each card last became the top unacknowledged warning.
+     *
+     * Door + seatbelt look like one OEM popup, but they are two cards here. Seatbelt often
+     * arms first; door rises on top; closing the door leaves seatbelt alone. Lockout must
+     * restart when seatbelt becomes top again — otherwise BACK uses the old seatbelt CAN
+     * onset and clears a card that has only just reappeared.
+     */
+    private val warningCardTopSince = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private var lastTopWarningCardId: String? = null
     /** Pending hold-off before the layout follows a warning that cleared on its own. */
     private var warningClearRunnable: Runnable? = null
     private var projectionOverlayBypassActive: Boolean? = null
@@ -2291,6 +2301,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
      * lists to drift apart. The backend owns it now; themes render what they are told.
      */
     private fun recomputeWarningState(reason: String, immediate: Boolean = false) {
+        refreshWarningCardTopAnchor()
         val active = unacknowledgedBadgeWarnings().isNotEmpty()
 
         if (active) {
@@ -2345,6 +2356,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         isWarningActive = active
         isWarningDismissed = dismissed
 
+        // Tell the theme BEFORE visibility/sync work. updateVirtualClusterVisibility can
+        // spend multi-seconds on this UI thread (stack list + AA probe); previously
+        // pushWarningStateToTheme ran after that, so WARN stayed painted while backend
+        // already logged active=false. Same lesson as the appInDash reorder above.
+        pushWarningStateToTheme(reason)
+
         if (changed) {
             lastAppliedConfigs.clear() // Invalidate cache on warning toggle to force re-sync
             // Record which keys are holding the badge up, and at what raw value. Without this
@@ -2379,24 +2396,68 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                             .ifEmpty { "none" }
                     )
             )
+            val postPushWorkStartedAt = SystemClock.elapsedRealtime()
             updateVirtualClusterVisibility(
                     reason = "WARNING_STATE_CHANGED",
                     forceNativeMaskRefresh = true
             )
+            val visibilityMs = SystemClock.elapsedRealtime() - postPushWorkStartedAt
             syncSecondaryDisplayApps(3)
+            ClusterPersistentEventLogger.log(
+                    "cluster_warning_post_push_work",
+                    mapOf(
+                            "reason" to reason,
+                            "active" to active,
+                            "dismissed" to dismissed,
+                            "visibilityMs" to visibilityMs,
+                            "visibilityPlusSyncMs" to
+                                    (SystemClock.elapsedRealtime() - postPushWorkStartedAt)
+                    )
+            )
         }
-
-        pushWarningStateToTheme()
     }
 
-    private fun pushWarningStateToTheme() {
+    private fun pushWarningStateToTheme(reason: String = "unknown") {
         // control() delivers real booleans. pushOnDataChanged() would deliver the string
         // "false", which is truthy in JS and would pin the badge on — see the note beside
         // keysToSubscribe in the themes' main.js.
-        evaluateJsIfReady(
-                webView,
+        val wv = webView
+        val js =
                 "control('warningActive', $isWarningActive); control('warningDismissed', $isWarningDismissed);"
+        val loaded = wv != null && webViewsLoaded.getOrDefault(wv, false)
+        ClusterPersistentEventLogger.log(
+                "cluster_warning_theme_push",
+                mapOf(
+                        "active" to isWarningActive,
+                        "dismissed" to isWarningDismissed,
+                        "reason" to reason,
+                        "loaded" to loaded,
+                        "queued" to (wv != null && !loaded),
+                        "webViewNull" to (wv == null)
+                )
         )
+        if (wv == null) return
+        if (loaded) {
+            if (!hasAutoLaunched) {
+                hasAutoLaunched = true
+                triggerAutoLaunch()
+            }
+            val pushAtMs = SystemClock.elapsedRealtime()
+            wv.evaluateJavascript(js) { result ->
+                ClusterPersistentEventLogger.log(
+                        "cluster_warning_theme_push_done",
+                        mapOf(
+                                "active" to isWarningActive,
+                                "dismissed" to isWarningDismissed,
+                                "reason" to reason,
+                                "elapsedMs" to (SystemClock.elapsedRealtime() - pushAtMs),
+                                "result" to (result ?: "null")
+                        )
+                )
+            }
+        } else {
+            evaluateJsIfReady(wv, js)
+        }
     }
 
     private fun pushBsdIndicatorsToTheme() {
@@ -2461,6 +2522,34 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             ClusterWarningPolicy.cardIdFor(key) !in dismissedCards
                 }
                 .sortedByDescending { (key, _) -> warningOnsetTimes[key] ?: 0L }
+    }
+
+    /**
+     * Keep [warningCardTopSince] aligned with the card the driver would dismiss next.
+     * Called from [recomputeWarningState] so door-clear (badge stays up on seatbelt) still
+     * re-arms the 2.5s lockout when seatbelt becomes top.
+     */
+    private fun refreshWarningCardTopAnchor(nowMs: Long = System.currentTimeMillis()) {
+        val showing = unacknowledgedBadgeWarnings()
+        val showingCardIds =
+                showing.map { ClusterWarningPolicy.cardIdFor(it.first) }.toSet()
+        warningCardTopSince.keys.retainAll(showingCardIds)
+
+        val topId = showing.firstOrNull()?.let { ClusterWarningPolicy.cardIdFor(it.first) }
+        if (topId != lastTopWarningCardId) {
+            if (topId != null) {
+                warningCardTopSince[topId] = nowMs
+                logClusterPerfEvent(
+                        "warning_card_became_top",
+                        mapOf(
+                                "card" to topId,
+                                "previousTop" to (lastTopWarningCardId ?: "none"),
+                                "cardsShowing" to showingCardIds.size
+                        )
+                )
+            }
+            lastTopWarningCardId = topId
+        }
     }
 
     /** True while any key behind [cardId] still reports an active value. */
@@ -3543,11 +3632,13 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
      * is recorded against the card rather than the values — the car repaints those while the
      * condition stands.
      *
-     * The lockout measures against the newest onset within the card being dismissed, so a
-     * card that has only just appeared cannot be swallowed by a BACK press already in flight.
+     * The lockout measures against the newer of (a) CAN onset within the card and (b) when
+     * that card last became top, so a card that has only just appeared — including seatbelt
+     * left alone after a door warning drops — cannot be swallowed by an early BACK.
      */
     override fun dismissWarnings() {
         ensureUi {
+            refreshWarningCardTopAnchor()
             val showing = unacknowledgedBadgeWarnings()
             if (showing.isEmpty()) {
                 Log.d(TAG, "dismissWarnings: nothing un-acknowledged to dismiss")
@@ -3560,21 +3651,50 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             val card = ClusterWarningPolicy.cardKeysFor(topKey)
             val cardsShowing =
                     showing.map { ClusterWarningPolicy.cardIdFor(it.first) }.distinct().size
+            val keyOnsetMs = card.mapNotNull { warningOnsetTimes[it] }.maxOrNull()
+            val topSinceMs = warningCardTopSince[cardId]
             val onset =
-                    card.mapNotNull { warningOnsetTimes[it] }.maxOrNull() ?: lastWarningActiveTime
+                    ClusterWarningPolicy.dismissLockoutOnsetMs(
+                            keyOnsetMs,
+                            topSinceMs,
+                            lastWarningActiveTime
+                    )
             val timeSinceWarning = System.currentTimeMillis() - onset
 
-            Log.d(TAG, "dismissWarnings called. card=$cardId timeSinceWarning=${timeSinceWarning}ms (onset=$onset)")
+            Log.d(
+                    TAG,
+                    "dismissWarnings called. card=$cardId timeSinceWarning=${timeSinceWarning}ms " +
+                            "(onset=$onset keyOnset=$keyOnsetMs topSince=$topSinceMs)"
+            )
             logClusterPerfEvent(
                     "dismiss_warning",
                     mapOf(
                             "card" to cardId,
                             "cardsShowing" to cardsShowing,
-                            "timeSinceWarningMs" to timeSinceWarning
+                            "timeSinceWarningMs" to timeSinceWarning,
+                            "keyOnsetAgeMs" to
+                                    (keyOnsetMs?.let { System.currentTimeMillis() - it } ?: -1L),
+                            "topSinceAgeMs" to
+                                    (topSinceMs?.let { System.currentTimeMillis() - it } ?: -1L)
                     )
             )
             if (timeSinceWarning < WARNING_DISMISS_LOCKOUT_MS) {
-                Log.w(TAG, "DISMISS_WARNING ignored: card=$cardId timeSinceWarning=${timeSinceWarning}ms < ${WARNING_DISMISS_LOCKOUT_MS}ms lockout")
+                Log.w(
+                        TAG,
+                        "DISMISS_WARNING ignored: card=$cardId timeSinceWarning=${timeSinceWarning}ms < ${WARNING_DISMISS_LOCKOUT_MS}ms lockout"
+                )
+                logClusterPerfEvent(
+                        "dismiss_warning_ignored",
+                        mapOf(
+                                "card" to cardId,
+                                "timeSinceWarningMs" to timeSinceWarning,
+                                "lockoutMs" to WARNING_DISMISS_LOCKOUT_MS,
+                                "keyOnsetAgeMs" to
+                                        (keyOnsetMs?.let { System.currentTimeMillis() - it } ?: -1L),
+                                "topSinceAgeMs" to
+                                        (topSinceMs?.let { System.currentTimeMillis() - it } ?: -1L)
+                        )
+                )
                 return@ensureUi
             }
 

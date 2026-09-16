@@ -374,8 +374,16 @@ function render() {
         }
 
         // Only real warnings hide chrome
-        if (get('warningDismissed') !== true && get('warningActive') === true) {
+        const warnIsActive =
+            get('warningDismissed') !== true && get('warningActive') === true;
+        if (warnIsActive) {
             classes.push('warn-is-active');
+        }
+        if (appContainer.dataset.warnActive !== String(warnIsActive)) {
+            appContainer.dataset.warnActive = String(warnIsActive);
+            console.log(
+                `[warn-diag] render warn-is-active=${warnIsActive} warningActive=${get('warningActive')} warningDismissed=${get('warningDismissed')} t=${Date.now()}`
+            );
         }
         // Card 0: hide right mask + any right-side menu content
         if (isCard0) {
@@ -678,6 +686,11 @@ window.control = function (key, value) {
     try {
         if (key !== 'carSpeed' && key !== 'engineRPM') {
             logger.log(`control('${key}', ${value})`);
+        }
+        // Durable warn latency probe: logger is DEBUG-only in OTA builds; console reaches
+        // cluster-diagnostics as event=webview_console.
+        if (key === 'warningActive' || key === 'warningDismissed') {
+            console.log(`[warn-diag] control received key=${key} value=${value} t=${Date.now()}`);
         }
         logger.enter('window.control', { key, value });
         let val = value;

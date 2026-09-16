@@ -129,4 +129,14 @@ class ClusterWarningPolicyTest {
                 }
         )
     }
+
+    @Test
+    fun dismissLockoutUsesLaterOfKeyOnsetAndBecameTop() {
+        // Seatbelt armed at t=0; door rose on top; door cleared at t=4000 and seatbelt
+        // became top again. BACK at t=4500 must still see a fresh lockout anchor.
+        assertEquals(4000L, ClusterWarningPolicy.dismissLockoutOnsetMs(0L, 4000L, -1L))
+        assertEquals(5000L, ClusterWarningPolicy.dismissLockoutOnsetMs(5000L, 4000L, -1L))
+        assertEquals(123L, ClusterWarningPolicy.dismissLockoutOnsetMs(null, null, 123L))
+        assertEquals(50L, ClusterWarningPolicy.dismissLockoutOnsetMs(50L, null, 123L))
+    }
 }
