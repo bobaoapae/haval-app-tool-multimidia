@@ -271,7 +271,7 @@ class BottomBarService : LifecycleService() {
     private fun isClusterProjectionDashboardEnabled(): Boolean =
             br.com.redesurftank.App.getDeviceProtectedContext()
                     .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
-                    .getBoolean(SharedPreferencesKeys.CLUSTER_PROJECTION_OPENS_DASHBOARD.key, true)
+                    .getBoolean(SharedPreferencesKeys.CLUSTER_PROJECTION_OPENS_DASHBOARD.key, false)
 
     private var leftNavPaneRehideJob: Job? = null
 

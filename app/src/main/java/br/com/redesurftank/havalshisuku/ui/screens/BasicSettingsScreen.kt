@@ -825,7 +825,7 @@ fun BasicSettingsTab() {
                 mutableStateOf(
                         prefs.getBoolean(
                                 SharedPreferencesKeys.CLUSTER_PROJECTION_OPENS_DASHBOARD.key,
-                                true
+                                false
                         )
                 )
         }
