@@ -1,6 +1,11 @@
 @import "/src/fonts/fonts.css";
 @import "../../../shared/tbt/tbtCard.css";
 
+/* Solid strip fill on Minimalist (shared default is translucent rgba). */
+.dashboard-tbt-strip {
+  background: #080c14;
+}
+
 /* ==========================================================================
    THEME CONFIGURATION
    ==========================================================================
