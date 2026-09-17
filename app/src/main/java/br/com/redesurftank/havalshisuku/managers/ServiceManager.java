@@ -132,6 +132,8 @@ public class ServiceManager {
             CarConstants.CAR_EV_INFO_CUR_BATTERY_POWER_PERCENTAGE,
             CarConstants.CAR_EV_INFO_ENERGY_OUTPUT_PERCENTAGE,
             CarConstants.CAR_EV_INFO_POWER_BATTERY_VOLTAGE,
+            CarConstants.CAR_BASIC_BATTERY_VOLTAGE,
+            CarConstants.CAR_BASIC_BATTERY_POWER_LEVEL,
             CarConstants.CAR_FRS_SETTING_DISTRACTION_DETECTION_ENABLE,
             CarConstants.CAR_HVAC_ANION_ENABLE,
             CarConstants.CAR_HVAC_BLOWER_MODE,
