@@ -2489,8 +2489,17 @@ public class ServiceManager {
         return dataCache.get(key);
     }
 
+    /**
+     * Normalizes telemetry values before caching and dispatching.
+     * Delegates to {@link BatteryVoltageFilter}.
+     */
+    static String normalizeTelemetryValue(String key, String value) {
+        return BatteryVoltageFilter.normalize(key, value);
+    }
+
     public void dispatchTelemetryOnly(String key, String value) {
         if (key == null || value == null) return;
+        value = normalizeTelemetryValue(key, value);
         // Internal package-scoped broadcasts for havalshisuku UI components
         Intent broadcastIntent = new Intent("android.intent.haval." + key);
         broadcastIntent.putExtra("key", key);
@@ -2539,6 +2548,13 @@ public class ServiceManager {
     public void OnDataChanged(String key, String value) {
         if (key != null && key.contains("door")) {
             Log.w(TAG, "[DOOR_DEBUG] key=" + key + " value=" + value);
+        }
+        if (value != null) {
+            String normalized = BatteryVoltageFilter.normalize(key, value);
+            if (BatteryVoltageFilter.shouldSuppress(key, normalized, dataCache.get(key))) {
+                return;
+            }
+            value = normalized;
         }
         dispatchTelemetryOnly(key, value);
         // Antes de qualquer gate: com o Modo Concessionária ativo esta é a porta de saída, e ela
