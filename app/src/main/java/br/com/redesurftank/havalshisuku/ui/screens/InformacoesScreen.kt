@@ -847,105 +847,83 @@ fun InformacoesTab() {
                         colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
                         shape = RoundedCornerShape(20.dp)
                 ) {
-                        Column(
-                                modifier = Modifier.padding(20.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                        Row(
+                                modifier =
+                                        Modifier.fillMaxWidth()
+                                                .padding(horizontal = 20.dp, vertical = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
                         ) {
-                                Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                        Text(
-                                                "Dados anônimos de uso",
-                                                fontFamily = Michroma,
-                                                fontSize = 16.sp,
-                                                color =
-                                                        if (anonymousTelemetryConfigured) Color.White
-                                                        else ImpTokens.TextSecondary,
-                                                modifier = Modifier.weight(1f)
-                                        )
-                                        IconButton(onClick = { showAnonymousTelemetryInfo = true }) {
-                                                Icon(
-                                                        Icons.Default.Info,
-                                                        contentDescription = "Sobre dados anônimos",
-                                                        tint = ImpTokens.TextSecondary
-                                                )
-                                        }
-                                }
-
-                                HorizontalDivider(color = ImpTokens.Hairline)
-
                                 Text(
-                                        if (anonymousTelemetryConfigured) {
-                                                "Ajuda a entender quais carros e recursos usam o Impulse. Sem VIN completo, GPS ou IP."
-                                        } else {
-                                                "Coleta desativada neste build (sem chave de backend). Nenhum dado é enviado."
-                                        },
-                                        fontSize = 13.sp,
-                                        color = ImpTokens.TextSecondary,
-                                        lineHeight = 18.sp
+                                        "Permitir coletar dados anônimos",
+                                        fontFamily = Michroma,
+                                        fontSize = 15.sp,
+                                        color =
+                                                if (anonymousTelemetryConfigured) Color.White
+                                                else ImpTokens.TextSecondary,
+                                        modifier = Modifier.weight(1f)
                                 )
-
-                                Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                IconButton(
+                                        onClick = { showAnonymousTelemetryInfo = true },
+                                        modifier = Modifier.size(36.dp)
                                 ) {
-                                        Text(
-                                                "Participar",
-                                                color =
-                                                        if (anonymousTelemetryConfigured) Color.White
-                                                        else ImpTokens.TextSecondary
-                                        )
-                                        Switch(
-                                                checked =
-                                                        anonymousTelemetryConfigured &&
-                                                                !anonymousTelemetryOptedOut,
-                                                enabled = anonymousTelemetryConfigured,
-                                                onCheckedChange = { enabled ->
-                                                        if (!anonymousTelemetryConfigured) return@Switch
-                                                        anonymousTelemetryOptedOut = !enabled
-                                                        prefs.edit {
-                                                                putBoolean(
-                                                                        SharedPreferencesKeys
-                                                                                .ANONYMOUS_TELEMETRY_OPTED_OUT
-                                                                                .key,
-                                                                        !enabled
-                                                                )
-                                                        }
-                                                },
-                                                colors =
-                                                        SwitchDefaults.colors(
-                                                                checkedThumbColor = Color.White,
-                                                                checkedTrackColor = Color(0xFF4ADE80),
-                                                                uncheckedThumbColor = Color.White,
-                                                                uncheckedTrackColor =
-                                                                        ImpTokens.Hairline,
-                                                                disabledCheckedThumbColor =
-                                                                        ImpTokens.TextSecondary,
-                                                                disabledCheckedTrackColor =
-                                                                        ImpTokens.Hairline,
-                                                                disabledUncheckedThumbColor =
-                                                                        ImpTokens.TextSecondary,
-                                                                disabledUncheckedTrackColor =
-                                                                        ImpTokens.Hairline
-                                                        )
+                                        Icon(
+                                                Icons.Default.Info,
+                                                contentDescription = "Sobre dados anônimos",
+                                                tint = ImpTokens.TextSecondary,
+                                                modifier = Modifier.size(20.dp)
                                         )
                                 }
+                                Switch(
+                                        checked =
+                                                anonymousTelemetryConfigured &&
+                                                        !anonymousTelemetryOptedOut,
+                                        enabled = anonymousTelemetryConfigured,
+                                        onCheckedChange = { enabled ->
+                                                if (!anonymousTelemetryConfigured) return@Switch
+                                                anonymousTelemetryOptedOut = !enabled
+                                                prefs.edit {
+                                                        putBoolean(
+                                                                SharedPreferencesKeys
+                                                                        .ANONYMOUS_TELEMETRY_OPTED_OUT
+                                                                        .key,
+                                                                !enabled
+                                                        )
+                                                }
+                                        },
+                                        colors =
+                                                SwitchDefaults.colors(
+                                                        checkedThumbColor = Color.White,
+                                                        checkedTrackColor = Color(0xFF4ADE80),
+                                                        uncheckedThumbColor = Color.White,
+                                                        uncheckedTrackColor = ImpTokens.Hairline,
+                                                        disabledCheckedThumbColor =
+                                                                ImpTokens.TextSecondary,
+                                                        disabledCheckedTrackColor =
+                                                                ImpTokens.Hairline,
+                                                        disabledUncheckedThumbColor =
+                                                                ImpTokens.TextSecondary,
+                                                        disabledUncheckedTrackColor =
+                                                                ImpTokens.Hairline
+                                                )
+                                )
                         }
                 }
 
                 if (showAnonymousTelemetryInfo) {
                         AlertDialog(
                                 onDismissRequest = { showAnonymousTelemetryInfo = false },
-                                title = { Text("Dados anônimos de uso") },
+                                title = { Text("Dados anônimos") },
                                 text = {
                                         Text(
                                                 if (!anonymousTelemetryConfigured) {
-                                                        "A coleta de dados anônimos está totalmente desativada neste build: não há chave de backend configurada. O Impulse não envia pings de frota, independentemente da opção Participar.\n\nQuando uma release futura incluir a chave, este controle passará a funcionar e o (i) descreverá o que é coletado."
+                                                        "A coleta de dados anônimos está totalmente desativada neste build: não há chave de backend configurada. O Impulse não envia nenhum dado, independentemente desta autorização.\n\nQuando uma release futura incluir a chave, este controle passará a funcionar e o (i) descreverá o que é coletado."
                                                 } else {
-                                                        "A cada ligar do carro (com rede), cerca de 3 minutos após a inicialização, o Impulse pode enviar um ping anônimo com: modelo/configuração do veículo, prefixo do VIN (não o VIN completo), um identificador derivado do VIN por hash, tema do cluster, quilometragem aproximada (arredondada), alguns toggles de recurso, versão do app, e país/cidade estimados pelo servidor a partir do IP (o IP não é guardado).\n\nIsso serve só para misturas de frota e adoção de recursos. Você pode desligar em Participar a qualquer momento."
+                                                        "Para nos ajudar a melhorar o sistema, o Impulse pode coletar alguns dados totalmente anônimos do veículo, como:\n" +
+                                                                "• Modelo do carro e quilometragem aproximada.\n" +
+                                                                "• Versão do aplicativo e configurações ativas.\n" +
+                                                                "• País e cidade de ativação, sem guardar seu IP ou fazer qualquer tipo de rastreamento.\n" +
+                                                                "• Um identificador aleatório para identificar a quantidade de instalações únicas.\n\n" +
+                                                                "Essas informações servem exclusivamente para entendermos a adoção de novos recursos e melhorarmos a experiência do mesmo. As informações são coletadas apenas uma vez no boot do aplicativo. Você pode desativar essa coleta desativando esta autorização a qualquer momento."
                                                 },
                                                 color = ImpTokens.TextSecondary,
                                                 fontSize = 14.sp,

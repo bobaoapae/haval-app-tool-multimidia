@@ -39,9 +39,11 @@ One ping **3 minutes after** `ServiceManager` init in `ForegroundService` (`post
 
 ## UI
 
-Informações → “Dados anônimos de uso” (Participar switch + info dialog). Default ON when backend is configured; opt-out via `ANONYMOUS_TELEMETRY_OPTED_OUT`.
+Informações → single row “Permitir coletar dados anônimos” + (i) + toggle. Default ON when backend is configured; opt-out via `ANONYMOUS_TELEMETRY_OPTED_OUT`.
 
-If `POSTHOG_API_KEY` is blank (`AnonymousTelemetryCollector.isConfigured() == false`): switch is **disabled/grayed**, subtitle says collection is off for this build, and the (i) dialog states collection is **fully disabled** (nothing is sent).
+If `POSTHOG_API_KEY` is blank (`AnonymousTelemetryCollector.isConfigured() == false`): switch is **disabled/grayed** and the (i) dialog states collection is **fully disabled** (nothing is sent).
+
+Note: opt-out stops future pings only. Remote erasure in PostHog is not implemented (project token cannot delete events).
 
 ## Code
 
