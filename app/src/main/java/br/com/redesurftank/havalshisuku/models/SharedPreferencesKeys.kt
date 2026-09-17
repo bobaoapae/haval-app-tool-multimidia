@@ -455,5 +455,22 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     DATATRACK_DISABLED_BY_APP("datatrackDisabledByApp", "Controle interno: DataTrack desabilitado por este app"),
     MOBILE_DATA_TRAFFIC_ACCUM_BYTES("mobileDataTrafficAccumBytes", "Acumulado de bytes móveis no ciclo (fallback TrafficStats)"),
     MOBILE_DATA_TRAFFIC_LAST_READING("mobileDataTrafficLastReading", "Última leitura do TrafficStats móvel (controle interno)"),
-    MOBILE_DATA_TRAFFIC_CYCLE_TAG("mobileDataTrafficCycleTag", "Ciclo atual do acumulador de bytes (controle interno)")
+    MOBILE_DATA_TRAFFIC_CYCLE_TAG("mobileDataTrafficCycleTag", "Ciclo atual do acumulador de bytes (controle interno)"),
+    // ===== Dados anônimos de frota (PostHog) =====
+    ANONYMOUS_TELEMETRY_OPTED_OUT(
+            "anonymousTelemetryOptedOut",
+            "Opt-out dos pings anônimos de frota (PostHog)"
+    ),
+    ANONYMOUS_TELEMETRY_LAST_SENT_AT(
+            "anonymousTelemetryLastSentAt",
+            "Timestamp do último ping anônimo enviado com sucesso"
+    ),
+    ANONYMOUS_TELEMETRY_LAST_THEME(
+            "anonymousTelemetryLastTheme",
+            "Último tema reportado no ping anônimo"
+    ),
+    ANONYMOUS_TELEMETRY_POWER_ON_COUNT(
+            "anonymousTelemetryPowerOnCount",
+            "Contador local de power-ons reportados no ping anônimo"
+    )
 }

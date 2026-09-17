@@ -33,6 +33,7 @@ import java.util.regex.Pattern;
 
 import br.com.redesurftank.App;
 import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightService;
+import br.com.redesurftank.havalshisuku.diagnostics.AnonymousTelemetryCollector;
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.DispatchAllDatasReceiver;
 import br.com.redesurftank.havalshisuku.broadcastReceivers.RestartReceiver;
@@ -730,6 +731,16 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
         } catch (Exception e) {
             Log.e(TAG, "Error starting HotRouter: " + e.getMessage(), e);
         }
+
+        // Anonymous fleet ping (PostHog). Delayed so boot/network settle; no-op if key blank or opted out.
+        backgroundHandler.postDelayed(() -> {
+            try {
+                AnonymousTelemetryCollector.INSTANCE.maybePingAfterServicesReady(
+                        App.getDeviceProtectedContext());
+            } catch (Exception e) {
+                Log.w(TAG, "Anonymous telemetry ping failed: " + e.getMessage(), e);
+            }
+        }, 3 * 60 * 1000L);
 
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction("com.beantechs.intelligentvehiclecontrol.INIT_COMPLETED");

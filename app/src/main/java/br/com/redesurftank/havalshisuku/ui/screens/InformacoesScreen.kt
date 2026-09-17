@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -118,6 +119,15 @@ fun InformacoesTab() {
         var stealthStep by remember { mutableStateOf(0) }      // 0 = ensaio, 1 = pronto
         var stealthProgress by remember { mutableStateOf(0) }  // passos já reconhecidos
         var stealthSeq by remember { mutableStateOf(StealthExitSequence.current()) }
+        var anonymousTelemetryOptedOut by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.ANONYMOUS_TELEMETRY_OPTED_OUT.key,
+                                false
+                        )
+                )
+        }
+        var showAnonymousTelemetryInfo by remember { mutableStateOf(false) }
         var stealthSeqError by remember { mutableStateOf<String?>(null) }
         var stealthPinOn by remember { mutableStateOf(StealthExitPin.isEnabled()) }
         var stealthPinTyped by remember { mutableStateOf("") }
@@ -825,6 +835,98 @@ fun InformacoesTab() {
                                                         StealthModeManager.cancelConfirmation()
                                                 }
                                         ) { Text("Cancelar", color = ImpTokens.TextSecondary) }
+                                }
+                        )
+                }
+
+                // Dados anônimos de frota (PostHog)
+                Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
+                        shape = RoundedCornerShape(20.dp)
+                ) {
+                        Column(
+                                modifier = Modifier.padding(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                                Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                        Text(
+                                                "Dados anônimos de uso",
+                                                fontFamily = Michroma,
+                                                fontSize = 16.sp,
+                                                color = Color.White,
+                                                modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(onClick = { showAnonymousTelemetryInfo = true }) {
+                                                Icon(
+                                                        Icons.Default.Info,
+                                                        contentDescription = "Sobre dados anônimos",
+                                                        tint = ImpTokens.TextSecondary
+                                                )
+                                        }
+                                }
+
+                                HorizontalDivider(color = ImpTokens.Hairline)
+
+                                Text(
+                                        "Ajuda a entender quais carros e recursos usam o Impulse. Sem VIN completo, GPS ou IP.",
+                                        fontSize = 13.sp,
+                                        color = ImpTokens.TextSecondary,
+                                        lineHeight = 18.sp
+                                )
+
+                                Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                        Text("Participar", color = Color.White)
+                                        Switch(
+                                                checked = !anonymousTelemetryOptedOut,
+                                                onCheckedChange = { enabled ->
+                                                        anonymousTelemetryOptedOut = !enabled
+                                                        prefs.edit {
+                                                                putBoolean(
+                                                                        SharedPreferencesKeys
+                                                                                .ANONYMOUS_TELEMETRY_OPTED_OUT
+                                                                                .key,
+                                                                        !enabled
+                                                                )
+                                                        }
+                                                },
+                                                colors =
+                                                        SwitchDefaults.colors(
+                                                                checkedThumbColor = Color.White,
+                                                                checkedTrackColor = Color(0xFF4ADE80),
+                                                                uncheckedThumbColor = Color.White,
+                                                                uncheckedTrackColor =
+                                                                        ImpTokens.Hairline
+                                                        )
+                                        )
+                                }
+                        }
+                }
+
+                if (showAnonymousTelemetryInfo) {
+                        AlertDialog(
+                                onDismissRequest = { showAnonymousTelemetryInfo = false },
+                                title = { Text("Dados anônimos de uso") },
+                                text = {
+                                        Text(
+                                                "A cada ligar do carro (com rede), o Impulse pode enviar um ping anônimo com: modelo/configuração do veículo, prefixo do VIN (não o VIN completo), um identificador derivado do VIN por hash, tema do cluster, quilometragem aproximada (arredondada), alguns toggles de recurso, versão do app, e país/cidade estimados pelo servidor a partir do IP (o IP não é guardado).\n\nIsso serve só para misturas de frota e adoção de recursos. Você pode desligar em Participar a qualquer momento.",
+                                                color = ImpTokens.TextSecondary,
+                                                fontSize = 14.sp,
+                                                lineHeight = 20.sp
+                                        )
+                                },
+                                confirmButton = {
+                                        TextButton(onClick = { showAnonymousTelemetryInfo = false }) {
+                                                Text("Entendi")
+                                        }
                                 }
                         )
                 }

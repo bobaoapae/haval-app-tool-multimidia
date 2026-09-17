@@ -28,6 +28,12 @@ val impulseReportDiagnosticsEnabled =
                 versionName.contains("preview", ignoreCase = true)
             }
         )
+// Anonymous fleet telemetry (PostHog EU). Empty API key disables the feature at runtime.
+val posthogApiKey = providers.gradleProperty("posthogApiKey").orElse("")
+val posthogHost =
+    providers.gradleProperty("posthogHost").orElse("https://eu.i.posthog.com")
+val telemetryVinSalt =
+    providers.gradleProperty("telemetryVinSalt").orElse("impulse-fleet-v1")
 
 fun buildConfigString(value: String): String =
     "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -63,6 +69,13 @@ android {
             "boolean",
             "IMPULSE_REPORT_DIAGNOSTICS_ENABLED",
             impulseReportDiagnosticsEnabled.get().toString()
+        )
+        buildConfigField("String", "POSTHOG_API_KEY", buildConfigString(posthogApiKey.get()))
+        buildConfigField("String", "POSTHOG_HOST", buildConfigString(posthogHost.get()))
+        buildConfigField(
+            "String",
+            "TELEMETRY_VIN_SALT",
+            buildConfigString(telemetryVinSalt.get())
         )
     }
 
