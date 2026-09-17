@@ -39,7 +39,9 @@ One ping **3 minutes after** `ServiceManager` init in `ForegroundService` (`post
 
 ## UI
 
-Informações → “Dados anônimos de uso” (Participar switch + info dialog). Default ON; opt-out via `ANONYMOUS_TELEMETRY_OPTED_OUT`.
+Informações → “Dados anônimos de uso” (Participar switch + info dialog). Default ON when backend is configured; opt-out via `ANONYMOUS_TELEMETRY_OPTED_OUT`.
+
+If `POSTHOG_API_KEY` is blank (`AnonymousTelemetryCollector.isConfigured() == false`): switch is **disabled/grayed**, subtitle says collection is off for this build, and the (i) dialog states collection is **fully disabled** (nothing is sent).
 
 ## Code
 

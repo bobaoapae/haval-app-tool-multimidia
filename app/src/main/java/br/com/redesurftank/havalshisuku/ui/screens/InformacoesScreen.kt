@@ -48,6 +48,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import br.com.redesurftank.havalshisuku.managers.StealthExitPin
 import br.com.redesurftank.havalshisuku.managers.StealthExitSequence
 import br.com.redesurftank.havalshisuku.managers.StealthModeManager
+import br.com.redesurftank.havalshisuku.diagnostics.AnonymousTelemetryCollector
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.UpdateCheckResult
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
@@ -128,6 +129,7 @@ fun InformacoesTab() {
                 )
         }
         var showAnonymousTelemetryInfo by remember { mutableStateOf(false) }
+        val anonymousTelemetryConfigured = remember { AnonymousTelemetryCollector.isConfigured() }
         var stealthSeqError by remember { mutableStateOf<String?>(null) }
         var stealthPinOn by remember { mutableStateOf(StealthExitPin.isEnabled()) }
         var stealthPinTyped by remember { mutableStateOf("") }
@@ -858,7 +860,9 @@ fun InformacoesTab() {
                                                 "Dados anônimos de uso",
                                                 fontFamily = Michroma,
                                                 fontSize = 16.sp,
-                                                color = Color.White,
+                                                color =
+                                                        if (anonymousTelemetryConfigured) Color.White
+                                                        else ImpTokens.TextSecondary,
                                                 modifier = Modifier.weight(1f)
                                         )
                                         IconButton(onClick = { showAnonymousTelemetryInfo = true }) {
@@ -873,7 +877,11 @@ fun InformacoesTab() {
                                 HorizontalDivider(color = ImpTokens.Hairline)
 
                                 Text(
-                                        "Ajuda a entender quais carros e recursos usam o Impulse. Sem VIN completo, GPS ou IP.",
+                                        if (anonymousTelemetryConfigured) {
+                                                "Ajuda a entender quais carros e recursos usam o Impulse. Sem VIN completo, GPS ou IP."
+                                        } else {
+                                                "Coleta desativada neste build (sem chave de backend). Nenhum dado é enviado."
+                                        },
                                         fontSize = 13.sp,
                                         color = ImpTokens.TextSecondary,
                                         lineHeight = 18.sp
@@ -884,10 +892,19 @@ fun InformacoesTab() {
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                        Text("Participar", color = Color.White)
+                                        Text(
+                                                "Participar",
+                                                color =
+                                                        if (anonymousTelemetryConfigured) Color.White
+                                                        else ImpTokens.TextSecondary
+                                        )
                                         Switch(
-                                                checked = !anonymousTelemetryOptedOut,
+                                                checked =
+                                                        anonymousTelemetryConfigured &&
+                                                                !anonymousTelemetryOptedOut,
+                                                enabled = anonymousTelemetryConfigured,
                                                 onCheckedChange = { enabled ->
+                                                        if (!anonymousTelemetryConfigured) return@Switch
                                                         anonymousTelemetryOptedOut = !enabled
                                                         prefs.edit {
                                                                 putBoolean(
@@ -904,6 +921,14 @@ fun InformacoesTab() {
                                                                 checkedTrackColor = Color(0xFF4ADE80),
                                                                 uncheckedThumbColor = Color.White,
                                                                 uncheckedTrackColor =
+                                                                        ImpTokens.Hairline,
+                                                                disabledCheckedThumbColor =
+                                                                        ImpTokens.TextSecondary,
+                                                                disabledCheckedTrackColor =
+                                                                        ImpTokens.Hairline,
+                                                                disabledUncheckedThumbColor =
+                                                                        ImpTokens.TextSecondary,
+                                                                disabledUncheckedTrackColor =
                                                                         ImpTokens.Hairline
                                                         )
                                         )
@@ -917,7 +942,11 @@ fun InformacoesTab() {
                                 title = { Text("Dados anônimos de uso") },
                                 text = {
                                         Text(
-                                                "A cada ligar do carro (com rede), o Impulse pode enviar um ping anônimo com: modelo/configuração do veículo, prefixo do VIN (não o VIN completo), um identificador derivado do VIN por hash, tema do cluster, quilometragem aproximada (arredondada), alguns toggles de recurso, versão do app, e país/cidade estimados pelo servidor a partir do IP (o IP não é guardado).\n\nIsso serve só para misturas de frota e adoção de recursos. Você pode desligar em Participar a qualquer momento.",
+                                                if (!anonymousTelemetryConfigured) {
+                                                        "A coleta de dados anônimos está totalmente desativada neste build: não há chave de backend configurada. O Impulse não envia pings de frota, independentemente da opção Participar.\n\nQuando uma release futura incluir a chave, este controle passará a funcionar e o (i) descreverá o que é coletado."
+                                                } else {
+                                                        "A cada ligar do carro (com rede), cerca de 3 minutos após a inicialização, o Impulse pode enviar um ping anônimo com: modelo/configuração do veículo, prefixo do VIN (não o VIN completo), um identificador derivado do VIN por hash, tema do cluster, quilometragem aproximada (arredondada), alguns toggles de recurso, versão do app, e país/cidade estimados pelo servidor a partir do IP (o IP não é guardado).\n\nIsso serve só para misturas de frota e adoção de recursos. Você pode desligar em Participar a qualquer momento."
+                                                },
                                                 color = ImpTokens.TextSecondary,
                                                 fontSize = 14.sp,
                                                 lineHeight = 20.sp
