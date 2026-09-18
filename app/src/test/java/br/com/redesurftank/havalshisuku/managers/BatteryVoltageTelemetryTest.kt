@@ -66,5 +66,42 @@ class BatteryVoltageTelemetryTest {
         val speedKey = CarConstants.CAR_BASIC_VEHICLE_SPEED.value
         assertFalse(BatteryVoltageFilter.shouldSuppress(speedKey, "80", "80"))
     }
+
+    @Test
+    fun suppressionTrackerFlushesOnlyAfterInterval() {
+        var currentTime = 1_000_000L
+        val logs = mutableListOf<String>()
+        val tracker = BatteryVoltageFilter.SuppressionTracker(
+            windowMs = 10 * 60 * 1000L, // 10 minutes
+            clock = { currentTime },
+            logger = { logs.add(it) }
+        )
+
+        val key = CarConstants.CAR_BASIC_BATTERY_VOLTAGE.value
+
+        // Record 5 events at t=1_000_000
+        repeat(5) { tracker.recordSuppressed(key) }
+        assertEquals(5L, tracker.getTotalSuppressed())
+        assertEquals(0, logs.size) // Not flushed yet
+
+        // Advance 9 minutes (540,000 ms) -> still inside 10-minute window
+        currentTime += 9 * 60 * 1000L
+        tracker.recordSuppressed(key)
+        assertEquals(6L, tracker.getTotalSuppressed())
+        assertEquals(0, logs.size) // Still not flushed
+
+        // Advance 1 more minute (total 10 minutes elapsed) and record an event
+        currentTime += 1 * 60 * 1000L
+        tracker.recordSuppressed(key)
+
+        // Must have flushed!
+        assertEquals(1, logs.size)
+        assertTrue(logs[0].contains("Suppressed 7 telemetry events in the last 10.0 min"))
+        assertTrue(logs[0].contains("car.basic.battery_voltage: 7"))
+
+        // Counter reset after flush
+        assertEquals(0L, tracker.getTotalSuppressed())
+    }
 }
+
 
