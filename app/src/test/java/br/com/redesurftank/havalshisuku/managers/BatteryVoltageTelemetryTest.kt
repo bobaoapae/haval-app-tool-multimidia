@@ -41,9 +41,9 @@ class BatteryVoltageTelemetryTest {
 
     @Test
     fun otherKeysAreNotAffectedByBatteryRounding() {
-        val speedKey = CarConstants.CAR_BASIC_VEHICLE_SPEED.value
-        assertEquals("14.23", BatteryVoltageFilter.normalize(speedKey, "14.23"))
-        assertEquals("80", BatteryVoltageFilter.normalize(speedKey, "80"))
+        val tempKey = CarConstants.CAR_BASIC_INSIDE_TEMP.value
+        assertEquals("23.45", BatteryVoltageFilter.normalize(tempKey, "23.45"))
+        assertEquals("22", BatteryVoltageFilter.normalize(tempKey, "22"))
 
         val powerKey = CarConstants.CAR_BASIC_BATTERY_POWER_LEVEL.value
         assertEquals("95", BatteryVoltageFilter.normalize(powerKey, "95"))
@@ -63,8 +63,8 @@ class BatteryVoltageTelemetryTest {
         assertFalse(BatteryVoltageFilter.shouldSuppress(key, "14.2", null))
 
         // Other keys are never suppressed by this policy
-        val speedKey = CarConstants.CAR_BASIC_VEHICLE_SPEED.value
-        assertFalse(BatteryVoltageFilter.shouldSuppress(speedKey, "80", "80"))
+        val tempKey = CarConstants.CAR_BASIC_INSIDE_TEMP.value
+        assertFalse(BatteryVoltageFilter.shouldSuppress(tempKey, "22", "22"))
     }
 
     @Test
@@ -129,7 +129,60 @@ class BatteryVoltageTelemetryTest {
         // First event (no cache) -> do not suppress
         assertFalse(BatteryVoltageFilter.shouldSuppress(key, "14", null))
     }
+
+    @Test
+    fun vehicleSpeedNormalizesToIntegerKmH() {
+        val key = CarConstants.CAR_BASIC_VEHICLE_SPEED.value
+
+        assertEquals("0", BatteryVoltageFilter.normalize(key, "0"))
+        assertEquals("0", BatteryVoltageFilter.normalize(key, "0.0"))
+        assertEquals("0", BatteryVoltageFilter.normalize(key, " 0,2 "))
+        assertEquals("80", BatteryVoltageFilter.normalize(key, "80.4"))
+        assertEquals("81", BatteryVoltageFilter.normalize(key, "80.6"))
+        assertEquals("0", BatteryVoltageFilter.normalize(key, "-5"))
+        assertEquals("invalid", BatteryVoltageFilter.normalize(key, "invalid"))
+    }
+
+    @Test
+    fun vehicleSpeedSuppressesIdenticalConsecutiveValues() {
+        val key = CarConstants.CAR_BASIC_VEHICLE_SPEED.value
+
+        // Steady cruise or stopped at light -> suppress
+        assertTrue(BatteryVoltageFilter.shouldSuppress(key, "0", "0"))
+        assertTrue(BatteryVoltageFilter.shouldSuppress(key, "80", "80"))
+
+        // Acceleration or braking -> dispatch
+        assertFalse(BatteryVoltageFilter.shouldSuppress(key, "1", "0"))
+        assertFalse(BatteryVoltageFilter.shouldSuppress(key, "81", "80"))
+
+        // Boot / first event -> dispatch
+        assertFalse(BatteryVoltageFilter.shouldSuppress(key, "0", null))
+    }
+
+    @Test
+    fun tpmsStatusRoundsToSingleDecimal() {
+        val key = CarConstants.CAR_BASIC_TPMS_STATUS.value
+
+        val raw = "{2.48922,25.0,2.48922,24.0,2.2559,24.0,2.48922,24.0}"
+        val expected = "{2.5,25.0,2.5,24.0,2.3,24.0,2.5,24.0}"
+        assertEquals(expected, BatteryVoltageFilter.normalize(key, raw))
+
+        // Raw array with slight micro-noise in 4th/5th decimal yields identical normalized string
+        val rawJitter = "{2.48918,25.0,2.48925,24.0,2.2561,24.0,2.48920,24.0}"
+        assertEquals(expected, BatteryVoltageFilter.normalize(key, rawJitter))
+    }
+
+    @Test
+    fun tpmsStatusSuppressesIdenticalNormalizedValues() {
+        val key = CarConstants.CAR_BASIC_TPMS_STATUS.value
+        val normalized = "{2.5,25.0,2.5,24.0,2.3,24.0,2.5,24.0}"
+
+        assertTrue(BatteryVoltageFilter.shouldSuppress(key, normalized, normalized))
+        assertFalse(BatteryVoltageFilter.shouldSuppress(key, "{2.4,25.0,2.5,24.0,2.3,24.0,2.5,24.0}", normalized))
+        assertFalse(BatteryVoltageFilter.shouldSuppress(key, normalized, null))
+    }
 }
+
 
 
 

@@ -12,6 +12,10 @@ import kotlin.math.roundToInt
  *   2nd decimal place (ADC noise / alternator ripple) are rounded to 1 decimal place (e.g. 14.23 -> 14.2).
  * - For steering wheel angle ([CarConstants.CAR_BASIC_STEERING_WHEEL_ANGLE]), high-frequency SAS sensor
  *   jitter (20-50 Hz) is rounded to integer degrees (e.g. 14.32° -> 14°).
+ * - For vehicle speed ([CarConstants.CAR_BASIC_VEHICLE_SPEED]), speed is normalized to integer km/h
+ *   and identical consecutive values (e.g. steady cruising or stopped at 0 km/h) are suppressed.
+ * - For tyre status ([CarConstants.CAR_BASIC_TPMS_STATUS]), 5-decimal raw sensor readings in the 8-element
+ *   array are rounded to 1 decimal place (e.g. 2.48922 -> 2.5) to filter sensor micro-noise.
  *
  * Back-to-back events with identical normalized values are suppressed, and metrics are periodically
  * flushed to Logcat every 10 minutes.
@@ -94,14 +98,48 @@ object BatteryVoltageFilter {
                 // Return raw string if not parseable as float
             }
         }
+        if (key == CarConstants.CAR_BASIC_VEHICLE_SPEED.value) {
+            try {
+                val speed = value.trim().replace(',', '.').toFloat()
+                if (!speed.isNaN() && !speed.isInfinite()) {
+                    return speed.roundToInt().coerceAtLeast(0).toString()
+                }
+            } catch (_: NumberFormatException) {
+                // Return raw string if not parseable as float
+            }
+        }
+        if (key == CarConstants.CAR_BASIC_TPMS_STATUS.value) {
+            try {
+                val trimmed = value.trim()
+                if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                    val inner = trimmed.substring(1, trimmed.length - 1)
+                    val tokens = inner.split(',')
+                    if (tokens.isNotEmpty()) {
+                        val roundedTokens = tokens.map { token ->
+                            val num = token.trim().replace(',', '.').toFloat()
+                            if (!num.isNaN() && !num.isInfinite()) {
+                                String.format(Locale.US, "%.1f", num)
+                            } else {
+                                token.trim()
+                            }
+                        }
+                        return roundedTokens.joinToString(prefix = "{", postfix = "}", separator = ",")
+                    }
+                }
+            } catch (_: Exception) {
+                // Return raw string if format is unexpected
+            }
+        }
         return value
     }
 
     @JvmStatic
     fun shouldSuppress(key: String, normalizedValue: String?, cachedValue: String?): Boolean {
         val suppress = when (key) {
-            CarConstants.CAR_BASIC_BATTERY_VOLTAGE.value -> normalizedValue != null && normalizedValue == cachedValue
-            CarConstants.CAR_BASIC_STEERING_WHEEL_ANGLE.value -> normalizedValue != null && normalizedValue == cachedValue
+            CarConstants.CAR_BASIC_BATTERY_VOLTAGE.value,
+            CarConstants.CAR_BASIC_STEERING_WHEEL_ANGLE.value,
+            CarConstants.CAR_BASIC_VEHICLE_SPEED.value,
+            CarConstants.CAR_BASIC_TPMS_STATUS.value -> normalizedValue != null && normalizedValue == cachedValue
             else -> false
         }
         if (suppress) {
