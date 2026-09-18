@@ -1,6 +1,6 @@
 # Theme Development & Customization Guide
 
-This guide explains how to create, build, and deploy custom themes for the Haval Impuse app. In this decentralized architecture, **themes are completely self-contained applications** that run inside a WebView, receive raw steering wheel keypress events, and dynamically subscribe to car telemetry.
+This guide explains how to create, build, and deploy custom themes for the Haval Impuse app. In this decentralized architecture, **themes are completely self-contained applications** that run inside a WebView, receive raw steering wheel keypress events, and dynamically subscribe to car telemetry. 
 
 There are **no hardcoded screens on the Android backend**—the frontend theme HTML/JS/CSS completely defines all screens, transitions, and menus, allowing theme authors to design **unlimited custom screens** (e.g. Main Menu, AC, Regeneration, Trip Stats, Tyre Pressures, Ambient Lighting, or custom Graphics screens).
 
@@ -11,11 +11,10 @@ There are **no hardcoded screens on the Android backend**—the frontend theme H
 2. [Three-Tier Customization Model](#three-tier-customization-model)
 3. [Package Structure](#package-structure)
 4. [Theme Metadata & Manifests](#theme-metadata--manifests)
-5. [Fixed native foreground](#fixed-native-foreground-mandatory-exclusion-zones)
-6. [Native masks (covering OEM chrome)](#native-masks-covering-oem-chrome)
-7. [The JavaScript Bridge & Primitives](#the-javascript-bridge--primitives)
-8. [Development Workflow & Local Simulation](#development-workflow--local-simulation)
-9. [Build, Inlining & Deployment](#build-inlining--deployment)
+5. [Native masks (covering OEM chrome)](#native-masks-covering-oem-chrome)
+6. [The JavaScript Bridge & Primitives](#the-javascript-bridge--primitives)
+7. [Development Workflow & Local Simulation](#development-workflow--local-simulation)
+8. [Build, Inlining & Deployment](#build-inlining--deployment)
 
 ---
 
@@ -179,37 +178,6 @@ app builds ignore them and fall back to the declared `<default>`.
 
 ---
 
-## Fixed native foreground (mandatory exclusion zones)
-
-Three OEM indicators are physically composited **above the Display-3 WebView** and cannot be
-hidden, moved or covered by a theme:
-
-1. `READY`;
-2. the detected speed-limit sign below `READY`;
-3. the ESP indicator to the right of the sign.
-
-Treat them as immutable foreground, not as theme widgets. Theme authors must keep decorative
-strokes, gauge graduations and important data outside the following reserved rectangles. All
-coordinates use the fixed **1920×720** cluster canvas.
-
-| Indicator | Reference visible bounds (`x, y, w, h`) | Mandatory no-draw zone (`x, y, w, h`) |
-|---|---:|---:|
-| `READY` | `258, 335, 64, 20` | `238, 315, 104, 60` |
-| Speed-limit sign | `247, 497, 46, 46` | `225, 475, 90, 90` |
-| ESP | `350.4, 466, 59.2, 48` | `330, 445, 100, 100` |
-
-The Theme Lab renders one shared development mock for these indicators in every discovered theme,
-with `pointer-events: none` and the maximum CSS stacking level (`z-index: 2147483647`). Existing
-theme-owned mocks are suppressed there so the fixed layer is never duplicated. On the vehicle,
-the OEM compositor — not theme HTML — owns the real foreground layer.
-
-This is a backward-compatible clarification of the `v1.0` physical layout boundary. It does not
-add a telemetry key, bridge method or `theme.xml` field, and older `v1.0` themes remain loadable.
-Additional fixed OEM indicators are **A confirmar** and will be added only after their physical
-positions are mapped.
-
----
-
 ## Native masks (covering OEM chrome)
 
 ### Why they exist
@@ -233,7 +201,6 @@ cluster chrome so the WebView theme can own the look end-to-end.
 │  │  └─────────────────────────────────────────────────────────────┘││
 │  └─────────────────────────────────────────────────────────────────┘│
 │  WebView theme (app.html) — free to design without fighting OEM UI  │
-│  Fixed OEM foreground — READY / speed sign / ESP (never maskable)    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -307,22 +274,30 @@ Theme interactions occur via the global `window.Android` namespace and standard 
 | :--- | :--- | :--- | :--- |
 | **Diagnostics** | `heartbeat()` | JS → Host | Periodic ping (every 2s) to signal WebView renderer liveness. |
 | **Diagnostics** | `getAvailableKeys(): String` | JS → Host | Returns JSON array of all supported CAN-bus/app telemetry keys. |
-| **Telemetry** | `subscribe(keysJson: String)` | JS → Host | Subscribes to declared keys returned by `getAvailableKeys()`; undeclared keys are rejected. |
+| **Telemetry** | `subscribe(keysJson: String)` | JS → Host | Subscribes theme to live CAN-bus streaming for JSON array of keys. |
 | **Telemetry** | `unsubscribe(keysJson: String)` | JS → Host | Unsubscribes theme from telemetry updates. |
-| **Telemetry** | `getCarData(key: String): String` | JS → Host | Reads a declared contract key; undeclared keys return empty. |
-| **Telemetry** | `updateCarData(key: String, val: String)` | JS → Host | Writes only the host allowlist of vehicle settings. |
-| **Layout & Cutouts** | `setAppDefaultDimensions(x, y, w, h)` | JS → Host | Informs Android of CarPlay/AA cutouts, clamped to 1920×720. |
+| **Telemetry** | `getCarData(key: String): String` | JS → Host | Synchronously reads current cached telemetry value for a key. |
+| **Telemetry** | `updateCarData(key: String, val: String)` | JS → Host | Sends CAN-bus setting command back to vehicle hardware. |
+| **Layout & Cutouts** | `setAppDefaultDimensions(x, y, w, h)` | JS → Host | Informs Android of theme canvas bounds for CarPlay/AA cutouts. |
 | **Layout & Cutouts** | `setWarningActive(isActive: Boolean)` | JS → Host | Toggles cluster warning banner overlay state. |
 | **Native masks** | `setNativeMaskState(maskName, visible)` | JS → Host | Show/hide a Display‑3 OEM-cover mask (`fuelMask`, …). |
 | **Native masks** | `setNativeMasksConfig(jsonConfig)` | JS → Host | Advanced JSON override for native mask geometry/state. |
-| **Wallpaper** | `setClusterBackground(type, val)` | JS → Host | Selects a safe relative asset from the active theme (`THEME` only). |
+| **Wallpaper** | `setClusterBackground(type, val)` | JS → Host | Sets Display-1 cluster background (`THEME`, `PRESET`, `IMAGE_URL`, `FILE`, `COLOR`). |
+| **Android Auto CLUSTER** | `setAaClusterMapEnabled(enabled)` | JS → Host | Additive. Shows/hides the phone CLUSTER map Surface on D3. MAIN AA stays on D0. Missing on older hosts — call only if `typeof window.Android.setAaClusterMapEnabled === 'function'`. |
 | **Wallpaper** | `setThemeBackground(relativePath)` | JS → Host | Registers theme package wallpaper asset (e.g. `car-bg.png`). |
 | **Preferences** | `savePreference(key, val)` | JS → Host | Persists theme-scoped user configuration. |
 | **Preferences** | `getPreference(key, defaultVal): String` | JS → Host | Reads theme-scoped user configuration. |
 | **Preferences** | `saveSetting(key, val)` | JS → Host | Saves cluster display setting. |
-| **System Actions** | `triggerSystemAction(action, payload)` | JS → Host | Triggers only the documented host allowlist (`CANCEL_MAX_AC`, `TRIGGER_AVM_CAMERA`, `DISMISS_WARNINGS`). |
-| **Multi-Display** | `launchApp(packageName, displayId)` | JS → Host | Reserved compatibility surface; direct theme requests are blocked. |
-| **Multi-Display** | `killApp(packageName)` | JS → Host | Reserved compatibility surface; direct theme requests are blocked. |
+| **System Actions** | `triggerSystemAction(action, payload)` | JS → Host | Triggers vehicle action (`CANCEL_MAX_AC`, `TRIGGER_AVM_CAMERA`, `BRING_ALL_TO_MAIN`). |
+| **Multi-Display** | `launchApp(packageName, displayId)` | JS → Host | Launches target Android app on main or cluster display. |
+| **Multi-Display** | `killApp(packageName)` | JS → Host | Kills target Android app process. |
+
+Additive Android Auto CLUSTER telemetry (v1.0, no contract bump):
+
+- `app.androidauto.session` — `stopped` \| `active` from Autolink GET_LINK_STATUS 3/7/8.
+- `app.navigation.directions` — JSON; keep `street` / `distance` / `turn`. Additive `remaining_s` (seconds) and `remaining_m` (metres). Inactive = `{"active":false}`.
+- `aaClusterInDash` — `control()` flag for the D3 CLUSTER Surface. Treat like `projectionMirrorInDash` for masks. Do not rewrite persisted `display`.
+- On disconnect (`session=stopped`) the host tears the Surface down. Call `setAaClusterMapEnabled(true)` again when the next session is `active`. Check the method exists before calling.
 
 ### Lifecycle Execution Sequence
 
@@ -356,18 +331,23 @@ Exposed globally in the window scope:
   navigation, which the vehicle performs itself; the host deliberately withholds them so a
   theme cannot fight the car for card control. A theme needing a two-way toggle should use
   `ENTER` (as the Default theme's AC screen does for fan/temp focus).
+
+  **Common `ENTER_LONG` patterns (v1.0 themes):**
+  - **One-Pedal** — `car.ev.setting.pedal_control_enable` (`0`/`1`). Long-press while focused
+    on Regeneração enables it; when active, short or long ENTER disables and restores the
+    previous `car.ev_setting.energy_recovery_level`. Subscribe + seed from card entry /
+    `getCarData` (there is no OEM push path outside `subscribe`).
+  - **HEV energy reserve** — only when `car.ev_setting.power_model_config == 0` (HEV).
+    Long-press on Modo EV toggles `car.ev_setting.power_reserve_config` (`1` Inteligente ↔
+    `2` Prioritário). Show SOC from `car.ev_setting.charge_soc_target_config` (20–80) in the
+    Prioritário sublabel. Compose the label in theme JS — do **not** expect the host to stuff
+    `"HEV Inteligente"` into the `evMode` friendly key (that stays raw `0`/`1`/`3`).
 * **`window.onDataChanged(key, value)`**: Triggered when a subscribed telemetry key emits a new value.
 * **`window.onCardChanged(cardId)`**: Fired when the active cluster card changes
   (0 = Hidden, 1 = Main Widgets, 3 = AC). **Required — every v1.0 theme must implement it.**
   This is the single channel by which a theme learns the active card, and it is one-way:
   the card is owned by the vehicle and flows car → host → theme. There is deliberately no
   reverse channel; a theme must never report a card back to the host.
-
-  The host-pinned legacy Sport packages use a private compatibility adapter because their
-  immutable bundles predate this handler. That adapter is not part of contract `v1.0` and
-  must not be copied into new themes. They also predate `onKeyEvent`, so the same private,
-  trusted-package adapter translates their existing native Sport menu state to the old
-  `focus/showScreen/control` globals. Contract themes never receive that translation.
 
   **`onCardChanged` must be the only writer of the card in your theme's state.** A static
   initial value is fine, but nothing else may assign it — in particular, never re-seed the
@@ -436,7 +416,9 @@ You don't need a real car or an Android device to build your themes. The local d
    * Desktop arrow keys automatically map to steering wheel inputs:
      * `ArrowUp` / `ArrowDown` &rarr; `UP` / `DOWN`
      * `Enter` &rarr; `ENTER`
-     * `Escape` &rarr; `BACK`
+     * `Shift+Enter` &rarr; `ENTER_LONG` (One-Pedal / HEV reserve, etc.)
+     * `Escape` / `Backspace` &rarr; `BACK`
+     * `Shift+Backspace` &rarr; `BACK_LONG`
    * Stubbed `Android.subscribe` and `updateCarData` APIs allow you to view data changes directly in your browser's Developer Tools Console in real-time.
 
 ---
@@ -459,7 +441,7 @@ This runs `parcel build` and executes `inline.js` to create a self-contained `ap
 
 For OTA themes, `theme.xml` **must** be copied with `app.html`: the host compares `<version>` in that XML to decide whether an update is available. Shipping a new `app.html` beside a stale `theme.xml` means the car never picks up the change.
 
-The release branch crawled by the in-app catalog is configured in `ThemeManager.kt` (currently `bobaoapae/preview`).
+The release branch crawled by the in-app catalog is configured in `ThemeManager.kt` (currently `feature/new-screen-enhancements-v7`).
 
 ### 3. Submitting / updating an OTA theme
 1. Bump `<version>` in the theme's source `theme.xml`.
@@ -543,5 +525,7 @@ Add a key handler block inside the steering wheel listener in `main.js`:
    ```javascript
    { id: 'option_8', action: 'navigate', screen: 'tire_pressure' }
    ```
-
+   
 The routing engine automatically maps focus transitions, carousel scroll positions, keyboard selection triggers, and subscription states cleanly.
+
+

@@ -91,10 +91,8 @@ object VirtualTelemetryManager {
             "app.display.3.active_app_label" -> getActiveAppLabel(context, 3)
             "app.display.3.active_app_icon" -> getActiveAppIconBase64(context, 3)
             "app.launcher.apps" -> getLauncherAppsJson(context)
-            "app.navigation.directions" -> {
-                // Return generic / empty placeholder if not wired yet, satisfying additive principle
-                "{}"
-            }
+            "app.androidauto.session" -> br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController.currentSessionValue()
+            "app.navigation.directions" -> br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController.snapshotDirectionsJson()
             else -> ""
         }
     }

@@ -31,6 +31,7 @@ public class ProjectorManager {
     private InstrumentProjector instrumentProjector;
     private InstrumentProjector2 instrumentProjector2;
     private boolean initialized = false;
+    private DisplayManager.DisplayListener displayListener;
 
     /**
      * O listener de dados do carro e registrado UMA vez so. Antes ele vinha carona na criacao das
@@ -140,6 +141,87 @@ public class ProjectorManager {
         }
     }
 
+    private android.app.Presentation projectorForDisplay(int displayId) {
+        if (displayId == maskDisplayId) return instrumentProjector2;
+        if (displayId == hudDisplayId) return instrumentProjector;
+        return null;
+    }
+
+    /**
+     * A projector counts as live only while its Presentation is actually showing.
+     *
+     * The field staying non-null is not enough: the framework cancels a Presentation by itself
+     * when its display is removed or when the display metrics change underneath it, and the
+     * reference we hold survives that. Checking isShowing() is what lets a cancelled surface be
+     * rebuilt instead of being mistaken for a healthy one.
+     */
+    private boolean isProjectorLive(int displayId) {
+        android.app.Presentation presentation = projectorForDisplay(displayId);
+        return presentation != null && presentation.isShowing();
+    }
+
+    private void logProjectorEvent(String event, String reason, int displayId, String detail) {
+        java.util.Map<String, Object> details = new HashMap<>();
+        details.put("reason", reason);
+        details.put("displayId", displayId);
+        if (detail != null) details.put("detail", detail);
+        br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger.log(event, details);
+    }
+
+    /**
+     * Builds every enabled projector that is not currently live, one display at a time, and
+     * returns the display ids that still have none.
+     *
+     * A projector disabled by preference is skipped outright - never built and never counted as
+     * pending - so neither this pass nor the display listener can bring its window back.
+     *
+     * Each creator is guarded on its own on purpose. Previously all of them ran inside a single
+     * try block, so one throw aborted the loop and took the other display down with it — and
+     * because nothing retried, the cluster stayed dead for the rest of the session. Observed
+     * 2026-08-20: display 1 came up, display 3 was never built, and no durable trace said why.
+     */
+    private Set<Integer> ensureProjectors(String reason) {
+        Set<Integer> stillPending = new HashSet<>();
+
+        for (Map.Entry<Integer, BiConsumer<android.content.Context, Display>> entry : projectorCreators.entrySet()) {
+            int displayId = entry.getKey();
+            if (!isProjectorEnabled(displayId)) {
+                Log.w(TAG, "Projector for display " + displayId + " is disabled by preference; not creating it");
+                continue;
+            }
+            if (isProjectorLive(displayId)) continue;
+
+            Display display = getDisplayById(displayId);
+            if (display == null) {
+                stillPending.add(displayId);
+                logProjectorEvent("projector_display_absent", reason, displayId, null);
+                continue;
+            }
+
+            // A cancelled Presentation is still referenced by its field; drop it before
+            // replacing so the old window cannot linger behind the new one.
+            android.app.Presentation stale = projectorForDisplay(displayId);
+            if (stale != null) {
+                try {
+                    stale.dismiss();
+                } catch (Exception ignored) {
+                    // Already torn down by the framework - nothing to undo.
+                }
+            }
+
+            try {
+                entry.getValue().accept(App.getContext(), display);
+                logProjectorEvent("projector_created", reason, displayId, null);
+            } catch (Throwable t) {
+                stillPending.add(displayId);
+                Log.e(TAG, "Failed to create projector for display " + displayId, t);
+                logProjectorEvent("projector_create_failed", reason, displayId, t.getClass().getName());
+            }
+        }
+
+        return stillPending;
+    }
+
     public void initialize() {
         Log.w(TAG, "Initializing ProjectorManager");
         try {
@@ -152,10 +234,10 @@ public class ProjectorManager {
                 dismissProjectorForDisplay(hudDisplayId, "ENABLE_INSTRUMENT_PROJECTOR desligado");
             }
 
-            if (initialized && (instrumentProjector != null || instrumentProjector2 != null)) {
-                Log.w(TAG, "ProjectorManager already initialized; skipping duplicate presentations");
-                return;
-            }
+            // NOTE: no "already initialized, bail out" guard. The old one returned as soon as
+            // *either* projector existed, so a re-init could never repair the missing one.
+            // ensureProjectors() is idempotent - it skips whatever is already live or disabled -
+            // so running it again is always safe and is the only way a half-built state recovers.
 
             displayManager = App.getContext().getSystemService(DisplayManager.class);
 
@@ -163,27 +245,19 @@ public class ProjectorManager {
                 Log.w(TAG, "Display found: " + display.getName() + " (ID: " + display.getDisplayId() + ")");
             }
 
-            Set<Integer> pending = new HashSet<>();
+            // Register BEFORE the first scan. Registering afterwards left a window where a
+            // display that appeared between the scan and the registration fired an
+            // onDisplayAdded nobody was listening for, and was then never built at all.
+            ensureDisplayListener();
 
-            for (Integer id : projectorCreators.keySet()) {
-                // A pref e consultada ANTES de criar: o que esta desligado simplesmente nao nasce,
-                // e nem entra na fila de espera do display (senao voltaria pelo listener).
-                if (!isProjectorEnabled(id)) {
-                    Log.w(TAG, "Projector for display " + id + " is disabled by preference; not creating it");
-                    continue;
-                }
-                Display display = getDisplayById(id);
-                if (display != null) {
-                    projectorCreators.get(id).accept(App.getContext(), display);
-                } else {
-                    pending.add(id);
-                }
-            }
-
+            Set<Integer> pending = ensureProjectors("INITIALIZE");
             if (!pending.isEmpty()) {
-                registerDisplayListener(pending);
+                Log.w(TAG, "Projectors still pending a display: " + pending);
             }
 
+            if (initialized) {
+                return;
+            }
             initialized = true;
 
             if (dataChangedListenerRegistered) {
@@ -200,7 +274,7 @@ public class ProjectorManager {
                         if (instrumentProjector2 != null) {
                             instrumentProjector2.carMainScreenOff();
                         }
-                        
+
                         // Kill all secondary display apps when the main screen turns off.
                         java.util.List<br.com.redesurftank.havalshisuku.models.DisplayAppConfig> configs = DisplayAppLauncher.INSTANCE.getAllConfigs();
                         for (br.com.redesurftank.havalshisuku.models.DisplayAppConfig config : configs) {
@@ -249,6 +323,14 @@ public class ProjectorManager {
             }
             instrumentProjector2 = null;
         }
+        if (displayListener != null && displayManager != null) {
+            try {
+                displayManager.unregisterDisplayListener(displayListener);
+            } catch (Exception e) {
+                Log.e(TAG, "Error unregistering display listener", e);
+            }
+        }
+        displayListener = null;
         projectorCreators.clear();
         initialized = false;
     }
@@ -273,47 +355,51 @@ public class ProjectorManager {
         return null;
     }
 
-    private void registerDisplayListener(Set<Integer> pending) {
-        DisplayManager.DisplayListener listener = new DisplayManager.DisplayListener() {
+    /**
+     * Registers a single, permanent display listener.
+     *
+     * The previous one was torn down as soon as the last missing display turned up, which meant
+     * the only recovery path existed exactly until it was first used. Anything that killed a
+     * Presentation afterwards - the display going away, or its metrics changing, both of which
+     * make the framework cancel a Presentation on its own - went unnoticed forever. Callbacks
+     * already arrive on the main looper, so they can rebuild in place. Rebuilds go through
+     * ensureProjectors(), which re-reads the preferences, so a projector switched off while its
+     * display was away does not come back here.
+     */
+    private void ensureDisplayListener() {
+        if (displayListener != null) return;
+
+        displayListener = new DisplayManager.DisplayListener() {
             @Override
             public void onDisplayAdded(int displayId) {
                 Log.w(TAG, "Display added: " + displayId);
-                if (pending.contains(displayId)) {
-                    // O display pode aparecer muito depois; a pref pode ter caido nesse meio tempo.
-                    // Sem esta checagem, a janela voltaria por aqui mesmo com a feature desligada.
-                    BiConsumer<android.content.Context, Display> creator = projectorCreators.get(displayId);
-                    if (creator == null || !isProjectorEnabled(displayId)) {
-                        Log.w(TAG, "Display " + displayId + " appeared, but its projector is disabled/unknown; ignoring");
-                        pending.remove(displayId);
-                        if (pending.isEmpty()) {
-                            displayManager.unregisterDisplayListener(this);
-                        }
-                        return;
-                    }
-                    Display display = displayManager.getDisplay(displayId);
-                    if (display != null) {
-                        creator.accept(App.getContext(), display);
-                        pending.remove(displayId);
-                        if (pending.isEmpty()) {
-                            displayManager.unregisterDisplayListener(this);
-                        }
-                    }
+                if (projectorCreators.containsKey(displayId) && !isProjectorLive(displayId)) {
+                    ensureProjectors("DISPLAY_ADDED");
                 }
             }
 
             @Override
             public void onDisplayRemoved(int displayId) {
-                // Handle if needed
                 Log.w(TAG, "Display removed: " + displayId);
+                if (projectorCreators.containsKey(displayId)) {
+                    // The Presentation is already cancelled by the framework at this point.
+                    // Record it so a blank cluster can be told apart from one that was never
+                    // built, then wait for the display to come back.
+                    logProjectorEvent("projector_display_removed", "DISPLAY_REMOVED", displayId, null);
+                }
             }
 
             @Override
             public void onDisplayChanged(int displayId) {
-                // Handle if needed
-                Log.w(TAG, "Display changed: " + displayId);
+                if (projectorCreators.containsKey(displayId) && !isProjectorLive(displayId)) {
+                    // Metrics changed under a live Presentation, so the framework cancelled it.
+                    Log.w(TAG, "Display changed and projector no longer showing; rebuilding: " + displayId);
+                    ensureProjectors("DISPLAY_CHANGED");
+                }
             }
         };
-        displayManager.registerDisplayListener(listener, new Handler(Looper.getMainLooper()));
-        Log.w(TAG, "Registered listener for missing displays: " + pending);
+
+        displayManager.registerDisplayListener(displayListener, new Handler(Looper.getMainLooper()));
+        Log.w(TAG, "Registered persistent display listener");
     }
 }

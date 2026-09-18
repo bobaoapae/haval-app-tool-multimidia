@@ -46,6 +46,8 @@ class MockCarState {
         this.cache.set('car.drive_setting.steering_wheel_assist_mode', '1');
         this.cache.set('car.ev_setting.energy_recovery_level', '1');
         this.cache.set('car.ev.setting.pedal_control_enable', '0');
+        this.cache.set('car.ev_setting.power_reserve_config', '1');
+        this.cache.set('car.ev_setting.charge_soc_target_config', '50');
 
         // Virtual App Telemetry Keys
         this.cache.set('app.display.1.active_app', 'com.ts.androidauto.app');
@@ -54,8 +56,9 @@ class MockCarState {
         this.cache.set('app.display.3.active_app', '');
         this.cache.set('app.display.3.active_app_label', '');
         this.cache.set('app.launcher.apps', '[]');
-        this.cache.set('app.navigation.directions', '{"street": "Av. Paulista", "distance": "200m", "turn": "TURN_RIGHT"}');
-
+        this.cache.set('app.navigation.directions', '{"active":true,"street":"Av. Paulista","distance":"200 m","distance_m":200,"turn":"TURN_RIGHT","turn_id":103,"next_street":"","next_distance_m":null,"next_turn":null,"remaining_m":12300,"remaining_s":840}');
+        this.cache.set('app.androidauto.session', 'stopped');
+        
         // Media Mocks
         this.cache.set('app.media.state', 'playing');
         this.cache.set('app.media.title', 'Smooth Criminal');
@@ -205,10 +208,16 @@ if (isBrowser) {
                 "car.drive_setting.steering_wheel_assist_mode",
                 "car.ev_setting.energy_recovery_level",
                 "car.ev.setting.pedal_control_enable",
+                "car.ev_setting.power_reserve_config",
+                "car.ev_setting.charge_soc_target_config",
                 "car.ev_info.energy_output_percentage",
                 "car.ev_info.cur_charge_current",
                 "car.ev_info.power_battery_voltage",
                 "car.ev_info.Instant_energy_consumption",
+                "car.ev_info.energy_drive_state",
+                "car.ev_info.charging_state",
+                "haval.power.flow",
+                "haval.power.ice",
                 "car.hvac.power_mode",
                 "car.hvac.fan_speed",
                 "car.hvac.driver_temperature",
@@ -223,6 +232,7 @@ if (isBrowser) {
                 "app.display.3.active_app_icon",
                 "app.launcher.apps",
                 "app.navigation.directions",
+                "app.androidauto.session",
                 "app.media.state",
                 "app.media.title",
                 "app.media.artist",
@@ -238,6 +248,7 @@ if (isBrowser) {
                 "bsdRight",
                 "carPlayInDash",
                 "projectionMirrorInDash",
+                "aaClusterInDash",
                 "projectionPreparingD3",
                 "projectionCardOverlayAllowed",
                 "warningActive",
@@ -327,6 +338,14 @@ if (isBrowser) {
             localStorage.setItem('pref_enableCustomBackgroundD1', 'true');
         },
 
+        setAaClusterMapEnabled: (enabled) => {
+            const on = enabled === true || enabled === 'true';
+            console.log(`[Mock Bridge] setAaClusterMapEnabled ${on}`);
+            if (typeof window.control === 'function') {
+                window.control('aaClusterInDash', on);
+            }
+        },
+
         setThemeBackground: (relativePath) => {
             console.log(`[Mock Bridge] setThemeBackground path=${relativePath}`);
             localStorage.setItem('pref_customBackgroundTypeD1', 'THEME');
@@ -357,7 +376,7 @@ if (isBrowser) {
         window.__KEYBOARD_LISTENER_BOUND__ = true;
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey || e.altKey || e.metaKey) return;
-
+            
             let physicalKey = null;
             switch (e.key) {
                 case 'ArrowUp':
@@ -643,7 +662,7 @@ export function useValueCycle(key, cycleValues, options = {}) {
         elements.forEach(el => {
             // Write current state value as dynamic dataset
             el.dataset.currentValue = currentValue;
-
+            
             // If the element has labels, update label output
             const labelMapAttr = el.getAttribute('data-value-labels');
             if (labelMapAttr) {

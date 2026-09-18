@@ -391,7 +391,9 @@ class AndroidAutoNowPlayingMonitor(
     }
 
     private fun refreshStatusAndProgress() {
-        val linkActive = isAndroidAutoLinkActive(readLinkStatus())
+        val linkStatus = readLinkStatus()
+        br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController.onLinkStatus(linkStatus)
+        val linkActive = isAndroidAutoLinkActive(linkStatus)
         if (!linkActive) {
             val shouldClear =
                     synchronized(stateLock) {
@@ -500,7 +502,10 @@ class AndroidAutoNowPlayingMonitor(
                     handleMediaProgress(data.readInt(), fromPoll = false)
                     true
                 }
-                else -> super.onTransact(code, data, reply, flags)
+                else -> {
+                    Log.i(TAG, "Unhandled LinkCallback transaction code=$code")
+                    super.onTransact(code, data, reply, flags)
+                }
             }
         }
     }

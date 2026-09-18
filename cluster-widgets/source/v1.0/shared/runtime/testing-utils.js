@@ -109,16 +109,24 @@ export function initSimulationHarness(stateManager, menuItems) {
             }
 
             // Dispatch standard navigation keys to the frontend via window.onKeyEvent
+            // Shift+Enter / Shift+Backspace stand in for the wheel long-press variants.
+            if (e.key === 'Enter' && window.onKeyEvent) {
+                e.preventDefault();
+                window.onKeyEvent(e.shiftKey ? 'ENTER_LONG' : 'ENTER');
+                return;
+            }
+            if ((e.key === 'Backspace' || e.key === 'Escape') && window.onKeyEvent) {
+                e.preventDefault();
+                window.onKeyEvent(e.shiftKey && e.key === 'Backspace' ? 'BACK_LONG' : 'BACK');
+                return;
+            }
             const keyMap = {
                 'ArrowUp': 'UP',
                 'ArrowDown': 'DOWN',
                 'ArrowLeft': 'LEFT',
-                'ArrowRight': 'RIGHT',
-                'Enter': 'ENTER',
-                'Backspace': 'BACK',
-                'Escape': 'BACK'
+                'ArrowRight': 'RIGHT'
             };
-
+            
             if (keyMap[e.key] && window.onKeyEvent) {
                 e.preventDefault();
                 window.onKeyEvent(keyMap[e.key]);
@@ -150,10 +158,10 @@ export function initSimulationHarness(stateManager, menuItems) {
                 const currentAppInDash = mgr.getState().appInDash;
                 let currentIndex = options.indexOf(currentAppInDash);
                 if (currentIndex === -1) currentIndex = 0;
-
+                
                 const nextIndex = (currentIndex + 1) % options.length;
                 const nextValue = options[nextIndex];
-
+                
                 console.log(`[Mask Simulation] Cycle appInDash -> ${nextValue}`);
                 setState('appInDash', nextValue);
             }
@@ -197,7 +205,7 @@ export function initSimulationHarness(stateManager, menuItems) {
                 const nextIndex = (currentIndex + 1) % modes.length;
                 window.maintenanceMode = modes[nextIndex];
                 console.log(`[Maintenance Simulation] Toggle Mode -> ${window.maintenanceMode}`);
-
+                
                 if (window.maintenanceMode === 'none') {
                     setState('enableRevisionWarning', false);
                     setState('nextRevisionKm', 999999);

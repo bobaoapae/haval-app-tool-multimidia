@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import br.com.redesurftank.havalshisuku.managers.StealthExitPin
 import br.com.redesurftank.havalshisuku.managers.StealthExitSequence
 import br.com.redesurftank.havalshisuku.managers.StealthModeManager
+import br.com.redesurftank.havalshisuku.diagnostics.AnonymousTelemetryCollector
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.UpdateCheckResult
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
@@ -118,6 +120,16 @@ fun InformacoesTab() {
         var stealthStep by remember { mutableStateOf(0) }      // 0 = ensaio, 1 = pronto
         var stealthProgress by remember { mutableStateOf(0) }  // passos já reconhecidos
         var stealthSeq by remember { mutableStateOf(StealthExitSequence.current()) }
+        var anonymousTelemetryOptedOut by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.ANONYMOUS_TELEMETRY_OPTED_OUT.key,
+                                false
+                        )
+                )
+        }
+        var showAnonymousTelemetryInfo by remember { mutableStateOf(false) }
+        val anonymousTelemetryConfigured = remember { AnonymousTelemetryCollector.isConfigured() }
         var stealthSeqError by remember { mutableStateOf<String?>(null) }
         var stealthPinOn by remember { mutableStateOf(StealthExitPin.isEnabled()) }
         var stealthPinTyped by remember { mutableStateOf("") }
@@ -825,6 +837,103 @@ fun InformacoesTab() {
                                                         StealthModeManager.cancelConfirmation()
                                                 }
                                         ) { Text("Cancelar", color = ImpTokens.TextSecondary) }
+                                }
+                        )
+                }
+
+                // Dados anônimos de frota (PostHog)
+                Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
+                        shape = RoundedCornerShape(20.dp)
+                ) {
+                        Row(
+                                modifier =
+                                        Modifier.fillMaxWidth()
+                                                .padding(horizontal = 20.dp, vertical = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                        ) {
+                                Text(
+                                        "Permitir coletar dados anônimos",
+                                        fontFamily = Michroma,
+                                        fontSize = 15.sp,
+                                        color =
+                                                if (anonymousTelemetryConfigured) Color.White
+                                                else ImpTokens.TextSecondary,
+                                        modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                        onClick = { showAnonymousTelemetryInfo = true },
+                                        modifier = Modifier.size(36.dp)
+                                ) {
+                                        Icon(
+                                                Icons.Default.Info,
+                                                contentDescription = "Sobre dados anônimos",
+                                                tint = ImpTokens.TextSecondary,
+                                                modifier = Modifier.size(20.dp)
+                                        )
+                                }
+                                Switch(
+                                        checked =
+                                                anonymousTelemetryConfigured &&
+                                                        !anonymousTelemetryOptedOut,
+                                        enabled = anonymousTelemetryConfigured,
+                                        onCheckedChange = { enabled ->
+                                                if (!anonymousTelemetryConfigured) return@Switch
+                                                anonymousTelemetryOptedOut = !enabled
+                                                prefs.edit {
+                                                        putBoolean(
+                                                                SharedPreferencesKeys
+                                                                        .ANONYMOUS_TELEMETRY_OPTED_OUT
+                                                                        .key,
+                                                                !enabled
+                                                        )
+                                                }
+                                        },
+                                        colors =
+                                                SwitchDefaults.colors(
+                                                        checkedThumbColor = Color.White,
+                                                        checkedTrackColor = Color(0xFF4ADE80),
+                                                        uncheckedThumbColor = Color.White,
+                                                        uncheckedTrackColor = ImpTokens.Hairline,
+                                                        disabledCheckedThumbColor =
+                                                                ImpTokens.TextSecondary,
+                                                        disabledCheckedTrackColor =
+                                                                ImpTokens.Hairline,
+                                                        disabledUncheckedThumbColor =
+                                                                ImpTokens.TextSecondary,
+                                                        disabledUncheckedTrackColor =
+                                                                ImpTokens.Hairline
+                                                )
+                                )
+                        }
+                }
+
+                if (showAnonymousTelemetryInfo) {
+                        AlertDialog(
+                                onDismissRequest = { showAnonymousTelemetryInfo = false },
+                                title = { Text("Dados anônimos") },
+                                text = {
+                                        Text(
+                                                if (!anonymousTelemetryConfigured) {
+                                                        "A coleta de dados anônimos está totalmente desativada neste build: não há chave de backend configurada. O Impulse não envia nenhum dado, independentemente desta autorização.\n\nQuando uma release futura incluir a chave, este controle passará a funcionar e o (i) descreverá o que é coletado."
+                                                } else {
+                                                        "Para nos ajudar a melhorar o sistema, o Impulse pode coletar alguns dados totalmente anônimos do veículo, como:\n" +
+                                                                "• Modelo do carro e quilometragem aproximada.\n" +
+                                                                "• Versão do aplicativo e configurações ativas.\n" +
+                                                                "• País e cidade de ativação, sem guardar seu IP ou fazer qualquer tipo de rastreamento.\n" +
+                                                                "• Um identificador aleatório para identificar a quantidade de instalações únicas.\n\n" +
+                                                                "Essas informações servem exclusivamente para entendermos a adoção de novos recursos e melhorarmos a experiência do mesmo. As informações são coletadas apenas uma vez no boot do aplicativo. Você pode desativar essa coleta desativando esta autorização a qualquer momento."
+                                                },
+                                                color = ImpTokens.TextSecondary,
+                                                fontSize = 14.sp,
+                                                lineHeight = 20.sp
+                                        )
+                                },
+                                confirmButton = {
+                                        TextButton(onClick = { showAnonymousTelemetryInfo = false }) {
+                                                Text("Entendi")
+                                        }
                                 }
                         )
                 }

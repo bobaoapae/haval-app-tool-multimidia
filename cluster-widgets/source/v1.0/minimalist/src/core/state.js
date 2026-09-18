@@ -88,10 +88,23 @@ var stateManager = new StateManager({
     outside_temp: '--',
     inside_temp: '--',
 
-    // Regen screen states
+    // Derived hybrid power flow, published by the native PowerFlowTracker as
+    // `haval.power.flow` (v1|state|ice|front|rear) and unpacked in
+    // shared/car/carDerivations.js. front/rear: 0 off, 1 drive, -1 regen.
+    powerState: 'idle',
+    powerIce: false,
+    powerFront: 0,
+    powerRear: 0,
+
+    // Regen / HEV reserve states
     regenMode: 'Normal',
     lastRegenValue: 0,
     onepedal: false,
+    // Saved energy_recovery_level CAN value to restore when leaving One-Pedal.
+    regenBeforeOnePedal: '0',
+    // HEV energy reserve: '1' Inteligente, '2' Prioritário; SOC target 20–80.
+    hevReserve: '1',
+    hevSocTarget: 50,
 
     // Graph values
     currentGraph: 'evConsumption',

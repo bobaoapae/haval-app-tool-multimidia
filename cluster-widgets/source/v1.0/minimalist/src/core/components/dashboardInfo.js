@@ -2,6 +2,8 @@ import { getState, setState, subscribe } from '../state.js';
 import { div, span, img } from '../../../../shared/utils/createElement.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { createOdometerInfo } from './display/odometer/odometerInfo.js';
+import { createPowerFlowIcon } from './powerFlowIcon.js';
+import { createTbtCard } from '../../../../shared/tbt/tbtCard.js';
 
 const fuelIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xLDEyTDUsOVYxNVoiLz48cGF0aCBkPSJNMjIsMTBWOGEyLDIsMCwwLDAtMi0yaC0zVjRhMiwyLDAsMCwwLTItMkg5QTIsMiwwLDAsMCw3LDR2MTZhMiwyLDAsMCwwLDIsMmg4YTIsMiwwLDAsMCw2LTJWMTJoMXY0YTIsMiwwLDAsMCw0LDBWMTBaTTksNGg4djZIOVptOCwxNkg5VjEyaDhaIi8+PC9zdmc+";
 const batteryIconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjwhLS0gQm9keSAtLT48cGF0aCBkPSJNMyw2aDE4YzEuMSwwLDIsMC45LDIsMnYxMGMwLDEuMS0wLjksMi0yLDJIM2MtMS4xLDAtMi0wLjktMi0yVjhDMSw2LjksMS45LDYsMyw2eiBNMyw4djEwaDE4VjhIM3oiLz48IS0tIFBvbGVzIC0tPjxyZWN0IHg9IjUiIHk9IjMiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48cmVjdCB4PSIxNSIgeT0iMyIgd2lkdGg9IjQiIGhlaWdodD0iMyIvPjwhLS0gTWludXMgc2lnbiAoLSkgLS0+PHJlY3QgeD0iNiIgeT0iMTIiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiLz48IS0tIFBsdXMgc2lnbiAoKykgLS0+PHBhdGggZD0iTTE2LDEwaC0ydjJoLTJ2MmgydjJoMnYtMmgydi0yaC0yVjEweiIvPjwvc3ZnPg==";
@@ -101,14 +103,6 @@ export function createDashboardInfo() {
     topCenter.appendChild(clock);
     topCenter.appendChild(gear);
     topCenter.appendChild(evMode);
-
-    // Clock auto-update
-    const clockInterval = setInterval(() => {
-        const now = new Date();
-        const hrs = String(now.getHours()).padStart(2, '0');
-        const mins = String(now.getMinutes()).padStart(2, '0');
-        clock.textContent = `${hrs}:${mins}`;
-    }, 30000);
 
     // 2. Speed Gauge Elements (Flat)
     const speedDial = div({ className: 'dashboard-speed-dial minimalist-speed' });
@@ -427,10 +421,30 @@ export function createDashboardInfo() {
     container.appendChild(internalTempContainer);
     container.appendChild(menuWrapper);
     container.appendChild(cardTitle);
+
+    // Turn-by-turn card, shared with the default theme (shared/tbt/tbtCard.js).
+    const tbtCard = createTbtCard();
+    container.appendChild(tbtCard.element);
+    const updateTbtStrip = () => tbtCard.update(getState('navigationDirections'));
+    updateTbtStrip();
+
+    const clockInterval = setInterval(() => {
+        const now = new Date();
+        const hrs = String(now.getHours()).padStart(2, '0');
+        const mins = String(now.getMinutes()).padStart(2, '0');
+        clock.textContent = `${hrs}:${mins}`;
+        updateTbtStrip();
+    }, 30000);
+
     container.appendChild(alertIndicatorsContainer);
     container.appendChild(tripAnalysisIndicator);
     container.appendChild(bottomEvMode);
     container.appendChild(bottomRegenContainer);
+
+    // Powertrain flow sits in the clear span between the battery gauge (ends at
+    // x=1470) and REGEN (starts at x=1590). Nothing else occupies that band.
+    const { element: powerFlowElement, cleanup: powerFlowCleanup } = createPowerFlowIcon();
+    container.appendChild(powerFlowElement);
 
     const fixedOverlay = div({
         className: 'dashboard-fixed-overlay',
@@ -475,7 +489,15 @@ export function createDashboardInfo() {
 
     const subscriptions = [
         subscribe('cardId', updateCardTitle),
-        subscribe('clockTime', val => clock.textContent = val),
+        subscribe('navigationDirections', updateTbtStrip),
+        subscribe('projectionMirrorInDash', updateTbtStrip),
+        subscribe('carPlayInDash', updateTbtStrip),
+        subscribe('aaClusterInDash', updateTbtStrip),
+        subscribe('projectionPreparingD3', updateTbtStrip),
+        subscribe('clockTime', val => {
+            clock.textContent = val;
+            updateTbtStrip();
+        }),
         subscribe('gearState', val => {
             gear.textContent = val;
             updateGearColor(val);
@@ -521,6 +543,11 @@ export function createDashboardInfo() {
         subscribe('warningActive', val => {
             logger.log('[DashboardInfo Light] warningActive changed to:', val);
             warningLabel.style.display = val ? 'block' : 'none';
+            // Unconditional console: production logger is DEBUG-gated; host routes this
+            // into cluster-diagnostics (event=webview_console) for warn-dismiss latency.
+            console.log(
+                `[warn-diag] WARN label redraw active=${!!val} display=${warningLabel.style.display} t=${Date.now()}`
+            );
         }),
         subscribe('bsdLeft', val => bsdLeftIndicator.style.display = val ? 'block' : 'none'),
         subscribe('bsdRight', val => bsdRightIndicator.style.display = val ? 'block' : 'none'),
@@ -591,6 +618,7 @@ export function createDashboardInfo() {
         clearInterval(clockInterval);
         subscriptions.forEach(unsubscribe => unsubscribe());
         if (odometerCleanup) odometerCleanup();
+        if (powerFlowCleanup) powerFlowCleanup();
     };
 
     return { element: container, menuWrapper, cleanup };

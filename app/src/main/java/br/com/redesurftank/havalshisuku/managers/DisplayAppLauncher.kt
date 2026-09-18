@@ -26,6 +26,7 @@ import android.os.SystemClock
 import android.view.KeyEvent
 import br.com.redesurftank.havalshisuku.BuildConfig
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
+import br.com.redesurftank.havalshisuku.icons.IconOverrideWriter
 import br.com.redesurftank.havalshisuku.managers.ThemeManager
 import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.CarConstants
@@ -1228,6 +1229,27 @@ object DisplayAppLauncher {
         )
     }
 
+    /**
+     * Cached "DCM says projection is active" evidence, for the session poller.
+     *
+     * [readAndroidAutoLinkStatusIfAlreadyBound] returns null until something
+     * binds the Autolink command service, and on WIRELESS Android Auto nothing
+     * does — the bind only happens as a side effect of the media-command paths.
+     * Measured on the car 2026-09-12 with Maps actively guiding: the launcher
+     * saw `linkStatus:3` (ACTIVATED), `dumpsys activity services
+     * com.ts.androidauto` listed no havalshisuku connection at all, and this
+     * class logged `linkStatus=UNKNOWN(null)` next to "DCM reports active
+     * projection" every ~10 s. So the evidence was in hand and unread, and
+     * `app.androidauto.session` stayed `stopped` through a whole navigation.
+     *
+     * Deliberately passive: it reads the timestamp the stale-cleanup sweep
+     * already refreshes rather than binding anything itself, so it cannot
+     * perturb the CLUSTER-before-AAP handshake ordering.
+     */
+    fun hasRecentAndroidAutoDcmProjectionActiveEvidenceForSession(): Boolean {
+        return hasRecentAndroidAutoDcmProjectionActiveEvidence()
+    }
+
     private fun hasRecentAndroidAutoDcmProjectionActiveEvidenceForState(
         lastActiveAtMs: Long,
         nowMs: Long,
@@ -2101,7 +2123,7 @@ object DisplayAppLauncher {
         )
     }
 
-    private fun readAndroidAutoLinkStatusIfAlreadyBound(reason: String): Int? {
+    fun readAndroidAutoLinkStatusIfAlreadyBound(reason: String): Int? {
         val binder = androidAutoLinkCommandBinder
         if (binder == null || !binder.isBinderAlive) return null
         return transactAndroidAutoLinkCommandInt(
@@ -7443,6 +7465,76 @@ object DisplayAppLauncher {
         return ResolvedAppInfo(label, icon)
     }
 
+    // --- Icon override registry -----------------------------------------------------------
+    // Publishes this app's per-package icon/label overrides to the shared registry any other
+    // app on the MMI can read (see docs/ICON_OVERRIDES.md in the haval-h6-3d repo). Every write
+    // path below calls this; it is debounced so a rename typed keystroke-by-keystroke in the
+    // editor doesn't re-encode a PNG per keystroke.
+    private var iconOverridePublishJob: kotlinx.coroutines.Job? = null
+
+    fun publishIconOverrides() {
+        iconOverridePublishJob?.cancel()
+        iconOverridePublishJob = scope.launch {
+            delay(500)
+            try {
+                val collapsed = getAllConfigs()
+                    .groupBy { it.packageName }
+                    .map { (_, configs) -> configs.find { it.displayId == 0 } ?: configs.first() }
+                val overrides = collapsed.mapNotNull { config ->
+                    val label = config.customName?.takeIf { it.isNotBlank() }
+                    val slug = config.substituteIcon?.takeIf { it.isNotBlank() }
+                    if (label == null && slug == null) return@mapNotNull null
+                    val colorInt = config.iconColor?.let {
+                        try {
+                            android.graphics.Color.parseColor(it)
+                        } catch (e: IllegalArgumentException) {
+                            null
+                        }
+                    }
+                    IconOverrideWriter.Override(
+                        packageName = config.packageName,
+                        label = label,
+                        iconSlug = slug,
+                        iconColor = colorInt
+                    )
+                }
+                IconOverrideWriter.publish(App.getContext(), overrides, ::renderIconOverride)
+            } catch (t: Throwable) {
+                Log.w(TAG, "cannot publish icon overrides", t)
+            }
+        }
+    }
+
+    /**
+     * Renders the substitute-icon slugs that are plain drawables, matching how
+     * [br.com.redesurftank.havalshisuku.ui.components.BottomBarUI]'s
+     * `AppSwitcherSection` draws them — no tint, since those three are
+     * already-colored brand marks, not the generic Material glyphs. Every other
+     * slug (nav, music, video, settings, haval, game, tv, phone, chat, map_alt)
+     * is a Compose Material `ImageVector` with no drawable resource to rasterise
+     * outside composition, so those overrides publish label-only.
+     */
+    private fun renderIconOverride(override: IconOverrideWriter.Override): android.graphics.Bitmap? {
+        val drawableId = when (override.iconSlug) {
+            "youtube" -> R.drawable.ic_youtube_default
+            "youtube_music" -> R.drawable.ic_youtube_music_default
+            "gwm" -> R.drawable.ic_gwm
+            else -> return null
+        }
+        return try {
+            val drawable = App.getContext().getDrawable(drawableId) ?: return null
+            val size = 192
+            val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bmp)
+            drawable.setBounds(0, 0, size, size)
+            drawable.draw(canvas)
+            bmp
+        } catch (t: Throwable) {
+            Log.w(TAG, "cannot render icon override for ${override.packageName}", t)
+            null
+        }
+    }
+
     fun getAllConfigs(): List<DisplayAppConfig> {
         val json = getPrefs().getString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, null)
             ?: return emptyList()
@@ -7477,6 +7569,7 @@ object DisplayAppLauncher {
         getPrefs().edit()
             .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
             .apply()
+        publishIconOverrides()
     }
 
     /**
@@ -7518,12 +7611,14 @@ object DisplayAppLauncher {
         getPrefs().edit()
             .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
             .apply()
+        publishIconOverrides()
     }
 
     fun saveAllConfigs(configs: List<DisplayAppConfig>) {
         getPrefs().edit()
             .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
             .apply()
+        publishIconOverrides()
     }
 
     fun moveConfigUp(packageName: String) {
@@ -7535,6 +7630,7 @@ object DisplayAppLauncher {
             getPrefs().edit()
                 .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
                 .apply()
+            publishIconOverrides()
         }
     }
 
@@ -7547,6 +7643,7 @@ object DisplayAppLauncher {
             getPrefs().edit()
                 .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
                 .apply()
+            publishIconOverrides()
         }
     }
 
@@ -7716,8 +7813,15 @@ object DisplayAppLauncher {
 
     /**
      * Resizes an already-running app on its target display. Used for live preview slider updates.
+     *
+     * @param notifyGeometry when false, skip [APP_GEOMETRY_CHANGED]. The cluster projector's
+     *   sync path must pass false: that event used to call sync again and re-enter resizeApp,
+     *   saturating Shizuku and closing the D3 native-mask hole.
      */
-    suspend fun resizeApp(config: DisplayAppConfig) = withContext(Dispatchers.IO) {
+    suspend fun resizeApp(
+        config: DisplayAppConfig,
+        notifyGeometry: Boolean = true
+    ) = withContext(Dispatchers.IO) {
         try {
             val bounds = when {
                 isCarPlayPackage(config.packageName) -> getCarPlayDisplayBounds(config.displayId)
@@ -7731,10 +7835,22 @@ object DisplayAppLauncher {
 
             val stackId = findStackIdForPackage(config.packageName, config.displayId)
             if (stackId != null) {
+                val live = findTaskForPackageOnDisplay(config.packageName, config.displayId)?.bounds
+                if (live != null &&
+                    live.size >= 4 &&
+                    live[0] == x &&
+                    live[1] == y &&
+                    live[2] == right &&
+                    live[3] == bottom
+                ) {
+                    return@withContext
+                }
                 sh("am stack resize $stackId $x $y $right $bottom")
-                ServiceManager.getInstance().dispatchServiceManagerEvent(
-                    br.com.redesurftank.havalshisuku.models.ServiceManagerEventType.APP_GEOMETRY_CHANGED
-                )
+                if (notifyGeometry) {
+                    ServiceManager.getInstance().dispatchServiceManagerEvent(
+                        br.com.redesurftank.havalshisuku.models.ServiceManagerEventType.APP_GEOMETRY_CHANGED
+                    )
+                }
             }
         } catch (e: Exception) {
             if (BuildConfig.DEBUG) {
@@ -8396,24 +8512,19 @@ object DisplayAppLauncher {
         return getTopPackageOnDisplay(displayId) != null
     }
 
+    /**
+     * Client-facing resize for [TaskBoundsReceiver]: typed ints only, no shell from the caller.
+     * Used by the 3D viewer after maximize / YouTube reopen-at-remembered-rect.
+     */
+    fun resizeStackForClient(stackId: Int, left: Int, top: Int, right: Int, bottom: Int) {
+        if (stackId < 0 || right <= left || bottom <= top) return
+        sh("am stack resize $stackId $left $top $right $bottom")
+    }
+
     fun getTopPackageOnDisplay(displayId: Int): String? {
         try {
-            val stackList = getStackList()
-            var currentDisplayId: Int? = null
-            val regex = Regex("""taskId=\d+:\s*([a-zA-Z0-9._]+)/""")
-
-            for (line in stackList.lines()) {
-                val stackMatch = Regex("""displayId=(\d+)""").find(line)
-                if (stackMatch != null) {
-                    currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
-                }
-                if (currentDisplayId == displayId) {
-                    val match = regex.find(line)
-                    if (match != null) {
-                        return match.groupValues[1]
-                    }
-                }
-            }
+            val fromStacks = topPackageFromStackListForTest(getStackList(), displayId)
+            if (fromStacks != null) return fromStacks
 
             // Fallback to dumpsys if am stack list is not helping
             val output = ShizukuUtils.runCommandAndGetOutput(
@@ -8424,6 +8535,30 @@ object DisplayAppLauncher {
             return match?.groupValues?.get(1)
         } catch (e: Exception) {
             Log.e(TAG, "Error getting top package for display $displayId", e)
+        }
+        return null
+    }
+
+    /**
+     * Parse [am stack list] for the first task package on [displayId].
+     * Only stack-header `displayId=` counts — configuration lines also embed
+     * displayId and must be ignored.
+     */
+    internal fun topPackageFromStackListForTest(stackList: String, displayId: Int): String? {
+        var currentDisplayId: Int? = null
+        val regex = Regex("""taskId=\d+:\s*([a-zA-Z0-9._]+)/""")
+        for (line in stackList.lines()) {
+            val stackMatch = Regex("""Stack id=\d+.*displayId=(\d+)""").find(line)
+            if (stackMatch != null) {
+                currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
+                continue
+            }
+            if (currentDisplayId == displayId) {
+                val match = regex.find(line)
+                if (match != null) {
+                    return match.groupValues[1]
+                }
+            }
         }
         return null
     }
@@ -8719,6 +8854,35 @@ object DisplayAppLauncher {
             }
         }
         return null
+    }
+
+    fun isFreeformWindowingModeForTest(raw: String?): Boolean {
+        val token = raw.orEmpty().trim().trimEnd('}').lowercase()
+        return token == "freeform" || token == "5"
+    }
+
+    fun hasVisibleFreeformWindowOnDisplayFromStackList(stackList: String, displayId: Int): Boolean {
+        var currentDisplayId: Int? = null
+        var currentWindowingMode: String? = null
+        for (line in stackList.lineSequence()) {
+            val stackMatch = Regex("""Stack id=\d+.*displayId=(\d+)""").find(line)
+            if (stackMatch != null) {
+                currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
+                currentWindowingMode = null
+            }
+            val wmMatch = Regex("""mWindowingMode=(\S+)""").find(line)
+            if (wmMatch != null && currentWindowingMode == null) {
+                currentWindowingMode = wmMatch.groupValues[1]
+            }
+            if (currentDisplayId == displayId &&
+                isFreeformWindowingModeForTest(currentWindowingMode) &&
+                Regex("""taskId=\d+:""").containsMatchIn(line) &&
+                line.contains("visible=true")
+            ) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun findStackIdForPackage(packageName: String, displayId: Int): Int? {

@@ -108,6 +108,7 @@ export class ThemeBridgeAdapter {
             "bsdRight",
             "carPlayInDash",
             "projectionMirrorInDash",
+            "aaClusterInDash",
             "projectionPreparingD3",
             "projectionCardOverlayAllowed",
             "warningActive",

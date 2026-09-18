@@ -13,6 +13,7 @@ import { initWarningHandler } from './components/warningHandler.js';
 import { bridge } from '../../../shared/bridge/ThemeBridgeAdapter.js';
 import { bootstrapThemeFromManifest, themeEngine } from '../../../shared/runtime/clusterRuntime.js';
 import { KEYS, getLabel, translateFriendlyValue, FRIENDLY_KEY_TO_CAN_KEY } from '../../../shared/car/carConstants.js';
+import { parseNavigationDirections } from '../../../shared/tbt/tbtCard.js';
 import { createGraphTelemetryHandler, getAdjustedSpeed } from '../../../shared/car/carDerivations.js';
 import { initSimulationHarness } from '../../../shared/runtime/testing-utils.js';
 import { applyAccent, applyIconColor, DEFAULT_ACCENT, DEFAULT_ICON_COLOR } from './accent.js';
@@ -535,6 +536,19 @@ function handleSteeringWheelKey(keyName) {
             } else if (menuItem.action === 'navigate' && menuItem.screen) {
                 setState('screen', menuItem.screen);
             }
+        } else if (keyName === 'ENTER_LONG' && focusController) {
+            // HEV only: long-press OK toggles Inteligente <-> Prioritário.
+            if (focusController.focusedId !== 'option_2') return;
+            const power = String(bridge.getCarData('car.ev_setting.power_model_config') || '');
+            const mode = String(get('evMode')).toUpperCase().replace(/'/g, '');
+            const isHev = power === '0' || (power === '' && mode === 'HEV');
+            if (!isHev) return;
+            const reserve = String(
+                bridge.getCarData('car.ev_setting.power_reserve_config') || get('hevReserve') || '1'
+            ).trim();
+            const next = reserve === '2' ? '1' : '2';
+            bridge.updateCarData('car.ev_setting.power_reserve_config', next);
+            setState('hevReserve', next);
         }
     } else if (screen === 'aircon') {
         const focusArea = get('focusArea') || 'fan';
@@ -747,6 +761,8 @@ async function initDecentralizedBridge() {
         "car.drive_setting.steering_wheel_assist_mode",
         "car.ev_setting.energy_recovery_level",
         "car.ev.setting.pedal_control_enable",
+        "car.ev_setting.power_reserve_config",
+        "car.ev_setting.charge_soc_target_config",
         "car.hvac.power_mode",
         "car.hvac.fan_speed",
         "car.hvac.driver_temperature",
@@ -799,6 +815,10 @@ async function initDecentralizedBridge() {
         "projectionCardOverlayAllowed"
     ];
 
+    // Seed turn-by-turn from the live cache so a route already running shows on
+    // first paint rather than waiting for the next update.
+    setState('navigationDirections', parseNavigationDirections(bridge.getCarData(KEYS.APP_NAVIGATION_DIRECTIONS)));
+
     bridge.subscribe(keysToSubscribe, (key, value) => {
         if (handleGraphTelemetry(key, value)) return;
 
@@ -808,6 +828,9 @@ async function initDecentralizedBridge() {
         }
 
         switch (key) {
+            case "app.navigation.directions":
+                setState('navigationDirections', parseNavigationDirections(value));
+                break;
             case "car.basic.total_odometer":
                 setState('odometer', val);
                 break;
@@ -836,6 +859,12 @@ async function initDecentralizedBridge() {
             }
             case "car.ev.setting.pedal_control_enable":
                 setState('onepedal', value === "1" || value === 1 || value === "true" || value === true);
+                break;
+            case "car.ev_setting.power_reserve_config":
+                setState('hevReserve', String(value));
+                break;
+            case "car.ev_setting.charge_soc_target_config":
+                setState('hevSocTarget', Number(value) || 50);
                 break;
             case "car.hvac.power_mode":
                 setState('power', val);
@@ -981,7 +1010,9 @@ window.control = function (key, value) {
         }
         logger.enter('window.control', { key, value });
         let val = value;
-        if (FRIENDLY_KEY_TO_CAN_KEY[key]) {
+        if (key === 'onepedal') {
+            val = value === true || value === '1' || value === 1 || value === 'true';
+        } else if (FRIENDLY_KEY_TO_CAN_KEY[key]) {
             // Raw CAN value pushed under a friendly display key (e.g. espStatus
             // '1') -> translate to its label via the shared car constants table.
             // Covers the native card-entry/snapshot refresh path, which pushes

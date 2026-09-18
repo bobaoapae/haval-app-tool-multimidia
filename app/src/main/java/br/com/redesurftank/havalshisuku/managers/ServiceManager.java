@@ -60,6 +60,7 @@ import br.com.redesurftank.havalshisuku.listeners.IServiceManagerEvent;
 import br.com.redesurftank.havalshisuku.models.CarConstants;
 import br.com.redesurftank.havalshisuku.models.CarInfo;
 import br.com.redesurftank.havalshisuku.models.ClusterKey;
+import br.com.redesurftank.havalshisuku.models.PowerFlow;
 import br.com.redesurftank.havalshisuku.models.MainUiManager;
 import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
@@ -75,6 +76,8 @@ import rikka.shizuku.ShizukuBinderWrapper;
 @SuppressLint("PrivateApi")
 public class ServiceManager {
     private static final String TAG = "ServiceManager";
+    /** Public request to re-broadcast every cached car value. See the receiver in init. */
+    public static final String ACTION_REQUEST_SNAPSHOT = "com.haval.vehicle.REQUEST_SNAPSHOT";
     public static final CarConstants[] DEFAULT_KEYS = {
             CarConstants.CAR_BASIC_ACCUMULATED_DIRVETIME,
             CarConstants.CAR_BASIC_GEAR_STATUS,
@@ -103,12 +106,34 @@ public class ServiceManager {
             CarConstants.CAR_BASIC_TOTAL_ODOMETER,
             CarConstants.CAR_BASIC_VEHICLE_SPEED,
             CarConstants.CAR_BASIC_WINDOW_STATUS,
+            // Glass roof state, consumed by the H6 3D viewer (com.havalh6.viewer)
+            // over the public telemetry broadcast. Read-only: nothing in
+            // OnDataChanged branches on either key.
+            CarConstants.CAR_BASIC_SUNROOF_STATUS,
+            CarConstants.CAR_BASIC_SUNSHADE_STATUS,
+            // Position/DRL hunt: no published key tracks the front position lamp
+            // (verified lit across three vehicle states with every *_light_status
+            // at 0). These are the last unsubscribed light candidates.
+            CarConstants.CAR_CONFIGURE_AUTO_HEADLIGHT,
+            CarConstants.CAR_CONFIGURE_LIGHT_AUTO_SWITCH_SYSTEM,
+            CarConstants.CAR_CONFIGURE_COMB_FRONT_LIGHT_SRC,
+            CarConstants.CAR_CONFIGURE_PARKING_LIGHT,
+            // Regen level — the only plausible proxy for brake lamps, since no
+            // brake-pedal key exists anywhere in CarConstants.
+            CarConstants.CAR_EV_INFO_ENERGY_RECOVERY_INFO,
+            // Brake lamps: AutoHold keeps brake pressure applied at a standstill,
+            // which is exactly the case a deceleration-derived brake cannot see.
+            // EPB state distinguishes "parked" from "held".
+            CarConstants.CAR_INTELLIGENT_DRIVING_INFO_AUTO_HOLD_STATE,
+            CarConstants.CAR_BASIC_EPB_STATE,
             CarConstants.CAR_DMS_WORK_STATE,
             CarConstants.CAR_EV_SETTING_AVAS_CONFIG,
             CarConstants.CAR_EV_SETTING_AVAS_ENABLE,
             CarConstants.CAR_EV_INFO_CUR_BATTERY_POWER_PERCENTAGE,
             CarConstants.CAR_EV_INFO_ENERGY_OUTPUT_PERCENTAGE,
             CarConstants.CAR_EV_INFO_POWER_BATTERY_VOLTAGE,
+            CarConstants.CAR_BASIC_BATTERY_VOLTAGE,
+            CarConstants.CAR_BASIC_BATTERY_POWER_LEVEL,
             CarConstants.CAR_FRS_SETTING_DISTRACTION_DETECTION_ENABLE,
             CarConstants.CAR_HVAC_ANION_ENABLE,
             CarConstants.CAR_HVAC_BLOWER_MODE,
@@ -160,6 +185,21 @@ public class ServiceManager {
             CarConstants.CAR_BASIC_TIREPRESS_WARNING,
             CarConstants.CAR_BASIC_TIRETEMP_WARNING,
             CarConstants.CAR_BASIC_TPMS_WARNING,
+            // The *_WARNING keys above are flags ({0,0,0,0}), not readings, which is why nothing
+            // could show a tyre pressure: the key that carries the actual data was never
+            // subscribed, so it was never dispatched. Measured on the car 2026-09-09, parked:
+            //
+            //   car.basic.tpms_status = {2.48922,25.0,2.48922,24.0,2.2559,24.0,2.48922,24.0}
+            //   car.basic.tpms_units  = 1
+            //
+            // i.e. 8 values = 4 wheels x (pressure in bar, temperature in C); the temperatures
+            // sat on ambient (outside_temp 23.0) as a parked car's should. Wheel order is assumed
+            // to follow tirepress_warning's, but has NOT been confirmed against the physical
+            // corners. NOMINAL_TIRE_PRESSURE reads 0 and looks useless; it stays subscribed so a
+            // non-zero value would surface rather than being written off a second time.
+            CarConstants.CAR_BASIC_TPMS_STATUS,
+            CarConstants.CAR_BASIC_TPMS_UNITS,
+            CarConstants.CAR_CONFIGURE_NOMINAL_TIRE_PRESSURE,
             CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQLEFT,
             CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQRIGHT,
             CarConstants.CAR_IPK_INFO_DOW_WARNING_REQLEFT,
@@ -173,6 +213,8 @@ public class ServiceManager {
             CarConstants.CAR_IPK_LIGHT_TPMS_WARNING,
             CarConstants.CAR_BASIC_ENGINE_SPEED,
             CarConstants.CAR_EV_INFO_INSTANT_ENERGY_CONSUMPTION,
+            CarConstants.CAR_EV_INFO_ENERGY_DRIVE_STATE,
+            CarConstants.CAR_EV_INFO_CHARGING_STATE,
             CarConstants.CAR_IPK_LIGHT_FUEL_LOW,
             CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT,
             CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT_SIGN_STATUS,
@@ -188,7 +230,14 @@ public class ServiceManager {
             CarConstants.CAR_BASIC_REMAIN_ODOMETER,
             CarConstants.CAR_BASIC_CUR_JOURNEY_AVG_FUEL_CONSUME,
             CarConstants.CAR_EV_INFO_AVG_ENERGY_CONSUME_INFO_SINCE_STARTUP,
-            CarConstants.CAR_EV_INFO_POWER_BATTERY_CURRENT
+            CarConstants.CAR_EV_INFO_POWER_BATTERY_CURRENT,
+            // Fluxo / POWER widget in com.havalh6.viewer (BeanEnergyAssistant
+            // energy flow). Without these the viewer gets V×I + SOC but motors
+            // and lanes stay on Parado — energy_drive_state never arrives.
+            CarConstants.CAR_EV_INFO_ENERGY_DRIVE_STATE,
+            CarConstants.CAR_EV_INFO_CYCLE_ENERGY_CONSUME_INFO,
+            CarConstants.CAR_EV_INFO_CHARGING_STATE,
+            CarConstants.CAR_CONFIGURE_EV_DRIVE_ARCHITECTURE
     };
 
     private static final CarConstants[] KEYS_TO_SAVE = {
@@ -246,6 +295,7 @@ public class ServiceManager {
     private final List<IDataChanged> dataChangedListeners;
     private final List<IServiceManagerEvent> serviceManagerEventListeners;
     private final Map<String, String> dataCache;
+    private final PowerFlowTracker powerFlowTracker;
     private SharedPreferences sharedPreferences;
     private Boolean closeWindowDueToeSpeed = false;
     private Boolean closeSunroofDueToeSpeed = false;
@@ -265,6 +315,9 @@ public class ServiceManager {
     private IClusterCallback.Stub clusterCallback;
     private boolean servicesInitialized = false;
     private boolean hasRunStartupCurtainAutomation = false;
+    // Armado no init, consumido por quem chegar primeiro (evento de driving_ready, leitura tardia
+    // ou fallback). compareAndSet garante disparo único mesmo com a thread do binder concorrendo.
+    private final java.util.concurrent.atomic.AtomicBoolean curtainAutomationArmed = new java.util.concurrent.atomic.AtomicBoolean(false);
     // Cortina automática por horário — guarda "uma vez por ENTRADA na janela". Reseta ao SAIR
     // da janela (respeita ajuste manual e permite disparar de novo na próxima entrada).
     private boolean curtainOpenActedThisWindow = false;
@@ -294,6 +347,16 @@ public class ServiceManager {
     // sem retry ela simplesmente nunca abriria. 6 tentativas x 5s = 30s cobre o boot deste OEM.
     private static final long CURTAIN_TEMP_RETRY_MS = 5000L;
     private static final int CURTAIN_TEMP_MAX_ATTEMPTS = 6;
+    // Comandar a cortina aos ~25-45s do boot não funciona: o módulo do teto ainda não executa o
+    // comando (visto em 20/08 20:10 e 21/08 06:28 — set_100 com levelBefore=0 e a cortina fechada).
+    // Espera driving_ready + settle antes de mandar. Tudo é event-driven/timer: nenhum polling,
+    // nada roda durante a janela de boot.
+    private static final long CURTAIN_SETTLE_AFTER_READY_MS = 20000L;
+    // Cobre o caso "app subiu com o carro já ligado": a transição de driving_ready não vem mais,
+    // então uma única leitura ao vivo (bem depois do boot) resolve. O cache não serve: é defasado.
+    private static final long CURTAIN_READY_CHECK_DELAY_MS = 30000L;
+    // Rede de segurança: se nem evento nem leitura confirmarem, tenta assim mesmo.
+    private static final long CURTAIN_ARM_FALLBACK_MS = 120000L;
     private static final long RADIO_RESTORE_RETRY_MS = 4000L;
     // 8 tentativas x 4s ≈ 28s: o tether (hotspot) pode demorar a subir no boot deste OEM.
     // O loop para assim que o rádio liga, então tentativas extras são de graça p/ o BT (rápido).
@@ -327,16 +390,16 @@ public class ServiceManager {
     private boolean isClusterHeartbeatRunning = false;
     private int clusterHeartBeatCount = 0;
     private int clusterCardView = 0;
-    private static final int[] CLUSTER_CARD_SEQUENCE = new int[] {0, 1, 3};
+    // False until the car's first msgId=133 is accepted. Until then clusterCardView is still its
+    // initial 0, which means "we have not synced", not "the map is showing" — the sync policy
+    // needs to tell those apart or it swallows the car's opening report.
+    private volatile boolean hasSyncedNativeClusterCard = false;
     private long lastClusterInputAtMs = 0L;
     private int lastClusterInputKeyCode = -1;
     private String lastClusterInputKeyName = "";
     private static final long CLUSTER_INPUT_DEDUP_WINDOW_MS = 220L;
     private int lastHandledClusterInputKeyCode = -1;
     private long lastHandledClusterInputAtMs = 0L;
-    private long lastSyntheticClusterCardNavigationAtMs = 0L;
-    private int lastSyntheticClusterCardTarget = -1;
-    private volatile boolean syntheticAirconCardOwned = false;
     // Cluster callback liveness. The car's ClusterService keeps callbacks registered by
     // previous instances of this process; when it hits a dead one it throws
     // DeadObjectException while dispatching (seen in its own logs), after which card
@@ -550,6 +613,7 @@ public class ServiceManager {
         dataChangedListeners = new ArrayList<>();
         dataCache = new HashMap<>();
         serviceManagerEventListeners = new ArrayList<>();
+        powerFlowTracker = new PowerFlowTracker();
     }
 
     public static synchronized ServiceManager getInstance() {
@@ -569,6 +633,8 @@ public class ServiceManager {
 
         servicesInitialized = true;
         timeInitialized = SystemClock.uptimeMillis();
+        AndroidAutoClusterController.INSTANCE.start();
+        br.com.redesurftank.havalshisuku.services.AndroidAutoNavigationMonitor.INSTANCE.start(context);
 
         Log.w(TAG, "Starting SimulatorGateway");
         try {
@@ -745,52 +811,21 @@ public class ServiceManager {
                                 lastClusterInputAtMs == 0L
                                         ? -1L
                                         : now - lastClusterInputAtMs;
-                        long sinceSyntheticMs =
-                                lastSyntheticClusterCardNavigationAtMs == 0L
-                                        ? -1L
-                                        : now - lastSyntheticClusterCardNavigationAtMs;
-                        boolean protectAirconProjectionExit =
-                                DisplayAppLauncher.INSTANCE.shouldProtectAirconCardDuringCarPlayClusterTransition();
-                        boolean protectSyntheticAirconExit = syntheticAirconCardOwned;
-                        if (ClusterCardSyncPolicy.shouldIgnoreNativeClusterCardChanged(
-                                previousCard,
-                                whichCard,
-                                sinceInputMs,
-                                lastClusterInputKeyCode,
-                                sinceSyntheticMs,
-                                lastSyntheticClusterCardTarget,
-                                protectAirconProjectionExit,
-                                protectSyntheticAirconExit
-                        )) {
-                            Log.w(
-                                    TAG,
-                                    "Ignoring stale native cluster card change: "
-                                            + previousCard + " -> " + whichCard
-                                            + " lastInputKey=" + lastClusterInputKeyName
-                                            + "(" + lastClusterInputKeyCode + ")"
-                                            + " sinceInputMs=" + sinceInputMs
-                                            + " syntheticTarget=" + lastSyntheticClusterCardTarget
-                                            + " sinceSyntheticMs=" + sinceSyntheticMs
-                                            + " protectAirconProjectionExit=" + protectAirconProjectionExit
-                                            + " protectSyntheticAirconExit=" + protectSyntheticAirconExit
-                            );
-                            logPersistentClusterEvent(
-                                    "native_cluster_card_ignored",
-                                    "from=" + previousCard + " to=" + whichCard
-                                            + " lastInputKey=" + lastClusterInputKeyName
-                                            + "(" + lastClusterInputKeyCode + ")"
-                                            + " sinceInputMs=" + sinceInputMs
-                                            + " syntheticTarget=" + lastSyntheticClusterCardTarget
-                                            + " sinceSyntheticMs=" + sinceSyntheticMs
-                                            + " protectAirconProjectionExit=" + protectAirconProjectionExit
-                                            + " protectSyntheticAirconExit=" + protectSyntheticAirconExit
-                            );
+                        // The car owns the active card, so the only report worth skipping is one
+                        // restating the card we already hold — and even that must go through once,
+                        // so a theme whose static initial cardId is not 0 gets corrected on boot.
+                        //
+                        // Nothing else is filtered. The previous ClusterCardSyncPolicy also rejected
+                        // "spontaneous" rises to the menu/aircon card, on the theory that the OEM
+                        // raised them by itself on passive climate activity. Three days of on-car
+                        // logs did not contain a single such event: every rise it suppressed was the
+                        // car truthfully answering "which card am I on?" seconds after our callback
+                        // registered, which is exactly when previousCard is still its initial 0.
+                        if (whichCard == previousCard && hasSyncedNativeClusterCard) {
                             return;
                         }
                         clusterCardView = whichCard;
-                        if (previousCard == 3 && whichCard != 3) {
-                            syntheticAirconCardOwned = false;
-                        }
+                        hasSyncedNativeClusterCard = true;
                         // Fan-out runs off the car's binder thread. dispatchServiceManagerEvent
                         // notifies every listener synchronously, and this callback is invoked by
                         // com.autolink.clusterservice — holding its thread risks it treating the
@@ -812,10 +847,6 @@ public class ServiceManager {
                                         + lastClusterInputKeyCode
                                         + ") sinceInputMs="
                                         + sinceInputMs
-                                        + " protectAirconProjectionExit="
-                                        + protectAirconProjectionExit
-                                        + " protectSyntheticAirconExit="
-                                        + protectSyntheticAirconExit
                         );
                         logPersistentClusterEvent(
                                 "native_cluster_card_changed",
@@ -824,8 +855,6 @@ public class ServiceManager {
                                         + " lastInputKey=" + lastClusterInputKeyName
                                         + "(" + lastClusterInputKeyCode + ")"
                                         + " sinceInputMs=" + sinceInputMs
-                                        + " protectAirconProjectionExit=" + protectAirconProjectionExit
-                                        + " protectSyntheticAirconExit=" + protectSyntheticAirconExit
                         );
                     } else if (msgId == 134) {
                         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
@@ -1010,18 +1039,9 @@ public class ServiceManager {
                                 lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
                                 lastHandledClusterInputAtMs = now;
                                 // refreshClusterCallbackIfStale(); // Disabled: unregistering/re-registering callback drops native 133 events
-                                if (ClusterCardNavigationPolicy.isCardNavigationKey(key)) {
-                                    // Keep the v301 immediate synthetic transition while the car's
-                                    // msgId=133 echo remains the eventual source of confirmation.
-                                    handleClusterCardNavigationKey(key);
-                                } else {
-                                    if (ClusterCardSyncPolicy.shouldReleaseSyntheticAirconOwnershipForInput(
-                                            lastClusterInputKeyCode
-                                    )) {
-                                        syntheticAirconCardOwned = false;
-                                        lastSyntheticClusterCardNavigationAtMs = 0L;
-                                        lastSyntheticClusterCardTarget = -1;
-                                    }
+                                {
+                                    // LEFT/RIGHT are NOT predicted here. The wheel drives the car
+                                    // directly; we learn the resulting card only from msgId=133.
                                     if (key == ClusterKey.BACK) {
                                         dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
                                     }
@@ -1174,6 +1194,26 @@ public class ServiceManager {
                 }
             }, wifiFilter);
 
+            // Snapshot on request. External consumers (the H6 3D viewer) start
+            // long after this service and would otherwise see nothing until a
+            // value happens to change — a car parked with its lights on looks
+            // identical to one with them off. dispatchAllData() re-broadcasts
+            // current values through dispatchTelemetryOnly, so this only reads
+            // and publishes; it never actuates hardware.
+            IntentFilter snapshotFilter = new IntentFilter(ACTION_REQUEST_SNAPSHOT);
+            context.registerReceiver(new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (!ACTION_REQUEST_SNAPSHOT.equals(intent.getAction())) return;
+                    Log.w(TAG, "Telemetry snapshot requested by " + intent.getStringExtra("requester"));
+                    // backgroundHandler is nulled on teardown while this receiver
+                    // may still be registered.
+                    Handler handler = backgroundHandler;
+                    if (handler == null) return;
+                    handler.post(() -> dispatchAllData());
+                }
+            }, snapshotFilter);
+
             dispatchAllData();
             if (sharedPreferences.getBoolean(SharedPreferencesKeys.SET_STARTUP_VOLUME.getKey(), false)) {
                 int vol = sharedPreferences.getInt(SharedPreferencesKeys.STARTUP_VOLUME.getKey(), -1);
@@ -1193,6 +1233,8 @@ public class ServiceManager {
         }
 
         servicesInitialized = true;
+        AndroidAutoClusterController.INSTANCE.start();
+        br.com.redesurftank.havalshisuku.services.AndroidAutoNavigationMonitor.INSTANCE.start(context);
         synchronized (pendingTasks) {
             for (Runnable task : pendingTasks) backgroundHandler.post(task);
             pendingTasks.clear();
@@ -1205,12 +1247,16 @@ public class ServiceManager {
         Log.w(TAG, "Services initialized successfully");
         boolean curtainOnStartEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
         traceCurtain("sunroof_curtain_init", "enabled", curtainOnStartEnabled, "hasRun", hasRunStartupCurtainAutomation);
-        if (!hasRunStartupCurtainAutomation) {
-            hasRunStartupCurtainAutomation = true;
-            // Avalia agora (caso ligue já dentro da janela) e passa a se auto-reagendar p/ o
-            // próximo boundary. O listener cobre habilitar/mudar a config depois, sem polling.
+        if (!hasRunStartupCurtainAutomation && !curtainAutomationArmed.get()) {
+            // O listener cobre habilitar/mudar a config depois, sem polling.
             registerCurtainPrefsListener();
-            backgroundHandler.post(curtainScheduleRunnable);
+            // A primeira avaliação da agenda NÃO roda no boot: comandar o teto aos ~25-45s não pega
+            // (ver CURTAIN_SETTLE_AFTER_READY_MS). Arma e deixa driving_ready (ou leitura tardia /
+            // fallback) disparar; daí em diante a própria agenda se reagenda p/ o próximo boundary.
+            boolean curtainCloseOnTimeEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CLOSE_SUNROOF_CURTAIN_ON_TIME.getKey(), false);
+            if (curtainOnStartEnabled || curtainCloseOnTimeEnabled) {
+                armStartupCurtainAutomation();
+            }
         }
         scheduleStartupReportReconciliations();
         // HEV Prioritário: no boot o carro costuma resetar o % (ex.: 45->80) e o app pode subir
@@ -1717,58 +1763,6 @@ public class ServiceManager {
                 || "SportRedLite".equalsIgnoreCase(activeTheme);
     }
 
-    private void handleClusterCardNavigationKey(ClusterKey key) {
-        int currentCard = clusterCardView;
-        if (!isKnownClusterCard(currentCard) && isLegacySportThemeActive()) {
-            currentCard = MainUiManager.getInstance().getCurrentCard();
-        }
-        if (!isKnownClusterCard(currentCard)) {
-            currentCard = 0;
-        }
-
-        int currentIndex = indexOfClusterCard(currentCard);
-        int direction = key == ClusterKey.RIGHT ? 1 : -1;
-        int nextIndex =
-                (currentIndex + direction + CLUSTER_CARD_SEQUENCE.length)
-                        % CLUSTER_CARD_SEQUENCE.length;
-        int nextCard = CLUSTER_CARD_SEQUENCE[nextIndex];
-        int previousCard = clusterCardView;
-        clusterCardView = nextCard;
-        lastSyntheticClusterCardNavigationAtMs = SystemClock.uptimeMillis();
-        lastSyntheticClusterCardTarget = nextCard;
-        syntheticAirconCardOwned = nextCard == 3;
-
-        Log.w(
-                TAG,
-                "Synthetic cluster card navigation: "
-                        + currentCard + " -> " + nextCard
-                        + " key=" + key
-                        + " previousServiceCard=" + previousCard
-        );
-        logPersistentClusterEvent(
-                "synthetic_cluster_card_navigation",
-                "from=" + currentCard
-                        + " to=" + nextCard
-                        + " key=" + key
-                        + " previousServiceCard=" + previousCard
-        );
-        dispatchClusterEventOffBinderThread(
-                ServiceManagerEventType.CLUSTER_CARD_CHANGED,
-                clusterCardView
-        );
-    }
-
-    private boolean isKnownClusterCard(int card) {
-        return indexOfClusterCard(card) >= 0;
-    }
-
-    private int indexOfClusterCard(int card) {
-        for (int i = 0; i < CLUSTER_CARD_SEQUENCE.length; i++) {
-            if (CLUSTER_CARD_SEQUENCE[i] == card) return i;
-        }
-        return -1;
-    }
-
     private void handleSteeringWheelProjectionDisplayToggle(int button) {
         long now = SystemClock.uptimeMillis();
         boolean duplicateToggle =
@@ -1994,6 +1988,25 @@ public class ServiceManager {
         }
     }
 
+    /**
+     * Test-only replay of a cluster key through the same InputService listener
+     * path. Used by TestKeyInjectReceiver when its token gate is armed.
+     */
+    public boolean injectMappedClusterKey(int keyCode, int keyAction) {
+        IInputListener.Stub listener = inputListener;
+        if (listener == null) {
+            Log.w(TAG, "injectMappedClusterKey ignored: input listener not bound key=" + keyCode);
+            return false;
+        }
+        try {
+            listener.dispatchKeyEvent(new KeyEvent(keyAction, keyCode));
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "injectMappedClusterKey failed key=" + keyCode, e);
+            return false;
+        }
+    }
+
     public void dispatchAllData() {
         IIntelligentVehicleControlService svc = controlService;
         if (!isControlServiceAlive(svc)) return;
@@ -2007,8 +2020,20 @@ public class ServiceManager {
                     }
                 }
             }
+            dispatchSyntheticTelemetrySnapshot();
         } catch (Exception e) {
             Log.e(TAG, "Error dispatching data", e);
+        }
+    }
+
+    private void dispatchSyntheticTelemetrySnapshot() {
+        // Constant, so it is published rather than cached: every snapshot carries it.
+        dispatchTelemetryOnly(AndroidAutoTelemetryKeys.API_VERSION, AndroidAutoTelemetryKeys.API_VERSION_VALUE);
+        for (String key : AndroidAutoTelemetryKeys.SYNTHETIC_KEYS) {
+            String value = dataCache.get(key);
+            if (value != null) {
+                dispatchTelemetryOnly(key, value);
+            }
         }
     }
 
@@ -2459,8 +2484,22 @@ public class ServiceManager {
         return new HashMap<>(dataCache);
     }
 
+    /** Cache-only read. Does not hit the vehicle control service. */
+    public String peekCachedData(String key) {
+        return dataCache.get(key);
+    }
+
+    /**
+     * Normalizes telemetry values before caching and dispatching.
+     * Delegates to {@link BatteryVoltageFilter}.
+     */
+    static String normalizeTelemetryValue(String key, String value) {
+        return BatteryVoltageFilter.normalize(key, value);
+    }
+
     public void dispatchTelemetryOnly(String key, String value) {
         if (key == null || value == null) return;
+        value = normalizeTelemetryValue(key, value);
         // Internal package-scoped broadcasts for havalshisuku UI components
         Intent broadcastIntent = new Intent("android.intent.haval." + key);
         broadcastIntent.putExtra("key", key);
@@ -2486,11 +2525,36 @@ public class ServiceManager {
             }
         }
         dataCache.put(key, value);
+        maybePublishPowerFlow(key);
+    }
+
+    /**
+     * Recompute the derived hybrid flow after a raw CAN write. Synthetic
+     * keys must not re-enter. RPM is hot; only dispatch when the packed
+     * mode string actually changes.
+     */
+    private void maybePublishPowerFlow(String key) {
+        if (PowerFlow.KEY_FLOW.equals(key) || PowerFlow.KEY_ICE.equals(key)) return;
+        try {
+            PowerFlow flow = powerFlowTracker.ingest(key, dataCache);
+            if (flow == null) return;
+            dispatchTelemetryOnly(PowerFlow.KEY_FLOW, flow.pack());
+            dispatchTelemetryOnly(PowerFlow.KEY_ICE, flow.getIceOn() ? "1" : "0");
+        } catch (Exception e) {
+            Log.w(TAG, "power flow derive failed", e);
+        }
     }
 
     public void OnDataChanged(String key, String value) {
         if (key != null && key.contains("door")) {
             Log.w(TAG, "[DOOR_DEBUG] key=" + key + " value=" + value);
+        }
+        if (value != null) {
+            String normalized = BatteryVoltageFilter.normalize(key, value);
+            if (BatteryVoltageFilter.shouldSuppress(key, normalized, dataCache.get(key))) {
+                return;
+            }
+            value = normalized;
         }
         dispatchTelemetryOnly(key, value);
         // Antes de qualquer gate: com o Modo Concessionária ativo esta é a porta de saída, e ela
@@ -2639,6 +2703,8 @@ public class ServiceManager {
                     }
                     // Ao ligar o carro, reaplica o % de bateria do HEV Prioritario (o carro costuma resetar).
                     applyHevSocTargetIfActive("POWER_ON");
+                    // Carro pronto: é aqui que a cortina pode ser comandada com o módulo do teto acordado.
+                    triggerStartupCurtainAutomation("driving_ready_event");
                 }
             } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
                 syncDriverSeatVentilationWithHvac(value, "HVAC_POWER_EVENT");
@@ -2739,8 +2805,8 @@ public class ServiceManager {
         try {
             int[] windowsStatus = vehicle.getWindowsStatus(0);
             for (int i = 0; i < windowsStatus.length; i++) {
-                if (windowsStatus[i] != 1) {
-                    vehicle.setWindowStatus(i, 1);
+                if (windowsStatus[i] != WINDOW_CLOSED) {
+                    vehicle.setWindowStatus(i, WINDOW_CLOSED);
                 }
             }
             return true;
@@ -2749,6 +2815,46 @@ public class ServiceManager {
             return false;
         }
     }
+
+    /**
+     * IVehicle mirror fold: 0 = folded, 1 = unfolded.
+     * Commented out 2026-09-10: on this GWM config the binder call succeeds
+     * ({@code ok=true}) but never changes
+     * {@code car.drive.setting.outside_view_mirror_fold_state}. Voice-adapter
+     * {@code isSupportRearViewMirrorFold} also requires
+     * {@code persist.vendor.gwm.cfg.osrvm.fold.virtual.sw.control == 1}; even
+     * with that forced to 1 after reboot the set remained a no-op.
+     */
+    // public boolean foldMirrors() {
+    //     try {
+    //         vehicle.setRearViewMirrorFoldState(0);
+    //         return true;
+    //     } catch (Exception e) {
+    //         Log.e(TAG, "Error folding mirrors", e);
+    //         return false;
+    //     }
+    // }
+    //
+    // public boolean unfoldMirrors() {
+    //     try {
+    //         vehicle.setRearViewMirrorFoldState(1);
+    //         return true;
+    //     } catch (Exception e) {
+    //         Log.e(TAG, "Error unfolding mirrors", e);
+    //         return false;
+    //     }
+    // }
+    //
+    // public boolean toggleMirrors() {
+    //     try {
+    //         int state = vehicle.getRearViewMirrorFoldState();
+    //         vehicle.setRearViewMirrorFoldState(state == 0 ? 1 : 0);
+    //         return true;
+    //     } catch (Exception e) {
+    //         Log.e(TAG, "Error toggling mirrors", e);
+    //         return false;
+    //     }
+    // }
 
     public void closeSunRoof(boolean checkCloseShade) {
         try {
@@ -2803,6 +2909,322 @@ public class ServiceManager {
             Log.e(TAG, "Error opening shade screens", e);
             traceCurtain("sunroof_curtain_actuate_error", "error", String.valueOf(e));
         }
+    }
+
+    /**
+     * Hotspot / viewer body commands. Returns false when the vehicle binder is
+     * not ready or the command is unknown.
+     */
+    public boolean invokeVehicleCommand(String command, String value) {
+        if (command == null || command.isEmpty()) return false;
+        if (vehicle == null) {
+            Log.w(TAG, "invokeVehicleCommand: vehicle binder not ready (" + command + ")");
+            return false;
+        }
+        try {
+            switch (command) {
+                case "open_windows":
+                    return openAllWindows();
+                case "close_windows":
+                    return closeAllWindow();
+                case "toggle_windows":
+                    return toggleAllWindows();
+                case "toggle_window_fl":
+                    return toggleWindow(0);
+                case "toggle_window_fr":
+                    return toggleWindow(1);
+                case "toggle_window_rl":
+                    return toggleWindow(2);
+                case "toggle_window_rr":
+                    return toggleWindow(3);
+                case "open_sunroof":
+                    return setSunroofLevel(100);
+                case "close_sunroof":
+                    closeSunRoof(false);
+                    return true;
+                case "toggle_sunroof":
+                    return toggleSunRoof();
+                case "open_curtain":
+                    openSunRoofShade();
+                    return true;
+                case "close_curtain":
+                    closeSunRoofShade();
+                    return true;
+                case "toggle_curtain":
+                    return toggleCurtain();
+                case "set_curtain_level":
+                    return setCurtainLevel(parseLevel(value));
+                case "set_sunroof_level":
+                    return setSunroofLevel(parseLevel(value));
+                case "set_windows_level":
+                    return setWindowsLevel(parseLevel(value));
+                case "toggle_trunk":
+                    return toggleDoor(5);
+                case "toggle_door_fl":
+                    return toggleDoor(0);
+                case "toggle_door_fr":
+                    return toggleDoor(1);
+                case "toggle_door_rl":
+                    return toggleDoor(2);
+                case "toggle_door_rr":
+                    return toggleDoor(3);
+                case "toggle_doors_all":
+                    return toggleAllDoors();
+                // case "fold_mirrors":
+                //     return foldMirrors();
+                // case "unfold_mirrors":
+                //     return unfoldMirrors();
+                // case "toggle_mirrors":
+                //     return toggleMirrors();
+                default:
+                    Log.w(TAG, "Unknown vehicle command: " + command);
+                    return false;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "invokeVehicleCommand failed: " + command, e);
+            return false;
+        }
+    }
+
+    private static int parseLevel(String value) {
+        if (value == null || value.isEmpty()) return 0;
+        try {
+            return Math.max(0, Math.min(100, Integer.parseInt(value.trim())));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Window vocabulary, measured on the car 2026-09-09 by moving the driver window by hand and
+     * reading car.basic.window_status after each position:
+     *
+     *   1 = closed        2 = fully open        3 = partially open
+     *
+     * Index 0 is the driver window (only slot 0 moved). This method used to write 0 to open, which
+     * is not in that vocabulary at all: sending open_windows left {1,1,1,1} untouched, while
+     * close_windows (writing 1) closed a fully open window in the same session. So the command side
+     * speaks the same vocabulary as the status side, and "open" is 2.
+     *
+     * setWindowStatus is a passthrough - the voice adapter packs {index,status} into
+     * car.basic.window_control_action - so nothing below the adapter constrains these values.
+     */
+    public static final int WINDOW_CLOSED = 1;
+    public static final int WINDOW_OPEN = 2;
+    public static final int WINDOW_PARTIAL = 3;
+
+    /**
+     * Windows have no intermediate position, so a "level" can only ever mean open or shut.
+     *
+     * There is no stop command. Measured on the car 2026-09-09 by interrupting a 2.5s travel at
+     * 1000ms and sampling window_status every 500ms afterwards: repeating the same command is
+     * ignored, the opposite command reverses and runs to completion, and raw 0 (the moving state),
+     * 3 (partially open) and 4 (out of range) were all ignored. Every run finished its travel.
+     *
+     * So timed positioning - open for 40% of travel, then halt - is impossible, and a percentage
+     * cannot be honoured. The threshold keeps a dragged UI control meaningful: past halfway opens,
+     * below it closes.
+     */
+    public boolean setWindowsLevel(int level) {
+        return level >= 50 ? openAllWindows() : closeAllWindow();
+    }
+
+    /**
+     * One corner. Slot order is front-left, front-right, rear-left, rear-right, confirmed on the
+     * car because only slot 0 moved while the driver's window did.
+     *
+     * Anything not CLOSED shuts, so a partially open window (3) closes rather than opening
+     * further - there is no "open a bit more" to ask for. A corner reading 0 is mid-travel; the
+     * car ignores commands during travel anyway, so this reports false instead of pretending.
+     */
+    public boolean toggleWindow(int index) {
+        try {
+            int[] windowsStatus = vehicle.getWindowsStatus(0);
+            if (index < 0 || index >= windowsStatus.length) {
+                Log.w(TAG, "toggleWindow: index " + index + " outside " + windowsStatus.length);
+                return false;
+            }
+            int current = windowsStatus[index];
+            if (current == 0) {
+                Log.w(TAG, "toggleWindow(" + index + "): glass is moving, ignoring");
+                return false;
+            }
+            int target = current == WINDOW_CLOSED ? WINDOW_OPEN : WINDOW_CLOSED;
+            Log.w(TAG, "toggleWindow(" + index + "): " + current + " -> " + target);
+            vehicle.setWindowStatus(index, target);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "toggleWindow failed for index " + index, e);
+            return false;
+        }
+    }
+
+    public boolean openAllWindows() {
+        try {
+            int[] windowsStatus = vehicle.getWindowsStatus(0);
+            for (int i = 0; i < windowsStatus.length; i++) {
+                if (windowsStatus[i] != WINDOW_OPEN) {
+                    vehicle.setWindowStatus(i, WINDOW_OPEN);
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening all windows", e);
+            return false;
+        }
+    }
+
+    /** Anything not CLOSED counts as open, so a partially open window (3) toggles shut. */
+    public boolean toggleAllWindows() {
+        try {
+            int[] windowsStatus = vehicle.getWindowsStatus(0);
+            boolean anyOpen = false;
+            for (int status : windowsStatus) {
+                if (status != WINDOW_CLOSED) {
+                    anyOpen = true;
+                    break;
+                }
+            }
+            for (int i = 0; i < windowsStatus.length; i++) {
+                vehicle.setWindowStatus(i, anyOpen ? WINDOW_CLOSED : WINDOW_OPEN);
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling windows", e);
+            return false;
+        }
+    }
+
+    public boolean toggleSunRoof() {
+        try {
+            int level = vehicle.getSkylightLevel(0);
+            if (level != 0) {
+                vehicle.setSkylightLevel(0);
+            } else {
+                vehicle.setSkylightLevel(100);
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling sunroof", e);
+            return false;
+        }
+    }
+
+    public boolean toggleCurtain() {
+        try {
+            int level = vehicle.getShadeScreensLevel(0);
+            if (level > 50) {
+                closeSunRoofShade();
+            } else {
+                openSunRoofShade();
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling curtain", e);
+            return false;
+        }
+    }
+
+    /** 0–100 UI percent → skylight level (0 / tilt up to 200 / slide up to 100). */
+    public boolean setCurtainLevel(int pct) {
+        try {
+            vehicle.setShadeScreensLevel(pct);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting curtain level", e);
+            return false;
+        }
+    }
+
+    public boolean setSunroofLevel(int pct) {
+        try {
+            int level;
+            if (pct <= 0) {
+                level = 0;
+            } else if (pct <= 25) {
+                level = Math.round(200f * pct / 25f);
+            } else {
+                level = Math.round(100f * (pct - 25f) / 75f);
+            }
+            vehicle.setSkylightLevel(level);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting sunroof level", e);
+            return false;
+        }
+    }
+
+    /**
+     * Door slot matches the viewer's CAR_DOOR_SLOTS (trunk = 5). param2 is
+     * 1 = open, 0 = closed on the voice-adapter binder.
+     */
+    public boolean toggleDoor(int slot) {
+        try {
+            int open = vehicle.isDoorOpened(slot, 0, 0);
+            vehicle.setDoorOpen(slot, open == 1 ? 0 : 1);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling door slot " + slot, e);
+            return false;
+        }
+    }
+
+    /** Toggle only the four passenger doors; the tailgate remains independent. */
+    public boolean toggleAllDoors() {
+        try {
+            boolean anyOpen = false;
+            for (int slot = 0; slot < 4; slot++) {
+                if (vehicle.isDoorOpened(slot, 0, 0) == 1) {
+                    anyOpen = true;
+                    break;
+                }
+            }
+            int target = anyOpen ? 0 : 1;
+            for (int slot = 0; slot < 4; slot++) {
+                vehicle.setDoorOpen(slot, target);
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling all doors", e);
+            return false;
+        }
+    }
+
+    /**
+     * Arma a automação da cortina sem comandar nada agora. Não faz trabalho nenhum no boot:
+     * só marca a flag e agenda dois timers. Quem disparar primeiro (evento de driving_ready,
+     * leitura tardia ou fallback) consome o armamento via compareAndSet.
+     */
+    private void armStartupCurtainAutomation() {
+        if (backgroundHandler == null) return;
+        curtainAutomationArmed.set(true);
+        traceCurtain("sunroof_curtain_armed", "settleMs", CURTAIN_SETTLE_AFTER_READY_MS,
+                "readyCheckMs", CURTAIN_READY_CHECK_DELAY_MS, "fallbackMs", CURTAIN_ARM_FALLBACK_MS);
+
+        // Carro já ligado quando o app subiu: a transição não vem, então confere ao vivo mais tarde.
+        backgroundHandler.postDelayed(() -> {
+            if (!curtainAutomationArmed.get()) return;
+            String readyState = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
+            if (isVehicleReadyStateOn(readyState)) {
+                triggerStartupCurtainAutomation("driving_ready_poll");
+            } else {
+                traceCurtain("sunroof_curtain_wait", "readyState", readyState);
+            }
+        }, CURTAIN_READY_CHECK_DELAY_MS);
+
+        backgroundHandler.postDelayed(() -> triggerStartupCurtainAutomation("fallback_timeout"), CURTAIN_ARM_FALLBACK_MS);
+    }
+
+    /**
+     * Consome o armamento (uma vez só) e, após o settle, faz a primeira avaliação da agenda de
+     * abrir/fechar (evaluateCurtainSchedule), que então se reagenda sozinha.
+     */
+    private void triggerStartupCurtainAutomation(String trigger) {
+        if (!curtainAutomationArmed.compareAndSet(true, false)) return;
+        hasRunStartupCurtainAutomation = true;
+        traceCurtain("sunroof_curtain_trigger", "trigger", trigger, "settleMs", CURTAIN_SETTLE_AFTER_READY_MS);
+        backgroundHandler.removeCallbacks(curtainScheduleRunnable);
+        backgroundHandler.postDelayed(curtainScheduleRunnable, CURTAIN_SETTLE_AFTER_READY_MS);
     }
 
     private void autoOpenSunroofCurtain(int attempt) {
@@ -2873,6 +3295,17 @@ public class ServiceManager {
         }
     }
 
+    /**
+     * Sentinelas de "sinal indisponível/erro" do outside_temp. Sob a escala usual deste
+     * barramento (C = raw * 0.5 - 40), 87.0 e 87.5 são exatamente os raws 254 (0xFE) e
+     * 255 (0xFF) — os codigos classicos de "nao disponivel"/"erro", nao uma temperatura.
+     * Aparecem so em boot frio: em 3 dias de log, todas as leituras reais ficaram entre
+     * 20.5 e 28.0, e as duas unicas fora disso foram 87.0 e 87.5, ambas logo apos o boot.
+     */
+    private static final float[] OUTSIDE_TEMP_INVALID_SENTINELS = {87.0f, 87.5f};
+    private static final float OUTSIDE_TEMP_INVALID_MAX = 85.0f;
+    private static final float OUTSIDE_TEMP_INVALID_MIN = -40.0f;
+
     /** Leitura de outside_temp p/ a cortina; null quando o dado ainda não veio ou não parseia. */
     private Float readOutsideTempForCurtain() {
         String raw = getUpdatedData(CarConstants.CAR_BASIC_OUTSIDE_TEMP.getValue());
@@ -2883,6 +3316,23 @@ public class ServiceManager {
         }
         try {
             float parsed = Float.parseFloat(raw.trim());
+            // Além dos sentinelas exatos, rejeita a faixa fisicamente impossível — mesma banda que
+            // enableMaxAcOnWithRetry já usa p/ inside_temp. Sem isso um 86/88 passaria como "quente".
+            if (parsed >= OUTSIDE_TEMP_INVALID_MAX || parsed <= OUTSIDE_TEMP_INVALID_MIN) {
+                Log.w(TAG, "Outside temp out of plausible range for curtain check (raw=" + raw + ")");
+                traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "out_of_range");
+                return null;
+            }
+            for (float sentinel : OUTSIDE_TEMP_INVALID_SENTINELS) {
+                if (parsed == sentinel) {
+                    // Devolve null de proposito: o chamador ja reagenda (CURTAIN_TEMP_*), que e
+                    // exatamente o que faltava — antes o sentinela parseava, valia como "quente"
+                    // e a cortina era pulada de vez (hasRun fica true e nao tenta mais).
+                    Log.w(TAG, "Outside temp is an invalid sentinel for curtain check (raw=" + raw + ")");
+                    traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "invalid_sentinel");
+                    return null;
+                }
+            }
             traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "ok", "parsed", parsed);
             return parsed;
         } catch (NumberFormatException e) {
@@ -4010,6 +4460,19 @@ public class ServiceManager {
     public boolean isMainScreenOn() {
         try {
             String engineState = getData(CarConstants.CAR_BASIC_ENGINE_STATE.getValue());
+            if (engineState == null) {
+                // Data absent, not "off": getData() returns null while the key is still
+                // missing from dataCache and the control binder isn't alive yet. Callers
+                // hide the whole cluster surface on false and only re-evaluate on an
+                // unrelated event, so a projector that samples inside this window latches
+                // hidden for the rest of the session. Observed 2026-08-24: ProjectorManager
+                // builds display 1 before display 3, D1 sampled null -> hid its background,
+                // D3 sampled a real value moments later -> painted its masks, and the
+                // cluster showed insets framing nothing. Unknown must never read as OFF;
+                // this mirrors the catch below, which already defaults to ON.
+                Log.w(TAG, "[HavalDev] Engine state not available yet; defaulting main screen to ON");
+                return true;
+            }
             return br.com.redesurftank.havalshisuku.models.EngineState.isMainScreenOn(engineState);
         } catch (Exception e) {
             Log.w(TAG, "[HavalDev] Failed to read engine state during visibility check; defaulting main screen to ON", e);
