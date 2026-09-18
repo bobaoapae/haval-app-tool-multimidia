@@ -3,13 +3,18 @@ package br.com.redesurftank.havalshisuku.managers
 import br.com.redesurftank.havalshisuku.models.CarConstants
 import java.util.Locale
 
+import kotlin.math.roundToInt
+
 /**
  * Normalizes and filters telemetry updates for high-frequency or noisy sensors.
  *
- * For 12V battery voltage ([CarConstants.CAR_BASIC_BATTERY_VOLTAGE]), micro-fluctuations in the
- * 2nd decimal place (ADC noise / alternator ripple) are rounded to 1 decimal place (e.g. 14.23 -> 14.2)
- * so that back-to-back CAN messages with identical 1st decimals do not flood Android IPC broadcasts,
- * in-memory listeners, and cluster WebView bridge evaluateJavascript calls.
+ * - For 12V battery voltage ([CarConstants.CAR_BASIC_BATTERY_VOLTAGE]), micro-fluctuations in the
+ *   2nd decimal place (ADC noise / alternator ripple) are rounded to 1 decimal place (e.g. 14.23 -> 14.2).
+ * - For steering wheel angle ([CarConstants.CAR_BASIC_STEERING_WHEEL_ANGLE]), high-frequency SAS sensor
+ *   jitter (20-50 Hz) is rounded to integer degrees (e.g. 14.32° -> 14°).
+ *
+ * Back-to-back events with identical normalized values are suppressed, and metrics are periodically
+ * flushed to Logcat every 10 minutes.
  */
 object BatteryVoltageFilter {
 
@@ -79,6 +84,16 @@ object BatteryVoltageFilter {
                 // Return raw string if not parseable as float
             }
         }
+        if (key == CarConstants.CAR_BASIC_STEERING_WHEEL_ANGLE.value) {
+            try {
+                val angle = value.trim().replace(',', '.').toFloat()
+                if (!angle.isNaN() && !angle.isInfinite()) {
+                    return angle.roundToInt().toString()
+                }
+            } catch (_: NumberFormatException) {
+                // Return raw string if not parseable as float
+            }
+        }
         return value
     }
 
@@ -86,6 +101,7 @@ object BatteryVoltageFilter {
     fun shouldSuppress(key: String, normalizedValue: String?, cachedValue: String?): Boolean {
         val suppress = when (key) {
             CarConstants.CAR_BASIC_BATTERY_VOLTAGE.value -> normalizedValue != null && normalizedValue == cachedValue
+            CarConstants.CAR_BASIC_STEERING_WHEEL_ANGLE.value -> normalizedValue != null && normalizedValue == cachedValue
             else -> false
         }
         if (suppress) {

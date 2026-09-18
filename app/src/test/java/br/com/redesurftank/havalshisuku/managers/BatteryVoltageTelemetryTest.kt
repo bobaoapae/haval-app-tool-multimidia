@@ -102,6 +102,34 @@ class BatteryVoltageTelemetryTest {
         // Counter reset after flush
         assertEquals(0L, tracker.getTotalSuppressed())
     }
+
+    @Test
+    fun steeringWheelAngleRoundsToIntegerDegrees() {
+        val key = CarConstants.CAR_BASIC_STEERING_WHEEL_ANGLE.value
+
+        assertEquals("14", BatteryVoltageFilter.normalize(key, "14.32"))
+        assertEquals("15", BatteryVoltageFilter.normalize(key, "14.8"))
+        assertEquals("-14", BatteryVoltageFilter.normalize(key, "-14.2"))
+        assertEquals("-15", BatteryVoltageFilter.normalize(key, "-14.9"))
+        assertEquals("0", BatteryVoltageFilter.normalize(key, "0.0"))
+        assertEquals("0", BatteryVoltageFilter.normalize(key, " 0,25 "))
+        assertEquals("invalid", BatteryVoltageFilter.normalize(key, "invalid"))
+    }
+
+    @Test
+    fun steeringWheelAngleSuppressesIdenticalIntegerDegrees() {
+        val key = CarConstants.CAR_BASIC_STEERING_WHEEL_ANGLE.value
+
+        // Same degree -> suppress
+        assertTrue(BatteryVoltageFilter.shouldSuppress(key, "14", "14"))
+
+        // Different degree -> do not suppress
+        assertFalse(BatteryVoltageFilter.shouldSuppress(key, "15", "14"))
+
+        // First event (no cache) -> do not suppress
+        assertFalse(BatteryVoltageFilter.shouldSuppress(key, "14", null))
+    }
 }
+
 
 
