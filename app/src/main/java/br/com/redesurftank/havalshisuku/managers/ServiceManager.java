@@ -147,6 +147,18 @@ public class ServiceManager {
             CarConstants.CAR_HVAC_AUTO_ENABLE,
             CarConstants.CAR_HVAC_PANEL_DISPLAY_NOTIFY,
             CarConstants.CAR_HVAC_SETTING_COMFORT_CURVE,
+            // Climate popup in com.havalh6.viewer: the rest of what the OEM HVAC
+            // app reads, so the popup can show (and confirm) every control.
+            CarConstants.CAR_HVAC_AC_ENABLE,
+            CarConstants.CAR_HVAC_ACMAX_ENABLE,
+            CarConstants.CAR_HVAC_REAR_DEFROST_ENABLE,
+            CarConstants.CAR_HVAC_AQS_ENABLE,
+            CarConstants.CAR_HVAC_HEATING_ENABLE,
+            CarConstants.CAR_HVAC_PM2_5_VALUE,
+            CarConstants.CAR_HVAC_SETTING_AUTO_DEFROST_ENABLE,
+            CarConstants.CAR_HVAC_SETTING_LIMIT_ENABLE,
+            CarConstants.CAR_HVAC_FRONT_TEMPERATURE_RANGE,
+            CarConstants.CAR_HVAC_FAN_SPEED_RANGE,
             CarConstants.CAR_IPK_SETTING_BRIGHTNESS_CONFIG,
             CarConstants.SYS_AVM_AUTO_PREVIEW_ENABLE,
             CarConstants.SYS_AVM_PREVIEW_STATUS,
@@ -605,7 +617,13 @@ public class ServiceManager {
             CarConstants.CAR_HVAC_POWER_MODE.getValue(),
             CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(),
             CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(),
-            CarConstants.CAR_HVAC_SETTING_COMFORT_CURVE.getValue()
+            CarConstants.CAR_HVAC_SETTING_COMFORT_CURVE.getValue(),
+            CarConstants.CAR_HVAC_AC_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_REAR_DEFROST_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_AQS_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_HEATING_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_SETTING_AUTO_DEFROST_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_SETTING_LIMIT_ENABLE.getValue()
     ));
 
 

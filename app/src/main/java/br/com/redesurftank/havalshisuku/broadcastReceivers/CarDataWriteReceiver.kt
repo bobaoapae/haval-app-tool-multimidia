@@ -64,7 +64,21 @@ class CarDataWriteReceiver : BroadcastReceiver() {
             "car.hvac.driver_temperature",
             "car.hvac.cycle_mode",
             "car.hvac.auto_enable",
-            "car.hvac.anion_enable"
+            "car.hvac.anion_enable",
+            // Climate popup in com.havalh6.viewer (docs/climate-card there).
+            "car.hvac.pass_temperature",
+            "car.hvac.blower_mode",
+            "car.hvac.sync_enable",
+            "car.hvac.ac_enable",
+            "car.hvac.front_defrost_enable",
+            "car.hvac.rear_defrost_enable",
+            "car.hvac.aqs_enable",
+            "car.hvac.heating_enable",
+            "car.hvac.setting.comfort_curve",
+            "car.hvac.setting.auto_defrost_enable",
+            "car.hvac.setting.limit_enable",
+            "car.comfort_setting.driver_seat_ventilation_level",
+            "car.comfort_setting.passenger_seat_ventilation_level"
         )
     }
 }
