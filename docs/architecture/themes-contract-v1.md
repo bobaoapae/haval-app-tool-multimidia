@@ -1,6 +1,6 @@
 # Themes Architecture (Contract v1.0)
 
-Updated: 2026-08-07
+Updated: 2026-09-19
 
 ## Ownership
 
@@ -18,7 +18,7 @@ Cluster UI is **theme-owned**. The Android host loads a self-contained `app.html
 
 ### Bridge version vs contract version
 
-1. **Bridge** (`minBridgeVersion` / host `CURRENT_BRIDGE_VERSION = "1.0.0"`)
+1. **Bridge** (`minBridgeVersion` / host `CURRENT_BRIDGE_VERSION = "1.0.1"`)
    - Native `@JavascriptInterface` surface on `window.Android` (`subscribe`, `setClusterBackground`, …).
    - Back-compat polyfills: `CompatTranslationLayer.kt`.
 
@@ -27,6 +27,37 @@ Cluster UI is **theme-owned**. The Android host loads a self-contained `app.html
    - Filtered by `ThemeManager.kt` / `TelasScreen.kt` — incompatible themes are hidden from the catalog.
 
 **Breaking change rule:** if existing `v1.0` themes would miss data or break, stop and create a new contract version (e.g. `v2.0`) instead of silently changing `v1.0`.
+
+### Bridge 1.0.1: trip telemetry, tire pressure and accumulated-trip reset
+
+The existing `v1.0` contract gains two additive read-only trip groups through `getAvailableKeys()`
+and `subscribe()`: current-journey Trip A (`cur_journey_*` plus
+`avg_vehicle_speed_since_startup`) and accumulated Trip B (`accumulated_*`,
+`avg_fuel_consumption` and `vehicle_speed_since_reset`). The host starts monitoring these vehicle
+keys when subscribed and immediately publishes the value fetched during registration.
+
+Bridge `1.0.1` also adds four optional per-wheel pressure keys:
+
+| Wheel | Key |
+|---|---|
+| Front left | `car.basic.tire_pressure_front_left` |
+| Front right | `car.basic.tire_pressure_front_right` |
+| Rear left | `car.basic.tire_pressure_rear_left` |
+| Rear right | `car.basic.tire_pressure_rear_right` |
+
+Pressure uses the established vehicle payload order `FL, FR, RL, RR`, is published in raw `kPa`,
+and is polled only while a contract theme subscribes or the supported legacy Sport view needs TPMS.
+Physical wheel order and values remain **A confirmar na central real**.
+
+The existing `triggerSystemAction()` allowlist now accepts `RESET_DRIVE_INFO`, which requests reset
+of the accumulated Trip B dataset. It does not reset Trip A and has no native acknowledgement; a
+theme must require an explicit interaction and wait for telemetry to confirm the resulting state.
+
+These additions are backward compatible. They do not rename existing keys, change existing
+payloads or method signatures, expand generic vehicle writes, or alter layout and steering
+contracts. Default, Minimalist and legacy Sport keep their prior behavior because they do not
+subscribe to the new keys. Themes using pressure telemetry or reset must declare
+`<minBridgeVersion>1.0.1</minBridgeVersion>`.
 
 ## On-disk layout
 

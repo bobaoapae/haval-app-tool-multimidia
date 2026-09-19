@@ -1,0 +1,21 @@
+<theme>
+    <name>Apex GT</name>
+    <description>Contour e Vector: dois displays Apex GT com instrumentos dinâmicos, menus do veículo e centro transparente para o ADAS nativo.</description>
+    <version>1.0.13</version>
+    <thumbnail>thumbnail.png</thumbnail>
+    <mainFile>app.html</mainFile>
+    <decentralized>true</decentralized>
+    <minBridgeVersion>1.0.1</minBridgeVersion>
+    <contractVersion>v1.0</contractVersion>
+    <configurations>
+        <configuration>
+            <id>apex_display_mode</id>
+            <label>Display</label>
+            <type>combo</type>
+            <options>Contour, Vector</options>
+            <default>Contour</default>
+            <stateVariable>apexDisplayMode</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+    </configurations>
+</theme>

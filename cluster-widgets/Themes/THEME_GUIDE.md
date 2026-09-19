@@ -133,7 +133,7 @@ The metadata file tells the launcher how to identify and validate your theme:
 </theme>
 ```
 
-* **`<minBridgeVersion>`**: Required. Specifies the minimum Android JavaScript Bridge API version required (`1.0.0` for current standardized bridge, `0.1.0` for legacy bridge).
+* **`<minBridgeVersion>`**: Required. Specifies the minimum Android JavaScript Bridge API version required (`1.0.0` for the baseline standardized bridge, `1.0.1` for per-wheel pressure telemetry and accumulated-trip reset, `0.1.0` for the legacy bridge).
 * **`<contractVersion>`**: Required. Specifies the telemetry schema and layout contract (`v1.0`).
 
 ### 2. User Settings (`<configurations>`)
@@ -287,7 +287,7 @@ System overview: [`docs/architecture/themes-contract-v1.md`](../../docs/architec
 
 ## Architectural Separation: Bridge Version vs. Contract Version
 
-* **Bridge Version (`minBridgeVersion` / `CURRENT_BRIDGE_VERSION = "1.0.0"`)**:
+* **Bridge Version (`minBridgeVersion` / `CURRENT_BRIDGE_VERSION = "1.0.1"`)**:
   - Defines the **native Java/Kotlin API capabilities** exposed to WebView JS via `window.Android`.
   - Controls whether methods like `window.Android.subscribe()`, `setClusterBackground()`, or `launchApp()` exist.
   - Backward compatibility is maintained dynamically via JS polyfills in `CompatTranslationLayer.kt`.
@@ -301,7 +301,7 @@ System overview: [`docs/architecture/themes-contract-v1.md`](../../docs/architec
 
 Theme interactions occur via the global `window.Android` namespace and standard reactive hooks.
 
-### Complete Bridge Function Reference (`v1.0` / `1.0.0`)
+### Complete Bridge Function Reference (`v1.0` / host `1.0.1`)
 
 | Category | Function | Direction | Description |
 | :--- | :--- | :--- | :--- |
@@ -320,9 +320,44 @@ Theme interactions occur via the global `window.Android` namespace and standard 
 | **Preferences** | `savePreference(key, val)` | JS → Host | Persists theme-scoped user configuration. |
 | **Preferences** | `getPreference(key, defaultVal): String` | JS → Host | Reads theme-scoped user configuration. |
 | **Preferences** | `saveSetting(key, val)` | JS → Host | Saves cluster display setting. |
-| **System Actions** | `triggerSystemAction(action, payload)` | JS → Host | Triggers only the documented host allowlist (`CANCEL_MAX_AC`, `TRIGGER_AVM_CAMERA`, `DISMISS_WARNINGS`). |
+| **System Actions** | `triggerSystemAction(action, payload)` | JS → Host | Triggers only the documented host allowlist (`CANCEL_MAX_AC`, `TRIGGER_AVM_CAMERA`, `DISMISS_WARNINGS`, `RESET_DRIVE_INFO`). |
 | **Multi-Display** | `launchApp(packageName, displayId)` | JS → Host | Reserved compatibility surface; direct theme requests are blocked. |
 | **Multi-Display** | `killApp(packageName)` | JS → Host | Reserved compatibility surface; direct theme requests are blocked. |
+
+### Trip A and Trip B telemetry
+
+The host exposes two separate, optional read-only trip datasets. Use `getAvailableKeys()` before
+subscribing and render `--` until a valid value arrives.
+
+| View | Distance | Drive time | Average fuel consumption | Average speed |
+| :--- | :--- | :--- | :--- | :--- |
+| **Trip A** — current journey | `car.basic.cur_journey_odometer` | `car.basic.cur_journey_drivetime` | `car.basic.cur_journey_avg_fuel_consume` | `car.basic.avg_vehicle_speed_since_startup` |
+| **Trip B** — accumulated since reset | `car.basic.accumulated_odometer` | `car.basic.accumulated_drivetime` | `car.basic.avg_fuel_consumption` | `car.basic.vehicle_speed_since_reset` |
+
+The fuel-consumption payloads retain the vehicle's existing `L/100 km` semantics. These keys are
+read-only and the host delivers the value fetched during subscription without waiting for a later
+vehicle update.
+
+### Tire pressure and Trip B reset (`1.0.1`)
+
+Bridge `1.0.1` adds four optional, read-only pressure keys in raw `kPa`:
+
+- `car.basic.tire_pressure_front_left`
+- `car.basic.tire_pressure_front_right`
+- `car.basic.tire_pressure_rear_left`
+- `car.basic.tire_pressure_rear_right`
+
+The host preserves the established payload order `FL, FR, RL, RR` and polls only while a contract
+theme subscribes or the supported legacy Sport view needs TPMS. Render `--` for absent or malformed
+values; physical wheel order remains **A confirmar na central real**.
+
+`window.Android.triggerSystemAction('RESET_DRIVE_INFO', '')` requests the vehicle reset used by
+Trip B. It does not reset Trip A. Require an explicit interaction such as holding OK while Trip B is
+focused. Themes using pressure telemetry or this action must declare
+`<minBridgeVersion>1.0.1</minBridgeVersion>`.
+
+Existing `1.0.0` themes remain compatible: no prior key, payload, method signature, writable
+allowlist, steering event or layout boundary changed.
 
 ### Lifecycle Execution Sequence
 

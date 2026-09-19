@@ -6,7 +6,7 @@ import br.com.redesurftank.havalshisuku.models.ThemeMetadata
 
 object CompatTranslationLayer {
     private const val TAG = "CompatTranslation"
-    const val CURRENT_BRIDGE_VERSION = "1.0.0"
+    const val CURRENT_BRIDGE_VERSION = "1.0.1"
 
     fun isBridgeVersionSupported(minBridgeVersion: String?): Boolean {
         if (minBridgeVersion.isNullOrBlank()) return true

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apex GT · Contour / Vector</title>
+    <link rel="stylesheet" href="./assets/fonts.css">
+    <link rel="stylesheet" href="./src/apex-gt.css">
+    <link rel="stylesheet" href="./src/apex-menus.css">
+    <link rel="stylesheet" href="./src/vector-display.css">
+</head>
+<body>
+    <main id="apex-gt" aria-label="Apex GT, painel de instrumentos">
+        <div class="instrument-surface instrument-surface-left" aria-hidden="true"></div>
+        <div class="instrument-surface instrument-surface-right" aria-hidden="true"></div>
+        <div class="footer-surface" aria-hidden="true"></div>
+        <img id="gauge-material" class="raster-frame contour-layer" src="./assets/apex-gt-frame.webp" alt="" aria-hidden="true">
+        <img id="vector-material" class="raster-frame vector-layer" src="./assets/vector-frame.webp" alt="" aria-hidden="true">
+        <header class="top-readouts">
+            <div class="temperature temperature-inside"><small>INTERNA</small><strong id="inside-temp">--</strong></div>
+            <div class="temperature temperature-outside"><small>EXTERNA</small><strong id="outside-temp">--</strong></div>
+            <div class="gear"><strong id="gear-value">--</strong><span id="drive-mode">--</span></div>
+            <time id="clock" aria-label="Hora">--</time>
+            <div class="propulsion"><strong id="propulsion-mode">--</strong></div>
+        </header>
+
+        <canvas id="gauge-motion" class="contour-layer" width="1920" height="720" aria-hidden="true"></canvas>
+        <svg class="gauge-scales contour-layer" width="1920" height="720" viewBox="0 0 1920 720" aria-hidden="true">
+        </svg>
+        <canvas id="vector-gauge-motion" class="vector-layer" width="1920" height="720" aria-hidden="true"></canvas>
+        <svg id="vector-gauge-scales" class="gauge-scales vector-layer" width="1920" height="720" viewBox="0 0 1920 720" aria-hidden="true"></svg>
+
+        <section class="speed-readout" aria-label="Velocidade">
+            <strong id="speed-value">--</strong><span>km/h</span>
+        </section>
+        <section id="rpm-readout" class="rpm-readout" aria-label="Rotação do motor a combustão" hidden><small>MOTOR TÉRMICO</small><strong id="engine-rpm">--</strong><span>rpm</span></section>
+        <section class="power-readout" aria-label="Potência elétrica de tração"><h1>POTÊNCIA</h1><div><strong id="power-value">--</strong><span>kW</span></div></section>
+        <section class="regen-readout" aria-label="Potência elétrica de regeneração"><h2>REGENERAÇÃO</h2><div><strong id="regen-value">--</strong><span>kW</span></div></section>
+        <section class="vector-power-readout vector-layer" aria-label="Potência elétrica instantânea, tração ou regeneração">
+            <strong id="vector-power-value">--</strong><span class="vector-power-unit">kW</span>
+            <div class="vector-power-state"><span id="vector-power-direction" aria-hidden="true"></span><strong id="vector-power-state">--</strong></div>
+        </section>
+        <div class="right-mode-guide" aria-hidden="true"><span>TRAÇÃO</span><i></i><span>REGEN</span></div>
+        <div class="odometer"><small>ODÔMETRO</small><strong id="odometer">--</strong><span>km</span></div>
+
+        <section class="energy energy-fuel" aria-label="Combustível e autonomia estimada">
+            <div class="energy-detail"><span><small>COMBUSTÍVEL</small><strong id="fuel-percent">--</strong></span><span class="energy-estimate"><strong id="fuel-liters">--</strong><small>L EST.</small></span></div>
+            <div class="energy-base">
+                <svg viewBox="0 0 32 38" aria-hidden="true"><path d="M4 34V5h15v29M2 34h20M4 16h15M19 11h4l5 6v12c0 4-5 4-5 0V18M23 7l5 6v5"/></svg>
+                <span>E</span><div class="energy-track"><div id="fuel-fill" class="energy-fill"></div><div class="segment-dividers"></div></div><span>F</span>
+                <strong class="energy-range"><span id="fuel-range">--</span><small> km</small></strong>
+            </div>
+        </section>
+        <footer class="trip-strip" aria-label="Informações de viagem">
+            <div><small>TRIP A</small><strong><span id="trip-distance">--</span><em> km</em></strong></div>
+            <div><small>CONSUMO MÉDIO</small><strong><span id="average-consumption">--</span><em id="consumption-unit"> km/l</em></strong></div>
+            <div><small>AUTONOMIA TOTAL <span class="derived">EST.</span></small><strong><span id="total-range">--</span><em> km</em></strong></div>
+        </footer>
+        <section class="energy energy-battery" aria-label="Bateria e autonomia elétrica">
+            <div class="energy-detail"><span><small>BATERIA</small><strong id="battery-percent">--</strong></span><small>AUTONOMIA ELÉTRICA</small></div>
+            <div class="energy-base">
+                <svg viewBox="0 0 38 34" aria-hidden="true"><path d="M3 8h32v23H3zM9 8V3h5v5M25 8V3h5v5M9 19h8M13 15v8M23 19h6"/></svg>
+                <span>E</span><div class="energy-track"><div id="battery-fill" class="energy-fill"></div><div class="segment-dividers"></div></div><span>F</span>
+                <strong class="energy-range"><span id="battery-range">--</span><small> km</small></strong>
+            </div>
+        </section>
+        <div id="apex-menus" class="apex-menus" hidden></div>
+        <section id="adas-viewport" aria-label="Área transparente reservada ao ADAS ou mapa nativo"></section>
+    </main>
+    <script src="./src/gauge-geometry.js" defer></script>
+    <script src="./src/gauge-scales.js" defer></script>
+    <script src="./src/gauge-motion.js" defer></script>
+    <script src="./src/vector-geometry.js" defer></script>
+    <script src="./src/vector-gauges.js" defer></script>
+    <script src="./src/apex-display.js" defer></script>
+    <script src="./src/apex-menus.js" defer></script>
+    <script src="./src/apex-gt.js" defer></script>
+</body>
+</html>

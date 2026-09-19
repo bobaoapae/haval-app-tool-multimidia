@@ -98,7 +98,8 @@ summary:focus-visible,
 
 .toolbar-button,
 .theme-option,
-.panel-button {
+.panel-button,
+.shortcut-button {
   min-height: 2.75rem;
   border: 0;
   border-radius: 0.75rem;
@@ -117,7 +118,8 @@ summary:focus-visible,
 
 .toolbar-button:hover,
 .theme-option:hover,
-.panel-button:hover {
+.panel-button:hover,
+.shortcut-button:hover {
   background: #1b2330;
   color: #ffffff;
 }
@@ -270,6 +272,20 @@ summary:focus-visible,
 
 .panel-actions[hidden] {
   display: none;
+}
+
+.shortcut-button {
+  min-height: 2rem;
+  padding-inline: 0.65rem;
+  color: #aebccc;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.shortcut-button:active {
+  color: #ffffff;
+  background: #243246;
+  transform: translateY(1px);
 }
 
 .panel-button {

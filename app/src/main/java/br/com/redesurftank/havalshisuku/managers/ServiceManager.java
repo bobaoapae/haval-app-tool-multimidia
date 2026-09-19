@@ -2382,6 +2382,11 @@ public class ServiceManager {
         }
     }
 
+    public void resetDriveInfo() {
+        Log.i(TAG, "Requesting accumulated drive information reset");
+        updateData(CarConstants.CAR_IPK_SETTING_DRIVE_INFO_RESET.getValue(), "1");
+    }
+
     private void publishOptimisticHvacValue(String key, String value) {
         String previous = dataCache.put(key, value);
         if (value != null && value.equals(previous)) {
