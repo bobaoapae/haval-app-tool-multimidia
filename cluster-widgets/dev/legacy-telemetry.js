@@ -11,6 +11,18 @@ const INITIAL_STATE = {
   batteryPercent: 100,
   fuelRange: 700,
   batteryRange: 170,
+  'car.basic.cur_journey_odometer': 18.6,
+  'car.basic.cur_journey_drivetime': 42,
+  'car.basic.cur_journey_avg_fuel_consume': 7.1,
+  'car.basic.avg_vehicle_speed_since_startup': 38.4,
+  'car.basic.accumulated_odometer': 286.4,
+  'car.basic.accumulated_drivetime': 425,
+  'car.basic.avg_fuel_consumption': 7.4,
+  'car.basic.vehicle_speed_since_reset': 41.2,
+  'car.basic.tire_pressure_front_left': 250,
+  'car.basic.tire_pressure_front_right': 248,
+  'car.basic.tire_pressure_rear_left': 220,
+  'car.basic.tire_pressure_rear_right': 249,
   odometer: 11450,
   gasConsumptionMode: 'Running',
   gasConsumption: 0,
@@ -30,15 +42,20 @@ const INITIAL_STATE = {
   maxauto: 0,
   recycle: 0,
   focusArea: 'fan',
+  carPlayInDash: false,
+  projectionPreparingD3: false,
 };
 
-const PANELS_NOT_SUPPORTED_BY_LEGACY_THEMES = [
+const PANELS_NOT_SUPPORTED_BY_INJECTED_THEMES = [
   'testing-settings-harness',
-  'testing-shortcuts-harness',
   'testing-console-harness',
 ];
 
 function sendControl(frameWindow, key, value) {
+  if (key === 'cardId' && typeof frameWindow.onCardChanged === 'function') {
+    frameWindow.onCardChanged(value);
+    return;
+  }
   if (typeof frameWindow.control === 'function') {
     frameWindow.control(key, value);
   }
@@ -79,18 +96,43 @@ export function createLegacyTelemetryStateManager(frameWindow) {
   };
 }
 
+export function activateInjectedTelemetrySimulation(frameWindow, theme, stateManager) {
+  if (theme?.keyboard !== 'none') return false;
+  frameWindow.__TEST_HARNESS?.startSimulation?.();
+  stateManager.pushInitialTelemetry();
+  return true;
+}
+
 export function installLegacyTelemetryHarness(frameWindow, theme, callbacks = {}) {
-  if (!frameWindow || !theme?.keyboard?.startsWith('legacy-')) {
+  const usesInjectedTelemetry = theme?.telemetry === 'injected'
+    || theme?.keyboard?.startsWith('legacy-');
+  if (!frameWindow || !usesInjectedTelemetry) {
     return { cleanup() {} };
   }
 
   const childDocument = frameWindow.document;
+  const isApexGt = theme.keyboard === 'none' && theme.folder === 'source/v1.0/ApexGT'
+    && Boolean(childDocument.getElementById('apex-gt'));
   const stateManager = createLegacyTelemetryStateManager(frameWindow);
   const menuIds = theme.keyboard === 'legacy-sport' ? SPORT_MENU_ITEMS : BASIC_MENU_ITEMS;
   const menuItems = menuIds.map((id) => ({ id }));
 
   frameWindow.__THEME_LAB_STATE_MANAGER__ = stateManager;
   frameWindow.__THEME_LAB_MENU_ITEMS__ = menuItems;
+  if (isApexGt) {
+    let displayMode = 'Contour';
+    try {
+      if (frameWindow.Android?.getPreference?.('apexDisplayMode', 'Contour') === 'Vector') {
+        displayMode = 'Vector';
+      }
+    } catch {
+      // Keep the theme default if the optional preference store is unavailable.
+    }
+    // Seed before the shared harness creates its combo pills; otherwise its
+    // initial default would overwrite a previously saved Vector selection.
+    stateManager.set('apexDisplayMode', displayMode);
+    stateManager.set('apex_display_mode', displayMode);
+  }
   // The Theme Lab already owns legacy keyboard routing. This prevents the reused
   // v1.0 simulator from binding a second keydown listener while retaining its
   // telemetry engine and state controls.
@@ -100,7 +142,11 @@ export function installLegacyTelemetryHarness(frameWindow, theme, callbacks = {}
   let cleanedUp = false;
   const onReady = () => {
     if (cleanedUp) return;
-    for (const panelId of PANELS_NOT_SUPPORTED_BY_LEGACY_THEMES) {
+    activateInjectedTelemetrySimulation(frameWindow, theme, stateManager);
+    const unsupportedPanels = theme.keyboard === 'none'
+      ? PANELS_NOT_SUPPORTED_BY_INJECTED_THEMES.filter((id) => !isApexGt || id !== 'testing-settings-harness')
+      : [...PANELS_NOT_SUPPORTED_BY_INJECTED_THEMES, 'testing-shortcuts-harness'];
+    for (const panelId of unsupportedPanels) {
       childDocument.getElementById(panelId)?.remove();
     }
     callbacks.onReady?.();

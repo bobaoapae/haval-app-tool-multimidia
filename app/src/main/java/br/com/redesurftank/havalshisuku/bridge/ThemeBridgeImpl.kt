@@ -123,6 +123,9 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "DISMISS_WARNINGS" -> {
                 context.dismissWarnings()
             }
+            "RESET_DRIVE_INFO" -> {
+                ServiceManager.getInstance().resetDriveInfo()
+            }
             "MEDIA_CONTROL" -> {
                 Log.i(TAG, "Media action: $payload")
             }
@@ -388,7 +391,10 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
         try {
             val jsonArray = JSONArray(keysJson)
             val keysToMonitor = mutableListOf<String>()
+            val pendingInitialVehicleKeys = mutableListOf<Pair<String, String>>()
+            var subscriptionsChanged = false
             val contextApp = App.getContext()
+            val serviceManager = ServiceManager.getInstance()
             for (i in 0 until jsonArray.length()) {
                 val rawKey = jsonArray.getString(i)
                 val canonicalKey = BridgeContractTranslator.translateThemeKeyToCanonical(rawKey)
@@ -396,12 +402,16 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
                     Log.w(TAG, "Blocked subscription to undeclared theme key: $rawKey")
                     continue
                 }
-                context.subscribedKeys.add(rawKey)
+                subscriptionsChanged = context.subscribedKeys.add(rawKey) || subscriptionsChanged
 
                 if (canonicalKey == "warningActive") {
                     pushValueToTheme(rawKey, context.isWarningActive.toString())
                 } else if (canonicalKey == "warningDismissed") {
                     pushValueToTheme(rawKey, context.isWarningDismissed.toString())
+                } else if (canonicalKey in ThemeTelemetryKeys.tirePressureKeys) {
+                    context.getExtendedTelemetryValue(canonicalKey)?.let { currentValue ->
+                        pushValueToTheme(rawKey, currentValue)
+                    }
                 } else if (canonicalKey.startsWith("app.preferences.")) {
                     // Initial value already delivered via getPreference() at theme init
                     // (see ThemeBridgeAdapter.bindThemeSetting). VirtualTelemetryManager has
@@ -413,15 +423,23 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
                     pushValueToTheme(rawKey, virtualVal)
                 } else {
                     keysToMonitor.add(canonicalKey)
-                    val currentValue = ServiceManager.getInstance().getData(canonicalKey)
+                    val currentValue = serviceManager.getData(canonicalKey)
                     if (currentValue != null) {
                         pushValueToTheme(rawKey, currentValue)
+                    } else {
+                        pendingInitialVehicleKeys.add(rawKey to canonicalKey)
                     }
                 }
             }
             if (keysToMonitor.isNotEmpty()) {
-                ServiceManager.getInstance().ensureKeysMonitored(keysToMonitor)
+                serviceManager.ensureKeysMonitored(keysToMonitor)
+                pendingInitialVehicleKeys.forEach { (rawKey, canonicalKey) ->
+                    serviceManager.getData(canonicalKey)?.let { currentValue ->
+                        pushValueToTheme(rawKey, currentValue)
+                    }
+                }
             }
+            if (subscriptionsChanged) context.onThemeSubscriptionsChanged()
             Log.d(TAG, "Subscribed to keys: $keysJson")
         } catch (e: Exception) {
             Log.e(TAG, "subscribe failed: $keysJson", e)
@@ -432,10 +450,12 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
     fun unsubscribe(keysJson: String) {
         try {
             val jsonArray = JSONArray(keysJson)
+            var subscriptionsChanged = false
             for (i in 0 until jsonArray.length()) {
                 val key = jsonArray.getString(i)
-                context.subscribedKeys.remove(key)
+                subscriptionsChanged = context.subscribedKeys.remove(key) || subscriptionsChanged
             }
+            if (subscriptionsChanged) context.onThemeSubscriptionsChanged()
             Log.d(TAG, "Unsubscribed from keys: $keysJson")
         } catch (e: Exception) {
             Log.e(TAG, "unsubscribe failed: $keysJson", e)
@@ -454,6 +474,9 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
         }
         if (canonicalKey == "warningDismissed") {
             return context.isWarningDismissed.toString()
+        }
+        if (canonicalKey in ThemeTelemetryKeys.tirePressureKeys) {
+            return context.getExtendedTelemetryValue(canonicalKey).orEmpty()
         }
         if (canonicalKey.startsWith("app.")) {
             return VirtualTelemetryManager.getVirtualValue(App.getContext(), canonicalKey)
@@ -494,6 +517,18 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "car.basic.inside_temp",
             "car.basic.outside_temp",
             "car.basic.remain_fuel_percentage",
+            "car.basic.cur_journey_odometer",
+            "car.basic.cur_journey_drivetime",
+            "car.basic.cur_journey_avg_fuel_consume",
+            "car.basic.avg_vehicle_speed_since_startup",
+            "car.basic.accumulated_odometer",
+            "car.basic.accumulated_drivetime",
+            "car.basic.avg_fuel_consumption",
+            "car.basic.vehicle_speed_since_reset",
+            "car.basic.tire_pressure_front_left",
+            "car.basic.tire_pressure_front_right",
+            "car.basic.tire_pressure_rear_left",
+            "car.basic.tire_pressure_rear_right",
             "car.ev_info.cur_battery_power_percentage",
             "car.ev_info.fuel_mode_remain_odometer",
             "car.ev_info.electric_mode_remain_odometer",

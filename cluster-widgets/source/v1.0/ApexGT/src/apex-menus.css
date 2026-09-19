@@ -1,0 +1,72 @@
+.apex-menus{position:absolute;left:1404px;top:165px;width:400px;height:430px;z-index:5;color:#e8f4f9;font-family:Khand,"Arial Narrow",Arial,sans-serif;line-height:1.15;background:linear-gradient(110deg,#051019f7,#02080cf2);border-top:1px solid #5097b46b;border-bottom:1px solid #2c657861;font-variant-numeric:tabular-nums}
+.apex-menus button{font:inherit;color:inherit;cursor:pointer;border:0;border-radius:0;appearance:none;-webkit-appearance:none;text-align:left}
+.apex-menus button:focus-visible{outline:2px solid #94e3ff;outline-offset:-2px}
+.apex-menus [hidden]{display:none!important}
+.apex-menu-cards{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.apex-menu-cards i{width:2px;height:2px;background:#466775;border-radius:50%}
+.apex-menu-cards .is-selected{color:#b5eaff}
+.apex-menu-heading{height:55px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid #38617466}
+.apex-menu-heading h2{font-size:32px;line-height:1;font-weight:500;letter-spacing:.65px;margin:0;white-space:nowrap}
+.apex-menu-heading>span{font-size:20px;color:#8baab8;letter-spacing:1px;margin-left:8px}
+.apex-menu-body{height:335px;overflow:hidden;padding:13px 13px 0}
+.apex-menu-window{display:flex;flex-direction:column;gap:10px}
+.apex-menu-option{display:flex;align-items:center;width:100%;height:90px;padding:10px 15px;background:#09151b;border-left:4px solid transparent!important}
+.apex-menu-option.is-focused{background:linear-gradient(90deg,#153348,#07171f);border-left-color:#8bdcff!important}
+.apex-menu-option>span{flex:1;min-width:0}
+.apex-menu-option strong{display:block;font-size:32px;font-weight:500;letter-spacing:.4px;white-space:nowrap}
+.apex-menu-option small{display:block;font-size:19px;font-weight:400;letter-spacing:.15px;color:#91aab7;margin-top:4px;white-space:nowrap}
+.apex-menu-option .apex-menu-index{font-size:19px;margin:0 15px 0 0;color:#628797}
+.apex-menu-option.is-focused .apex-menu-index{color:#9edfff}
+.apex-menu-option>b{font-size:35px;font-weight:400;color:#5c899d;padding-left:10px}
+.apex-menu-option.is-focused>b{color:#acf0ff}
+.apex-menu-setting small{font-size:19px;letter-spacing:.8px;margin:0 0 2px}
+.apex-menu-setting strong{font-size:34px;line-height:1.05}
+.apex-menu-footer{position:absolute;bottom:0;left:13px;right:13px;height:40px;display:flex;align-items:center;justify-content:center;border-top:1px solid #25465488;color:#8faebb;font-size:19px;letter-spacing:.25px;white-space:nowrap}
+#apex-menu-feedback{color:#a8dceb}
+.apex-menu-tabs{display:flex;gap:9px;height:40px;margin-bottom:11px}
+.apex-menu-tabs button{flex:1;text-align:center;background:transparent;color:#7f9aa9;font-size:22px;letter-spacing:1px;border-bottom:1px solid #27424e}
+.apex-menu-tabs button.is-selected{color:#c5efff;border-bottom-color:#7bd3ff}
+.apex-menu-stat{padding:0 5px 8px;margin-bottom:7px;border-bottom:1px solid #233d494d}
+.apex-menu-stat>small,.apex-menu-energy small{display:block;font-size:18px;letter-spacing:.7px;color:#8ba9b6}
+.apex-menu-stat>strong{display:block;font-size:35px;font-weight:400;line-height:1.12;margin-top:2px;white-space:nowrap}
+.apex-menu-energy{display:flex;padding:0 5px;gap:10px}
+.apex-menu-energy>span{width:50%;min-width:0}
+.apex-menu-energy strong{display:block;font-size:34px;font-weight:400;line-height:1.12;margin:3px 0 2px}
+.apex-menu-energy em{font-size:25px;font-style:normal;color:#93b3c2;white-space:nowrap}
+.apex-menu-tire-caption{font-size:18px;letter-spacing:1px;color:#8ba9b6;display:flex;justify-content:space-between;padding:0 5px 6px}
+.apex-menu-tires{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.apex-menu-tire{padding:8px 9px;background:#0a1a22;border-left:1px solid #3c7185}
+.apex-menu-tire small{display:block;font-size:17px;letter-spacing:.4px;color:#8faebb;white-space:nowrap}
+.apex-menu-tire strong{display:block;font-size:43px;font-weight:400;line-height:1.1;margin-top:3px}
+.apex-menu-graph-reading{height:58px;display:flex;align-items:baseline;gap:9px;padding:0 4px}
+.apex-menu-graph-reading strong{font-size:52px;font-weight:400;line-height:1}
+.apex-menu-graph-reading>span{font-size:26px;color:#8cabb9}
+.apex-menu-graph-bars{display:flex;align-items:flex-end;gap:4px;height:155px;padding-top:8px;border-bottom:1px solid #44697a;background:repeating-linear-gradient(0deg,transparent 0,transparent 48px,#28536a40 48px,#28536a40 49px)}
+.apex-menu-graph-bars i{display:block;flex:1;max-height:100%;height:2%;background:linear-gradient(0deg,#166183,#68caff);border-top:1px solid #bbe9ff}
+.apex-menu-graph-bars i.is-empty{background:#1f3540;border-top-color:#3c5059}
+.apex-menu-graph-bars i.is-regen{background:linear-gradient(0deg,#126e68,#47d7bd);border-top-color:#a5ffe8}
+.apex-menu-graph-scale{display:flex;justify-content:space-between;padding-top:7px;color:#789aaa;font-size:17px;letter-spacing:.5px}
+.apex-menu-trip-distance{display:flex;align-items:baseline;gap:9px;height:54px;padding:0 5px;white-space:nowrap}
+.apex-menu-trip-distance strong{font-size:48px;font-weight:400;line-height:1}
+.apex-menu-trip-distance>span{font-size:26px;color:#8faebb}
+.apex-menu-trip-metrics{margin:3px 5px 7px}
+.apex-menu-trip-metrics>div{display:flex;justify-content:space-between;align-items:baseline;height:42px;border-bottom:1px solid #29475466}
+.apex-menu-trip-metrics dt{font-size:18px;letter-spacing:.5px;color:#8ca9b8}
+.apex-menu-trip-metrics dd{font-size:29px;font-weight:400;white-space:nowrap;margin:0}
+.apex-menu-trip-reset{display:block;padding:0 5px;font-size:17px;letter-spacing:1px;color:#94cbdc}
+.apex-menu-ac-control{display:flex;align-items:center;justify-content:space-between;width:100%;height:88px;background:#09161e;padding:12px 14px;margin-bottom:10px;border-left:4px solid transparent!important}
+.apex-menu-ac-control.is-selected{background:linear-gradient(90deg,#143447,#08181f);border-left-color:#8bdcff!important}
+.apex-menu-ac-control>span{width:220px}
+.apex-menu-ac-control small{display:block;font-size:20px;letter-spacing:.8px;color:#91aebb;white-space:nowrap}
+.apex-menu-ac-control>strong{font-size:47px;font-weight:400;white-space:nowrap;letter-spacing:-.5px}
+.apex-menu-temperature-rail{display:block;position:relative;width:205px;height:6px;background:#29414d;margin-top:11px;overflow:hidden}
+.apex-menu-temperature-rail>i{display:block;width:100%;height:100%;background:linear-gradient(90deg,#60caff,#def5ff);transform-origin:left center;transform:scaleX(0)}
+.apex-menu-fan-level{display:flex;width:205px;gap:5px;height:10px;margin-top:10px}
+.apex-menu-fan-level>i{flex:1;background:#2a404b}
+.apex-menu-fan-level>i.is-on{background:#88d7ff}
+.apex-menu-ac-status{display:flex;gap:7px;justify-content:space-between;padding:3px 3px 8px;border-bottom:1px solid #29475466}
+.apex-menu-ac-status small{display:block;color:#6f929f;font-size:15px;letter-spacing:.8px;margin-bottom:3px}
+.apex-menu-ac-status strong{display:block;font-size:25px;font-weight:400;color:#9ab5c1;white-space:nowrap}
+.apex-menu-ac-status strong.is-on{color:#9ce6e4}
+.apex-menu-ac-hold{display:flex;flex-direction:column;gap:4px;padding:9px 3px 0;color:#7797a6;font-size:17px;letter-spacing:.3px}
+.apex-menu-ac-hold b{font-weight:500;color:#accbd8}
