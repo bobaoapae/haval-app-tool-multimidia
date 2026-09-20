@@ -28,6 +28,12 @@ class CarDataWriteReceiver : BroadcastReceiver() {
         val caller = ImpulseApiCallers.verify(intent, ACTION_UPDATE_CAR_DATA) ?: return
         val key = intent.getStringExtra(EXTRA_KEY).orEmpty()
         val value = intent.getStringExtra(EXTRA_VALUE).orEmpty()
+        // Impulse's own settings travel the same path as a vehicle key so the
+        // viewer has one write API, but they are preferences, not CAN.
+        if (ServiceManager.getInstance().isAppPreferenceKey(key)) {
+            ServiceManager.getInstance().setAppPreference(key, value)
+            return
+        }
         if (key.isEmpty() || key !in WRITABLE_CAR_KEYS) {
             Log.w(TAG, "Blocked write to non-allowlisted vehicle key: $key from $caller")
             return

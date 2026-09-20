@@ -2044,9 +2044,47 @@ public class ServiceManager {
         }
     }
 
+    /**
+     * App settings the 3D viewer's CLIMA popup shows beside the car's own
+     * climate keys: Impulse features, not CAN. Published on the same bus so
+     * the viewer learns their state, and written back through
+     * {@link br.com.redesurftank.havalshisuku.broadcastReceivers.CarDataWriteReceiver}.
+     */
+    public static final String APP_PREF_MAX_AC_ON_UNLOCK = "app.impulse.max_ac_on_unlock";
+    public static final String APP_PREF_SEAT_VENT_WITH_AC = "app.impulse.seat_vent_with_ac";
+
+    private static final java.util.Map<String, SharedPreferencesKeys> APP_PREF_KEYS =
+            java.util.Collections.unmodifiableMap(new java.util.HashMap<String, SharedPreferencesKeys>() {{
+                put(APP_PREF_MAX_AC_ON_UNLOCK, SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK);
+                put(APP_PREF_SEAT_VENT_WITH_AC, SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON);
+            }});
+
+    public boolean isAppPreferenceKey(String key) {
+        return key != null && APP_PREF_KEYS.containsKey(key);
+    }
+
+    /** Write one allowlisted app preference and publish the new value. */
+    public void setAppPreference(String key, String value) {
+        SharedPreferencesKeys pref = APP_PREF_KEYS.get(key);
+        if (pref == null || sharedPreferences == null) return;
+        boolean on = "1".equals(value) || "true".equalsIgnoreCase(value);
+        sharedPreferences.edit().putBoolean(pref.getKey(), on).apply();
+        Log.w(TAG, "App preference " + key + " -> " + on);
+        dispatchTelemetryOnly(key, on ? "1" : "0");
+    }
+
+    private void dispatchAppPreferences() {
+        if (sharedPreferences == null) return;
+        for (java.util.Map.Entry<String, SharedPreferencesKeys> e : APP_PREF_KEYS.entrySet()) {
+            dispatchTelemetryOnly(e.getKey(),
+                    sharedPreferences.getBoolean(e.getValue().getKey(), false) ? "1" : "0");
+        }
+    }
+
     private void dispatchSyntheticTelemetrySnapshot() {
         // Constant, so it is published rather than cached: every snapshot carries it.
         dispatchTelemetryOnly(AndroidAutoTelemetryKeys.API_VERSION, AndroidAutoTelemetryKeys.API_VERSION_VALUE);
+        dispatchAppPreferences();
         for (String key : AndroidAutoTelemetryKeys.SYNTHETIC_KEYS) {
             String value = dataCache.get(key);
             if (value != null) {
