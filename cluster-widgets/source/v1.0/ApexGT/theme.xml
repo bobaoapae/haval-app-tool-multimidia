@@ -1,7 +1,7 @@
 <theme>
     <name>Apex GT</name>
-    <description>Contour e Vector: dois displays Apex GT com instrumentos dinâmicos, menus do veículo e centro transparente para o ADAS nativo.</description>
-    <version>1.0.13</version>
+    <description>Contour e Vector: dois displays Apex GT com instrumentos dinâmicos, menus do veículo, centro transparente para o ADAS nativo, velocidade calibrada como o HUD e projeção integrada ao mapa.</description>
+    <version>1.0.14</version>
     <thumbnail>thumbnail.png</thumbnail>
     <mainFile>app.html</mainFile>
     <decentralized>true</decentralized>
@@ -15,6 +15,15 @@
             <options>Contour, Vector</options>
             <default>Contour</default>
             <stateVariable>apexDisplayMode</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+        <configuration>
+            <id>apex_projection_mode</id>
+            <label>Projeção no painel (CarPlay / Android Auto)</label>
+            <type>combo</type>
+            <options>Ampla, Janela</options>
+            <default>Ampla</default>
+            <stateVariable>apexProjectionMode</stateVariable>
             <group>Exibição</group>
         </configuration>
     </configurations>
