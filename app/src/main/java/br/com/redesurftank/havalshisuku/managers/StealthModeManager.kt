@@ -102,9 +102,9 @@ object StealthModeManager {
         listOf(
             // --- Automações do carro (janelas, teto, cortina, volume) ---
             SharedPreferencesKeys.CLOSE_WINDOW_ON_POWER_OFF,
-            SharedPreferencesKeys.CLOSE_WINDOW_ON_FOLD_MIRROR,
             SharedPreferencesKeys.CLOSE_SUNROOF_ON_POWER_OFF,
-            SharedPreferencesKeys.CLOSE_SUNROOF_ON_FOLD_MIRROR,
+            SharedPreferencesKeys.CLOSE_WINDOW_ON_LOCK,
+            SharedPreferencesKeys.CLOSE_SUNROOF_ON_LOCK,
             SharedPreferencesKeys.CLOSE_WINDOWS_ON_SPEED,
             SharedPreferencesKeys.CLOSE_SUNROOF_ON_SPEED,
             SharedPreferencesKeys.CLOSE_SUNROOF_SUN_SHADE_ON_CLOSE_SUNROOF,
@@ -117,11 +117,11 @@ object StealthModeManager {
             SharedPreferencesKeys.DISABLE_NATIVE_NAVIGATION,
             SharedPreferencesKeys.DISABLE_NATIVE_VOICE,
             SharedPreferencesKeys.DISABLE_NATIVE_WEATHER,
-            // --- Bluetooth / hotspot ao desligar ou recolher o retrovisor ---
+            // --- Bluetooth / hotspot ao desligar ou trancar o carro ---
             SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF,
             SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF,
-            SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_FOLD_MIRROR,
-            SharedPreferencesKeys.DISABLE_HOTSPOT_ON_FOLD_MIRROR,
+            SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_LOCK,
+            SharedPreferencesKeys.DISABLE_HOTSPOT_ON_LOCK,
             // --- Barra inferior e painel lateral (desenhados por cima da UI do OEM) ---
             SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR,
             SharedPreferencesKeys.BOTTOM_BAR_AUTO_HIDE,
