@@ -1,0 +1,40 @@
+/* Projeção no painel (CarPlay ou Android Auto), modo "Ampla".
+
+   Pedido do dono, com a foto marcada nas quinas do mapa: a FAIXA PRETA entre os desenhos da moldura e
+   o mapa deve ficar transparente, e os desenhos — arcos, frisos, mostradores — devem continuar
+   FORTES, como estão. Não é o tema inteiro vazado: é só a margem em volta do vão sumindo, de modo que
+   o mapa avance até onde o desenho começa e a passagem deixe de ser um degrau.
+
+   Por isso a máscara é curta e colada no vão: transparente na borda (520/1400 e 120/650) e de volta a
+   opaca antes de chegar nos mostradores.
+
+   ⚠️ As QUINAS: as duas máscaras se somam (união), então onde as duas ainda têm material o canto fica
+   mais fechado que os lados — foi o que o dono marcou na foto. Como a soma não sabe de canto, a saída é
+   a rampa VERTICAL terminar mais cedo (opaca só até 22px, limpa em 112px): na altura da quina ela já
+   não contribui, e o canto passa a valer o mesmo que a lateral. A horizontal também ficou mais macia. Nada de recorte por luminosidade, que
+   apagava o preenchimento dos mostradores junto, e nada de `mask-mode: luminance`, que não existe no
+   WebView desta central. Em "Janela", ou sem projeção, o tema fica exatamente como no pacote. */
+
+/* As superfícies escuras precisam sair, senão elas continuariam tapando a faixa que a moldura liberou. */
+#apex-gt.projection-active.projection-wide .instrument-surface,
+#apex-gt.projection-active.projection-wide .footer-surface{
+  opacity:0;
+}
+
+/* Margem do vão dissolvendo: 90px de cada lado, 60px em cima, 55px embaixo. A união das duas máscaras
+   mantém material onde QUALQUER uma ainda é opaca, então os mostradores seguem inteiros. */
+#apex-gt.projection-active.projection-wide .raster-frame{
+  -webkit-mask-image:
+    linear-gradient(90deg,#000 0,#000 390px,rgba(0,0,0,.45) 450px,rgba(0,0,0,.12) 495px,transparent 520px,transparent 1400px,rgba(0,0,0,.12) 1425px,rgba(0,0,0,.45) 1470px,#000 1530px,#000 1920px),
+    linear-gradient(180deg,#000 0,#000 22px,rgba(0,0,0,.45) 62px,rgba(0,0,0,.12) 88px,transparent 112px,transparent 656px,rgba(0,0,0,.12) 680px,rgba(0,0,0,.45) 700px,#000 716px,#000 720px);
+  mask-image:
+    linear-gradient(90deg,#000 0,#000 390px,rgba(0,0,0,.45) 450px,rgba(0,0,0,.12) 495px,transparent 520px,transparent 1400px,rgba(0,0,0,.12) 1425px,rgba(0,0,0,.45) 1470px,#000 1530px,#000 1920px),
+    linear-gradient(180deg,#000 0,#000 22px,rgba(0,0,0,.45) 62px,rgba(0,0,0,.12) 88px,transparent 112px,transparent 656px,rgba(0,0,0,.12) 680px,rgba(0,0,0,.45) 700px,#000 716px,#000 720px);
+}
+
+/* O que cai dentro da faixa liberada fica sobre o mapa: sombra para continuar legível. */
+#apex-gt.projection-active.projection-wide .top-readouts,
+#apex-gt.projection-active.projection-wide .trip-strip,
+#apex-gt.projection-active.projection-wide .odometer{
+  text-shadow:0 2px 6px rgba(0,0,0,.95),0 0 16px rgba(0,0,0,.85);
+}

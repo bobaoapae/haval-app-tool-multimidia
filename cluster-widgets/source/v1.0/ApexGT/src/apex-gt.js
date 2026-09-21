@@ -7,6 +7,8 @@
     var FUEL_TANK_LITERS = 55;
     var display = window.ApexDisplay ? window.ApexDisplay.create({ root: root }) : null;
     var menus = window.ApexMenus ? window.ApexMenus.create({ root: root, mount: document.getElementById("apex-menus"), display: display }) : null;
+    var speedCalibration = window.ApexSpeed ? window.ApexSpeed.create() : null;
+    var projection = window.ApexProjection ? window.ApexProjection.create({ root: root }) : null;
     var disposed = false;
     var renderFrame = null;
     var clockTimer = null;
@@ -20,7 +22,7 @@
         driveMode: null, propulsionMode: null, insideTemp: null, outsideTemp: null,
         tempUnit: null, fuel: null, battery: null, fuelRange: null, batteryRange: null,
         trip: null, consumption: null, voltage: null, current: null,
-        carPlayInDash: false, projectionPreparingD3: false
+        carPlayInDash: false, projectionMirrorInDash: false, aaClusterInDash: false, projectionPreparingD3: false
     };
     var keys = {
         "car.basic.vehicle_speed": "speed",
@@ -40,7 +42,11 @@
         "car.basic.cur_journey_avg_fuel_consume": "consumption",
         "car.ev_info.power_battery_voltage": "voltage",
         "car.ev_info.cur_charge_current": "current",
+        // CarPlay chega como carPlayInDash; o espelho do Android Auto como projectionMirrorInDash e a
+        // Surface própria dele como aaClusterInDash. Qualquer um deles é "projeção no painel".
         "carPlayInDash": "carPlayInDash",
+        "projectionMirrorInDash": "projectionMirrorInDash",
+        "aaClusterInDash": "aaClusterInDash",
         "projectionPreparingD3": "projectionPreparingD3"
     };
     // Legacy aliases are only a fallback before the field's canonical reading.
@@ -116,8 +122,10 @@
         var power = signedPower();
         var totalRange = state.fuelRange === null || state.batteryRange === null ? null : state.fuelRange + state.batteryRange;
         var tempUnit = state.tempUnit === 1 ? "°F" : "°C";
-        text("speed-value", format(state.speed));
-        root.classList.toggle("speed-three-digits", state.speed !== null && Math.round(state.speed) >= 100);
+        // Mostrador e ponteiro usam a velocidade calibrada (a do HUD), não a bruta do CAN.
+        var shownSpeed = speedCalibration ? speedCalibration.display(state.speed) : state.speed;
+        text("speed-value", format(shownSpeed));
+        root.classList.toggle("speed-three-digits", shownSpeed !== null && Math.round(shownSpeed) >= 100);
         text("power-value", format(power === null ? null : Math.max(0, power)));
         text("regen-value", format(power === null ? null : Math.min(0, power)));
         text("vector-power-value", format(power));
@@ -148,11 +156,11 @@
         text("consumption-unit", state.consumption === 0 ? "L/100 km" : "km/L");
         text("total-range", format(Number.isFinite(totalRange) ? totalRange : null));
         root.classList.toggle("is-regenerating", power !== null && power < 0);
-        root.classList.toggle("projection-active", state.carPlayInDash);
+        root.classList.toggle("projection-active", state.carPlayInDash || state.projectionMirrorInDash || state.aaClusterInDash);
         root.classList.toggle("projection-preparing", state.projectionPreparingD3);
-        if (!lastGaugeReading || lastGaugeReading.speed !== state.speed || lastGaugeReading.power !== power) {
-            lastGaugeReading = { speed: state.speed, power: power };
-            window.dispatchEvent(new CustomEvent("apex-telemetry", { detail: { speed: state.speed, power: power } }));
+        if (!lastGaugeReading || lastGaugeReading.speed !== shownSpeed || lastGaugeReading.power !== power) {
+            lastGaugeReading = { speed: shownSpeed, power: power };
+            window.dispatchEvent(new CustomEvent("apex-telemetry", { detail: { speed: shownSpeed, power: power } }));
         }
     }
 
@@ -167,13 +175,21 @@
             if (menus.keys.indexOf(key) !== -1) receivedKeys[key] = true;
             menus.update(key, value, allowAliases);
         }
+        if (speedCalibration) {
+            if (speedCalibration.keys.indexOf(key) !== -1) receivedKeys[key] = true;
+            if (speedCalibration.update(key, value, allowAliases)) scheduleRender();
+        }
+        if (projection) {
+            if (projection.keys.indexOf(key) !== -1) receivedKeys[key] = true;
+            projection.update(key, value, allowAliases);
+        }
         var field = keys[key] || (allowAliases ? aliases[key] : undefined);
         if (!field) return;
         if (keys[key]) {
             receivedKeys[key] = true;
             canonicalFields[field] = true;
         } else if (canonicalFields[field]) return;
-        if (field === "carPlayInDash" || field === "projectionPreparingD3") value = booleanValue(value);
+        if (field === "carPlayInDash" || field === "projectionMirrorInDash" || field === "aaClusterInDash" || field === "projectionPreparingD3") value = booleanValue(value);
         else if (field === "gear") value = enumValue(value, gearLabels);
         else if (field === "driveMode") value = enumValue(value, driveLabels);
         else if (field === "propulsionMode") {
@@ -203,7 +219,8 @@
             available = typeof bridge.getAvailableKeys === "function" ? JSON.parse(bridge.getAvailableKeys()) : [];
         } catch (error) { return; }
         if (!Array.isArray(available)) return;
-        var preferenceKeys = display ? display.keys : [];
+        var preferenceKeys = (display ? display.keys : [])
+            .concat(speedCalibration ? speedCalibration.preferenceKeys : [], projection ? projection.preferenceKeys : []);
         var requestedKeys = Object.keys(keys).concat(menus ? menus.keys : [], preferenceKeys);
         subscribedKeys = requestedKeys.filter(function (key, index) {
             return requestedKeys.indexOf(key) === index && (available.indexOf(key) !== -1 || preferenceKeys.indexOf(key) !== -1);
@@ -246,6 +263,8 @@
         if (disposed) return;
         disposed = true;
         if (menus) menus.cleanup();
+        if (speedCalibration) speedCalibration.cleanup();
+        if (projection) projection.cleanup();
         if (display) display.cleanup();
         if (renderFrame !== null) window.cancelAnimationFrame(renderFrame);
         if (clockTimer !== null) window.clearTimeout(clockTimer);

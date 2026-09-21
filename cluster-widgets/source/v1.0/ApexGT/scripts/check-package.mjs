@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderBundle } from './bundle.mjs';
+import { renderSharedRuntimeScript } from './shared-runtime.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const published = path.resolve(root, '../../../Themes/v1.0/ApexGT');
@@ -18,6 +19,15 @@ assert.doesNotMatch(html, /\b(?:src|href)=["']\.\//);
 assert.doesNotMatch(html, /url\(["']?(?:https?:|\.\.)/);
 assert.doesNotMatch(html, /theme-lab|evPowerKw|setAppDefaultDimensions|setNativeMask|setClusterBackground/);
 assert.match(html, /ApexMenus/);
+assert.match(html, /ApexSpeed/);
+assert.match(html, /ApexProjection/);
+assert.match(html, /window\.ApexShared = \{/);
+assert.match(manifest, /<stateVariable>apexProjectionMode<\/stateVariable>/);
+// Projecao integrada: a rampa chega a transparente na borda do viewport e as quinas abrem.
+assert.match(html, /transparent 520px,transparent 1400px/);
+assert.match(html, /transparent 112px,transparent 656px/);
+assert.equal(fs.readFileSync(path.join(root, 'src/shared-runtime.js'), 'utf8'), renderSharedRuntimeScript(root),
+    'src/shared-runtime.js is stale; run npm run build');
 assert.equal(html, expectedHtml, 'dist/app.html is stale; run npm run build');
 assert.equal(fs.readFileSync(path.join(published, 'app.html'), 'utf8'), expectedHtml,
     'published app.html is stale; run npm run build');

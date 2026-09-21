@@ -6,6 +6,7 @@ const stylesheets = [
     'src/apex-gt.css',
     'src/apex-menus.css',
     'src/vector-display.css',
+    'src/apex-projection.css',
 ];
 
 const images = [
@@ -21,6 +22,9 @@ const scripts = [
     'src/vector-gauges.js',
     'src/apex-display.js',
     'src/apex-menus.js',
+    'src/shared-runtime.js',
+    'src/apex-speed.js',
+    'src/apex-projection.js',
     'src/apex-gt.js',
 ];
 

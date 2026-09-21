@@ -11,10 +11,10 @@ const K = {
     fuelRange: 'car.ev_info.fuel_mode_remain_odometer', batteryRange: 'car.ev_info.electric_mode_remain_odometer',
     trip: 'car.basic.cur_journey_odometer', consumption: 'car.basic.cur_journey_avg_fuel_consume',
     voltage: 'car.ev_info.power_battery_voltage', current: 'car.ev_info.cur_charge_current',
-    projection: 'carPlayInDash', preparing: 'projectionPreparingD3'
+    projection: 'carPlayInDash', mirror: 'projectionMirrorInDash', aaCluster: 'aaClusterInDash', preparing: 'projectionPreparingD3'
 };
 
-function environment({ snapshot = {}, available = Object.values(K), initialPush, bridge = true, badAvailable = false, menus = null, display = null } = {}) {
+function environment({ snapshot = {}, available = Object.values(K), initialPush, bridge = true, badAvailable = false, menus = null, display = null, speed = null, projection = null } = {}) {
     let nextId = 1;
     let writes = 0;
     const nodes = new Map();
@@ -48,6 +48,8 @@ function environment({ snapshot = {}, available = Object.values(K), initialPush,
     const window = {
         ApexMenus: menus ? { create: () => menus } : undefined,
         ApexDisplay: display ? { create: () => display } : undefined,
+        ApexSpeed: speed ? { create: () => speed } : undefined,
+        ApexProjection: projection ? { create: () => projection } : undefined,
         requestAnimationFrame(callback) { const id = nextId++; frames.set(id, callback); return id; },
         cancelAnimationFrame(id) { frames.delete(id); },
         setTimeout(callback, delay) { const id = nextId++; timeouts.set(id, { callback, delay }); return id; },
@@ -115,13 +117,13 @@ test('initial subscription snapshot populates supported keys and derived values 
     assert.equal(e.text('trip-distance'), '1656.7'); assert.equal(e.text('average-consumption'), '16.9');
     assert.equal(e.text('consumption-unit'), 'km/L');
     assert.equal(e.nodes.get('fuel-fill').style.transform, 'scaleX(0.8)');
-    assert.equal(e.subscriptions.length, 1); assert.equal(e.subscriptions[0].length, 19);
+    assert.equal(e.subscriptions.length, 1); assert.equal(e.subscriptions[0].length, 21);
     assert.equal(e.gaugeEvents().length, 1);
 });
 
 test('all genuine zero readings remain distinct from missing', () => {
     const e = environment();
-    e.feed(Object.fromEntries(Object.values(K).filter((key) => !['carPlayInDash', 'projectionPreparingD3'].includes(key)).map((key) => [key, 0])));
+    e.feed(Object.fromEntries(Object.values(K).filter((key) => !['carPlayInDash', 'projectionMirrorInDash', 'aaClusterInDash', 'projectionPreparingD3'].includes(key)).map((key) => [key, 0])));
     e.flush();
     ['speed-value', 'power-value', 'regen-value', 'engine-rpm', 'odometer', 'fuel-range', 'battery-range', 'total-range']
         .forEach((id) => assert.equal(e.text(id), '0', id));
@@ -265,6 +267,13 @@ test('projection preparing/active flags update without vehicle writes or card ch
     assert.equal(e.root.classList.contains('projection-active'), true);
     e.feed({ [K.projection]: 'false' }); e.flush();
     assert.equal(e.root.classList.contains('projection-active'), false);
+    // O espelho do Android Auto e a Surface do cluster também são projeção no painel.
+    e.feed({ [K.mirror]: true }); e.flush();
+    assert.equal(e.root.classList.contains('projection-active'), true);
+    e.feed({ [K.mirror]: false, [K.aaCluster]: 'true' }); e.flush();
+    assert.equal(e.root.classList.contains('projection-active'), true);
+    e.feed({ [K.aaCluster]: false }); e.flush();
+    assert.equal(e.root.classList.contains('projection-active'), false);
 });
 
 test('theme preference subscription is explicit and never reads the vehicle snapshot channel', () => {
@@ -301,6 +310,41 @@ test('cleanup cancels pending work, exact subscriptions, timers and pagehide lis
     assert.equal(e.events.filter((event) => event.type === 'apex-cleanup').length, 1);
     const before = e.writes; e.feed({ [K.speed]: 120 }); e.window.onKeyEvent('ENTER'); e.window.onCardChanged(3); e.flush();
     assert.equal(e.writes, before); assert.equal(e.frames.size, 0);
+});
+
+test('speed calibration drives readout, digit class and gauge event; preference changes re-render; null stays missing', () => {
+    const enable = 'app.preferences.enableSpeedAdjustment';
+    const offset = 'app.preferences.speedAdjustmentOffset';
+    const deliveries = [];
+    let factor = 1.07, cleanups = 0;
+    const speed = { keys: [enable, offset], preferenceKeys: [enable, offset],
+        update: (key, value, aliases) => { deliveries.push([key, value, aliases]); if (key === offset) { factor = Number(value); return true; } return false; },
+        display: (raw) => (raw === null ? null : Math.floor(raw * factor)), cleanup: () => { cleanups++; } };
+    const e = environment({ speed, available: [K.speed], snapshot: { [K.speed]: 72 } }); e.flush();
+    assert.deepEqual(e.subscriptions, [[K.speed, enable, offset]]);
+    assert.ok(!e.snapshotReads.includes(enable) && !e.snapshotReads.includes(offset), 'preferences never read from getCarData');
+    assert.equal(e.text('speed-value'), '77');
+    assert.deepEqual(JSON.parse(JSON.stringify(e.gaugeEvents().at(-1).detail)), { speed: 77, power: null });
+    e.feed({ [K.speed]: 94 }); e.flush();
+    assert.equal(e.text('speed-value'), '100'); assert.equal(e.root.classList.contains('speed-three-digits'), true);
+    e.window.onDataChanged(offset, '1'); assert.equal(e.frames.size, 1); e.flush();
+    assert.equal(e.text('speed-value'), '94'); assert.equal(e.root.classList.contains('speed-three-digits'), false);
+    e.window.onDataChanged(enable, 'true'); assert.equal(e.frames.size, 0, 'unchanged preference schedules no frame');
+    e.feed({ [K.speed]: null }); e.flush(); assert.equal(e.text('speed-value'), '--');
+    e.window.cleanup(); e.window.cleanup(); assert.equal(cleanups, 1);
+    assert.deepEqual(e.unsubscriptions, e.subscriptions);
+});
+
+test('projection mode controller shares the preference channel and cleans up once', () => {
+    const mode = 'app.preferences.apexProjectionMode';
+    const deliveries = [];
+    let cleanups = 0;
+    const projection = { keys: [mode], preferenceKeys: [mode], update: (...args) => deliveries.push(args), cleanup: () => { cleanups++; } };
+    const e = environment({ projection, available: [K.speed], initialPush: window => window.onDataChanged(mode, 'Janela') });
+    assert.deepEqual(e.subscriptions, [[K.speed, mode]]);
+    assert.ok(!e.snapshotReads.includes(mode));
+    assert.deepEqual(deliveries.find(([key]) => key === mode), [mode, 'Janela', false]);
+    e.window.cleanup(); e.window.cleanup(); assert.equal(cleanups, 1);
 });
 
 console.log(`Apex GT runtime: ${cases} behavioral cases passed.`);

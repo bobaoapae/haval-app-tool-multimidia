@@ -104,7 +104,7 @@ A referência de autoria permanece em
 
 | Leitura | Chave/fonte real | Tratamento |
 |---|---|---|
-| Velocidade | `car.basic.vehicle_speed` | Valor em km/h; arco progressivo 0–180 em Contour prioriza 0–80 e o Vector mantém 0–200, sem truncar a leitura numérica. |
+| Velocidade | `car.basic.vehicle_speed` calibrada por `getAdjustedSpeed` (shared/car/carDerivations.js) + preferências `app.preferences.enableSpeedAdjustment` / `speedAdjustmentOffset` | Mostrador e ponteiro usam a mesma velocidade do HUD e do painel físico, como o app e os temas Default e Minimalist; arco progressivo 0–180 em Contour prioriza 0–80 e o Vector mantém 0–200, sem truncar a leitura numérica. |
 | Potência / regeneração | `car.ev_info.power_battery_voltage` e `car.ev_info.cur_charge_current` | `kW = V × A / 1000`; tração positiva, regeneração negativa. Sem os dois operandos, ambas ficam `--`. |
 | RPM | `car.basic.engine_speed` | Visível somente acima de zero; ausente/zero oculta a leitura. |
 | Marcha | `car.basic.gear_status` | `0/1=N`, `2=D`, `3=P`, `4=R`. |
@@ -118,7 +118,7 @@ A referência de autoria permanece em
 | Trip A | `car.basic.cur_journey_odometer` | Uma casa decimal; não usa odômetro total como substituto. |
 | Consumo médio | `car.basic.cur_journey_avg_fuel_consume` | Fonte em L/100 km; positivo convertido por `100 / valor` para km/L; zero real aparece como `0.0 L/100 km`. |
 | Hora | Relógio local da WebView | HH:mm com atualização na virada do minuto. |
-| Projeção | `carPlayInDash`, `projectionPreparingD3` | Classes de estado; não desenham mapa nem alteram bounds nativos. |
+| Projeção | `carPlayInDash`, `projectionMirrorInDash`, `aaClusterInDash`, `projectionPreparingD3` | Classes de estado; não desenham mapa nem alteram bounds nativos. As três primeiras ligam `projection-active`: CarPlay, espelho do Android Auto e Surface do cluster. |
 
 Ausente, inválido ou ainda não recebido é `--`; zero real permanece zero. O arco limita apenas
 sua representação a `−100..100 kW` no Contour; a leitura numérica conserva a potência calculada.
@@ -167,6 +167,50 @@ preferência de movimento reduzido.
 
 `cleanup()` desinscreve telemetria e cancela frame, relógio, heartbeat de `2s` e listeners do
 movimento. O heartbeat existe apenas com o método correspondente na bridge; não é loop gráfico.
+
+## Projeção integrada ao mapa e velocidade do HUD na versão 1.0.14
+
+**Velocidade.** O tema mostrava `car.basic.vehicle_speed` crua, alguns km/h abaixo do HUD e do painel
+físico. Os temas Default e Minimalist já calibram com `getAdjustedSpeed` de
+[`shared/car/carDerivations.js`](../shared/car/carDerivations.js), a mesma fórmula do app.
+`src/apex-speed.js` passa a aplicá-la ao mostrador, à classe de três dígitos e ao evento
+`apex-telemetry` que move o ponteiro, lendo `enableSpeedAdjustment` e `speedAdjustmentOffset` por
+`getPreference` e acompanhando-as por `app.preferences.*`. Leitura ausente continua `--`.
+
+Para isso `scripts/shared-runtime.mjs` gera `src/shared-runtime.js` a partir de `source/v1.0/shared`,
+recortando só a função usada: o bundle do tema cola scripts clássicos e não resolve módulos ES, então
+os `import`/`export` são removidos e o resultado sai em `window.ApexShared`. O `check-package` acusa
+quando o gerado fica para trás da fonte compartilhada.
+
+**Projeção.** `carPlayInDash` cobre só o CarPlay; o espelho do Android Auto chega como
+`projectionMirrorInDash` e a Surface do cluster como `aaClusterInDash`. Os três passam a ligar
+`projection-active`.
+
+E entra a configuração `apex_projection_mode` (combo Ampla/Janela, padrão Ampla,
+`src/apex-projection.js`). Em **Janela** nada muda e o vídeo aparece pelo viewport de 880×530. Em
+**Ampla**, enquanto há projeção, `src/apex-projection.css` dissolve a moldura **só na margem do vão**:
+transparente na borda (520/1400 e 112/656) e de volta a opaca em 90px nas laterais, antes de alcançar
+qualquer desenho. As superfícies escuras saem de cena, senão continuariam tapando a faixa liberada, e
+as leituras que passam a ficar sobre o mapa ganham sombra.
+
+Detalhe que custou algumas voltas: as duas máscaras se **somam**, então as quinas fechariam mais que
+os lados, onde só uma atua. Por isso a rampa vertical termina bem mais cedo — na altura da quina ela
+já não contribui, e o canto passa a valer o mesmo que a lateral.
+
+Instrumentos, escalas, ponteiros, leituras e menus continuam nas mesmas posições. Sem projeção, o tema
+fica exatamente como antes, e as medições de transparência do viewport seguem valendo.
+
+| | Contour | Vector |
+|---|---|---|
+| Antes | ![Contour antes](reference/projecao-contour-antes.png) | ![Vector antes](reference/projecao-vector-antes.png) |
+| Depois | ![Contour depois](reference/projecao-contour-depois.png) | ![Vector depois](reference/projecao-vector-depois.png) |
+
+As imagens são o tema real com telemetria simulada e um mapa desenhado por baixo, capturadas em
+1920×720.
+
+Validação: `scripts/check-speed.mjs` (7 casos), `scripts/check-projection.mjs` (4) e dois casos novos
+em `check-runtime.mjs` — a calibração no mostrador, na classe de dígitos e no evento do ponteiro, e a
+assinatura única com a chave de preferência fora do canal de snapshot.
 
 ## Ampliação inferior do Contour na versão 1.0.8
 

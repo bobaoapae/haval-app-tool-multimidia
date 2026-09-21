@@ -2,9 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderBundle } from './bundle.mjs';
+import { renderSharedRuntimeScript } from './shared-runtime.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const published = path.resolve(root, '../../../Themes/v1.0/ApexGT');
+// A calibracao de velocidade e codigo compartilhado dos temas v1.0, regenerado a cada build.
+fs.writeFileSync(path.join(root, 'src/shared-runtime.js'), renderSharedRuntimeScript(root));
 const html = renderBundle(root);
 
 for (const directory of [path.join(root, 'dist'), published]) {

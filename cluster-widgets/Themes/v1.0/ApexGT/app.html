@@ -305,6 +305,49 @@ body{-webkit-font-smoothing:antialiased}
 #apex-gt.display-vector .apex-menu-tabs button.is-selected{border-bottom-color:#58c9fb;color:#d9f4ff}
 
 </style>
+    <style>
+/* Projeção no painel (CarPlay ou Android Auto), modo "Ampla".
+
+   Pedido do dono, com a foto marcada nas quinas do mapa: a FAIXA PRETA entre os desenhos da moldura e
+   o mapa deve ficar transparente, e os desenhos — arcos, frisos, mostradores — devem continuar
+   FORTES, como estão. Não é o tema inteiro vazado: é só a margem em volta do vão sumindo, de modo que
+   o mapa avance até onde o desenho começa e a passagem deixe de ser um degrau.
+
+   Por isso a máscara é curta e colada no vão: transparente na borda (520/1400 e 120/650) e de volta a
+   opaca antes de chegar nos mostradores.
+
+   ⚠️ As QUINAS: as duas máscaras se somam (união), então onde as duas ainda têm material o canto fica
+   mais fechado que os lados — foi o que o dono marcou na foto. Como a soma não sabe de canto, a saída é
+   a rampa VERTICAL terminar mais cedo (opaca só até 22px, limpa em 112px): na altura da quina ela já
+   não contribui, e o canto passa a valer o mesmo que a lateral. A horizontal também ficou mais macia. Nada de recorte por luminosidade, que
+   apagava o preenchimento dos mostradores junto, e nada de `mask-mode: luminance`, que não existe no
+   WebView desta central. Em "Janela", ou sem projeção, o tema fica exatamente como no pacote. */
+
+/* As superfícies escuras precisam sair, senão elas continuariam tapando a faixa que a moldura liberou. */
+#apex-gt.projection-active.projection-wide .instrument-surface,
+#apex-gt.projection-active.projection-wide .footer-surface{
+  opacity:0;
+}
+
+/* Margem do vão dissolvendo: 90px de cada lado, 60px em cima, 55px embaixo. A união das duas máscaras
+   mantém material onde QUALQUER uma ainda é opaca, então os mostradores seguem inteiros. */
+#apex-gt.projection-active.projection-wide .raster-frame{
+  -webkit-mask-image:
+    linear-gradient(90deg,#000 0,#000 390px,rgba(0,0,0,.45) 450px,rgba(0,0,0,.12) 495px,transparent 520px,transparent 1400px,rgba(0,0,0,.12) 1425px,rgba(0,0,0,.45) 1470px,#000 1530px,#000 1920px),
+    linear-gradient(180deg,#000 0,#000 22px,rgba(0,0,0,.45) 62px,rgba(0,0,0,.12) 88px,transparent 112px,transparent 656px,rgba(0,0,0,.12) 680px,rgba(0,0,0,.45) 700px,#000 716px,#000 720px);
+  mask-image:
+    linear-gradient(90deg,#000 0,#000 390px,rgba(0,0,0,.45) 450px,rgba(0,0,0,.12) 495px,transparent 520px,transparent 1400px,rgba(0,0,0,.12) 1425px,rgba(0,0,0,.45) 1470px,#000 1530px,#000 1920px),
+    linear-gradient(180deg,#000 0,#000 22px,rgba(0,0,0,.45) 62px,rgba(0,0,0,.12) 88px,transparent 112px,transparent 656px,rgba(0,0,0,.12) 680px,rgba(0,0,0,.45) 700px,#000 716px,#000 720px);
+}
+
+/* O que cai dentro da faixa liberada fica sobre o mapa: sombra para continuar legível. */
+#apex-gt.projection-active.projection-wide .top-readouts,
+#apex-gt.projection-active.projection-wide .trip-strip,
+#apex-gt.projection-active.projection-wide .odometer{
+  text-shadow:0 2px 6px rgba(0,0,0,.95),0 0 16px rgba(0,0,0,.85);
+}
+
+</style>
 </head>
 <body>
     <main id="apex-gt" aria-label="Apex GT, painel de instrumentos">
@@ -1956,6 +1999,193 @@ body{-webkit-font-smoothing:antialiased}
 
 </script>
     <script>
+// GERADO por scripts/shared-runtime.mjs a partir de cluster-widgets/source/v1.0/shared — não edite à mão.
+// Cartão de turn-by-turn e derivações do carro compartilhados com Default e Minimalist; `npm run build` regenera.
+(function () {
+"use strict";
+// ---- source/v1.0/shared/car/carDerivations.js (getAdjustedSpeed) ----
+function getAdjustedSpeed(rawSpeed, enableAdjustment = false, offsetPercent = 0.0) {
+    const speed = parseFloat(rawSpeed) || 0.0;
+
+    // Formula to match the physical instrument cluster
+    const adjustedSpeed = speed * 1.07 - (speed / 180.0) * 0.02;
+
+    const finalSpeed = enableAdjustment
+        ? adjustedSpeed * (1.0 + (parseFloat(offsetPercent) / 100.0))
+        : adjustedSpeed;
+
+    return String(Math.floor(finalSpeed));
+}
+window.ApexShared = { getAdjustedSpeed: getAdjustedSpeed };
+})();
+
+</script>
+    <script>
+(function () {
+    "use strict";
+
+    // Velocidade mostrada = velocidade do HUD. A chave canônica `car.basic.vehicle_speed` é a do CAN,
+    // e o painel físico (e o HUD) mostram um valor calibrado — o app e os temas Default e Minimalist
+    // aplicam a mesma fórmula, `getAdjustedSpeed` em shared/car/carDerivations.js (window.ApexShared).
+    // As duas preferências GLOBAIS do app entram por cima: "Habilitar ajuste de velocidade" e o fator
+    // em %, lidas por getPreference (que cai na chave global quando não há versão do tema) e
+    // atualizadas por `app.preferences.*`, o mesmo canal que o Default usa.
+    var enableKey = "enableSpeedAdjustment";
+    var offsetKey = "speedAdjustmentOffset";
+    var enableCanonical = "app.preferences." + enableKey;
+    var offsetCanonical = "app.preferences." + offsetKey;
+
+    function booleanValue(value) {
+        if (value === true || value === false) return value;
+        if (typeof value !== "string") return null;
+        var token = value.trim().toLowerCase();
+        if (token === "true" || token === "1") return true;
+        if (token === "false" || token === "0") return false;
+        return null;
+    }
+
+    function numberValue(value) {
+        if (typeof value !== "number" && typeof value !== "string") return null;
+        var parsed = parseFloat(value);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function create() {
+        var enabled = false;
+        var offset = 0;
+        var disposed = false;
+        var shared = window.ApexShared || null;
+
+        function readInitial() {
+            try {
+                var bridge = window.Android;
+                if (!bridge || typeof bridge.getPreference !== "function") return;
+                var initialEnabled = booleanValue(bridge.getPreference(enableKey, "false"));
+                var initialOffset = numberValue(bridge.getPreference(offsetKey, "0"));
+                if (initialEnabled !== null) enabled = initialEnabled;
+                if (initialOffset !== null) offset = initialOffset;
+            } catch (error) {}
+        }
+
+        function update(key, value, allowAliases) {
+            if (disposed) return false;
+            var isEnable = key === enableCanonical || (allowAliases && key === enableKey);
+            var isOffset = key === offsetCanonical || (allowAliases && key === offsetKey);
+            if (isEnable) {
+                var nextEnabled = booleanValue(value);
+                if (nextEnabled === null || nextEnabled === enabled) return false;
+                enabled = nextEnabled;
+                return true;
+            }
+            if (isOffset) {
+                var nextOffset = numberValue(value);
+                if (nextOffset === null || nextOffset === offset) return false;
+                offset = nextOffset;
+                return true;
+            }
+            return false;
+        }
+
+        // Nulo continua nulo: "sem leitura" nunca vira zero calibrado. Só número ou texto numérico
+        // entram (mesma régua de apex-gt.js: `Number("")` seria 0).
+        function display(rawSpeed) {
+            var raw = numberValue(rawSpeed);
+            if (raw === null || (typeof rawSpeed === "string" && !/^\s*[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?\s*$/i.test(rawSpeed))) return null;
+            if (!shared || typeof shared.getAdjustedSpeed !== "function") return raw;
+            var calibrated = Number(shared.getAdjustedSpeed(raw, enabled, offset));
+            return Number.isFinite(calibrated) ? calibrated : raw;
+        }
+
+        readInitial();
+
+        return {
+            keys: [enableCanonical, offsetCanonical],
+            preferenceKeys: [enableCanonical, offsetCanonical],
+            update: update,
+            display: display,
+            isAdjustmentEnabled: function () { return enabled; },
+            offsetPercent: function () { return offset; },
+            cleanup: function () { disposed = true; }
+        };
+    }
+
+    window.ApexSpeed = { create: create };
+})();
+
+</script>
+    <script>
+(function () {
+    "use strict";
+
+    // Como o Apex GT se comporta enquanto o CarPlay ou o Android Auto ocupam o painel.
+    //
+    // "Ampla" (padrão) integra o tema ao mapa: as superfícies escuras somem, a moldura se dissolve em
+    // rampa até a borda do viewport e uma vinheta escurece as pontas — tudo em apex-projection.css, com
+    // gradiente. Nada de `mask-mode: luminance`: ele NÃO existe no WebView desta central, e foi o que
+    // deixou a moldura inteira e a borda dura em volta do mapa na 1.0.21.
+    //
+    // "Janela" mantém o recorte próprio do tema (520..1400 × 120..650).
+    //
+    // É preferência do tema (`apexProjectionMode` no theme.xml), trocada em Telas. Quem liga e desliga
+    // o estado de projeção é o apex-gt.js, pela classe `projection-active` no root.
+    var preferenceKey = "apexProjectionMode";
+    var canonicalKey = "app.preferences." + preferenceKey;
+
+    function validMode(value) {
+        if (typeof value !== "string") return null;
+        var token = value.trim().toLowerCase();
+        if (token === "ampla" || token === "wide") return "Ampla";
+        if (token === "janela" || token === "window" || token === "viewport") return "Janela";
+        return null;
+    }
+
+    function create(options) {
+        var root = options.root;
+        var mode = "Ampla";
+        var disposed = false;
+        var canonicalSeen = false;
+
+        function apply(next) {
+            if (disposed) return;
+            mode = next;
+            root.classList.toggle("projection-wide", mode === "Ampla");
+            root.setAttribute("data-projection-mode", mode);
+        }
+
+        function update(key, value, allowAliases) {
+            if (disposed) return;
+            if (key === canonicalKey) canonicalSeen = true;
+            else {
+                var preferenceAlias = key === "app.preferences.apex_projection_mode";
+                var controlAlias = allowAliases && (key === preferenceKey || key === "apex_projection_mode");
+                if (canonicalSeen || (!preferenceAlias && !controlAlias)) return;
+            }
+            var next = validMode(value);
+            if (next !== null && next !== mode) apply(next);
+        }
+
+        var initial = null;
+        try {
+            if (window.Android && typeof window.Android.getPreference === "function") {
+                initial = validMode(window.Android.getPreference(preferenceKey, "Ampla"));
+            }
+        } catch (error) {}
+        apply(initial || "Ampla");
+
+        return {
+            keys: [canonicalKey],
+            preferenceKeys: [canonicalKey],
+            update: update,
+            getMode: function () { return mode; },
+            cleanup: function () { disposed = true; }
+        };
+    }
+
+    window.ApexProjection = { create: create };
+})();
+
+</script>
+    <script>
 (function () {
     "use strict";
 
@@ -1965,6 +2195,8 @@ body{-webkit-font-smoothing:antialiased}
     var FUEL_TANK_LITERS = 55;
     var display = window.ApexDisplay ? window.ApexDisplay.create({ root: root }) : null;
     var menus = window.ApexMenus ? window.ApexMenus.create({ root: root, mount: document.getElementById("apex-menus"), display: display }) : null;
+    var speedCalibration = window.ApexSpeed ? window.ApexSpeed.create() : null;
+    var projection = window.ApexProjection ? window.ApexProjection.create({ root: root }) : null;
     var disposed = false;
     var renderFrame = null;
     var clockTimer = null;
@@ -1978,7 +2210,7 @@ body{-webkit-font-smoothing:antialiased}
         driveMode: null, propulsionMode: null, insideTemp: null, outsideTemp: null,
         tempUnit: null, fuel: null, battery: null, fuelRange: null, batteryRange: null,
         trip: null, consumption: null, voltage: null, current: null,
-        carPlayInDash: false, projectionPreparingD3: false
+        carPlayInDash: false, projectionMirrorInDash: false, aaClusterInDash: false, projectionPreparingD3: false
     };
     var keys = {
         "car.basic.vehicle_speed": "speed",
@@ -1998,7 +2230,11 @@ body{-webkit-font-smoothing:antialiased}
         "car.basic.cur_journey_avg_fuel_consume": "consumption",
         "car.ev_info.power_battery_voltage": "voltage",
         "car.ev_info.cur_charge_current": "current",
+        // CarPlay chega como carPlayInDash; o espelho do Android Auto como projectionMirrorInDash e a
+        // Surface própria dele como aaClusterInDash. Qualquer um deles é "projeção no painel".
         "carPlayInDash": "carPlayInDash",
+        "projectionMirrorInDash": "projectionMirrorInDash",
+        "aaClusterInDash": "aaClusterInDash",
         "projectionPreparingD3": "projectionPreparingD3"
     };
     // Legacy aliases are only a fallback before the field's canonical reading.
@@ -2074,8 +2310,10 @@ body{-webkit-font-smoothing:antialiased}
         var power = signedPower();
         var totalRange = state.fuelRange === null || state.batteryRange === null ? null : state.fuelRange + state.batteryRange;
         var tempUnit = state.tempUnit === 1 ? "°F" : "°C";
-        text("speed-value", format(state.speed));
-        root.classList.toggle("speed-three-digits", state.speed !== null && Math.round(state.speed) >= 100);
+        // Mostrador e ponteiro usam a velocidade calibrada (a do HUD), não a bruta do CAN.
+        var shownSpeed = speedCalibration ? speedCalibration.display(state.speed) : state.speed;
+        text("speed-value", format(shownSpeed));
+        root.classList.toggle("speed-three-digits", shownSpeed !== null && Math.round(shownSpeed) >= 100);
         text("power-value", format(power === null ? null : Math.max(0, power)));
         text("regen-value", format(power === null ? null : Math.min(0, power)));
         text("vector-power-value", format(power));
@@ -2106,11 +2344,11 @@ body{-webkit-font-smoothing:antialiased}
         text("consumption-unit", state.consumption === 0 ? "L/100 km" : "km/L");
         text("total-range", format(Number.isFinite(totalRange) ? totalRange : null));
         root.classList.toggle("is-regenerating", power !== null && power < 0);
-        root.classList.toggle("projection-active", state.carPlayInDash);
+        root.classList.toggle("projection-active", state.carPlayInDash || state.projectionMirrorInDash || state.aaClusterInDash);
         root.classList.toggle("projection-preparing", state.projectionPreparingD3);
-        if (!lastGaugeReading || lastGaugeReading.speed !== state.speed || lastGaugeReading.power !== power) {
-            lastGaugeReading = { speed: state.speed, power: power };
-            window.dispatchEvent(new CustomEvent("apex-telemetry", { detail: { speed: state.speed, power: power } }));
+        if (!lastGaugeReading || lastGaugeReading.speed !== shownSpeed || lastGaugeReading.power !== power) {
+            lastGaugeReading = { speed: shownSpeed, power: power };
+            window.dispatchEvent(new CustomEvent("apex-telemetry", { detail: { speed: shownSpeed, power: power } }));
         }
     }
 
@@ -2125,13 +2363,21 @@ body{-webkit-font-smoothing:antialiased}
             if (menus.keys.indexOf(key) !== -1) receivedKeys[key] = true;
             menus.update(key, value, allowAliases);
         }
+        if (speedCalibration) {
+            if (speedCalibration.keys.indexOf(key) !== -1) receivedKeys[key] = true;
+            if (speedCalibration.update(key, value, allowAliases)) scheduleRender();
+        }
+        if (projection) {
+            if (projection.keys.indexOf(key) !== -1) receivedKeys[key] = true;
+            projection.update(key, value, allowAliases);
+        }
         var field = keys[key] || (allowAliases ? aliases[key] : undefined);
         if (!field) return;
         if (keys[key]) {
             receivedKeys[key] = true;
             canonicalFields[field] = true;
         } else if (canonicalFields[field]) return;
-        if (field === "carPlayInDash" || field === "projectionPreparingD3") value = booleanValue(value);
+        if (field === "carPlayInDash" || field === "projectionMirrorInDash" || field === "aaClusterInDash" || field === "projectionPreparingD3") value = booleanValue(value);
         else if (field === "gear") value = enumValue(value, gearLabels);
         else if (field === "driveMode") value = enumValue(value, driveLabels);
         else if (field === "propulsionMode") {
@@ -2161,7 +2407,8 @@ body{-webkit-font-smoothing:antialiased}
             available = typeof bridge.getAvailableKeys === "function" ? JSON.parse(bridge.getAvailableKeys()) : [];
         } catch (error) { return; }
         if (!Array.isArray(available)) return;
-        var preferenceKeys = display ? display.keys : [];
+        var preferenceKeys = (display ? display.keys : [])
+            .concat(speedCalibration ? speedCalibration.preferenceKeys : [], projection ? projection.preferenceKeys : []);
         var requestedKeys = Object.keys(keys).concat(menus ? menus.keys : [], preferenceKeys);
         subscribedKeys = requestedKeys.filter(function (key, index) {
             return requestedKeys.indexOf(key) === index && (available.indexOf(key) !== -1 || preferenceKeys.indexOf(key) !== -1);
@@ -2204,6 +2451,8 @@ body{-webkit-font-smoothing:antialiased}
         if (disposed) return;
         disposed = true;
         if (menus) menus.cleanup();
+        if (speedCalibration) speedCalibration.cleanup();
+        if (projection) projection.cleanup();
         if (display) display.cleanup();
         if (renderFrame !== null) window.cancelAnimationFrame(renderFrame);
         if (clockTimer !== null) window.clearTimeout(clockTimer);

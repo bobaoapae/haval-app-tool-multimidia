@@ -1,11 +1,11 @@
 {
   "name": "haval-apex-gt",
   "private": true,
-  "version": "1.0.13",
+  "version": "1.0.14",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "node scripts/check-runtime.mjs && node scripts/check-display.mjs && node scripts/check-motion.mjs && node scripts/check-vector-motion.mjs && node scripts/check-package.mjs",
+    "check": "node scripts/check-runtime.mjs && node scripts/check-display.mjs && node scripts/check-motion.mjs && node scripts/check-vector-motion.mjs && node scripts/check-speed.mjs && node scripts/check-projection.mjs && node scripts/check-package.mjs",
     "check:browser": "node scripts/check-browser.mjs && node scripts/check-menus-browser.mjs && APEX_TEST_DISPLAY=Vector node scripts/check-menus-browser.mjs && node scripts/check-vector-browser.mjs",
     "assets": "node scripts/prepare-assets.mjs && node scripts/prepare-vector-assets.mjs"
   }
