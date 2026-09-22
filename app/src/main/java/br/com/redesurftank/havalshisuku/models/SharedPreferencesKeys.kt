@@ -290,6 +290,18 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "openSunroofCurtainMaxTemp",
             "Temperatura externa máxima para abrir cortina"
     ),
+    /**
+     * Rearma a abertura a cada ciclo de ignição, em vez de uma vez por entrada na faixa.
+     *
+     * Quem usa uma faixa estreita não sente diferença. Quem usa uma faixa larga, de quase o dia
+     * inteiro, praticamente nunca sai dela, então o rearme por horário não acontece e a cortina
+     * abre uma única vez na vida do processo — o oposto do que "abrir ao ligar" promete. Fica
+     * opcional porque agir uma vez por faixa é o que respeita quem fechou a cortina na mão.
+     */
+    OPEN_SUNROOF_CURTAIN_EVERY_IGNITION(
+            "openSunroofCurtainEveryIgnition",
+            "Abrir a cortina a cada vez que o carro liga"
+    ),
     ENABLE_CLOSE_SUNROOF_CURTAIN_ON_TIME(
             "enableCloseSunroofCurtainOnTime",
             "Habilitar fechamento da cortina do teto solar por horário"

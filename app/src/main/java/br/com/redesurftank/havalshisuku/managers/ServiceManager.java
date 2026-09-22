@@ -268,6 +268,15 @@ public class ServiceManager {
     // Cortina automática por horário — guarda "uma vez por ENTRADA na janela". Reseta ao SAIR
     // da janela (respeita ajuste manual e permite disparar de novo na próxima entrada).
     private boolean curtainOpenActedThisWindow = false;
+    /**
+     * Quando o carro desligou, para não gastar o gatilho no próprio instante do desligamento.
+     *
+     * É só um respiro curto. A tentação é usar um valor grande para "filtrar oscilação", e seria
+     * errado: num teste real o dono desligou, trancou, destrancou e religou em doze segundos. Uma
+     * partida de verdade pode ser assim de rápida, e um filtro largo engoliria justamente ela.
+     */
+    private long curtainPoweredOffAtMs = 0L;
+    private static final long CURTAIN_IGNITION_MIN_OFF_MS = 5_000L;
     private boolean curtainCloseActedThisWindow = false;
     // Reavaliação event-driven: em vez de pollar (CPU à toa), reagenda p/ o PRÓXIMO boundary de
     // janela — dorme quando longe; teto de 15min só por segurança (mudança de relógio). Um
@@ -2659,6 +2668,7 @@ public class ServiceManager {
             } else if (key.equals(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue())) {
                 if (isVehicleReadyStateOff(value)) {
                     carPoweredOff = true;
+                    rearmCurtainForNextIgnition();
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false)) {
                         shutdownBluetoothForRestore("POWER_OFF");
                     }
@@ -2679,6 +2689,7 @@ public class ServiceManager {
                     }
                     // Ao ligar o carro, reaplica o % de bateria do HEV Prioritario (o carro costuma resetar).
                     applyHevSocTargetIfActive("POWER_ON");
+                    evaluateCurtainOnIgnition();
                 }
             } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
                 syncDriverSeatVentilationWithHvac(value, "HVAC_POWER_EVENT");
@@ -2985,6 +2996,48 @@ public class ServiceManager {
     }
 
     /** Janela [sh:sm, eh:em) com virada de meia-noite. Janela vazia (s==e) = nunca. */
+    /**
+     * Devolve a abertura da cortina ao estado "ainda não agi", uma vez por desligamento.
+     *
+     * A abertura age uma vez por ENTRADA na faixa de horário e rearma ao SAIR dela. Com uma faixa
+     * estreita isso basta. Com uma faixa larga — 01:00 às 23:59, por exemplo — o horário sai da
+     * faixa por 61 minutos de madrugada e mais nada, então na prática a cortina abre uma única vez
+     * na vida do processo, que é o contrário do que "abrir ao ligar" promete. Foi assim que um dono
+     * relatou o problema.
+     *
+     * O rearme acontece no DESLIGAR, não no ligar. Rearmar aqui não abre nada: quem abre é a
+     * avaliação da próxima partida.
+     */
+    private void rearmCurtainForNextIgnition() {
+        if (!isCurtainEveryIgnitionEnabled()) return;
+        curtainOpenActedThisWindow = false;
+        curtainPoweredOffAtMs = System.currentTimeMillis();
+        traceCurtain("sunroof_curtain_rearm", "reason", "power_off");
+    }
+
+    /** Partida do carro: reavalia a faixa, se houve um desligamento antes. */
+    private void evaluateCurtainOnIgnition() {
+        if (!isCurtainEveryIgnitionEnabled()) return;
+        if (curtainPoweredOffAtMs == 0L) return;
+        long parado = System.currentTimeMillis() - curtainPoweredOffAtMs;
+        if (parado < CURTAIN_IGNITION_MIN_OFF_MS) {
+            // Ainda no instante do desligamento: mantém a marca, a partida de verdade vem depois.
+            traceCurtain("sunroof_curtain_ignition_skip", "offMs", parado);
+            return;
+        }
+        curtainPoweredOffAtMs = 0L;
+        traceCurtain("sunroof_curtain_ignition", "offMs", parado);
+        backgroundHandler.removeCallbacks(curtainScheduleRunnable);
+        backgroundHandler.postDelayed(curtainScheduleRunnable, 2000);
+    }
+
+    private boolean isCurtainEveryIgnitionEnabled() {
+        return sharedPreferences.getBoolean(
+                SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_EVERY_IGNITION.getKey(), false)
+                && sharedPreferences.getBoolean(
+                SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
+    }
+
     private boolean isTimeInRange(int t, int sh, int sm, int eh, int em) {
         int s = sh * 60 + sm, e = eh * 60 + em;
         if (s == e) return false;

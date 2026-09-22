@@ -851,6 +851,14 @@ fun BasicSettingsTab() {
                         )
                 )
         }
+        var openCurtainEveryIgnition by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_EVERY_IGNITION.key,
+                                false
+                        )
+                )
+        }
         var curtainStartHour by remember {
                 mutableIntStateOf(
                         prefs.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_START_HOUR.key, 18)
@@ -1532,6 +1540,30 @@ fun BasicSettingsTab() {
                                                         }
                                                 }
                                         } else null
+                        ),
+                        SettingItem(
+                                title =
+                                        SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_EVERY_IGNITION
+                                                .description,
+                                group = SettingsGroups.COMFORT,
+                                description =
+                                        "Com a opção acima ligada, a cortina abre uma vez por " +
+                                                "entrada na faixa de horário. Numa faixa larga, " +
+                                                "isso acaba sendo uma vez só. Ligue aqui para ela " +
+                                                "abrir toda vez que o carro ligar.",
+                                enabled = enableOpenSunroofCurtainOnStart,
+                                checked = openCurtainEveryIgnition,
+                                onCheckedChange = { checked ->
+                                        openCurtainEveryIgnition = checked
+                                        prefs.edit {
+                                                putBoolean(
+                                                        SharedPreferencesKeys
+                                                                .OPEN_SUNROOF_CURTAIN_EVERY_IGNITION
+                                                                .key,
+                                                        checked
+                                                )
+                                        }
+                                }
                         ),
                         SettingItem(
                                 title =
