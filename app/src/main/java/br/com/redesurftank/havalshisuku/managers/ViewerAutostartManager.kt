@@ -42,7 +42,7 @@ import java.io.File
 object ViewerAutostartManager {
     private const val TAG = "VIEWER_AUTOSTART"
 
-    private const val VIEWER_PACKAGE = "com.havalh6.viewer"
+    private const val VIEWER_PACKAGE = ViewerPresence.VIEWER_PACKAGE
     private const val STOCK_LAUNCHER_PACKAGE = "com.beantechs.launcher"
 
     private const val PREF_BOOT_TOKEN = "viewerAutostartBootToken"
@@ -107,11 +107,13 @@ object ViewerAutostartManager {
         }
     }
 
+    /**
+     * [ViewerPresence] is the single reader of the viewer's package state, and it is kept fresh by
+     * package broadcasts — so this also covers the viewer being uninstalled or disabled long after
+     * the toggle was switched on.
+     */
     private fun isViewerInstalled(): Boolean =
-        runCatching {
-            App.getContext().packageManager.getLaunchIntentForPackage(VIEWER_PACKAGE) != null
-        }
-            .getOrDefault(false)
+        ViewerPresence.supports(ViewerPresencePolicy.API_PRESENT_ONLY)
 
     private fun attempt(index: Int) {
         if (!running) return

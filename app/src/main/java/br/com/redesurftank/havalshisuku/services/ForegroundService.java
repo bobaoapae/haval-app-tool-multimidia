@@ -43,6 +43,7 @@ import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher;
 import br.com.redesurftank.havalshisuku.managers.ServiceManager;
 import br.com.redesurftank.havalshisuku.managers.StealthModeManager;
 import br.com.redesurftank.havalshisuku.managers.HotRouterManager;
+import br.com.redesurftank.havalshisuku.managers.ViewerPresence;
 import br.com.redesurftank.havalshisuku.models.CommandListener;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
 import br.com.redesurftank.havalshisuku.utils.IPTablesUtils;
@@ -730,6 +731,15 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
             HotRouterManager.getInstance().onServicesReady();
         } catch (Exception e) {
             Log.e(TAG, "Error starting HotRouter: " + e.getMessage(), e);
+        }
+
+        // Watches whether the H6 3D viewer is installed, so the options that only serve it are
+        // offered only when it is there. Registers a package receiver at runtime, hence here
+        // rather than in the manifest.
+        try {
+            ViewerPresence.INSTANCE.start();
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting viewer presence watcher: " + e.getMessage(), e);
         }
 
         // Anonymous fleet ping (PostHog). Delayed so boot/network settle; no-op if key blank or opted out.
