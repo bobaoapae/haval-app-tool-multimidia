@@ -42,6 +42,27 @@ object HvacPanelSuppressor {
     /** Holders of the lease, by tag (e.g. "viewer"). A lease is held while this is not empty. */
     private val holders = mutableSetOf<String>()
 
+    /**
+     * Told whenever suppression actually starts or stops. The bound viewer needs this: if it
+     * assumed its request was granted it would show its own popup while the car still shows the OEM
+     * one — the user's toggle, the declared API level and the signer can all refuse the lease.
+     */
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Boolean) -> Unit>()
+
+    /** Registers [listener] and hands it the current state. Returns an unregister function. */
+    fun addListener(listener: (Boolean) -> Unit): () -> Unit {
+        listeners.add(listener)
+        runCatching { listener(isHeld()) }
+        return { listeners.remove(listener) }
+    }
+
+    private fun notifyListeners(active: Boolean) {
+        listeners.forEach { listener ->
+            runCatching { listener(active) }
+                .onFailure { Log.e(TAG, "Suppression listener failed", it) }
+        }
+    }
+
     private fun prefs() =
         App.getDeviceProtectedContext()
             .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
@@ -107,7 +128,8 @@ object HvacPanelSuppressor {
 
     private fun apply(reason: String) {
         val held = HvacSuppressionPolicy.leaseHeld(holders, isFeatureEnabled())
-        when (HvacSuppressionPolicy.decide(held, markerSet())) {
+        val action = HvacSuppressionPolicy.decide(held, markerSet())
+        when (action) {
             HvacSuppressionPolicy.Action.NONE -> Unit
 
             HvacSuppressionPolicy.Action.DISABLE -> {
@@ -144,5 +166,9 @@ object HvacPanelSuppressor {
                 )
             }
         }
+
+        // Only on a real transition, so a bound viewer is told when its request was refused (the
+        // toggle is off, the lease was dropped elsewhere) rather than assuming it succeeded.
+        if (action != HvacSuppressionPolicy.Action.NONE) notifyListeners(held)
     }
 }

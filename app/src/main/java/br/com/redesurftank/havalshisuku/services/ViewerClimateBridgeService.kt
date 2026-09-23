@@ -46,9 +46,19 @@ class ViewerClimateBridgeService : Service() {
 
         /** Binder the client owns. Impulse links to its death and releases the lease when it dies. */
         const val KEY_TOKEN = "token"
+
+        /**
+         * Impulse -> client: whether the OEM A/C app is actually being held disabled right now
+         * (`arg1` 1/0). Sent in reply to a request and whenever the state changes afterwards — the
+         * user can switch the feature off while the viewer is bound. A viewer that assumed its
+         * request was granted would show its popup on top of the car's own.
+         */
+        const val MSG_CLIMATE_CONTROL_STATE = 3
     }
 
     private var clientToken: IBinder? = null
+    private var client: Messenger? = null
+    private var unsubscribe: (() -> Unit)? = null
 
     private val deathRecipient = IBinder.DeathRecipient {
         Log.w(TAG, "Viewer died while holding the climate lease; restoring the OEM A/C app")
@@ -81,12 +91,25 @@ class ViewerClimateBridgeService : Service() {
         return true
     }
 
+    private fun reportState(active: Boolean) {
+        val target = client ?: return
+        runCatching {
+            target.send(Message.obtain(null, MSG_CLIMATE_CONTROL_STATE, if (active) 1 else 0, 0))
+        }.onFailure {
+            // The viewer went away without unbinding; the death recipient handles the lease.
+            Log.w(TAG, "Could not report climate state to the viewer", it)
+        }
+    }
+
     private fun takeLease(message: Message) {
         val data: Bundle? = message.data
+        client = message.replyTo
         val caller = data?.getParcelable<PendingIntent>(ImpulseApiCallers.EXTRA_CALLER)
         val pkg = caller?.creatorPackage
         if (pkg == null || pkg != ViewerPresence.VIEWER_PACKAGE) {
             Log.w(TAG, "Climate lease refused: caller is '$pkg'")
+            // Every refusal is answered, so the viewer knows the OEM popup is still the car's job.
+            reportState(false)
             return
         }
         // Same gate the settings screen uses, so a viewer that predates the hand-off - or one
@@ -96,10 +119,12 @@ class ViewerClimateBridgeService : Service() {
             )
         ) {
             Log.w(TAG, "Climate lease refused: ${ViewerPresence.status()}")
+            reportState(false)
             return
         }
         if (!HvacPanelSuppressor.isFeatureEnabled()) {
             Log.w(TAG, "Climate lease refused: the user has not enabled the hand-off")
+            reportState(false)
             return
         }
 
@@ -108,6 +133,7 @@ class ViewerClimateBridgeService : Service() {
             // Without a token a dead viewer would leave the OEM app disabled until the next
             // reconcile. Refusing is better than taking a lease we cannot reliably drop.
             Log.w(TAG, "Climate lease refused: no death token supplied")
+            reportState(false)
             return
         }
 
@@ -122,6 +148,10 @@ class ViewerClimateBridgeService : Service() {
             }
 
         Log.w(TAG, "Climate lease granted to $pkg")
+        // Follow the real suppression state from here on: the user can switch the feature off
+        // while the viewer is bound, and the viewer has to stop showing its own popup then.
+        unsubscribe?.invoke()
+        unsubscribe = HvacPanelSuppressor.addListener { active -> reportState(active) }
         HvacPanelSuppressor.acquire(HOLDER)
     }
 
@@ -131,7 +161,13 @@ class ViewerClimateBridgeService : Service() {
             runCatching { token.unlinkToDeath(deathRecipient, 0) }
             clientToken = null
         }
+        unsubscribe?.invoke()
+        unsubscribe = null
         HvacPanelSuppressor.release(HOLDER)
         Log.w(TAG, "Climate lease released ($reason)")
+        // A viewer that asked to release is still alive and wants to know it may stop assuming it
+        // owns the popup; one that died cannot be told, which costs nothing.
+        reportState(false)
+        if (reason != "release_before_retake") client = null
     }
 }
