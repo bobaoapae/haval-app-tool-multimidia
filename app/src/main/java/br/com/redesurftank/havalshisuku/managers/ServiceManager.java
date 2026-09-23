@@ -697,29 +697,7 @@ public class ServiceManager {
             controlService = IIntelligentVehicleControlService.Stub.asInterface(controlBinder);
             registerControlDeathRecipient();
 
-            IBinder rawPoolBinder = getSystemService("com.beantechs.voice.adapter.VoiceAdapterService");
-            if (rawPoolBinder == null) {
-                Log.w(TAG, "VoiceAdapterService binder unavailable; continuing without vehicle/dvr/model binder pool");
-            } else {
-                IBinder poolBinder = new ShizukuBinderWrapper(rawPoolBinder);
-                if (!poolBinder.pingBinder()) {
-                    Log.w(TAG, "IBinderPool binder not alive; continuing without vehicle/dvr/model binder pool");
-                } else {
-                    IBinderPool pool = IBinderPool.Stub.asInterface(poolBinder);
-                    IBinder vehicleBinder = pool.queryBinder(6);
-                    if (vehicleBinder != null) {
-                        vehicle = IVehicle.Stub.asInterface(new ShizukuBinderWrapper(vehicleBinder));
-                    }
-                    IBinder dvrBinder = pool.queryBinder(8);
-                    if (dvrBinder != null) {
-                        dvr = IDvr.Stub.asInterface(new ShizukuBinderWrapper(dvrBinder));
-                    }
-                    IBinder vehicleModelBinder = pool.queryBinder(13);
-                    if (vehicleModelBinder != null) {
-                        vehicleModel = IVehicleModel.Stub.asInterface(new ShizukuBinderWrapper(vehicleModelBinder));
-                    }
-                }
-            }
+            acquireVehicleBinderPool("CONNECT");
 
             Intent clusterIntent = new Intent();
             clusterIntent.setComponent(new ComponentName("com.autolink.clusterservice", "com.autolink.clusterservice.ClusterService"));
@@ -2041,6 +2019,53 @@ public class ServiceManager {
      * (reinicio do app OEM / OOM do system_server), o binderDied dispara e agenda a recuperacao no
      * backgroundHandler (fora da main). Remove um recipient anterior antes, pra nao empilhar.
      */
+    /**
+     * (Re)obtém os binders de ATUAÇÃO: vehicle, dvr e vehicleModel.
+     *
+     * Precisa rodar também na recuperação do canal de controle, e não só na conexão inicial. Estes
+     * binders são embrulhados em ShizukuBinderWrapper: se o processo do Shizuku cai, o embrulho passa
+     * a apontar para um processo que não existe mais e TODA chamada de atuação lança. Como a
+     * recuperação renovava apenas o controlService, o app continuava RECEBENDO dados normalmente e
+     * ficava incapaz de AGIR — a tranca chegava, era registrada, e closeAllWindow() falhava em
+     * silêncio no catch. Só reiniciar o aplicativo devolvia a atuação.
+     */
+    private void acquireVehicleBinderPool(String reason) {
+        try {
+            IBinder rawPoolBinder = getSystemService("com.beantechs.voice.adapter.VoiceAdapterService");
+            if (rawPoolBinder == null) {
+                Log.w(TAG, "VoiceAdapterService binder unavailable; continuing without vehicle/dvr/model binder pool");
+                return;
+            }
+            IBinder poolBinder = new ShizukuBinderWrapper(rawPoolBinder);
+            if (!poolBinder.pingBinder()) {
+                Log.w(TAG, "IBinderPool binder not alive; continuing without vehicle/dvr/model binder pool");
+                return;
+            }
+            IBinderPool pool = IBinderPool.Stub.asInterface(poolBinder);
+            IBinder vehicleBinder = pool.queryBinder(6);
+            if (vehicleBinder != null) {
+                vehicle = IVehicle.Stub.asInterface(new ShizukuBinderWrapper(vehicleBinder));
+            }
+            IBinder dvrBinder = pool.queryBinder(8);
+            if (dvrBinder != null) {
+                dvr = IDvr.Stub.asInterface(new ShizukuBinderWrapper(dvrBinder));
+            }
+            IBinder vehicleModelBinder = pool.queryBinder(13);
+            if (vehicleModelBinder != null) {
+                vehicleModel = IVehicleModel.Stub.asInterface(new ShizukuBinderWrapper(vehicleModelBinder));
+            }
+            logPersistentClusterEvent("vehicle_binders_acquired",
+                    persistentEventDetails("reason", reason,
+                            "vehicle", String.valueOf(vehicle != null),
+                            "dvr", String.valueOf(dvr != null),
+                            "model", String.valueOf(vehicleModel != null)));
+        } catch (Throwable t) {
+            Log.e(TAG, "acquireVehicleBinderPool falhou (" + reason + "): " + t.getMessage(), t);
+            logPersistentClusterEvent("vehicle_binders_failed",
+                    persistentEventDetails("reason", reason, "erro", String.valueOf(t)));
+        }
+    }
+
     private void registerControlDeathRecipient() {
         if (!CONTROL_CHANNEL_RESILIENCE_ENABLED) return;
         try {
@@ -2135,6 +2160,11 @@ public class ServiceManager {
             }
             controlService.registerDataChangedListener(context.getPackageName(), listener);
             controlService.addListenerKey(context.getPackageName(), getCombinedKeys());
+
+            // Os binders de ATUAÇÃO caíram junto com o Shizuku. Renovar só o canal de controle
+            // deixava o app recebendo dados e incapaz de agir — ver acquireVehicleBinderPool.
+            acquireVehicleBinderPool("CONTROL_CHANNEL_RECOVER");
+
             dispatchAllData();
 
             controlChannelRecoveryCount++;
