@@ -74,8 +74,26 @@ object ViewerPresence {
     @Volatile
     private var started = false
 
-    /** Last known state. Cheap — reads a cached snapshot, never the PackageManager. */
-    fun status(): Status = cached
+    /** Whether [cached] has ever been filled from the PackageManager. See [status]. */
+    @Volatile
+    private var primed = false
+
+    /**
+     * Last known state. Cheap — reads a cached snapshot, never the PackageManager.
+     *
+     * Except on the FIRST call before [start] has run, where it reads once rather than reporting
+     * "not installed". Measured on the car 2026-09-23: after Impulse restarted, the viewer rebound
+     * and asked for the climate lease ~1.5 s BEFORE the watcher started, was refused as though the
+     * viewer were absent, and nothing retried — the car kept the OEM A/C app with the hand-off on.
+     */
+    @Synchronized
+    fun status(): Status {
+        if (!primed) {
+            primed = true
+            cached = read()
+        }
+        return cached
+    }
 
     /** Shorthand for the common case. @see ViewerPresencePolicy for the levels. */
     fun supports(minApiLevel: Int): Boolean = cached.supports(minApiLevel)
@@ -127,6 +145,7 @@ object ViewerPresence {
         val next = read()
         val previous = cached
         cached = next
+        primed = true
         if (next == previous) return
 
         Log.w(TAG, "[$reason] $previous -> $next")

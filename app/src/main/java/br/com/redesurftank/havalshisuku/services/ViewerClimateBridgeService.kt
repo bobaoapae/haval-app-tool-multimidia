@@ -13,6 +13,7 @@ import android.util.Log
 import br.com.redesurftank.havalshisuku.api.ImpulseApiCallers
 import br.com.redesurftank.havalshisuku.managers.HvacPanelSuppressor
 import br.com.redesurftank.havalshisuku.managers.ViewerPresence
+import br.com.redesurftank.havalshisuku.managers.ViewerPresencePolicy
 
 /**
  * The seam the H6 3D viewer binds to in order to own the A/C popup.
@@ -60,6 +61,15 @@ class ViewerClimateBridgeService : Service() {
     private var client: Messenger? = null
     private var unsubscribe: (() -> Unit)? = null
 
+    /**
+     * A client whose request was verified but refused because the user had not enabled the
+     * hand-off. A viewer asks once, when it binds, so without this the setting could be switched on
+     * and nothing would happen until the viewer was restarted — which is exactly what was measured
+     * on the car 2026-09-23.
+     */
+    private var pendingToken: IBinder? = null
+    private var unsubscribeFeature: (() -> Unit)? = null
+
     private val deathRecipient = IBinder.DeathRecipient {
         Log.w(TAG, "Viewer died while holding the climate lease; restoring the OEM A/C app")
         releaseLease("client_death")
@@ -79,6 +89,9 @@ class ViewerClimateBridgeService : Service() {
 
     override fun onDestroy() {
         releaseLease("service_destroyed")
+        unsubscribeFeature?.invoke()
+        unsubscribeFeature = null
+        pendingToken = null
         super.onDestroy()
     }
 
@@ -89,6 +102,33 @@ class ViewerClimateBridgeService : Service() {
             else -> return false
         }
         return true
+    }
+
+    /**
+     * Grants a lease that was only refused because the feature was off, the moment the user turns
+     * it on. The client is still bound and still alive — it asked once and is waiting.
+     */
+    private fun watchFeatureToggle() {
+        if (unsubscribeFeature != null) return
+        unsubscribeFeature = HvacPanelSuppressor.addFeatureListener { enabled ->
+            val token = pendingToken
+            if (!enabled || token == null) return@addFeatureListener
+            if (!ViewerPresence.supports(ViewerPresencePolicy.API_CLIMATE_HANDOFF)) {
+                return@addFeatureListener
+            }
+            pendingToken = null
+            clientToken = token
+            runCatching { token.linkToDeath(deathRecipient, 0) }
+                .onFailure {
+                    Log.w(TAG, "Waiting viewer had already died; not taking the lease", it)
+                    clientToken = null
+                    return@addFeatureListener
+                }
+            Log.w(TAG, "Climate lease granted after the user enabled the hand-off")
+            unsubscribe?.invoke()
+            unsubscribe = HvacPanelSuppressor.addListener { active -> reportState(active) }
+            HvacPanelSuppressor.acquire(HOLDER)
+        }
     }
 
     private fun reportState(active: Boolean) {
@@ -123,7 +163,10 @@ class ViewerClimateBridgeService : Service() {
             return
         }
         if (!HvacPanelSuppressor.isFeatureEnabled()) {
-            Log.w(TAG, "Climate lease refused: the user has not enabled the hand-off")
+            Log.w(TAG, "Climate lease refused for now: the user has not enabled the hand-off")
+            // Remember the request so switching the setting on takes effect immediately.
+            pendingToken = data.getBinder(KEY_TOKEN)
+            watchFeatureToggle()
             reportState(false)
             return
         }
@@ -147,6 +190,7 @@ class ViewerClimateBridgeService : Service() {
                 return
             }
 
+        pendingToken = null
         Log.w(TAG, "Climate lease granted to $pkg")
         // Follow the real suppression state from here on: the user can switch the feature off
         // while the viewer is bound, and the viewer has to stop showing its own popup then.

@@ -71,6 +71,34 @@ object HvacPanelSuppressor {
     fun isFeatureEnabled(): Boolean =
         prefs().getBoolean(SharedPreferencesKeys.VIEWER_CLIMATE_HANDOFF.key, false)
 
+    /** Told when the user's opt-in changes. See [setFeatureEnabled] for why this exists. */
+    private val featureListeners = java.util.concurrent.CopyOnWriteArrayList<(Boolean) -> Unit>()
+
+    fun addFeatureListener(listener: (Boolean) -> Unit): () -> Unit {
+        featureListeners.add(listener)
+        return { featureListeners.remove(listener) }
+    }
+
+    /**
+     * Writes the user's opt-in and re-evaluates.
+     *
+     * The settings screen must go through here rather than writing the preference itself. A viewer
+     * asks for the lease ONCE, when it binds; switching the feature on afterwards would otherwise
+     * change nothing at all, because no holder is registered and [reconcile] has nothing to act on.
+     * Measured on the car 2026-09-23: the toggle read as on while the OEM A/C app stayed enabled.
+     */
+    fun setFeatureEnabled(enabled: Boolean) {
+        prefs().edit().putBoolean(SharedPreferencesKeys.VIEWER_CLIMATE_HANDOFF.key, enabled).commit()
+        Log.w(TAG, "Climate hand-off ${if (enabled) "enabled" else "disabled"} by the user")
+        // Listeners first: a bound client that was refused earlier re-takes the lease here, and
+        // the reconcile below then has a holder to act on.
+        featureListeners.forEach { listener ->
+            runCatching { listener(enabled) }
+                .onFailure { Log.e(TAG, "Feature listener failed", it) }
+        }
+        reconcile("feature_toggle")
+    }
+
     /**
      * "We disabled it and have not put it back."
      *

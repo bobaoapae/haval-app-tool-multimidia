@@ -1054,17 +1054,14 @@ fun BasicSettingsTab() {
                                         checked = viewerClimateHandoff,
                                         onCheckedChange = {
                                                 viewerClimateHandoff = it
-                                                prefs.edit {
-                                                        putBoolean(
-                                                                SharedPreferencesKeys
-                                                                        .VIEWER_CLIMATE_HANDOFF
-                                                                        .key,
-                                                                it
-                                                        )
-                                                }
-                                                // Desligar tem de devolver o app do carro na hora,
-                                                // sem esperar o viewer se desconectar.
-                                                HvacPanelSuppressor.reconcile("settings_toggle")
+                                                // setFeatureEnabled grava a pref E avisa quem ja
+                                                // esta ligado: o viewer pede a licenca UMA vez, ao
+                                                // conectar, entao gravar a pref aqui e so chamar
+                                                // reconcile nao fazia nada (medido no carro
+                                                // 2026-09-23 -- o toggle ligado e o app de A/C do
+                                                // carro seguia ativo). Desligar devolve o app na
+                                                // hora, sem esperar o viewer desconectar.
+                                                HvacPanelSuppressor.setFeatureEnabled(it)
                                         }
                                 )
                         )
