@@ -46,15 +46,21 @@ export function createDashboardInfo() {
     // Card title: the top-center slot normally holds the Gráficos/Ajustes/Informações
     // carousel (screen 'main_menu', card 1). Cards 0 (native car content) and 3 (AC)
     // never populate that carousel, so the slot sits empty — this fills it with a
-    // static label naming what's on screen instead.
+    // static label naming what's on screen instead. When the WARN label is up,
+    // the same slot shows "Alerta" (same treatment as Principal / Climatização).
     const CARD_TITLES = { 0: 'Principal', 3: 'Climatização' };
     const cardTitle = div({ className: 'dashboard-card-title' });
-    const updateCardTitle = (cardId) => {
-        const text = CARD_TITLES[Number(cardId)];
+    const updateCardTitle = () => {
+        if (getState('warningActive')) {
+            cardTitle.textContent = 'Alerta';
+            cardTitle.style.display = 'flex';
+            return;
+        }
+        const text = CARD_TITLES[Number(getState('cardId'))];
         cardTitle.textContent = text || '';
         cardTitle.style.display = text ? 'flex' : 'none';
     };
-    updateCardTitle(getState('cardId'));
+    updateCardTitle();
 
     // 1. Top Bar Elements (Clock, Gear, Mode)
     const topCenter = div({ className: 'dashboard-top-center' });
@@ -543,6 +549,7 @@ export function createDashboardInfo() {
         subscribe('warningActive', val => {
             logger.log('[DashboardInfo Light] warningActive changed to:', val);
             warningLabel.style.display = val ? 'block' : 'none';
+            updateCardTitle();
             // Unconditional console: production logger is DEBUG-gated; host routes this
             // into cluster-diagnostics (event=webview_console) for warn-dismiss latency.
             console.log(

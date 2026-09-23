@@ -2577,11 +2577,10 @@ canvas.graph-chart {
 
 
 /* Warning mode: hide right-side chrome (mirrors default theme).
-   The top main menu (.dashboard-menu-container) stays visible so GRAFICOS /
-   AR-COND / etc. remain reachable while the warn label shows on the right.
-   Cards 0 and 3 still park a .dashboard-card-title in the top-centre slot
-   from outside the menu container — hide that so it does not sit over the warn. */
-.warn-is-active .dashboard-card-title,
+   Also hide the top main-menu carousel (Gráficos / Ajustes / Informações)
+   so the top-centre slot can show "Alerta" instead — same treatment as
+   Principal / Climatização via .dashboard-card-title. */
+.warn-is-active .dashboard-menu-container,
 .warn-is-active .mask-circle.right,
 .warn-is-active .mask-circle-border.right,
 .warn-is-active .mask-panel.right,
