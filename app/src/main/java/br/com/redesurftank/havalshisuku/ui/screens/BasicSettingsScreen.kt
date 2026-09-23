@@ -44,6 +44,7 @@ import br.com.redesurftank.havalshisuku.ui.components.SettingsGroups
 import br.com.redesurftank.havalshisuku.ui.components.TwoColumnSettingsLayout
 import br.com.redesurftank.havalshisuku.managers.HotRouterManager
 import br.com.redesurftank.havalshisuku.managers.ViewerAutostartManager
+import br.com.redesurftank.havalshisuku.managers.HvacPanelSuppressor
 import br.com.redesurftank.havalshisuku.managers.ViewerPresence
 import br.com.redesurftank.havalshisuku.managers.ViewerPresencePolicy
 import kotlinx.coroutines.Dispatchers
@@ -934,6 +935,14 @@ fun BasicSettingsTab() {
                         )
                 )
         }
+        var viewerClimateHandoff by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.VIEWER_CLIMATE_HANDOFF.key,
+                                false
+                        )
+                )
+        }
         // ===== Controle de dados móveis do carro (master + regras) =====
         val mdm = br.com.redesurftank.havalshisuku.managers.MobileDataManager
         var mobileControlEnabled by remember { mutableStateOf(mdm.isControlEnabled()) }
@@ -1027,6 +1036,39 @@ fun BasicSettingsTab() {
                                         } else null
                         )
                 )
+                // Controles de A/C pelo viewer: enquanto ele estiver ligado ao Impulse, o app de
+                // climatizacao do carro fica desativado e o popup passa a ser o do Haval H6 3D.
+                // So aparece para um viewer que declara saber responder (nivel 2).
+                if (viewerStatus.supports(ViewerPresencePolicy.API_CLIMATE_HANDOFF)) {
+                        settingsList.add(
+                                SettingItem(
+                                        title = "Ar-condicionado pelo Haval H6 3D",
+                                        group = SettingsGroups.CLIMATE,
+                                        description =
+                                                SharedPreferencesKeys.VIEWER_CLIMATE_HANDOFF
+                                                        .description +
+                                                        ". Os botoes fisicos continuam funcionando " +
+                                                        "normalmente; some so o popup do carro. O " +
+                                                        "app do carro volta sozinho se o viewer " +
+                                                        "fechar, travar ou for desinstalado.",
+                                        checked = viewerClimateHandoff,
+                                        onCheckedChange = {
+                                                viewerClimateHandoff = it
+                                                prefs.edit {
+                                                        putBoolean(
+                                                                SharedPreferencesKeys
+                                                                        .VIEWER_CLIMATE_HANDOFF
+                                                                        .key,
+                                                                it
+                                                        )
+                                                }
+                                                // Desligar tem de devolver o app do carro na hora,
+                                                // sem esperar o viewer se desconectar.
+                                                HvacPanelSuppressor.reconcile("settings_toggle")
+                                        }
+                                )
+                        )
+                }
         } else {
                 // Uma linha fica visivel de proposito: esconder o grupo inteiro sem deixar rastro e
                 // o que gera "sumiu a opcao do Haval 3D".

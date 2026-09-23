@@ -602,7 +602,7 @@ public class ServiceManager {
     private static final long SCENE_NOTIFY_COUNTER_PULSE_DELAY_MS = 70;
     private volatile boolean isSelfWritingSceneNotify = false;
 
-    private static final String HVAC_PACKAGE_NAME = "com.beantechs.hvac";
+    private static final String HVAC_PACKAGE_NAME = HvacPanelSuppressor.HVAC_PACKAGE;
     private static final long HVAC_RESUME_DELAY_MS = 300;
     private boolean isHvacSuspended = false;
     private Runnable resumeHvacRunnable;
@@ -2424,7 +2424,10 @@ public class ServiceManager {
             return;
         }
 
-        boolean shouldSuspend = isHvacCommand;
+        // While the viewer holds the climate lease the OEM app is ALREADY disabled and must stay
+        // that way. Without this, the resume below would run `pm enable` 300 ms after the first
+        // climate write from a theme and hand the car's popup back mid-hand-off.
+        boolean shouldSuspend = isHvacCommand && !HvacPanelSuppressor.INSTANCE.isHeld();
         if (shouldSuspend) {
             ensureHvacSuspended(key);
         }

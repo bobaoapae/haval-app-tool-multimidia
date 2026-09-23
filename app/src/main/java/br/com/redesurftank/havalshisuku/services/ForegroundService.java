@@ -43,6 +43,7 @@ import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher;
 import br.com.redesurftank.havalshisuku.managers.ServiceManager;
 import br.com.redesurftank.havalshisuku.managers.StealthModeManager;
 import br.com.redesurftank.havalshisuku.managers.HotRouterManager;
+import br.com.redesurftank.havalshisuku.managers.HvacPanelSuppressor;
 import br.com.redesurftank.havalshisuku.managers.ViewerPresence;
 import br.com.redesurftank.havalshisuku.models.CommandListener;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
@@ -740,6 +741,15 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
             ViewerPresence.INSTANCE.start();
         } catch (Exception e) {
             Log.e(TAG, "Error starting viewer presence watcher: " + e.getMessage(), e);
+        }
+
+        // Puts the OEM A/C app back if a crash left it disabled: nothing holds the climate lease at
+        // this point, so a set marker can only mean we died while holding it. `pm disable-user`
+        // persists across reboots, so this is the only thing that recovers such a car.
+        try {
+            HvacPanelSuppressor.INSTANCE.reconcile("service_start");
+        } catch (Exception e) {
+            Log.e(TAG, "Error reconciling HVAC suppression: " + e.getMessage(), e);
         }
 
         // Anonymous fleet ping (PostHog). Delayed so boot/network settle; no-op if key blank or opted out.

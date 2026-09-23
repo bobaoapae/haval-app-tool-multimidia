@@ -371,6 +371,17 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "autoStartViewerOnBoot",
             "Abrir o Haval H6 3D automaticamente ao ligar o carro"
     ),
+    VIEWER_CLIMATE_HANDOFF(
+            "viewerClimateHandoff",
+            "Usar os controles de ar-condicionado do Haval H6 3D no lugar do popup do carro"
+    ),
+    // Marcador interno (nao e um ajuste do usuario): "desativamos o app de A/C do carro e ainda
+    // nao devolvemos". Persistido porque `pm disable-user` sobrevive a reboot -- ver
+    // HvacSuppressionPolicy.
+    HVAC_SUPPRESSED_BY_APP(
+            "hvacSuppressedByApp",
+            "Estado interno da suspensao do app de ar-condicionado do carro"
+    ),
     AA_PATCH_AUTO_MOUNT("aaPatchAutoMount", "Habilitar montagem automática dos patches do Android Auto ao iniciar"),
     CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),
     AMBIENT_LIGHT_BLE_ENABLED("ambientLightBleEnabled", "Ativar Ambient Light BLE"),
