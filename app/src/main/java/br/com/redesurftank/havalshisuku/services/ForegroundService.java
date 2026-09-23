@@ -75,6 +75,16 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     private static final int MAX_AUTOMATIC_SHIZUKU_BOOTSTRAP_UID = 10999;
     private static final long SHIZUKU_BINDER_RECEIVE_TIMEOUT_MS = 15000L;
     private static final int SHIZUKU_BINDER_TIMEOUTS_BEFORE_RESTART = 3;
+
+    /**
+     * Marca de que o Shizuku morreu, e por quanto tempo ela vale.
+     *
+     * Fica em preferência, e não em campo, porque a recuperação passa por um reinício do serviço:
+     * um campo morreria junto com o processo, justamente no caminho em que a marca precisa ser lida.
+     */
+    private static final String PREF_SHIZUKU_DIED_AT_MS = "shizukuDiedAtMs";
+    private static final long RECENT_DEATH_WINDOW_MS = 120_000L;
+
     private static final String CARPLAY_PATCH_VERSION_KEY = "carPlayPatchAutoMountPatchVersion";
     private static final String CARPLAY_HVAC_FOCUS_PATCH_VERSION = "app_visual_d0_focus_service_conditional_camera_native1904x704_v14";
 
@@ -443,9 +453,25 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
             backgroundHandler.post(new Runnable() {
                 @Override
                 public void run() {
+                    boolean forceBootstrap = consumeRecentShizukuDeathMark();
+                    long bootstrapStartedAt = SystemClock.elapsedRealtime();
                     try {
-                        if (Shizuku.pingBinder()) {
+                        boolean pingAnswered = Shizuku.pingBinder();
+                        ClusterPersistentEventLogger.logText(
+                                "shizuku_bootstrap_inicio",
+                                "pingBinder=" + pingAnswered + " forcado=" + forceBootstrap
+                        );
+
+                        // Confiar no ping logo depois de uma morte é o buraco que deixava o Shizuku
+                        // morto: o binder ainda responde por instantes enquanto o processo cai, o
+                        // app conclui "já está de pé", pula esta inicialização e passa a só esperar
+                        // um Shizuku que não vai voltar. Depois de uma morte recente a inicialização
+                        // vai assim mesmo, e é ela que religa o serviço.
+                        if (pingAnswered && !forceBootstrap) {
                             Log.w(TAG, "Shizuku binder already available, skipping telnet bootstrap.");
+                            ClusterPersistentEventLogger.logText(
+                                    "shizuku_bootstrap_pulado", "motivo=binder_ja_responde"
+                            );
                             armShizukuBinderListenerWithTimeout();
                             return;
                         }
@@ -494,9 +520,23 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                         }
 
                         telnetClient.disconnect();
+                        ClusterPersistentEventLogger.logText(
+                                "shizuku_bootstrap_ok",
+                                "elapsedMs=" + (SystemClock.elapsedRealtime() - bootstrapStartedAt)
+                                        + " forcado=" + forceBootstrap
+                        );
                         armShizukuBinderListenerWithTimeout();
                     } catch (Exception e) {
                         Log.e(TAG, "Error executing shell commands: " + e.getMessage(), e);
+                        // No log persistente, e não só no logcat: é aqui que uma religada malsucedida
+                        // deixa de ser invisível. O logcat da central roda rápido demais para
+                        // sobreviver até alguém abrir um relato.
+                        ClusterPersistentEventLogger.logText(
+                                "shizuku_bootstrap_erro",
+                                "elapsedMs=" + (SystemClock.elapsedRealtime() - bootstrapStartedAt)
+                                        + " forcado=" + forceBootstrap
+                                        + " erro=" + e.getClass().getSimpleName()
+                        );
                         backgroundHandler.postDelayed(this, 1000);
                     }
                 }
@@ -883,10 +923,67 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
 
     @Override
     public void onBinderDead() {
+        // A morte do Shizuku é a origem de uma cascata silenciosa: tudo o que depende dele para
+        // AGIR passa a falhar, enquanto o app continua recebendo dados normalmente e parecendo são.
+        // Até aqui isso só aparecia como Log.w, que se perde no buffer do logcat muito antes de
+        // alguém abrir um relato. Vai para o log persistente junto com o estado de memória, porque
+        // a primeira suspeita costuma ser o low-memory killer — e é bom poder descartá-la com dado.
+        try {
+            android.app.ActivityManager am =
+                    (android.app.ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+            if (am != null) am.getMemoryInfo(mi);
+            ClusterPersistentEventLogger.logText(
+                    "shizuku_binder_dead",
+                    "availMemMb=" + (mi.availMem / 1048576L)
+                            + " lowMemory=" + mi.lowMemory
+                            + " thresholdMb=" + (mi.threshold / 1048576L)
+                            + " uptimeMs=" + SystemClock.elapsedRealtime()
+            );
+        } catch (Throwable ignored) {
+        }
+        markShizukuDeath();
         Shizuku.removeBinderReceivedListener(this::shizukuBinderReceived);
         Shizuku.removeBinderDeadListener(this);
         Log.w(TAG, "Shizuku binder is dead, stopping service");
         restart();
+    }
+
+    /**
+     * Grava que o Shizuku acabou de morrer.
+     *
+     * Em preferência, e não em campo, de propósito: a recuperação reinicia o serviço, então um
+     * campo em memória morreria exatamente no caminho em que a marca precisa ser lida.
+     */
+    private void markShizukuDeath() {
+        try {
+            App.getDeviceProtectedContext()
+                    .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+                    .edit()
+                    .putLong(PREF_SHIZUKU_DIED_AT_MS, System.currentTimeMillis())
+                    .apply();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Houve morte do Shizuku nos últimos dois minutos? A marca é consumida na leitura.
+     *
+     * Consumir de uma vez evita que uma marca esquecida force a inicialização para sempre. A janela
+     * de dois minutos cobre o caminho inteiro da recuperação — o alarme de 1 s, o serviço subindo e
+     * a espera do binder — sem alcançar uma morte de horas atrás, que não tem nada a ver com esta.
+     */
+    private boolean consumeRecentShizukuDeathMark() {
+        try {
+            SharedPreferences prefs = App.getDeviceProtectedContext()
+                    .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
+            long when = prefs.getLong(PREF_SHIZUKU_DIED_AT_MS, 0L);
+            if (when <= 0L) return false;
+            prefs.edit().remove(PREF_SHIZUKU_DIED_AT_MS).apply();
+            return System.currentTimeMillis() - when <= RECENT_DEATH_WINDOW_MS;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private void restart() {
