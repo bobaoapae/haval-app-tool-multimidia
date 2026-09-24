@@ -496,6 +496,44 @@ export function initTestHarness(stateManager, menuItems) {
             h.assert((strip.querySelector('.dashboard-tbt-remaining-dist') || {}).textContent === '12.3 km', "Remaining distance from remaining_m");
             h.assert((strip.querySelector('.dashboard-tbt-eta') || {}).textContent === '14 min', "Remaining time from remaining_s");
             h.assert(/^\d{2}:\d{2}$/.test((strip.querySelector('.dashboard-tbt-arrival') || {}).textContent || ''), "Arrival clock is now + remaining_s");
+
+            // Host may publish eta as an HH:mm clock; theme shows it as CHEGADA.
+            tbt.update({
+                active: true,
+                street: 'Av. Paulista',
+                distance: '80 m',
+                distance_m: 80,
+                turn: 'TURN_RIGHT',
+                remaining_s: 38 * 60,
+                remaining_m: 4000,
+                eta: '20:38'
+            });
+            h.assert((strip.querySelector('.dashboard-tbt-arrival') || {}).textContent === '20:38', "Arrival prefers host eta clock");
+            h.assert((strip.querySelector('.dashboard-tbt-eta') || {}).textContent === '38 min', "TEMPO formats host remaining_s");
+            // JSON null must not become Number(null)===0 → "<1 min".
+            tbt.update({
+                active: true,
+                street: 'Av. Paulista',
+                distance: '80 m',
+                turn: 'TURN_RIGHT',
+                remaining_s: null,
+                remaining_m: 4000,
+                eta: ''
+            });
+            h.assert((strip.querySelector('.dashboard-tbt-eta') || {}).textContent === '4.0 km', "null remaining_s falls back to remaining_m, not 0 min");
+            tbt.update({
+                active: true,
+                street: 'Av. Paulista',
+                distance: '',
+                turn: 'TURN_RIGHT',
+                distance_m: null,
+                remaining_s: null,
+                remaining_m: null,
+                eta: ''
+            });
+            h.assert((strip.querySelector('.dashboard-tbt-distance') || {}).textContent === '', "null distance_m does not become 0 m");
+            h.assert((strip.querySelector('.dashboard-tbt-metric.is-dist .dashboard-tbt-metric-value') || {}).textContent === '', "null remaining_m does not become 0 m");
+            h.assert((strip.querySelector('.dashboard-tbt-metric.is-eta .dashboard-tbt-metric-value') || {}).textContent === '', "null remaining_s/m leaves TEMPO empty");
             h.setState('navigationDirections', { active: false });
             await h.delay(80);
             h.assertEqual(getComputedStyle(strip).display, 'none', "TBT strip hides when active is false");

@@ -28,6 +28,8 @@ export function groupThousands(value) {
 }
 
 export function formatRemainingDistance(remainingM) {
+    // JSON null must not become Number(null)===0 → "0 m".
+    if (remainingM == null || remainingM === '') return '';
     const meters = Number(remainingM);
     if (!Number.isFinite(meters) || meters < 0) return '';
     if (meters < 1000) return `${Math.round(meters)} m`;
@@ -36,20 +38,40 @@ export function formatRemainingDistance(remainingM) {
     return `${km.toFixed(1)} km`;
 }
 
+/**
+ * Trip remaining time. Host owns AA/Waze quirks and must publish a usable
+ * remaining_s (or omit/null it). Themes must not treat JSON null as 0 —
+ * Number(null) === 0 in JS and showed as "<1 min" / "0 m".
+ */
 export function formatTripEta(remainingS, remainingM) {
-    const seconds = Number(remainingS);
-    if (Number.isFinite(seconds) && seconds >= 0) {
-        if (seconds < 45) return '<1 min';
-        const minutes = Math.round(seconds / 60);
-        if (minutes < 60) return `${minutes} min`;
-        const hours = Math.floor(minutes / 60);
-        const rest = minutes % 60;
-        return rest ? `${hours} h ${rest} min` : `${hours} h`;
+    if (remainingS != null && remainingS !== '') {
+        const seconds = Number(remainingS);
+        if (Number.isFinite(seconds) && seconds >= 0) {
+            if (seconds < 45) return '<1 min';
+            const minutes = Math.round(seconds / 60);
+            if (minutes < 60) return `${minutes} min`;
+            const hours = Math.floor(minutes / 60);
+            const rest = minutes % 60;
+            return rest ? `${hours} h ${rest} min` : `${hours} h`;
+        }
     }
     return formatRemainingDistance(remainingM);
 }
 
-export function formatArrivalClock(remainingS, now = new Date()) {
+/**
+ * Arrival clock. Prefer host `eta` ("HH:mm") when present; otherwise now + remaining_s.
+ */
+export function formatArrivalClock(remainingS, now = new Date(), etaClock) {
+    const raw = String(etaClock || '').trim();
+    const match = /^(\d{1,2}):(\d{2})$/.exec(raw);
+    if (match) {
+        const hour = Number(match[1]);
+        const minute = Number(match[2]);
+        if (Number.isFinite(hour) && Number.isFinite(minute) && hour <= 23 && minute <= 59) {
+            return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+        }
+    }
+    if (remainingS == null || remainingS === '') return '';
     const seconds = Number(remainingS);
     if (!Number.isFinite(seconds) || seconds < 0) return '';
     const eta = new Date(now.getTime() + seconds * 1000);

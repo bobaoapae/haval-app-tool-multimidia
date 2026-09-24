@@ -148,7 +148,7 @@ These are additive. Existing themes that never subscribe or call the new method 
 | Key / method | Values | Notes |
 |---|---|---|
 | `app.androidauto.session` | `stopped` \| `active` | From Autolink GET_LINK_STATUS 3/7/8. Also on `EVENT_CHANGED` / snapshot. |
-| `app.navigation.directions` | JSON (`v`, `active`, `street`, `distance`, `turn`, `remaining_s`, `remaining_m`, …) | Existing stub; filled from the NAV channel when hooked. Inactive = `{"v":1,"active":false}`. `remaining_s` is trip ETA in seconds. |
+| `app.navigation.directions` | JSON (`v`, `active`, `street`, `distance`, `turn`, `remaining_s`, `remaining_m`, `eta`, …) | Host-normalized guidance. Inactive = `{"v":1,"active":false}`. **Theme contract:** `remaining_s` = seconds left (usable number or null — never rely on raw AA/Waze quirks); `remaining_m` = metres left; `eta` = arrival clock `"HH:mm"` when known. Themes only format these fields; AA/Waze quirks (e.g. Waze `seconds=0` with a real clock) are fixed in Impulse before publish. |
 | `app.impulse.api_version` | `"1"` | Version of the external API. Sent on every snapshot (`REQUEST_SNAPSHOT` / `ACTION_DISPATCH_ALL_DATAS`). |
 | `aaClusterInDash` | boolean via `control()` | CLUSTER Surface under the theme WebView. Treat like `projectionMirrorInDash` for masks. Do **not** rewrite persisted `display`. |
 | `setAaClusterMapEnabled(boolean)` | — | Theme request to attach/tear down D3 CLUSTER Surface. MAIN stays on D0. |

@@ -228,6 +228,37 @@ object AndroidAutoNavigationTelemetry {
     }
 
     /**
+     * Waze's DestDistanceData often carries `seconds=0` with a real arrival
+     * clock in `eta` ("20:38"). Maps fills seconds properly. When seconds are
+     * missing or zero while distance remains, derive remaining from the clock.
+     * Assumes today's HH:mm; if that is more than a few minutes in the past,
+     * rolls to tomorrow (overnight trips).
+     */
+    fun remainingSecondsFromEtaClock(eta: String, nowMs: Long = System.currentTimeMillis()): Int? {
+        val match = ETA_CLOCK_PATTERN.matchEntire(eta.trim()) ?: return null
+        val hour = match.groupValues[1].toIntOrNull() ?: return null
+        val minute = match.groupValues[2].toIntOrNull() ?: return null
+        if (hour !in 0..23 || minute !in 0..59) return null
+        val now = java.util.Calendar.getInstance().apply { timeInMillis = nowMs }
+        val target = (now.clone() as java.util.Calendar).apply {
+            set(java.util.Calendar.HOUR_OF_DAY, hour)
+            set(java.util.Calendar.MINUTE, minute)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        var deltaMs = target.timeInMillis - nowMs
+        // More than five minutes in the past → treat as tomorrow.
+        if (deltaMs < -5L * 60L * 1000L) {
+            target.add(java.util.Calendar.DAY_OF_YEAR, 1)
+            deltaMs = target.timeInMillis - nowMs
+        }
+        if (deltaMs < 0L) deltaMs = 0L
+        return (deltaMs / 1000L).toInt()
+    }
+
+    private val ETA_CLOCK_PATTERN = Regex("""^(\d{1,2}):(\d{2})$""")
+
+    /**
      * Merges the two halves of a manoeuvre. The head unit sends the turn and
      * street on LinkCallback code 8 and the distance to it on code 9, as
      * separate transactions, so neither alone is a publishable state.
@@ -317,7 +348,8 @@ object AndroidAutoNavigationTelemetry {
             displayUnits: Int,
             remainingMeters: Int? = null,
             remainingSeconds: Int? = null,
-            estimatedTime: String? = null
+            estimatedTime: String? = null,
+            nowMs: Long = System.currentTimeMillis()
         ): Directions {
             if (!active) return current()
             distanceM = if (meters >= 0) meters else null
@@ -334,11 +366,24 @@ object AndroidAutoNavigationTelemetry {
             if (remainingMeters != null) {
                 remainingM = remainingMeters.takeIf { it >= 0 }
             }
-            if (remainingSeconds != null) {
-                remainingS = remainingSeconds.takeIf { it >= 0 }
-            }
             if (estimatedTime != null) {
                 eta = estimatedTime.trim()
+            }
+            if (remainingSeconds != null) {
+                // Measured on car with Waze (2026-09-24): DestDistanceData is
+                // present with remainingS=0 while eta="20:38" and remainingM>0.
+                // Trust positive seconds; treat zero-with-distance as missing
+                // and derive from the arrival clock instead of publishing 0.
+                val metersLeft = remainingMeters ?: remainingM
+                val secondsLookUsable =
+                    remainingSeconds > 0 || (remainingSeconds == 0 && (metersLeft == null || metersLeft <= 0))
+                if (secondsLookUsable) {
+                    remainingS = remainingSeconds
+                } else {
+                    remainingSecondsFromEtaClock(eta, nowMs)?.let { remainingS = it }
+                }
+            } else if (remainingS == null && eta.isNotEmpty()) {
+                remainingSecondsFromEtaClock(eta, nowMs)?.let { remainingS = it }
             }
             return current()
         }

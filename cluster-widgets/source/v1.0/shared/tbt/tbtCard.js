@@ -71,16 +71,19 @@ export function createTbtCard() {
         if (!active) return;
         applyTurnGlyph(String(d.turn || '').toUpperCase());
         street.textContent = d.street || '';
+        const distanceM = d.distance_m;
+        const hasDistanceM = distanceM != null && distanceM !== '' && Number.isFinite(Number(distanceM));
         turnDistance.textContent = d.distance ||
-            (Number.isFinite(Number(d.distance_m)) ? `${Math.round(Number(d.distance_m))} m` : '');
+            (hasDistanceM ? `${Math.round(Number(distanceM))} m` : '');
         // A missing figure hides its whole column, caption included.
         const remainingDist = formatRemainingDistance(d.remaining_m);
         dist.value.textContent = remainingDist;
         dist.cell.style.display = remainingDist ? '' : 'none';
-        const remainingTime = formatTripEta(d.remaining_s);
+        // Host normalizes AA/Waze into remaining_s + eta; theme only formats.
+        const remainingTime = formatTripEta(d.remaining_s, d.remaining_m);
         eta.value.textContent = remainingTime;
         eta.cell.style.display = remainingTime ? '' : 'none';
-        const arrivalClock = formatArrivalClock(d.remaining_s);
+        const arrivalClock = formatArrivalClock(d.remaining_s, new Date(), d.eta);
         arrival.value.textContent = arrivalClock;
         arrival.cell.style.display = arrivalClock ? '' : 'none';
     };

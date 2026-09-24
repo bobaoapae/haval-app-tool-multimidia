@@ -152,6 +152,76 @@ class AndroidAutoNavigationAccumulatorTest {
     }
 
     @Test
+    fun wazeZeroSecondsDerivesRemainingFromEtaClock() {
+        // Car log 2026-09-24: remainingM=4000 remainingS=0 eta=20:38
+        val accumulator = AndroidAutoNavigationTelemetry.Accumulator()
+        accumulator.onRouteStep(
+            "Rua Dom Bosco",
+            AndroidAutoNavigationTelemetry.MANEUVER_TURN_NORMAL_LEFT,
+            hasRoute = true
+        )
+        val now = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 20)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val update = accumulator.onPosition(
+            80,
+            "80",
+            AndroidAutoNavigationTelemetry.UNIT_METERS,
+            remainingMeters = 4000,
+            remainingSeconds = 0,
+            estimatedTime = "20:38",
+            nowMs = now
+        )
+        assertEquals(4000, update.remainingM)
+        assertEquals("20:38", update.eta)
+        assertEquals(38 * 60, update.remainingS)
+    }
+
+    @Test
+    fun remainingSecondsFromEtaClockRollsOvernight() {
+        val now = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 23)
+            set(java.util.Calendar.MINUTE, 50)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        // 00:20 is 30 minutes after 23:50 → tomorrow.
+        assertEquals(
+            30 * 60,
+            AndroidAutoNavigationTelemetry.remainingSecondsFromEtaClock("00:20", now)
+        )
+    }
+
+    @Test
+    fun positiveRemainingSecondsStillWinsOverEtaClock() {
+        val accumulator = AndroidAutoNavigationTelemetry.Accumulator()
+        accumulator.onRouteStep(
+            "Rua Dom Bosco",
+            AndroidAutoNavigationTelemetry.MANEUVER_TURN_NORMAL_LEFT,
+            hasRoute = true
+        )
+        val now = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 20)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val update = accumulator.onPosition(
+            80,
+            "80",
+            AndroidAutoNavigationTelemetry.UNIT_METERS,
+            remainingMeters = 4000,
+            remainingSeconds = 600,
+            estimatedTime = "20:38",
+            nowMs = now
+        )
+        assertEquals(600, update.remainingS)
+    }
+
+    @Test
     fun routeWithNoStepsClearsGuidance() {
         val accumulator = AndroidAutoNavigationTelemetry.Accumulator()
         accumulator.onRouteStep(
