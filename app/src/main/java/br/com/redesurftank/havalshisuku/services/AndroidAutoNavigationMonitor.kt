@@ -47,10 +47,12 @@ object AndroidAutoNavigationMonitor {
 
     private const val BIND_RETRY_INTERVAL_MS = 5_000L
 
-    // Guidance streams state + position about once a second, even parked at a
-    // turn. If that stops while a card is up, the route has ended without an
-    // explicit INACTIVE reaching us, so clear rather than leave it frozen.
-    private const val STALE_GUIDANCE_MS = 10_000L
+    // Guidance is meant to stream ~1 Hz (Maps does). Waze often goes quiet for
+    // tens of seconds between manoeuvre ticks — measured 2026-09-24 on the car:
+    // one state+position frame, then nothing until STALE_GUIDANCE_MS fired and
+    // the TBT popup vanished while AA session was still active. 10 s was fine
+    // for Maps and wrong for Waze; keep the safety net, just give Waze room.
+    private const val STALE_GUIDANCE_MS = 60_000L
 
     private val accumulator = AndroidAutoNavigationTelemetry.Accumulator()
     private val callback = LinkCallbackBinder()
