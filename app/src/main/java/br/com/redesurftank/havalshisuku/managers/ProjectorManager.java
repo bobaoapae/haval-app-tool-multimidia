@@ -10,6 +10,7 @@ import android.view.Display;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
@@ -45,7 +46,7 @@ public class ProjectorManager {
     private final int maskDisplayId;
     private final int hudDisplayId;
 
-    private final Map<Integer, BiConsumer<android.content.Context, Display>> projectorCreators = new HashMap<>();
+    private final Map<Integer, BiConsumer<android.content.Context, Display>> projectorCreators = new LinkedHashMap<>();
 
     public static synchronized ProjectorManager getInstance() {
         if (instance == null) {
@@ -63,18 +64,24 @@ public class ProjectorManager {
         populateCreators();
     }
 
-    /** Receita de como criar cada projector. Usada pelo construtor e pelo refresh(). */
+    /**
+     * Receita de como criar cada projector. Usada pelo construtor e pelo refresh().
+     *
+     * D1 (HUD wallpaper) is registered before D3 (masks) on purpose: LinkedHashMap iteration
+     * order is insertion order, and ClusterBackgroundSync needs D1 attached/painted before D3
+     * is allowed to show wallpaper-composited insets.
+     */
     private void populateCreators() {
-        projectorCreators.put(maskDisplayId, (ctx, disp) -> {
-            instrumentProjector2 = new InstrumentProjector2(ctx, disp);
-            instrumentProjector2.show();
-            Log.w(TAG, "InstrumentProjector2 (Mask) initialized on Display " + disp.getDisplayId());
-        });
-
         projectorCreators.put(hudDisplayId, (ctx, disp) -> {
             instrumentProjector = new InstrumentProjector(ctx, disp);
             instrumentProjector.show();
             Log.w(TAG, "InstrumentProjector (HUD) initialized on Display " + disp.getDisplayId());
+        });
+
+        projectorCreators.put(maskDisplayId, (ctx, disp) -> {
+            instrumentProjector2 = new InstrumentProjector2(ctx, disp);
+            instrumentProjector2.show();
+            Log.w(TAG, "InstrumentProjector2 (Mask) initialized on Display " + disp.getDisplayId());
         });
     }
 

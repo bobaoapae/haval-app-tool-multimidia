@@ -25,6 +25,7 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController
+import br.com.redesurftank.havalshisuku.managers.ClusterBackgroundSync
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.managers.VehiclePropertyReader
 import br.com.redesurftank.havalshisuku.listeners.IDataChanged
@@ -40,7 +41,6 @@ import br.com.redesurftank.havalshisuku.models.screens.MainMenu
 import br.com.redesurftank.havalshisuku.models.screens.RegenScreen
 import br.com.redesurftank.havalshisuku.models.screens.Screen
 import br.com.redesurftank.havalshisuku.bridge.IBridgeContext
-import coil.imageLoader
 import java.io.File
 import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
@@ -218,13 +218,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var displayedGlobalMaskBitmap: android.graphics.Bitmap? = null
 
     /**
-     * Decoded IMAGE_URL wallpaper used as the mask source, plus the URL it belongs to and the
-     * URL currently being fetched. Owned by Coil's cache - referenced here, never recycled.
-     * See [getRemoteBackgroundBitmap].
+     * When D1 paints (or IMAGE_URL lands in [ClusterBackgroundSync]), re-run the mask pass so
+     * insets appear together with the wallpaper instead of framing an empty D1.
      */
-    private var remoteMaskBitmap: android.graphics.Bitmap? = null
-    private var remoteMaskUrl: String? = null
-    private var remoteMaskInFlightUrl: String? = null
+    private val backgroundSyncListener = ClusterBackgroundSync.Listener {
+        ensureUi {
+            invalidateGlobalMaskCache()
+            updateNativeMaskViews()
+        }
+    }
 
     private val maskVisibilityOverrides = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private var themeBridge: br.com.redesurftank.havalshisuku.bridge.ThemeBridgeImpl? = null
@@ -1410,6 +1412,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             themeBridge?.pushOnDataChanged(virtualKey, value)
         }
         preferences.registerOnSharedPreferenceChangeListener(bridgePrefsListener)
+        ClusterBackgroundSync.addListener(backgroundSyncListener)
         ServiceManager.getInstance().addServiceManagerEventListener(eventListener)
         window?.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
         window?.addFlags(
@@ -1463,6 +1466,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         bridgePrefsListener?.let {
             preferences.unregisterOnSharedPreferenceChangeListener(it)
         }
+        ClusterBackgroundSync.removeListener(backgroundSyncListener)
         ServiceManager.getInstance().removeServiceManagerEventListener(eventListener)
         dataChangedListener?.let { ServiceManager.getInstance().removeDataChangedListener(it) }
         dataChangedListener = null
@@ -1495,10 +1499,6 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         setDisplayedGlobalMask(null)
         invalidateGlobalMaskCache()
-        // Drop the reference only - the bitmap belongs to Coil's cache.
-        remoteMaskBitmap = null
-        remoteMaskUrl = null
-        remoteMaskInFlightUrl = null
 
         super.onStop()
     }
@@ -3828,6 +3828,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             return
         }
 
+        // Same philosophy as the theme-live gate: do not paint wallpaper-composited insets while
+        // D1 has not yet painted that wallpaper. ClusterBackgroundSync skips the hold when D1 is
+        // detached, an app covers D1, or no still wallpaper is expected.
+        if (ClusterBackgroundSync.shouldHoldNativeMasks(preferences, isAnyAppOnDisplay1)) {
+            Log.d(TAG, "updateNativeMaskViews: waiting for D1 wallpaper; keeping masks down")
+            nativeMaskContainer?.isVisible = false
+            setDisplayedGlobalMask(null)
+            return
+        }
+
         val customThemeDir = getActiveCustomThemeName()
         val themeMgr = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext)
         val metadata = activeThemeMetadata ?: if (customThemeDir.isNotEmpty()) {
@@ -4082,159 +4092,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         }
     }
 
-    private fun getBackgroundBitmap(folderName: String): android.graphics.Bitmap? {
-        val isEnabled = preferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
-        if (!isEnabled) return null
-
-        val type = preferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME"
-        val value = preferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: ""
-        val themeMgr = br.com.redesurftank.havalshisuku.managers.ThemeManager.getInstance(outerContext)
-
-        try {
-            when (type) {
-                "THEME" -> {
-                    val bgFile = themeMgr.getActiveThemeBackgroundFile(value.ifBlank { null })
-                        ?: themeMgr.getThemeFile(folderName, "car-bg.png")
-                    if (bgFile != null && bgFile.exists()) {
-                        return android.graphics.BitmapFactory.decodeFile(bgFile.absolutePath)
-                    }
-                }
-                "FILE" -> {
-                    val file = File(value)
-                    if (file.exists()) {
-                        return android.graphics.BitmapFactory.decodeFile(file.absolutePath)
-                    }
-                }
-                "PRESET" -> {
-                    val inputStream = outerContext.assets.open("backgrounds/$value")
-                    return android.graphics.BitmapFactory.decodeStream(inputStream)
-                }
-                "IMAGE_URL" -> {
-                    return getRemoteBackgroundBitmap(value)
-                }
-                br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec.TYPE -> {
-                    val spec =
-                            br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec.parse(value)
-                    if (spec != null) return buildSolidBackgroundBitmap(spec)
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to load custom background for mask fallback", e)
-        }
-        return null
-    }
-
-    /**
-     * Wallpaper for an IMAGE_URL background, for compositing into the display-3 masks.
-     *
-     * This runs on the UI thread inside [updateNativeMaskViews], so it must never block on the
-     * network. The first call for a new URL therefore returns null and schedules an async Coil
-     * load (the same loader D1 uses in InstrumentProjector.loadRemoteImage, so the bitmap is
-     * usually already in Coil's cache); when it lands we drop the composed mask and run the
-     * mask pass again, which then finds the bitmap here synchronously.
-     *
-     * Without this branch the masks silently fell back to `null` for every web/URL wallpaper and
-     * kept painting whatever the previous background was.
-     */
-    private fun getRemoteBackgroundBitmap(url: String): android.graphics.Bitmap? {
-        if (url.isBlank()) return null
-
-        val cached = remoteMaskBitmap
-        if (cached != null && !cached.isRecycled && remoteMaskUrl == url) return cached
-
-        // A fetch for this URL is already running - don't pile up duplicate requests.
-        if (remoteMaskInFlightUrl == url) return null
-        remoteMaskInFlightUrl = url
-
-        try {
-            val request =
-                    coil.request.ImageRequest.Builder(outerContext)
-                            .data(url)
-                            // Hardware bitmaps cannot be read back when compositing the mask.
-                            .allowHardware(false)
-                            .target(
-                                    onSuccess = { drawable ->
-                                        remoteMaskInFlightUrl = null
-                                        val bmp =
-                                                (drawable as?
-                                                                android.graphics.drawable.BitmapDrawable)
-                                                        ?.bitmap
-                                        if (bmp != null && !bmp.isRecycled) {
-                                            // Coil owns this bitmap - keep the reference, never recycle it.
-                                            remoteMaskBitmap = bmp
-                                            remoteMaskUrl = url
-                                            ensureUi {
-                                                invalidateGlobalMaskCache()
-                                                updateNativeMaskViews()
-                                            }
-                                        } else {
-                                            Log.w(TAG, "Remote background for mask was not a bitmap: $url")
-                                        }
-                                    },
-                                    onError = {
-                                        remoteMaskInFlightUrl = null
-                                        Log.w(TAG, "Failed to load remote background for mask: $url")
-                                    }
-                            )
-                            .build()
-            outerContext.imageLoader.enqueue(request)
-        } catch (e: Exception) {
-            remoteMaskInFlightUrl = null
-            Log.w(TAG, "Could not enqueue remote background for mask: $url", e)
-        }
-        return null
-    }
-
-    /**
-     * Renders a COLOR background at mask resolution. Mirrors the vignette geometry of
-     * InstrumentProjector.buildSolidBackground (the D1 source of truth) so the inset matches the
-     * wallpaper behind it; drawn at 1920x720 directly instead of being scaled up from 640x240.
-     */
-    private fun buildSolidBackgroundBitmap(
-            spec: br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec
-    ): android.graphics.Bitmap {
-        val width = 1920
-        val height = 720
-        val bitmap =
-                android.graphics.Bitmap.createBitmap(
-                        width,
-                        height,
-                        android.graphics.Bitmap.Config.ARGB_8888
-                )
-        val canvas = android.graphics.Canvas(bitmap)
-        canvas.drawColor(spec.color)
-
-        if (spec.vignette > 0) {
-            val alpha = (spec.vignette * 255 / 100).coerceIn(0, 255)
-            val paint =
-                    android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                        shader =
-                                android.graphics.RadialGradient(
-                                        width / 2f,
-                                        height / 2f,
-                                        width * 0.62f,
-                                        intArrayOf(
-                                                android.graphics.Color.TRANSPARENT,
-                                                android.graphics.Color.TRANSPARENT,
-                                                android.graphics.Color.argb(alpha, 0, 0, 0)
-                                        ),
-                                        floatArrayOf(0f, 0.45f, 1f),
-                                        android.graphics.Shader.TileMode.CLAMP
-                                )
-                    }
-            // Flatten the circle vertically to follow the panoramic cluster shape.
-            canvas.save()
-            canvas.scale(1f, height.toFloat() / width, width / 2f, height / 2f)
-            canvas.drawRect(
-                    0f,
-                    height / 2f - width,
-                    width.toFloat(),
-                    height / 2f + width,
-                    paint
-            )
-            canvas.restore()
-        }
-        return bitmap
+    private fun getBackgroundBitmap(@Suppress("UNUSED_PARAMETER") folderName: String): android.graphics.Bitmap? {
+        // folderName kept for call-site compatibility; resolution is prefs-driven via the shared
+        // helper so D1 and D3 never disagree (no asymmetric car-bg.png fallback).
+        return ClusterBackgroundSync.decodeStillBitmap(outerContext, preferences)
     }
 
     private fun getCoverScaledBitmap(bitmap: android.graphics.Bitmap, targetW: Int, targetH: Int): android.graphics.Bitmap {
