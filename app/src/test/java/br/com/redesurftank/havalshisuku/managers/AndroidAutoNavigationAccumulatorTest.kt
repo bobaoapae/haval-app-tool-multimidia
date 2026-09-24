@@ -122,6 +122,36 @@ class AndroidAutoNavigationAccumulatorTest {
     }
 
     @Test
+    fun positionWithoutTripTotalsKeepsLastEta() {
+        // Waze streams manoeuvre distance without DestDistanceData on many
+        // ticks; clearing remaining/eta there made the viewer's ETA column
+        // vanish while Maps (which always fills the list) looked fine.
+        val accumulator = AndroidAutoNavigationTelemetry.Accumulator()
+        accumulator.onRouteStep(
+            "Rua Dom Bosco",
+            AndroidAutoNavigationTelemetry.MANEUVER_TURN_NORMAL_LEFT,
+            hasRoute = true
+        )
+        accumulator.onPosition(
+            153,
+            "150",
+            AndroidAutoNavigationTelemetry.UNIT_METERS,
+            remainingMeters = 4800,
+            remainingSeconds = 600,
+            estimatedTime = "10:35"
+        )
+        val partial = accumulator.onPosition(
+            120,
+            "120",
+            AndroidAutoNavigationTelemetry.UNIT_METERS
+        )
+        assertEquals(120, partial.distanceM)
+        assertEquals(4800, partial.remainingM)
+        assertEquals(600, partial.remainingS)
+        assertEquals("10:35", partial.eta)
+    }
+
+    @Test
     fun routeWithNoStepsClearsGuidance() {
         val accumulator = AndroidAutoNavigationTelemetry.Accumulator()
         accumulator.onRouteStep(

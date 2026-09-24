@@ -328,9 +328,18 @@ object AndroidAutoNavigationTelemetry {
                 val suffix = unitSuffix(displayUnits)
                 if (suffix.isEmpty()) value else "$value $suffix"
             }
-            remainingM = remainingMeters?.takeIf { it >= 0 }
-            remainingS = remainingSeconds?.takeIf { it >= 0 }
-            eta = estimatedTime?.trim().orEmpty()
+            // Trip totals live on DestDistanceData. Waze often sends manoeuvre
+            // position ticks without that list; only overwrite when present so
+            // remaining / ETA do not blink out between updates.
+            if (remainingMeters != null) {
+                remainingM = remainingMeters.takeIf { it >= 0 }
+            }
+            if (remainingSeconds != null) {
+                remainingS = remainingSeconds.takeIf { it >= 0 }
+            }
+            if (estimatedTime != null) {
+                eta = estimatedTime.trim()
+            }
             return current()
         }
 
