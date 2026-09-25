@@ -9,24 +9,18 @@ import org.junit.Test
 class AnonymousTelemetryPayloadTest {
 
     @Test
-    fun vehicleUuidIsStableForSameVinAndSalt() {
-        val a = AnonymousTelemetryPayload.vehicleUuid("lgwffua59ra123456", "salt")
-        val b = AnonymousTelemetryPayload.vehicleUuid("LGWFFUA59RA123456", "salt")
+    fun vehicleUuidIsStableForSameDeviceIdAndSalt() {
+        val a = AnonymousTelemetryPayload.vehicleUuid("a1b2c3d4e5f60718", "salt")
+        val b = AnonymousTelemetryPayload.vehicleUuid("A1B2C3D4E5F60718", "salt")
         assertEquals(64, a.length)
         assertEquals(a, b)
     }
 
     @Test
     fun vehicleUuidChangesWithSalt() {
-        val a = AnonymousTelemetryPayload.vehicleUuid("LGWFFUA59RA123456", "salt-a")
-        val b = AnonymousTelemetryPayload.vehicleUuid("LGWFFUA59RA123456", "salt-b")
+        val a = AnonymousTelemetryPayload.vehicleUuid("a1b2c3d4e5f60718", "salt-a")
+        val b = AnonymousTelemetryPayload.vehicleUuid("a1b2c3d4e5f60718", "salt-b")
         assertTrue(a != b)
-    }
-
-    @Test
-    fun vinPrefixTakesFirstEight() {
-        assertEquals("LGWFFUA5", AnonymousTelemetryPayload.vinPrefix("LGWFFUA59RA123456"))
-        assertEquals("SHORT", AnonymousTelemetryPayload.vinPrefix("short"))
     }
 
     @Test
@@ -59,11 +53,10 @@ class AnonymousTelemetryPayloadTest {
     }
 
     @Test
-    fun buildPropertiesOmitsBlankOptionalFieldsAndNeverIncludesRawVin() {
+    fun buildPropertiesOmitsBlankOptionalFields() {
         val props =
                 AnonymousTelemetryPayload.buildProperties(
                         vehicleUuid = "abc",
-                        vinPrefix = "LGWFFUA5",
                         vehicleModel1 = "H6",
                         vehicleModel2 = "  ",
                         configureCode = null,
@@ -88,6 +81,33 @@ class AnonymousTelemetryPayloadTest {
         assertEquals("Premium", props["trim_level"])
         assertEquals(40_000, props["odometer_km_bucket"])
         assertEquals(true, props["enable_hot_router"])
-        assertFalse(props.values.any { it is String && it.contains("LGWFFUA59") })
     }
+
+    @Test
+    fun buildPropertiesCarriesNothingVinDerived() {
+        val props = fleetProps()
+        assertFalse(props.containsKey("vin_prefix"))
+        assertFalse(props.keys.any { it.contains("vin", ignoreCase = true) })
+        assertFalse(props.values.any { it is String && it.startsWith("LGW") })
+    }
+
+    private fun fleetProps(): Map<String, Any?> =
+            AnonymousTelemetryPayload.buildProperties(
+                    vehicleUuid = "abc",
+                    vehicleModel1 = "H6",
+                    vehicleModel2 = "B01G-1",
+                    configureCode = "CC6470AH25DPHEV",
+                    trimLevel = "3",
+                    carMode1 = "B01G-1",
+                    engineType = "4",
+                    projectName = "BUX1.1_B01",
+                    odometerKmBucket = 40_000,
+                    theme = "Default",
+                    themeChanged = false,
+                    powerOnCount = 3L,
+                    virtualClusterEnabled = true,
+                    settings = mapOf("enable_hot_router" to true),
+                    appVersion = "1.2.3",
+                    versionCode = 42
+            )
 }

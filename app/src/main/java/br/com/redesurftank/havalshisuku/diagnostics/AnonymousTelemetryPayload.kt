@@ -3,27 +3,25 @@ package br.com.redesurftank.havalshisuku.diagnostics
 import java.security.MessageDigest
 
 /**
- * Pure helpers for anonymous fleet pings. No VIN/GPS/IP in the outbound map — only hashed id,
- * VIN prefix, rounded odometer, theme, and curated settings.
+ * Pure helpers for the anonymous fleet ping.
+ *
+ * `vehicle_uuid` is a SHA-256 of the **device id**, not of the VIN. That is deliberate: a VIN is
+ * highly structured and nearly fully determined by fields this event already carries, so a
+ * client-side hash of it is brute-forceable in seconds. Hashing a random per-device value instead
+ * keeps the id stable across reinstalls while leaving nothing to enumerate.
  */
 object AnonymousTelemetryPayload {
     const val EVENT_NAME = "impulse_fleet_ping"
-    const val VIN_PREFIX_LENGTH = 8
     const val ODOMETER_BUCKET_KM = 1_000
     const val DEBOUNCE_MS = 5L * 60L * 1000L
 
-    fun vehicleUuid(vin: String, salt: String): String {
-        val normalized = vin.trim().uppercase()
+    /** Salted so a ROM that hands every app the same device id still yields an app-scoped value. */
+    fun vehicleUuid(deviceId: String, salt: String): String {
+        val normalized = deviceId.trim().uppercase()
         val digest =
                 MessageDigest.getInstance("SHA-256")
                         .digest("$normalized|$salt".toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { b -> "%02x".format(b) }
-    }
-
-    fun vinPrefix(vin: String): String {
-        val normalized = vin.trim().uppercase()
-        if (normalized.length < VIN_PREFIX_LENGTH) return normalized
-        return normalized.take(VIN_PREFIX_LENGTH)
     }
 
     fun odometerBucketKm(raw: String?): Int? {
@@ -46,7 +44,6 @@ object AnonymousTelemetryPayload {
 
     fun buildProperties(
             vehicleUuid: String,
-            vinPrefix: String,
             vehicleModel1: String?,
             vehicleModel2: String?,
             configureCode: String?,
@@ -66,7 +63,6 @@ object AnonymousTelemetryPayload {
         val props = linkedMapOf<String, Any?>(
                 "\$process_person_profile" to false,
                 "vehicle_uuid" to vehicleUuid,
-                "vin_prefix" to vinPrefix,
                 "theme" to theme,
                 "theme_changed" to themeChanged,
                 "power_on_count" to powerOnCount,

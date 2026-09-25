@@ -1,6 +1,8 @@
 package br.com.redesurftank.havalshisuku.diagnostics
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.provider.Settings
 import android.util.Log
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.BuildConfig
@@ -12,15 +14,21 @@ import com.google.gson.Gson
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 
 /**
  * One anonymous fleet ping per power-on (with 5-minute debounce). Disabled when
  * [BuildConfig.POSTHOG_API_KEY] is blank or the user opted out on Informações.
+ *
+ * Identity is [deviceId], not the VIN — see [AnonymousTelemetryPayload] for why.
  */
 object AnonymousTelemetryCollector {
     private const val TAG = "AnonTelemetry"
     private const val CONNECT_TIMEOUT_MS = 8_000
     private const val READ_TIMEOUT_MS = 12_000
+
+    /** Value a number of buggy ROMs hand to every app; treated as "no id". */
+    private const val BROKEN_ANDROID_ID = "9774d56d682e549c"
     private val gson = Gson()
 
     private val settingKeys =
@@ -43,17 +51,22 @@ object AnonymousTelemetryCollector {
 
     fun isConfigured(): Boolean = BuildConfig.POSTHOG_API_KEY.isNotBlank()
 
-    fun maybePingAfterServicesReady(context: Context = App.getDeviceProtectedContext()) {
+    /** Shared gate for both pings: null when telemetry is disabled or the user opted out. */
+    private fun enabledPrefs(context: Context): SharedPreferences? {
         if (!isConfigured()) {
             Log.d(TAG, "skipped: PostHog API key not configured")
-            return
+            return null
         }
-
         val prefs = context.getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
         if (prefs.getBoolean(SharedPreferencesKeys.ANONYMOUS_TELEMETRY_OPTED_OUT.key, false)) {
             Log.d(TAG, "skipped: user opted out")
-            return
+            return null
         }
+        return prefs
+    }
+
+    fun maybePingAfterServicesReady(context: Context = App.getDeviceProtectedContext()) {
+        val prefs = enabledPrefs(context) ?: return
 
         val now = System.currentTimeMillis()
         val lastSent =
@@ -63,18 +76,8 @@ object AnonymousTelemetryCollector {
             return
         }
 
-        val vin =
-                ServiceManager.getInstance()
-                        .getData(CarConstants.CAR_BASIC_VIN_CODE.getValue())
-                        ?.trim()
-                        .orEmpty()
-        if (vin.isEmpty()) {
-            Log.d(TAG, "skipped: VIN unavailable")
-            return
-        }
-
         val salt = BuildConfig.TELEMETRY_VIN_SALT
-        val vehicleUuid = AnonymousTelemetryPayload.vehicleUuid(vin, salt)
+        val vehicleUuid = AnonymousTelemetryPayload.vehicleUuid(deviceId(context, prefs), salt)
         val theme =
                 prefs.getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default")
                         ?: "Default"
@@ -91,7 +94,6 @@ object AnonymousTelemetryCollector {
         val properties =
                 AnonymousTelemetryPayload.buildProperties(
                         vehicleUuid = vehicleUuid,
-                        vinPrefix = AnonymousTelemetryPayload.vinPrefix(vin),
                         vehicleModel1 =
                                 ServiceManager.getInstance()
                                         .getData(CarConstants.CAR_BASIC_VEHICLE_MODEL1.getValue()),
@@ -146,6 +148,37 @@ object AnonymousTelemetryCollector {
             }
             is PostResult.Failure -> Log.w(TAG, "ping failed: ${result.message}")
         }
+    }
+
+    /**
+     * Stable per-head-unit id. `ANDROID_ID` is scoped to the app signing key and survives
+     * uninstall, reinstall and data clear, resetting only on a factory reset — which is exactly
+     * the lifetime we want, and unlike the VIN there is nothing in it to brute-force.
+     *
+     * Falls back to a locally generated UUID when the ROM withholds `ANDROID_ID` or returns the
+     * long-known broken constant. That fallback loses reinstall stability, so it is a last resort.
+     */
+    private fun deviceId(context: Context, prefs: SharedPreferences): String {
+        val androidId =
+                runCatching {
+                            Settings.Secure.getString(
+                                    context.contentResolver,
+                                    Settings.Secure.ANDROID_ID
+                            )
+                        }
+                        .getOrNull()
+                        ?.trim()
+                        .orEmpty()
+        if (androidId.isNotEmpty() && androidId != BROKEN_ANDROID_ID) return androidId
+
+        Log.w(TAG, "ANDROID_ID unusable ('$androidId'), falling back to a local id")
+        val existing = prefs.getString(SharedPreferencesKeys.ANONYMOUS_TELEMETRY_FALLBACK_ID.key, null)
+        if (!existing.isNullOrBlank()) return existing
+        val generated = UUID.randomUUID().toString()
+        prefs.edit()
+                .putString(SharedPreferencesKeys.ANONYMOUS_TELEMETRY_FALLBACK_ID.key, generated)
+                .apply()
+        return generated
     }
 
     private fun readProp(name: String): String? {

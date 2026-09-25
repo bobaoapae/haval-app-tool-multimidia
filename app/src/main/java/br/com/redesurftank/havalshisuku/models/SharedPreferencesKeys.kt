@@ -483,5 +483,9 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ANONYMOUS_TELEMETRY_POWER_ON_COUNT(
             "anonymousTelemetryPowerOnCount",
             "Contador local de power-ons reportados no ping anônimo"
+    ),
+    ANONYMOUS_TELEMETRY_FALLBACK_ID(
+            "anonymousTelemetryFallbackId",
+            "Identificador local usado apenas quando o ANDROID_ID não está disponível"
     )
 }
