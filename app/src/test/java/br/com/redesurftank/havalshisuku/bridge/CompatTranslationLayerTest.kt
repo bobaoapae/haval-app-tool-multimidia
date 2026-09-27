@@ -11,11 +11,12 @@ class CompatTranslationLayerTest {
         assertTrue(CompatTranslationLayer.isBridgeVersionSupported("0.9.0"))
         assertTrue(CompatTranslationLayer.isBridgeVersionSupported("1.0"))
         assertTrue(CompatTranslationLayer.isBridgeVersionSupported("v1.0.0"))
+        assertTrue(CompatTranslationLayer.isBridgeVersionSupported("1.0.1"))
     }
 
     @Test
     fun rejectsFutureOrMalformedBridgeRequirements() {
-        assertFalse(CompatTranslationLayer.isBridgeVersionSupported("1.0.1"))
+        assertFalse(CompatTranslationLayer.isBridgeVersionSupported("1.0.2"))
         assertFalse(CompatTranslationLayer.isBridgeVersionSupported("2.0.0"))
         assertFalse(CompatTranslationLayer.isBridgeVersionSupported("future"))
     }

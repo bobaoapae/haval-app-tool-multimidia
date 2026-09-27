@@ -68,11 +68,14 @@
             <button class="panel-button" type="button" data-panel="testing-console-harness" aria-pressed="false">Testes</button>
           </div>
 
-          <div class="keyboard-summary" aria-label="Atalhos principais">
-            <span><kbd>[</kbd> <kbd>]</kbd> cards</span>
-            <span><kbd>↑</kbd> <kbd>↓</kbd> navegar</span>
-            <span><kbd>Enter</kbd> selecionar</span>
-            <span><kbd>Backspace</kbd> voltar</span>
+          <div class="keyboard-summary" id="wheel-actions" role="group" aria-label="Comandos do volante simulados">
+            <span>Comando</span>
+            <button class="shortcut-button" type="button" data-wheel-key="UP" aria-label="Comando subir">↑</button>
+            <button class="shortcut-button" type="button" data-wheel-key="DOWN" aria-label="Comando descer">↓</button>
+            <button class="shortcut-button" type="button" data-wheel-key="ENTER">Enter</button>
+            <button class="shortcut-button" type="button" data-wheel-key="BACK">Voltar</button>
+            <button class="shortcut-button" type="button" data-wheel-key="ENTER_LONG">Auto</button>
+            <button class="shortcut-button" type="button" data-wheel-key="BACK_LONG">Recircular</button>
           </div>
         </div>
       </div>

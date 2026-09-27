@@ -21,4 +21,6 @@ interface IBridgeContext {
     fun refreshDisplayBounds()
     fun setNativeMaskState(maskName: String, visible: Boolean) {}
     fun setNativeMasksConfig(jsonConfig: String) {}
+    fun getExtendedTelemetryValue(key: String): String? = null
+    fun onThemeSubscriptionsChanged() {}
 }

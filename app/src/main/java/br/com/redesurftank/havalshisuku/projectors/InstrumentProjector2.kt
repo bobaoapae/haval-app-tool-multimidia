@@ -41,6 +41,7 @@ import br.com.redesurftank.havalshisuku.models.screens.MainMenu
 import br.com.redesurftank.havalshisuku.models.screens.RegenScreen
 import br.com.redesurftank.havalshisuku.models.screens.Screen
 import br.com.redesurftank.havalshisuku.bridge.IBridgeContext
+import br.com.redesurftank.havalshisuku.bridge.ThemeTelemetryKeys
 import java.io.File
 import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
@@ -100,8 +101,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var tpmsJob: Job? = null
     private var artworkEncodingJob: Job? = null
     private var lastTsrPayload: String? = null
-    private var lastTpmsPressures: String? = null
-    private var lastTpmsTemperatures: String? = null
+    @Volatile private var lastTpmsPressures: String? = null
+    @Volatile private var lastTpmsTemperatures: String? = null
     private var nowPlayingResyncPending = true
     private var lastNowPlayingTitle: String? = null
     private var lastNowPlayingArtwork: Bitmap? = null
@@ -411,7 +412,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         if (key == SharedPreferencesKeys.CLUSTER_V2_TRIP_INFO.key) {
                             val enabled = getV2TripInfo()
                             evaluateJsIfReady(webView, "control('v2TripInfo', $enabled)")
-                            if (enabled && isSportThemeActive()) {
+                            if (shouldPollTpms()) {
                                 startTpmsPolling()
                             } else {
                                 stopTpmsPolling()
@@ -2589,21 +2590,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             handler.removeCallbacks(mediaRunnable)
             handler.post(mediaRunnable)
             startTsrPolling()
-            if (getV2TripInfo()) {
-                startTpmsPolling()
-            } else {
-                stopTpmsPolling()
-            }
         } else {
             handler.removeCallbacks(mediaRunnable)
             tsrJob?.cancel()
             tsrJob = null
             lastTsrPayload = null
-            stopTpmsPolling()
             artworkEncodingJob?.cancel()
             artworkEncodingJob = null
             nowPlayingResyncPending = true
         }
+        if (shouldPollTpms()) startTpmsPolling() else stopTpmsPolling()
     }
 
     private fun startTsrPolling() {
@@ -2676,17 +2672,22 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun startTpmsPolling() {
-        if (tpmsJob?.isActive == true || !getV2TripInfo() || !isSportThemeActive()) return
+        if (tpmsJob?.isActive == true || !shouldPollTpms()) return
         tpmsJob =
                 scope.launch(Dispatchers.IO) {
-                    while (isActive && getV2TripInfo() && isSportThemeActive()) {
+                    while (isActive && shouldPollTpms()) {
+                        val legacySportTpms = getV2TripInfo() && isSportThemeActive()
                         val pressures =
                                 VehiclePropertyReader.TPMS_PRESSURE_PROPERTY_IDS.joinToString(",") {
                                     vehiclePropertyReader.readPropertyAsString(it).orEmpty()
                                 }
                         val temperatures =
-                                VehiclePropertyReader.TPMS_TEMPERATURE_PROPERTY_IDS.joinToString(",") {
-                                    vehiclePropertyReader.readPropertyAsString(it).orEmpty()
+                                if (legacySportTpms) {
+                                    VehiclePropertyReader.TPMS_TEMPERATURE_PROPERTY_IDS.joinToString(",") {
+                                        vehiclePropertyReader.readPropertyAsString(it).orEmpty()
+                                    }
+                                } else {
+                                    lastTpmsTemperatures.orEmpty()
                                 }
                         if (
                                 pressures != lastTpmsPressures ||
@@ -2695,14 +2696,17 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             lastTpmsPressures = pressures
                             lastTpmsTemperatures = temperatures
                             withContext(Dispatchers.Main.immediate) {
-                                evaluateJsIfReady(
-                                        webView,
-                                        controlStringJs("tirePressures", pressures)
-                                )
-                                evaluateJsIfReady(
-                                        webView,
-                                        controlStringJs("tireTemperatures", temperatures)
-                                )
+                                publishContractTpmsPressures(pressures)
+                                if (legacySportTpms) {
+                                    evaluateJsIfReady(
+                                            webView,
+                                            controlStringJs("tirePressures", pressures)
+                                    )
+                                    evaluateJsIfReady(
+                                            webView,
+                                            controlStringJs("tireTemperatures", temperatures)
+                                    )
+                                }
                             }
                         }
                         delay(5000L)
@@ -2715,6 +2719,23 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         tpmsJob = null
         lastTpmsPressures = null
         lastTpmsTemperatures = null
+    }
+
+    private fun shouldPollTpms(): Boolean {
+        return (getV2TripInfo() && isSportThemeActive()) ||
+            ThemeTelemetryKeys.tirePressureKeys.any(::hasThemeSubscription)
+    }
+
+    private fun publishContractTpmsPressures(payload: String) {
+        val bridge = themeBridge ?: return
+        ThemeTelemetryKeys.tirePressureKeys.forEach { key ->
+            if (hasThemeSubscription(key)) {
+                bridge.pushOnDataChanged(
+                    key,
+                    ThemeTelemetryKeys.tirePressureValue(payload, key).orEmpty()
+                )
+            }
+        }
     }
 
     private fun publishNowPlayingState() {
@@ -3707,6 +3728,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
     override fun runOnUiThread(action: Runnable) {
         ensureUi { action.run() }
+    }
+
+    override fun getExtendedTelemetryValue(key: String): String? {
+        return ThemeTelemetryKeys.tirePressureValue(lastTpmsPressures, key)
+    }
+
+    override fun onThemeSubscriptionsChanged() {
+        ensureUi {
+            if (shouldPollTpms()) startTpmsPolling() else stopTpmsPolling()
+        }
     }
 
     // setCardId is intentionally gone. The theme used to echo the card back here, which

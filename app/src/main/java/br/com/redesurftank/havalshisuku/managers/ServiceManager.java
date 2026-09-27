@@ -333,6 +333,15 @@ public class ServiceManager {
     // Cortina automática por horário — guarda "uma vez por ENTRADA na janela". Reseta ao SAIR
     // da janela (respeita ajuste manual e permite disparar de novo na próxima entrada).
     private boolean curtainOpenActedThisWindow = false;
+    /**
+     * Quando o carro desligou, para não gastar o gatilho no próprio instante do desligamento.
+     *
+     * É só um respiro curto. A tentação é usar um valor grande para "filtrar oscilação", e seria
+     * errado: num teste real o dono desligou, trancou, destrancou e religou em doze segundos. Uma
+     * partida de verdade pode ser assim de rápida, e um filtro largo engoliria justamente ela.
+     */
+    private long curtainPoweredOffAtMs = 0L;
+    private static final long CURTAIN_IGNITION_MIN_OFF_MS = 5_000L;
     private boolean curtainCloseActedThisWindow = false;
     // Reavaliação event-driven: em vez de pollar (CPU à toa), reagenda p/ o PRÓXIMO boundary de
     // janela — dorme quando longe; teto de 15min só por segurança (mudança de relógio). Um
@@ -2466,6 +2475,11 @@ public class ServiceManager {
         }
     }
 
+    public void resetDriveInfo() {
+        Log.i(TAG, "Requesting accumulated drive information reset");
+        updateData(CarConstants.CAR_IPK_SETTING_DRIVE_INFO_RESET.getValue(), "1");
+    }
+
     private void publishOptimisticHvacValue(String key, String value) {
         String previous = dataCache.put(key, value);
         if (value != null && value.equals(previous)) {
@@ -2684,26 +2698,61 @@ public class ServiceManager {
                 if (closeSunRoofOnPowerOff) {
                     closeSunRoof(true);
                 }
-            } else if ((key.equals(CarConstants.CAR_DRIVE_SETTING_OUTSIDE_VIEW_MIRROR_FOLD_STATE.getValue()) && value.equals("0"))) {
-                float speedValue = Float.parseFloat(getUpdatedData(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue()));
-                String currentGear = getUpdatedData(CarConstants.CAR_BASIC_GEAR_STATUS.getValue());
-                if (speedValue > 0 || !currentGear.equals("3")) {
-                    Log.w(TAG, "Ignoring mirror fold event due to speed or gear state");
+            } else if (key.equals(CarConstants.CAR_BASIC_DOOR_LOCK_STATUS.getValue()) && value.equals("1")) {
+                // 1 = TRANCADO, 3 = destrancado. Medido no carro (seis transicoes alternando com o
+                // dono trancando e destrancando), nao deduzido do nome.
+                //
+                // DOIS guardas, e cada um responde uma pergunta diferente: o carro esta desligado?
+                // o carro esta parado? A marcha em P saiu daqui de proposito — ela vinha do galho do
+                // retrovisor, que NAO tinha verificacao de ignicao nenhuma e precisava dela como
+                // aproximacao de "estacionou". Com o estado de ignicao sendo consultado de verdade,
+                // P nao acrescenta caso que os outros dois nao cubram: carro desligado e com
+                // velocidade zero nao esta indo a lugar nenhum.
+                //
+                // Por que os guardas existem: o carro TRANCA SOZINHO ao atingir velocidade
+                // (car.door_lock_setting.locked_by_speed), e da pra trancar pelo botao interno com
+                // gente dentro. Sem eles, esta funcao fecharia vidro em quem esta no carro.
+                //
+                // NULO NAO E PERMISSAO. getUpdatedData devolve null com o canal de controle fora, e
+                // fazer parseFloat/equals direto no retorno estoura NullPointerException — que
+                // aborta o handler INTEIRO em silencio (o try/catch externo evita o crash, so que o
+                // resto do tratamento daquele evento nunca roda). Leitura que falhou BLOQUEIA a
+                // acao, como ja vale pro estado de ignicao logo abaixo.
+                String lockSpeedRaw = getUpdatedData(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue());
+                Float lockSpeed = null;
+                if (lockSpeedRaw != null) {
+                    try {
+                        lockSpeed = Float.parseFloat(lockSpeedRaw.trim());
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+                if (lockSpeed == null || lockSpeed > 0) {
+                    Log.w(TAG, "Ignoring lock event: vehicle not confirmed stopped (speed=" + lockSpeedRaw + ")");
                     return;
                 }
-                boolean closeWindowOnFoldMirror = sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_WINDOW_ON_FOLD_MIRROR.getKey(), false);
-                if (closeWindowOnFoldMirror) {
+                // Carro LIGADO nao e "estou saindo": trancar com o motorista dentro (o carro tranca
+                // sozinho, e da pra trancar pelo botao interno) nao pode fechar os vidros na cara de
+                // ninguem. Leitura FORCADA, nao o cache: este arquivo ja registra que o cache de
+                // driving_ready fica defasado no boot e chegou a re-desligar o BT por isso.
+                //
+                // Exige explicitamente o estado DESLIGADO em vez de "nao ligado": vazio nao e nem um
+                // nem outro, e leitura que falhou nao pode virar permissao para mexer em vidro.
+                String lockReadyState = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
+                if (!isVehicleReadyStateOff(lockReadyState)) {
+                    Log.w(TAG, "Ignoring lock event: vehicle not confirmed off (readyState=" + lockReadyState + ")");
+                    return;
+                }
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_WINDOW_ON_LOCK.getKey(), false)) {
                     closeAllWindow();
                 }
-                boolean closeSunRoofOnFoldMirror = sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_FOLD_MIRROR.getKey(), false);
-                if (closeSunRoofOnFoldMirror) {
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_LOCK.getKey(), false)) {
                     closeSunRoof(true);
                 }
-                // Desligar BT/hotspot ao recolher retrovisores (salvam o estado p/ religar ao ligar o carro).
-                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_FOLD_MIRROR.getKey(), false)) {
-                    shutdownBluetoothForRestore("MIRROR_FOLD");
+                // BT/hotspot guardam o estado pra religar quando o carro voltar a ligar.
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_LOCK.getKey(), false)) {
+                    shutdownBluetoothForRestore("LOCK");
                 }
-                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_FOLD_MIRROR.getKey(), false)) {
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_LOCK.getKey(), false)) {
                     shutdownWifiTetherForRestore();
                 }
             } else if (key.equals(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue())) {
@@ -2742,6 +2791,7 @@ public class ServiceManager {
             } else if (key.equals(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue())) {
                 if (isVehicleReadyStateOff(value)) {
                     carPoweredOff = true;
+                    rearmCurtainForNextIgnition();
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false)) {
                         shutdownBluetoothForRestore("POWER_OFF");
                     }
@@ -2753,7 +2803,7 @@ public class ServiceManager {
                     }
                 } else {
                     carPoweredOff = false;
-                    // Religa BT/hotspot que NÓS desligamos (por power-off OU ao recolher retrovisor),
+                    // Religa BT/hotspot que NÓS desligamos (por power-off OU ao trancar o carro),
                     // com delay+retry: no power-on o adapter/serviços podem não estar prontos ainda.
                     restoreBluetoothIfWasDisabled("POWER_ON_EVENT");
                     restoreWifiTetherIfWasDisabled();
@@ -2763,7 +2813,10 @@ public class ServiceManager {
                     // Ao ligar o carro, reaplica o % de bateria do HEV Prioritario (o carro costuma resetar).
                     applyHevSocTargetIfActive("POWER_ON");
                     // Carro pronto: é aqui que a cortina pode ser comandada com o módulo do teto acordado.
+                    // Os dois convivem: o trigger consome (uma vez só) o armamento do boot; a partir
+                    // daí ele é no-op e quem atua nas partidas seguintes é o "a cada ignição".
                     triggerStartupCurtainAutomation("driving_ready_event");
+                    evaluateCurtainOnIgnition();
                 }
             } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
                 syncDriverSeatVentilationWithHvac(value, "HVAC_POWER_EVENT");
@@ -3454,6 +3507,48 @@ public class ServiceManager {
     }
 
     /** Janela [sh:sm, eh:em) com virada de meia-noite. Janela vazia (s==e) = nunca. */
+    /**
+     * Devolve a abertura da cortina ao estado "ainda não agi", uma vez por desligamento.
+     *
+     * A abertura age uma vez por ENTRADA na faixa de horário e rearma ao SAIR dela. Com uma faixa
+     * estreita isso basta. Com uma faixa larga — 01:00 às 23:59, por exemplo — o horário sai da
+     * faixa por 61 minutos de madrugada e mais nada, então na prática a cortina abre uma única vez
+     * na vida do processo, que é o contrário do que "abrir ao ligar" promete. Foi assim que um dono
+     * relatou o problema.
+     *
+     * O rearme acontece no DESLIGAR, não no ligar. Rearmar aqui não abre nada: quem abre é a
+     * avaliação da próxima partida.
+     */
+    private void rearmCurtainForNextIgnition() {
+        if (!isCurtainEveryIgnitionEnabled()) return;
+        curtainOpenActedThisWindow = false;
+        curtainPoweredOffAtMs = System.currentTimeMillis();
+        traceCurtain("sunroof_curtain_rearm", "reason", "power_off");
+    }
+
+    /** Partida do carro: reavalia a faixa, se houve um desligamento antes. */
+    private void evaluateCurtainOnIgnition() {
+        if (!isCurtainEveryIgnitionEnabled()) return;
+        if (curtainPoweredOffAtMs == 0L) return;
+        long parado = System.currentTimeMillis() - curtainPoweredOffAtMs;
+        if (parado < CURTAIN_IGNITION_MIN_OFF_MS) {
+            // Ainda no instante do desligamento: mantém a marca, a partida de verdade vem depois.
+            traceCurtain("sunroof_curtain_ignition_skip", "offMs", parado);
+            return;
+        }
+        curtainPoweredOffAtMs = 0L;
+        traceCurtain("sunroof_curtain_ignition", "offMs", parado);
+        backgroundHandler.removeCallbacks(curtainScheduleRunnable);
+        backgroundHandler.postDelayed(curtainScheduleRunnable, 2000);
+    }
+
+    private boolean isCurtainEveryIgnitionEnabled() {
+        return sharedPreferences.getBoolean(
+                SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_EVERY_IGNITION.getKey(), false)
+                && sharedPreferences.getBoolean(
+                SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
+    }
+
     private boolean isTimeInRange(int t, int sh, int sm, int eh, int em) {
         int s = sh * 60 + sm, e = eh * 60 + em;
         if (s == e) return false;

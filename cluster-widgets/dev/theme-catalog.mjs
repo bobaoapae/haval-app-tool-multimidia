@@ -21,6 +21,10 @@ function listDirectories(parentPath) {
     .map((entry) => entry.name);
 }
 
+const themeLabOverrides = new Map([
+  ['source/v1.0/ApexGT', { keyboard: 'none', telemetry: 'injected' }],
+]);
+
 function readTheme(directory, relativeDirectory, kind, preferredEntry) {
   const manifestPath = path.join(directory, 'theme.xml');
   if (!fs.existsSync(manifestPath)) return null;
@@ -35,13 +39,18 @@ function readTheme(directory, relativeDirectory, kind, preferredEntry) {
   if (!mainFile) return null;
 
   const folderName = path.basename(directory);
+  const folder = relativeDirectory.replaceAll(path.sep, '/');
   const contractVersion = readTag(manifest, 'contractVersion');
   const isSport = /^SportRed(?:Lite)?$/i.test(folderName);
   const label = readTag(manifest, 'name', folderName);
   const route = `${toWebPath(relativeDirectory, mainFile)}?nativeMocks=1&themeLab=1`;
+  const defaults = kind === 'source-v1'
+    ? { keyboard: 'native', telemetry: 'native' }
+    : { keyboard: isSport ? 'legacy-sport' : 'legacy-generic', telemetry: 'injected' };
+  const labIntegration = { ...defaults, ...themeLabOverrides.get(folder) };
 
   return {
-    id: `${kind}:${relativeDirectory.replaceAll(path.sep, '/')}`,
+    id: `${kind}:${folder}`,
     label,
     folderName,
     version: readTag(manifest, 'version', 'A confirmar'),
@@ -49,8 +58,9 @@ function readTheme(directory, relativeDirectory, kind, preferredEntry) {
     contractVersion: contractVersion || null,
     kind,
     editable: kind === 'source-v1',
-    keyboard: kind === 'source-v1' ? 'native' : (isSport ? 'legacy-sport' : 'legacy-generic'),
-    folder: relativeDirectory.replaceAll(path.sep, '/'),
+    keyboard: labIntegration.keyboard,
+    telemetry: labIntegration.telemetry,
+    folder,
     route,
     manifestRoute: toWebPath(relativeDirectory, 'theme.xml'),
   };

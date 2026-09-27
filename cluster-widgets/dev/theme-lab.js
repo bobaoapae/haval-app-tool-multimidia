@@ -3,6 +3,7 @@ import { installLegacyTelemetryHarness } from './legacy-telemetry.js';
 import { installFixedClusterForeground } from './fixed-cluster-foreground.js';
 import { installSportGaugePolish } from './sport-gauge-polish.js';
 import { installProjectionSimulator } from './projection-simulator.js';
+import { installApexGtSimulator } from './apex-gt-simulator.js';
 
 const CLUSTER_WIDTH = 1920;
 const CLUSTER_HEIGHT = 720;
@@ -23,12 +24,14 @@ const elements = {
   open: document.getElementById('open-theme'),
   panelActions: document.getElementById('panel-actions'),
   panelButtons: [...document.querySelectorAll('[data-panel]')],
+  wheelButtons: [...document.querySelectorAll('[data-wheel-key]')],
 };
 
 let themes = [];
 let activeTheme = null;
 let legacyAdapter = null;
 let legacyTelemetryAdapter = null;
+let apexGtSimulatorAdapter = null;
 let fixedForegroundAdapter = null;
 let sportGaugeAdapter = null;
 let projectionSimulatorAdapter = null;
@@ -84,6 +87,11 @@ function setStatus(message) {
   elements.status.textContent = message;
 }
 
+function formatLoadedStatus(theme) {
+  const telemetryLabel = theme.keyboard === 'none' ? 'telemetria de teste' : 'telemetria automática';
+  return `${theme.label} carregado · ${telemetryLabel} e camada nativa fixa ativas`;
+}
+
 function formatLegacyStatus(state) {
   const screenLabels = {
     main_menu: 'Menu principal',
@@ -107,7 +115,9 @@ function updateSelectionUi(theme) {
   elements.kind.textContent = kindLabels[theme.kind] || theme.kind;
   elements.keyboard.textContent = theme.keyboard === 'native'
     ? 'Teclado nativo do simulador'
-    : (theme.keyboard === 'legacy-sport' ? 'Teclado adaptado para Sport' : 'Teclado adaptado para legado');
+    : (theme.keyboard === 'none'
+      ? 'Navegação do tema · telemetria do Theme Lab'
+      : (theme.keyboard === 'legacy-sport' ? 'Teclado adaptado para Sport' : 'Teclado adaptado para legado'));
   elements.frame.title = `Prévia do tema ${theme.label}`;
 
   for (const button of elements.toggle.querySelectorAll('[role="radio"]')) {
@@ -128,12 +138,21 @@ function focusFrame() {
   }, 0);
 }
 
+function activateWheelKey(keyName) {
+  const themeWindow = elements.frame.contentWindow;
+  if (!themeWindow || typeof themeWindow.onKeyEvent !== 'function') return;
+  themeWindow.onKeyEvent(keyName);
+  focusFrame();
+}
+
 function loadTheme(theme) {
   if (!theme) return;
   legacyAdapter?.cleanup();
   legacyAdapter = null;
   legacyTelemetryAdapter?.cleanup();
   legacyTelemetryAdapter = null;
+  apexGtSimulatorAdapter?.cleanup();
+  apexGtSimulatorAdapter = null;
   fixedForegroundAdapter?.cleanup();
   fixedForegroundAdapter = null;
   sportGaugeAdapter?.cleanup();
@@ -231,6 +250,8 @@ function onThemeFrameLoaded() {
   legacyAdapter = null;
   legacyTelemetryAdapter?.cleanup();
   legacyTelemetryAdapter = null;
+  apexGtSimulatorAdapter?.cleanup();
+  apexGtSimulatorAdapter = null;
   fixedForegroundAdapter?.cleanup();
   fixedForegroundAdapter = null;
   sportGaugeAdapter?.cleanup();
@@ -249,13 +270,14 @@ function onThemeFrameLoaded() {
       activeTheme,
       (state) => setStatus(formatLegacyStatus(state)),
     );
+    apexGtSimulatorAdapter = installApexGtSimulator(elements.frame.contentWindow);
     legacyTelemetryAdapter = installLegacyTelemetryHarness(
       elements.frame.contentWindow,
       activeTheme,
       {
         onReady: () => {
           syncHarnessPanels();
-          setStatus(`${activeTheme.label} carregado · telemetria automática e camada nativa fixa ativas`);
+          setStatus(formatLoadedStatus(activeTheme));
         },
         onError: (message) => {
           console.error('[Theme Lab] Simulador de telemetria indisponível:', message);
@@ -269,7 +291,7 @@ function onThemeFrameLoaded() {
   }
 
   if (activeTheme.keyboard === 'native') {
-    setStatus(`${activeTheme.label} carregado · telemetria automática e camada nativa fixa ativas`);
+    setStatus(formatLoadedStatus(activeTheme));
   }
   focusFrame();
 }
@@ -347,8 +369,10 @@ async function initialize() {
     if (themes.length === 0) throw new Error('nenhuma pasta de tema válida foi encontrada');
 
     renderThemeOptions();
+    const requestedTheme = new URLSearchParams(window.location.search).get('theme');
     const savedThemeId = localStorage.getItem(STORAGE_KEY);
-    const initialTheme = themes.find((theme) => theme.id === savedThemeId)
+    const initialTheme = themes.find((theme) => theme.id === requestedTheme || theme.folderName === requestedTheme)
+      || themes.find((theme) => theme.id === savedThemeId)
       || themes.find((theme) => theme.folder === 'source/v1.0/default')
       || themes[0];
     loadTheme(initialTheme);
@@ -375,6 +399,9 @@ for (const button of elements.panelButtons) {
     syncHarnessPanels();
     focusFrame();
   });
+}
+for (const button of elements.wheelButtons) {
+  button.addEventListener('click', () => activateWheelKey(button.dataset.wheelKey));
 }
 elements.frame.addEventListener('load', onThemeFrameLoaded);
 document.addEventListener('keydown', forwardKeyToFrame);
