@@ -1,13 +1,10 @@
 package br.com.redesurftank.havalshisuku.ui.screens
 
 import android.content.Context
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -21,16 +18,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import br.com.redesurftank.App
-import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.havalshisuku.managers.StartupAppManager
 import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
@@ -65,12 +58,9 @@ fun ImpulseHomeSetupDialog(onDismiss: () -> Unit) {
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Image(
-                    painter = painterResource(R.drawable.impulse_home_preview),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().height(96.dp).clip(RoundedCornerShape(10.dp))
-                )
+                // O gesto ensinado em movimento: a barra sobe e o app entra. Serve de preview do
+                // app e de tutorial ao mesmo tempo.
+                SwipeUpTutorial()
                 Text(
                     "Quer deixar ele à mão? Dá para mudar depois na aba de Apps.",
                     color = ImpTokens.TextSecondary,

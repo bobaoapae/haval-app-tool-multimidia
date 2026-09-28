@@ -511,6 +511,9 @@ fun InstallAppsTab() {
                                     context.startActivity(intent)
                                 }
                     }
+                    // As mesmas sugestoes oferecidas na instalacao, para quem pulou na hora ou
+                    // mudou de ideia depois.
+                    CardButton("Ajustar", ImpTokens.TrackOff) { showHomeSetup = true }
                 }
             }
         }
