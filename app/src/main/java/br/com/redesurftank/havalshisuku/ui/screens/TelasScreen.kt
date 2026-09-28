@@ -1168,30 +1168,28 @@ fun TelasTab() {
                         }
                     }
 
-                    // ── RIGHT CARD (60%): Inicialização & Consumo Card (aligned with Próxima Revisão below) ──
+                    // ── RIGHT CARD (60%): Exibição do cluster (alinhado com Próxima Revisão abaixo) ──
                     Column(
                         modifier = Modifier
                             .weight(0.60f)
                             .fillMaxHeight()
                             .background(Color(0xFF2A2F37), RoundedCornerShape(8.dp))
                             .padding(16.dp),
-                        verticalArrangement = Arrangement.SpaceBetween
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Column {
                             Text(
-                                "Inicialização & Exibição",
+                                "Exibição do cluster",
                                 color = Color.White,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                "App de arranque e unidade de consumo",
+                                "Como o consumo aparece no painel",
                                 color = Color(0xFFB0B8C4),
                                 fontSize = 12.sp
                             )
                         }
-
-                        Spacer(modifier = Modifier.height(12.dp))
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         // 2. Unidade de Consumo de Combustível

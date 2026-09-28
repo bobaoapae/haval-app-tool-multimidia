@@ -60,6 +60,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 
+/** O viewer 3D, distribuido pelo catalogo como qualquer outro app. */
+private const val IMPULSE_HOME_PACKAGE = "com.havalh6.viewer"
+
 @Composable
 fun InstallAppsTab() {
     val context = LocalContext.current
@@ -297,366 +300,233 @@ fun InstallAppsTab() {
                     modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp)
             )
         }
-        // Qual app abre em qual tela quando o carro liga. O detalhe de que a tela principal
-        // precisa da escada de tentativas (e a secundaria nao) fica escondido no dialogo.
-        item(span = { GridItemSpan(4) }) {
-            val mainPkg = StartupAppManager.mainDisplayPackage()
-            val secondaryPkg = prefs.getString(
-                            SharedPreferencesKeys.DEFAULT_DISPLAY_APP_PACKAGE.key,
-                            ""
-                    )
-                    .orEmpty()
-            val nameOf: (String) -> String = { pkg: String ->
-                if (pkg.isEmpty()) "nenhum"
-                else runCatching { DisplayAppLauncher.resolveAppInfo(context, pkg).label }
-                        .getOrDefault(pkg)
-            }
-            Card(
-                    modifier =
-                            Modifier.fillMaxWidth()
-                                    .padding(vertical = 8.dp)
-                                    .clickable { showStartupApps = true },
-                    colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
-                    shape = RoundedCornerShape(12.dp)
+        // Os quatro destaques da tela, lado a lado: os dois patches de projecao, o Impulse
+        // Home e o "abrir ao ligar". A grade tem 4 colunas, entao cada um ocupa 1 e eles caem
+        // sozinhos na mesma linha; os apps genericos seguem abaixo, 4 por linha.
+        item {
+            FeatureCard(
+                    icon = Icons.Default.Shield,
+                    iconTint = if (isMounted) ImpTokens.Accent else Color.White,
+                    highlighted = isMounted,
+                    title = "Android Auto",
+                    subtitle = "Patch Impulse: encaixa no cluster e nao perde o foco",
+                    status =
+                            when {
+                                isMounted -> "Ativo"
+                                isPatchInstalled -> "Instalado"
+                                else -> "Nao instalado"
+                            },
+                    statusTint = if (isMounted) ImpTokens.Accent else ImpTokens.TextSecondary,
+                    extra =
+                            if (isPatchInstalled) {
+                                {
+                                    AutoMountRow(
+                                            checked = aaPatchAutoMount,
+                                            onCheckedChange = {
+                                                aaPatchAutoMount = it
+                                                prefs.edit()
+                                                        .putBoolean(
+                                                                SharedPreferencesKeys
+                                                                        .AA_PATCH_AUTO_MOUNT
+                                                                        .key,
+                                                                it
+                                                        )
+                                                        .apply()
+                                            }
+                                    )
+                                }
+                            } else null
             ) {
-                Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                                "Abrir ao ligar",
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                                "Tela principal: ${nameOf(mainPkg)}  ·  Secundaria: ${nameOf(secondaryPkg)}",
-                                color = ImpTokens.TextSecondary,
-                                fontSize = 12.sp
-                        )
+                if (!isPatchInstalled) {
+                    CardButton("Instalar", ImpTokens.Accent) {
+                        if (AndroidAutoPatchManager.installPatches(context)) isPatchInstalled = true
                     }
-                    Text("Alterar", color = ImpTokens.Accent, fontSize = 13.sp)
-                }
-            }
-        }
-        item(span = { GridItemSpan(4) }) {
-            Card(
-                    modifier =
-                            Modifier.fillMaxWidth()
-                                    .padding(vertical = 8.dp)
-                                    .border(
-                                            width = 1.dp,
-                                            color =
-                                                    if (isMounted) ImpTokens.Accent
-                                                    else ImpTokens.Hairline,
-                                            shape = RoundedCornerShape(12.dp)
-                                    ),
-                    colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
-                    shape = RoundedCornerShape(12.dp)
-            ) {
-                Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Box(
-                            modifier =
-                                    Modifier.size(48.dp).background(ImpTokens.TrackOff, CircleShape),
-                            contentAlignment = Alignment.Center
+                } else {
+                    if (!isMounted) {
+                        CardButton("Ativar", Color(0xFF4CAF50)) {
+                            if (AndroidAutoPatchManager.applyMounts()) isMounted = true
+                        }
+                    } else {
+                        CardButton("Desativar", Color(0xFFF44336)) {
+                            if (AndroidAutoPatchManager.removeMounts()) isMounted = false
+                        }
+                    }
+                    IconButton(
+                            onClick = {
+                                if (AndroidAutoPatchManager.uninstallPatches()) {
+                                    isPatchInstalled = false
+                                    isMounted = false
+                                }
+                            }
                     ) {
                         Icon(
-                                Icons.Default.Shield,
-                                contentDescription = null,
-                                tint = if (isMounted) ImpTokens.Accent else Color.White,
-                                modifier = Modifier.size(24.dp)
+                                Icons.Default.Delete,
+                                contentDescription = "Remover patch",
+                                tint = ImpTokens.TextMuted
                         )
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                                "Android Auto (Patch Impulse) - Ajusta melhor às dimensoes do cluster e não perde o foco",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                                text =
-                                        when {
-                                            isMounted -> "Status: Ativo (Mounted)"
-                                            isPatchInstalled ->
-                                                    "Status: Instalado (Pronto para ativar)"
-                                            else -> "Status: Não instalado"
-                                        },
-                                color = if (isMounted) ImpTokens.Accent else ImpTokens.TextSecondary,
-                                fontSize = 13.sp
-                        )
-                        if (isPatchInstalled) {
-                            Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(top = 4.dp)
-                            ) {
-                                Switch(
-                                        checked = aaPatchAutoMount,
-                                        onCheckedChange = {
-                                            aaPatchAutoMount = it
-                                            prefs.edit()
-                                                    .putBoolean(
-                                                            SharedPreferencesKeys
-                                                                    .AA_PATCH_AUTO_MOUNT
-                                                                    .key,
-                                                            it
-                                                    )
-                                                    .apply()
-                                        },
-                                        modifier = Modifier.scale(0.7f),
-                                        colors =
-                                                SwitchDefaults.colors(
-                                                        checkedThumbColor = Color.White,
-                                                        checkedTrackColor = ImpTokens.Accent
-                                                )
-                                )
-                                Text(
-                                        "Auto-montar ao iniciar",
-                                        color = ImpTokens.TextSecondary,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(start = 4.dp)
-                                )
+                    IconButton(
+                            onClick = {
+                                diagnosticsText = AndroidAutoPatchManager.getDiagnostics()
+                                showDiagnostics = true
                             }
-                        }
-                    }
-                    Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (!isPatchInstalled) {
-                            Button(
-                                    onClick = {
-                                        if (AndroidAutoPatchManager.installPatches(context))
-                                                isPatchInstalled = true
-                                    },
-                                    colors =
-                                            ButtonDefaults.buttonColors(
-                                                    containerColor = ImpTokens.Accent
-                                            ),
-                                    shape = RoundedCornerShape(8.dp)
-                            ) { Text("Instalar", color = Color.White) }
-                        } else {
-                            if (!isMounted) {
-                                Button(
-                                        onClick = {
-                                            if (AndroidAutoPatchManager.applyMounts())
-                                                    isMounted = true
-                                        },
-                                        colors =
-                                                ButtonDefaults.buttonColors(
-                                                        containerColor = Color(0xFF4CAF50)
-                                                ),
-                                        shape = RoundedCornerShape(8.dp)
-                                ) { Text("Ativar", color = Color.White) }
-                            } else {
-                                Button(
-                                        onClick = {
-                                            if (AndroidAutoPatchManager.removeMounts())
-                                                    isMounted = false
-                                        },
-                                        colors =
-                                                ButtonDefaults.buttonColors(
-                                                        containerColor = Color(0xFFF44336)
-                                                ),
-                                        shape = RoundedCornerShape(8.dp)
-                                ) { Text("Desativar", color = Color.White) }
-                            }
-                            IconButton(
-                                    onClick = {
-                                        if (AndroidAutoPatchManager.uninstallPatches()) {
-                                            isPatchInstalled = false
-                                            isMounted = false
-                                        }
-                                    }
-                            ) {
-                                Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = "Remover Patch",
-                                        tint = ImpTokens.TextMuted
-                                )
-                            }
-                            IconButton(
-                                    onClick = {
-                                        diagnosticsText = AndroidAutoPatchManager.getDiagnostics()
-                                        showDiagnostics = true
-                                    }
-                            ) {
-                                Icon(
-                                        Icons.Default.BugReport,
-                                        contentDescription = "Diagnóstico",
-                                        tint = ImpTokens.TextMuted
-                                )
-                            }
-                        }
+                        Icon(
+                                Icons.Default.BugReport,
+                                contentDescription = "Diagnostico",
+                                tint = ImpTokens.TextMuted
+                        )
                     }
                 }
             }
         }
 
-        item(span = { GridItemSpan(4) }) {
-            Card(
-                    modifier =
-                            Modifier.fillMaxWidth()
-                                    .padding(vertical = 8.dp)
-                                    .border(
-                                            width = 1.dp,
-                                            color =
-                                                    if (isCarPlayMounted) Color(0xFF34C759)
-                                                    else ImpTokens.Hairline,
-                                            shape = RoundedCornerShape(12.dp)
-                                    ),
-                    colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
-                    shape = RoundedCornerShape(12.dp)
+        item {
+            FeatureCard(
+                    icon = Icons.Default.PhoneIphone,
+                    iconTint = if (isCarPlayMounted) ImpTokens.Accent else Color.White,
+                    highlighted = isCarPlayMounted,
+                    title = "Apple CarPlay",
+                    subtitle = "Patch HVAC D3: mantem o video durante o painel de ar",
+                    status =
+                            when {
+                                isCarPlayMounted -> "Ativo"
+                                isCarPlayPatchInstalled -> "Instalado"
+                                else -> "Nao instalado"
+                            },
+                    statusTint =
+                            if (isCarPlayMounted) ImpTokens.Accent else ImpTokens.TextSecondary,
+                    extra =
+                            if (isCarPlayPatchInstalled) {
+                                {
+                                    AutoMountRow(
+                                            checked = carPlayPatchAutoMount,
+                                            onCheckedChange = {
+                                                carPlayPatchAutoMount = it
+                                                prefs.edit()
+                                                        .putBoolean(
+                                                                SharedPreferencesKeys
+                                                                        .CARPLAY_PATCH_AUTO_MOUNT
+                                                                        .key,
+                                                                it
+                                                        )
+                                                        .apply()
+                                            }
+                                    )
+                                }
+                            } else null
             ) {
-                Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Box(
-                            modifier =
-                                    Modifier.size(48.dp).background(ImpTokens.TrackOff, CircleShape),
-                            contentAlignment = Alignment.Center
+                if (!isCarPlayPatchInstalled) {
+                    CardButton("Instalar", ImpTokens.Accent) {
+                        if (CarPlayPatchManager.installPatches(context))
+                                isCarPlayPatchInstalled = true
+                    }
+                } else {
+                    if (!isCarPlayMounted) {
+                        CardButton("Ativar", Color(0xFF4CAF50)) {
+                            if (CarPlayPatchManager.applyMounts()) isCarPlayMounted = true
+                        }
+                    } else {
+                        CardButton("Desativar", Color(0xFFF44336)) {
+                            if (CarPlayPatchManager.removeMounts()) isCarPlayMounted = false
+                        }
+                    }
+                    IconButton(
+                            onClick = {
+                                if (CarPlayPatchManager.uninstallPatches()) {
+                                    isCarPlayPatchInstalled = false
+                                    isCarPlayMounted = false
+                                }
+                            }
                     ) {
                         Icon(
-                                Icons.Default.PhoneIphone,
-                                contentDescription = null,
-                                tint = if (isCarPlayMounted) Color(0xFF34C759) else Color.White,
-                                modifier = Modifier.size(24.dp)
+                                Icons.Default.Delete,
+                                contentDescription = "Remover patch",
+                                tint = ImpTokens.TextMuted
                         )
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                                "Apple CarPlay (Patch HVAC D3) - Mantem o foco de video durante o painel de ar",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                                text =
-                                        when {
-                                            isCarPlayMounted -> "Status: Ativo (Mounted)"
-                                            isCarPlayPatchInstalled ->
-                                                    "Status: Instalado (Pronto para ativar)"
-                                            else -> "Status: Não instalado"
-                                        },
-                                color =
-                                        if (isCarPlayMounted) Color(0xFF34C759)
-                                        else ImpTokens.TextSecondary,
-                                fontSize = 13.sp
-                        )
-                        if (isCarPlayPatchInstalled) {
-                            Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(top = 4.dp)
-                            ) {
-                                Switch(
-                                        checked = carPlayPatchAutoMount,
-                                        onCheckedChange = {
-                                            carPlayPatchAutoMount = it
-                                            prefs.edit()
-                                                    .putBoolean(
-                                                            SharedPreferencesKeys
-                                                                    .CARPLAY_PATCH_AUTO_MOUNT
-                                                                    .key,
-                                                            it
-                                                    )
-                                                    .apply()
-                                        },
-                                        modifier = Modifier.scale(0.7f),
-                                        colors =
-                                                SwitchDefaults.colors(
-                                                        checkedThumbColor = Color.White,
-                                                        checkedTrackColor = Color(0xFF34C759)
-                                                )
-                                )
-                                Text(
-                                        "Auto-montar ao iniciar",
-                                        color = ImpTokens.TextSecondary,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(start = 4.dp)
-                                )
+                    IconButton(
+                            onClick = {
+                                diagnosticsText = CarPlayPatchManager.getDiagnostics()
+                                showDiagnostics = true
                             }
-                        }
-                    }
-                    Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (!isCarPlayPatchInstalled) {
-                            Button(
-                                    onClick = {
-                                        if (CarPlayPatchManager.installPatches(context))
-                                                isCarPlayPatchInstalled = true
-                                    },
-                                    colors =
-                                            ButtonDefaults.buttonColors(
-                                                    containerColor = Color(0xFF34C759)
-                                            ),
-                                    shape = RoundedCornerShape(8.dp)
-                            ) { Text("Instalar", color = Color.White) }
-                        } else {
-                            if (!isCarPlayMounted) {
-                                Button(
-                                        onClick = {
-                                            if (CarPlayPatchManager.applyMounts())
-                                                    isCarPlayMounted = true
-                                        },
-                                        colors =
-                                                ButtonDefaults.buttonColors(
-                                                        containerColor = Color(0xFF4CAF50)
-                                                ),
-                                        shape = RoundedCornerShape(8.dp)
-                                ) { Text("Ativar", color = Color.White) }
-                            } else {
-                                Button(
-                                        onClick = {
-                                            if (CarPlayPatchManager.removeMounts())
-                                                    isCarPlayMounted = false
-                                        },
-                                        colors =
-                                                ButtonDefaults.buttonColors(
-                                                        containerColor = Color(0xFFF44336)
-                                                ),
-                                        shape = RoundedCornerShape(8.dp)
-                                ) { Text("Desativar", color = Color.White) }
-                            }
-                            IconButton(
-                                    onClick = {
-                                        if (CarPlayPatchManager.uninstallPatches()) {
-                                            isCarPlayPatchInstalled = false
-                                            isCarPlayMounted = false
-                                        }
-                                    }
-                            ) {
-                                Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = "Remover Patch CarPlay",
-                                        tint = ImpTokens.TextMuted
-                                )
-                            }
-                            IconButton(
-                                    onClick = {
-                                        diagnosticsText = CarPlayPatchManager.getDiagnostics()
-                                        showDiagnostics = true
-                                    }
-                            ) {
-                                Icon(
-                                        Icons.Default.BugReport,
-                                        contentDescription = "Diagnóstico CarPlay",
-                                        tint = ImpTokens.TextMuted
-                                )
-                            }
-                        }
+                        Icon(
+                                Icons.Default.BugReport,
+                                contentDescription = "Diagnostico",
+                                tint = ImpTokens.TextMuted
+                        )
                     }
                 }
             }
+        }
+
+        item {
+            val homeInstalled = getInstalledVersion(IMPULSE_HOME_PACKAGE)
+            val homeCatalog = apps.firstOrNull { it.packageName == IMPULSE_HOME_PACKAGE }
+            val homeUpdate =
+                    homeInstalled != null &&
+                            homeCatalog != null &&
+                            compareVersions(homeInstalled, homeCatalog.version) < 0
+            val homeProgress = downloadProgress[IMPULSE_HOME_PACKAGE]
+            FeatureCard(
+                    icon = Icons.Default.DirectionsCar,
+                    iconTint = if (homeInstalled != null) ImpTokens.Accent else Color.White,
+                    highlighted = homeInstalled != null,
+                    title = "Impulse Home",
+                    subtitle = "Painel 3D do carro, com os widgets e os controles",
+                    status =
+                            when {
+                                homeProgress != null ->
+                                        "Baixando " + (homeProgress * 100).toInt() + "%"
+                                homeUpdate -> "Atualizacao disponivel"
+                                homeInstalled != null -> "v" + homeInstalled
+                                homeCatalog != null -> "Nao instalado"
+                                else -> "Indisponivel no catalogo"
+                            },
+                    statusTint =
+                            if (homeInstalled != null) ImpTokens.Accent else ImpTokens.TextSecondary
+            ) {
+                if (homeCatalog != null && (homeInstalled == null || homeUpdate)) {
+                    CardButton(
+                            if (homeUpdate) "Atualizar" else "Instalar",
+                            ImpTokens.Accent,
+                            enabled = homeProgress == null
+                    ) { startDownload(homeCatalog) }
+                } else if (homeInstalled != null) {
+                    CardButton("Abrir", ImpTokens.Accent) {
+                        context.packageManager
+                                .getLaunchIntentForPackage(IMPULSE_HOME_PACKAGE)
+                                ?.let { intent ->
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
+                                }
+                    }
+                }
+            }
+        }
+
+        item {
+            val mainPkg = StartupAppManager.mainDisplayPackage()
+            val secondaryPkg =
+                    prefs.getString(SharedPreferencesKeys.DEFAULT_DISPLAY_APP_PACKAGE.key, "")
+                            .orEmpty()
+            FeatureCard(
+                    icon = Icons.Default.PlayCircle,
+                    iconTint =
+                            if (mainPkg.isNotEmpty() || secondaryPkg.isNotEmpty()) ImpTokens.Accent
+                            else Color.White,
+                    highlighted = mainPkg.isNotEmpty() || secondaryPkg.isNotEmpty(),
+                    title = "Abrir ao ligar",
+                    subtitle = "Um app por tela quando o carro liga",
+                    status = null,
+                    extra = {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            StartupSlotRow("Principal", mainPkg)
+                            StartupSlotRow("Secundaria", secondaryPkg)
+                        }
+                    }
+            ) { CardButton("Alterar", ImpTokens.Accent) { showStartupApps = true } }
         }
 
         item(span = { GridItemSpan(4) }) {
