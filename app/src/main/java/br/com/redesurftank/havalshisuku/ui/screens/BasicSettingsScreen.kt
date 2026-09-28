@@ -43,7 +43,6 @@ import br.com.redesurftank.havalshisuku.ui.components.GroupedSettingsLayout
 import br.com.redesurftank.havalshisuku.ui.components.SettingsGroups
 import br.com.redesurftank.havalshisuku.ui.components.TwoColumnSettingsLayout
 import br.com.redesurftank.havalshisuku.managers.HotRouterManager
-import br.com.redesurftank.havalshisuku.managers.ViewerAutostartManager
 import br.com.redesurftank.havalshisuku.managers.HvacPanelSuppressor
 import br.com.redesurftank.havalshisuku.managers.ViewerPresence
 import br.com.redesurftank.havalshisuku.managers.ViewerPresencePolicy
@@ -929,14 +928,6 @@ fun BasicSettingsTab() {
         var enableHotRouter by remember {
                 mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_HOT_ROUTER.key, false))
         }
-        var autoStartViewer by remember {
-                mutableStateOf(
-                        prefs.getBoolean(
-                                SharedPreferencesKeys.AUTO_START_VIEWER_ON_BOOT.key,
-                                false
-                        )
-                )
-        }
         var viewerClimateHandoff by remember {
                 mutableStateOf(
                         prefs.getBoolean(
@@ -990,54 +981,6 @@ fun BasicSettingsTab() {
         val settingsList = mutableListOf<SettingItem>()
 
         if (viewerStatus.supports(ViewerPresencePolicy.API_PRESENT_ONLY)) {
-                // Abre o viewer 3D no boot. Esta ROM nao permite trocar o app de HOME
-                // (set-home-activity e pm disable-user sao no-op no CarPackageManagerService),
-                // entao em vez de disputar o papel de HOME simplesmente abrimos o viewer por cima
-                // assim que o carro liga.
-                settingsList.add(
-                        SettingItem(
-                                title = "Abrir o Haval H6 3D ao ligar",
-                                group = SettingsGroups.FEATURES,
-                                description =
-                                        SharedPreferencesKeys.AUTO_START_VIEWER_ON_BOOT
-                                                .description +
-                                                ". Tenta algumas vezes nos primeiros segundos, " +
-                                                "porque o launcher do carro ainda esta subindo; " +
-                                                "para se voce abrir outro app antes.",
-                                checked = autoStartViewer,
-                                onCheckedChange = {
-                                        autoStartViewer = it
-                                        prefs.edit {
-                                                putBoolean(
-                                                        SharedPreferencesKeys
-                                                                .AUTO_START_VIEWER_ON_BOOT
-                                                                .key,
-                                                        it
-                                                )
-                                        }
-                                },
-                                customContent =
-                                        if (autoStartViewer) {
-                                                {
-                                                        Column(
-                                                                verticalArrangement =
-                                                                        Arrangement.spacedBy(8.dp)
-                                                        ) {
-                                                                HorizontalDivider(
-                                                                        color = Color(0xFF3A3F47),
-                                                                        thickness = 1.dp
-                                                                )
-                                                                Button(
-                                                                        onClick = {
-                                                                                ViewerAutostartManager
-                                                                                        .launchNow()
-                                                                        }
-                                                                ) { Text("Abrir agora") }
-                                                        }
-                                                }
-                                        } else null
-                        )
-                )
                 // Controles de A/C pelo viewer: enquanto ele estiver ligado ao Impulse, o app de
                 // climatizacao do carro fica desativado e o popup passa a ser o do Haval H6 3D.
                 // So aparece para um viewer que declara saber responder (nivel 2).

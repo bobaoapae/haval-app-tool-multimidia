@@ -9,7 +9,7 @@ import android.util.Log;
 
 import br.com.redesurftank.havalshisuku.services.ForegroundService;
 import br.com.redesurftank.havalshisuku.managers.ServiceManager;
-import br.com.redesurftank.havalshisuku.managers.ViewerAutostartManager;
+import br.com.redesurftank.havalshisuku.managers.StartupAppManager;
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher;
 
 public class BootReceiver extends BroadcastReceiver {
@@ -35,9 +35,9 @@ public class BootReceiver extends BroadcastReceiver {
         // possible - the OEM launcher is still settling at this point. The manager schedules its
         // own retries and is guarded by a per-boot token, so calling it twice is harmless.
         try {
-            ViewerAutostartManager.INSTANCE.onBootCompleted("boot_receiver");
+            StartupAppManager.INSTANCE.onBootCompleted("boot_receiver");
         } catch (Exception e) {
-            Log.e(TAG, "Viewer autostart failed: " + e.getMessage(), e);
+            Log.e(TAG, "Startup app launch failed: " + e.getMessage(), e);
         }
 
         // A car whose overrides were set before this feature shipped never

@@ -8,6 +8,7 @@ import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -35,6 +36,8 @@ import androidx.core.content.FileProvider
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.TAG
 import br.com.redesurftank.havalshisuku.managers.AndroidAutoPatchManager
+import br.com.redesurftank.havalshisuku.managers.StartupAppManager
+import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import br.com.redesurftank.havalshisuku.managers.CarPlayPatchManager
 import br.com.redesurftank.havalshisuku.models.AppInfo
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
@@ -81,6 +84,7 @@ fun InstallAppsTab() {
         mutableStateOf(CarPlayPatchManager.isPatchInstalled())
     }
     var isCarPlayMounted by remember { mutableStateOf(CarPlayPatchManager.isMounted()) }
+    var showStartupApps by remember { mutableStateOf(false) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var diagnosticsText by remember { mutableStateOf("") }
 
@@ -292,6 +296,50 @@ fun InstallAppsTab() {
                     color = ImpTokens.TextSecondary,
                     modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp)
             )
+        }
+        // Qual app abre em qual tela quando o carro liga. O detalhe de que a tela principal
+        // precisa da escada de tentativas (e a secundaria nao) fica escondido no dialogo.
+        item(span = { GridItemSpan(4) }) {
+            val mainPkg = StartupAppManager.mainDisplayPackage()
+            val secondaryPkg = prefs.getString(
+                            SharedPreferencesKeys.DEFAULT_DISPLAY_APP_PACKAGE.key,
+                            ""
+                    )
+                    .orEmpty()
+            val nameOf: (String) -> String = { pkg: String ->
+                if (pkg.isEmpty()) "nenhum"
+                else runCatching { DisplayAppLauncher.resolveAppInfo(context, pkg).label }
+                        .getOrDefault(pkg)
+            }
+            Card(
+                    modifier =
+                            Modifier.fillMaxWidth()
+                                    .padding(vertical = 8.dp)
+                                    .clickable { showStartupApps = true },
+                    colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
+                    shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                                "Abrir ao ligar",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                                "Tela principal: ${nameOf(mainPkg)}  ·  Secundaria: ${nameOf(secondaryPkg)}",
+                                color = ImpTokens.TextSecondary,
+                                fontSize = 12.sp
+                        )
+                    }
+                    Text("Alterar", color = ImpTokens.Accent, fontSize = 13.sp)
+                }
+            }
         }
         item(span = { GridItemSpan(4) }) {
             Card(
@@ -786,6 +834,10 @@ fun InstallAppsTab() {
                 }
             }
         }
+    }
+
+    if (showStartupApps) {
+        StartupAppsDialog(onDismiss = { showStartupApps = false })
     }
 
     if (showPermissionDialog) {
