@@ -27,6 +27,10 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,6 +55,8 @@ fun FeatureCard(
     subtitle: String,
     status: String?,
     statusTint: Color = ImpTokens.TextSecondary,
+    /** Preview do app, quando existir: vende melhor do que qualquer texto. */
+    previewRes: Int? = null,
     extra: (@Composable () -> Unit)? = null,
     actions: @Composable () -> Unit
 ) {
@@ -67,15 +73,27 @@ fun FeatureCard(
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().height(208.dp).padding(14.dp),
+            modifier = Modifier.fillMaxWidth().height(236.dp).padding(14.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    modifier = Modifier.size(40.dp).background(ImpTokens.TrackOff, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(22.dp))
+                if (previewRes != null) {
+                    Image(
+                        painter = painterResource(previewRes),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier =
+                            Modifier.fillMaxWidth()
+                                .height(64.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.size(40.dp).background(ImpTokens.TrackOff, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(22.dp))
+                    }
                 }
                 Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 Text(subtitle, color = ImpTokens.TextSecondary, fontSize = 11.sp, lineHeight = 15.sp)
@@ -135,7 +153,7 @@ fun AutoMountRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
  * O icone e o que faz a linha ser lida de relance — sem ele, o card vira duas linhas de texto.
  */
 @Composable
-fun StartupSlotRow(label: String, packageName: String) {
+fun StartupSlotRow(label: String, packageName: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val resolved =
         if (packageName.isEmpty()) null

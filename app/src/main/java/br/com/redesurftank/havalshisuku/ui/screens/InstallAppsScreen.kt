@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.TAG
+import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.havalshisuku.managers.AndroidAutoPatchManager
 import br.com.redesurftank.havalshisuku.managers.StartupAppManager
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
@@ -61,7 +62,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 
 /** O viewer 3D, distribuido pelo catalogo como qualquer outro app. */
-private const val IMPULSE_HOME_PACKAGE = "com.havalh6.viewer"
+const val IMPULSE_HOME_PACKAGE = "com.havalh6.viewer"
 
 @Composable
 fun InstallAppsTab() {
@@ -88,6 +89,10 @@ fun InstallAppsTab() {
     }
     var isCarPlayMounted by remember { mutableStateOf(CarPlayPatchManager.isMounted()) }
     var showStartupApps by remember { mutableStateOf(false) }
+    var showHomeSetup by remember { mutableStateOf(false) }
+    // A instalacao termina FORA daqui: startDownload entrega o APK ao instalador do sistema.
+    // Entao a sugestao nao pode pendurar num callback - ela observa o pacote aparecer.
+    var homeWasInstalled by remember { mutableStateOf(runCatching { pm.getPackageInfo(IMPULSE_HOME_PACKAGE, 0) }.isSuccess) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var diagnosticsText by remember { mutableStateOf("") }
 
@@ -119,6 +124,9 @@ fun InstallAppsTab() {
             isMounted = states[1]
             isCarPlayPatchInstalled = states[2]
             isCarPlayMounted = states[3]
+            val homeNow = runCatching { pm.getPackageInfo(IMPULSE_HOME_PACKAGE, 0) }.isSuccess
+            if (homeNow && !homeWasInstalled) showHomeSetup = true
+            homeWasInstalled = homeNow
             delay(4000)
         }
     }
@@ -475,6 +483,7 @@ fun InstallAppsTab() {
                     highlighted = homeInstalled != null,
                     title = "Impulse Home",
                     subtitle = "Painel 3D do carro, com os widgets e os controles",
+                    previewRes = R.drawable.impulse_home_preview,
                     status =
                             when {
                                 homeProgress != null ->
@@ -521,9 +530,14 @@ fun InstallAppsTab() {
                     subtitle = "Um app por tela quando o carro liga",
                     status = null,
                     extra = {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            StartupSlotRow("Principal", mainPkg)
-                            StartupSlotRow("Secundaria", secondaryPkg)
+                        // Lado a lado: empilhadas, as duas linhas empurravam o botao para fora
+                        // do card.
+                        Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            StartupSlotRow("Principal", mainPkg, Modifier.weight(1f))
+                            StartupSlotRow("Secundaria", secondaryPkg, Modifier.weight(1f))
                         }
                     }
             ) { CardButton("Alterar", ImpTokens.Accent) { showStartupApps = true } }
@@ -704,6 +718,10 @@ fun InstallAppsTab() {
                 }
             }
         }
+    }
+
+    if (showHomeSetup) {
+        ImpulseHomeSetupDialog(onDismiss = { showHomeSetup = false })
     }
 
     if (showStartupApps) {
