@@ -483,8 +483,8 @@ fun BackButton(
         Box(
                 contentAlignment = Alignment.Center,
                 modifier = modifier
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(11.dp))
                         .background(animatedBg)
                         .clickable(
                                 interactionSource = interactionSource,
@@ -499,7 +499,7 @@ fun BackButton(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Voltar",
                         tint = if (isPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(26.dp)
                 )
         }
 }
@@ -520,8 +520,8 @@ fun VehicleSettingsButton(
         Box(
                 contentAlignment = Alignment.Center,
                 modifier = modifier
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(11.dp))
                         .background(conducaoColor)
                         .onGloballyPositioned { coords ->
                                 BottomBarState.conducaoCenterX = coords.positionInRoot().x + coords.size.width / 2f
@@ -539,7 +539,7 @@ fun VehicleSettingsButton(
                         }
         ) {
                 CoffeeOsCarIcon(
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(28.dp),
                         tint = if (showSettings) Color(0xFF2196F3) else Color.White.copy(alpha = 0.90f)
                 )
         }
@@ -562,8 +562,8 @@ fun HomeButton(
         Box(
                 contentAlignment = Alignment.Center,
                 modifier = modifier
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(11.dp))
                         .background(animatedBg)
                         .clickable(
                                 interactionSource = interactionSource,
@@ -1243,8 +1243,8 @@ fun FanButton(
 	Box(
 		contentAlignment = Alignment.Center,
 		modifier = Modifier
-			.size(42.dp)
-			.clip(RoundedCornerShape(10.dp))
+			.size(46.dp)
+			.clip(RoundedCornerShape(11.dp))
 			.background(animatedColor)
 			.onGloballyPositioned { coords ->
 				centerX = coords.positionInRoot().x + coords.size.width / 2f
@@ -1308,7 +1308,7 @@ fun FanButton(
 			horizontalArrangement = Arrangement.Center
 		) {
 			CoffeeOsFanIcon(
-				modifier = Modifier.size(22.dp),
+				modifier = Modifier.size(25.dp),
 				tint = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.4f)
 			)
 			Spacer(modifier = Modifier.width(2.dp))
@@ -1316,11 +1316,11 @@ fun FanButton(
 				text = if (!isPowerOn || fanSpeed == 0) "OFF" else "$fanSpeed",
 				style = TextStyle(
 					fontFamily = Michroma,
-					fontSize = if (!isPowerOn || fanSpeed == 0) 9.sp else 11.sp,
+					fontSize = if (!isPowerOn || fanSpeed == 0) 9.5.sp else 12.sp,
 					fontWeight = FontWeight.Bold,
 					color = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.4f)
 				),
-				modifier = Modifier.align(Alignment.Bottom).padding(bottom = 6.dp)
+				modifier = Modifier.align(Alignment.Bottom).padding(bottom = 7.dp)
 			)
 		}
 	}
@@ -1343,7 +1343,7 @@ fun ChevronArrowButton(
 	val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 	val isPressed by interactionSource.collectIsPressedAsState()
 
-	val targetWidth = if (isCompact) 46.dp else 114.dp
+	val targetWidth = if (isCompact) 46.dp else 76.dp
 	val animatedWidth by animateDpAsState(
 		targetValue = targetWidth,
 		animationSpec = tween(durationMillis = 250),
@@ -1540,9 +1540,9 @@ fun ChevronArrowButton(
 		// Label in Wide mode
 		if (!isCompact) {
 			val labelPadding = if (direction == ChevronDirection.LEFT) {
-				PaddingValues(start = 30.dp, end = 6.dp)
+				PaddingValues(start = 20.dp, end = 4.dp)
 			} else {
-				PaddingValues(start = 6.dp, end = 30.dp)
+				PaddingValues(start = 4.dp, end = 20.dp)
 			}
 			Box(
 				modifier = Modifier
@@ -1554,12 +1554,14 @@ fun ChevronArrowButton(
 					text = label,
 					style = TextStyle(
 						fontFamily = Michroma,
-						fontSize = 11.sp,
+						fontSize = 8.5.sp,
 						fontWeight = FontWeight.Bold,
 						color = if (enabled) Color.White else Color.White.copy(alpha = 0.35f),
-						letterSpacing = 0.8.sp
+						letterSpacing = 0.5.sp,
+						textAlign = TextAlign.Center,
+						lineHeight = 11.sp
 					),
-					maxLines = 1,
+					maxLines = 2,
 					overflow = TextOverflow.Ellipsis
 				)
 			}
@@ -1586,7 +1588,7 @@ fun LeftArrowsSection(
 		ChevronArrowButton(
 			direction = ChevronDirection.LEFT,
 			isCompact = isLeftBarShown,
-			label = "Enviar",
+			label = "ENVIAR\nAPP",
 			enabled = true,
 			onClick = {
 				val targetPkg =
@@ -1606,7 +1608,7 @@ fun LeftArrowsSection(
 		ChevronArrowButton(
 			direction = ChevronDirection.RIGHT,
 			isCompact = isLeftBarShown,
-			label = "Trazer",
+			label = "TRAZER\nAPP",
 			enabled = hasSecondaryApps,
 			onClick = {
 				Log.w(BOTTOM_BAR_TAG, "Dock: Bring to Main Display clicked")
@@ -1636,10 +1638,13 @@ fun CenteredAppLauncherSection(
 
 	Row(
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(16.dp),
+		horizontalArrangement = Arrangement.spacedBy(20.dp),
 		modifier = Modifier.fillMaxHeight()
 	) {
-		// 1. [ ⊞ ] All Apps Button - FIRST IN LIST!
+		// 1. [ ← ] Back Button - FIRST IN DOCK!
+		BackButton(scope = scope)
+
+		// 2. [ ⊞ ] All Apps Button
 		val appsInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 		val appsPressed by appsInteraction.collectIsPressedAsState()
 		val appsColor by animateColorAsState(
@@ -1650,8 +1655,8 @@ fun CenteredAppLauncherSection(
 		Box(
 			contentAlignment = Alignment.Center,
 			modifier = Modifier
-				.size(42.dp)
-				.clip(RoundedCornerShape(10.dp))
+				.size(46.dp)
+				.clip(RoundedCornerShape(11.dp))
 				.background(appsColor)
 				.onGloballyPositioned { coords ->
 					BottomBarState.launcherCenterX = coords.positionInRoot().x + coords.size.width / 2f
@@ -1672,16 +1677,17 @@ fun CenteredAppLauncherSection(
 				imageVector = Icons.Default.Apps,
 				contentDescription = "All Apps",
 				tint = if (isAppMenuExpanded) Color(0xFF2196F3) else Color.White,
-				modifier = Modifier.size(26.dp)
+				modifier = Modifier.size(28.dp)
 			)
 		}
 
-		// 2. Up to 5 Recent Apps (+2 more apps)
+		// 3. Up to 7 Recent Apps (4 to 7)
 		val validRecents = remember(recents.toList(), configs) {
-			recents.filter { pkg ->
+			val candidates = (recents + RecentAppsManager.DEFAULT_RECENTS).distinct()
+			candidates.filter { pkg ->
 				val cfg = configs.find { it.packageName == pkg }
 				cfg?.substituteIcon != null || DisplayAppLauncher.resolveAppInfo(context, pkg).icon != null
-			}.take(5)
+			}.take(7)
 		}
 		for (pkg in validRecents) {
 			val isCurrentApp = pkg == activePkg
@@ -1699,8 +1705,8 @@ fun CenteredAppLauncherSection(
 			Box(
 				contentAlignment = Alignment.Center,
 				modifier = Modifier
-					.size(42.dp)
-					.clip(RoundedCornerShape(10.dp))
+					.size(46.dp)
+					.clip(RoundedCornerShape(11.dp))
 					.background(appColor)
 					.clickable(
 						interactionSource = appInteraction,
@@ -1717,7 +1723,7 @@ fun CenteredAppLauncherSection(
 						imageVector = substituteIcon,
 						contentDescription = config?.customName ?: pkg,
 						tint = Color.White,
-						modifier = Modifier.size(34.dp)
+						modifier = Modifier.size(38.dp)
 					)
 				} else {
 					val appInfo = remember(pkg) {
@@ -1726,7 +1732,7 @@ fun CenteredAppLauncherSection(
 					AsyncImage(
 						model = ImageRequest.Builder(context).data(appInfo.icon).build(),
 						contentDescription = appInfo.label,
-						modifier = Modifier.size(34.dp)
+						modifier = Modifier.size(38.dp)
 					)
 				}
 
@@ -1735,7 +1741,7 @@ fun CenteredAppLauncherSection(
 						modifier = Modifier
 							.align(Alignment.BottomCenter)
 							.padding(bottom = 2.dp)
-							.size(width = 16.dp, height = 2.dp)
+							.size(width = 18.dp, height = 2.5.dp)
 							.clip(RoundedCornerShape(1.dp))
 							.background(Color(0xFF2196F3))
 					)
@@ -1743,7 +1749,7 @@ fun CenteredAppLauncherSection(
 			}
 		}
 
-		// 3. [ 🪭 1 ] Fan Button ("Ventilação")
+		// 4. [ 🪭 1 ] Fan Button ("Ventilação")
 		FanButton(
 			fanSpeed = fanSpeed,
 			isPowerOn = isPowerOn,
@@ -1751,10 +1757,10 @@ fun CenteredAppLauncherSection(
 			onClick = onFanClick
 		)
 
-		// 4. [ 🚗 ] Vehicle Settings (Condução - CoffeeOS 3.0 style)
+		// 5. [ 🚗 ] Vehicle Settings (Condução - CoffeeOS 3.0 style)
 		VehicleSettingsButton()
 
-		// 5. [ 🏠 ] Home Button (CoffeeOS 3.0 style)
+		// 6. [ 🏠 ] Home Button (CoffeeOS 3.0 style)
 		HomeButton(scope = scope, context = context)
 	}
 }
@@ -2051,7 +2057,7 @@ fun BottomBarContent() {
                                                 Row(
                                                         modifier = Modifier.align(Alignment.CenterStart),
                                                         verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                                                 ) {
                                                         LeftArrowsSection(
                                                                 isLeftBarShown = isLeftBarShown,
@@ -2078,8 +2084,6 @@ fun BottomBarContent() {
                                                                         serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
                                                                 }
                                                         }
-
-                                                        BackButton(scope = scope)
 
                                                         VolumeControlSection(
                                                                 label = "Volume",
@@ -2134,7 +2138,7 @@ fun BottomBarContent() {
                                                 Row(
                                                         modifier = Modifier.align(Alignment.CenterEnd),
                                                         verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                                                 ) {
                                                         TempControlSection(
                                                                 label = "Passageiro",
@@ -2205,6 +2209,8 @@ fun BottomBarContent() {
                                                                         )
                                                                 }
                                                         }
+
+                                                        Spacer(modifier = Modifier.width(118.dp))
                                                 }
                                         }
                                 }
@@ -7392,7 +7398,7 @@ fun TempControlSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier
-                        .width(138.dp)
+                        .width(154.dp)
                         .height(44.dp)
                         .alpha(alpha)
         ) {
@@ -7400,7 +7406,7 @@ fun TempControlSection(
                 Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                                .size(width = 34.dp, height = 40.dp)
+                                .size(width = 38.dp, height = 40.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable(
                                         enabled = canInteract,
@@ -7413,7 +7419,7 @@ fun TempControlSection(
                                         postHud(next, autoDismiss = true)
                                 }
                 ) {
-                        Canvas(modifier = Modifier.size(16.dp)) {
+                        Canvas(modifier = Modifier.size(18.dp)) {
                                 val strokeW = 2.dp.toPx()
                                 val path = Path().apply {
                                         moveTo(size.width * 0.65f, size.height * 0.15f)
@@ -7432,7 +7438,7 @@ fun TempControlSection(
                 Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                                .width(70.dp)
+                                .width(78.dp)
                                 .fillMaxHeight()
                                 .onGloballyPositioned { coordinates ->
                                         centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
@@ -7503,7 +7509,7 @@ fun TempControlSection(
                                         text = displayTemp,
                                         style = TextStyle(
                                                 fontFamily = Michroma,
-                                                fontSize = 17.sp,
+                                                fontSize = 18.sp,
                                                 fontWeight = FontWeight.Medium,
                                                 color = if (isTempValid) tempColor else Color.White.copy(alpha = 0.4f)
                                         )
@@ -7513,7 +7519,7 @@ fun TempControlSection(
                                                 text = "\u2103",
                                                 style = TextStyle(
                                                         fontFamily = Michroma,
-                                                        fontSize = 11.sp,
+                                                        fontSize = 12.sp,
                                                         fontWeight = FontWeight.Normal,
                                                         color = if (isTempValid) tempColor.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.35f)
                                                 ),
@@ -7527,7 +7533,7 @@ fun TempControlSection(
                 Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                                .size(width = 34.dp, height = 40.dp)
+                                .size(width = 38.dp, height = 40.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable(
                                         enabled = canInteract,
@@ -7540,7 +7546,7 @@ fun TempControlSection(
                                         postHud(next, autoDismiss = true)
                                 }
                 ) {
-                        Canvas(modifier = Modifier.size(16.dp)) {
+                        Canvas(modifier = Modifier.size(18.dp)) {
                                 val strokeW = 2.dp.toPx()
                                 val path = Path().apply {
                                         moveTo(size.width * 0.35f, size.height * 0.15f)

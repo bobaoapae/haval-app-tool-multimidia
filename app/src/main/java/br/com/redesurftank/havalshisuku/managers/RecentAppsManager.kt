@@ -11,14 +11,18 @@ import org.json.JSONArray
  */
 object RecentAppsManager {
     private const val PREFS_KEY = "bottom_bar_recent_apps"
-    private const val MAX_RECENTS = 5
+    const val MAX_RECENTS = 7
 
     val DEFAULT_RECENTS = listOf(
         "com.google.android.apps.maps",
-        "com.spotify.music",
-        "com.waze",
         "com.google.android.youtube",
-        "com.android.chrome"
+        "com.android.chrome",
+        "com.google.android.apps.youtube.music",
+        "com.android.vending",
+        "com.google.android.apps.photos",
+        "com.google.android.apps.messaging",
+        "com.spotify.music",
+        "com.waze"
     )
 
     private val ignoredPackages = setOf(
@@ -52,8 +56,11 @@ object RecentAppsManager {
                     }
                 }
             }
-            if (list.isEmpty()) {
-                list.addAll(DEFAULT_RECENTS)
+            for (defaultPkg in DEFAULT_RECENTS) {
+                if (list.size >= MAX_RECENTS) break
+                if (!list.contains(defaultPkg)) {
+                    list.add(defaultPkg)
+                }
             }
             recentApps.clear()
             recentApps.addAll(list.take(MAX_RECENTS))
