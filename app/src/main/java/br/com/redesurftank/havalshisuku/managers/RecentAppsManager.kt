@@ -7,16 +7,18 @@ import org.json.JSONArray
 
 /**
  * Manages the persistent list of recent apps displayed in the revamped bottom bar dock.
- * Keeps up to 3 most recently opened packages, seeded with sensible defaults.
+ * Keeps up to 5 most recently opened packages, seeded with sensible defaults.
  */
 object RecentAppsManager {
     private const val PREFS_KEY = "bottom_bar_recent_apps"
-    private const val MAX_RECENTS = 3
+    private const val MAX_RECENTS = 5
 
     val DEFAULT_RECENTS = listOf(
         "com.google.android.apps.maps",
         "com.spotify.music",
-        "com.waze"
+        "com.waze",
+        "com.google.android.youtube",
+        "com.android.chrome"
     )
 
     private val ignoredPackages = setOf(

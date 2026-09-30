@@ -12,6 +12,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -1069,42 +1070,69 @@ fun FanButton(
 }
 
 @Composable
-fun CenteredAppDock(scope: CoroutineScope, context: Context) {
-	AppSwitcherSection(scope, context)
-}
-
-@Composable
-fun AppSwitcherSection(
+fun LeftArrowsSection(
+	isLeftBarShown: Boolean,
+	hasSecondaryApps: Boolean,
 	scope: CoroutineScope,
 	context: Context
 ) {
-	val recents = RecentAppsManager.recentApps
 	val configs = getBottomBarAppConfigs()
-	val isAppMenuExpanded = BottomBarState.isMenuExpanded
 	val activePkg = BottomBarState.currentPackage
 
-	val hasSecondaryApps =
-		BottomBarState.activeClusterProjectionPackage.isNotEmpty() ||
-			BottomBarState.restoredApps.isNotEmpty() ||
-			BottomBarState.hasAppsOnSecondaryDisplays
+	// Animate arrow width between compact (44dp) and wide (112dp)
+	val leftArrowWidth by animateDpAsState(
+		targetValue = if (isLeftBarShown) 44.dp else 112.dp,
+		animationSpec = tween(durationMillis = 250),
+		label = "leftArrowWidth"
+	)
 
 	Row(
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		horizontalArrangement = Arrangement.spacedBy(6.dp),
 		modifier = Modifier.fillMaxHeight()
 	) {
-		// 1. [<] Send to Cluster Button
+		// 1. [<] Send to Cluster Button (Wide <===| or Compact <|)
 		val leftNavInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 		val leftNavPressed by leftNavInteraction.collectIsPressedAsState()
-		val leftNavColor by animateColorAsState(
-			targetValue = if (leftNavPressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
-			animationSpec = tween(durationMillis = if (leftNavPressed) 50 else 300)
+		val leftNavGlow by animateColorAsState(
+			targetValue = if (leftNavPressed) Color(0xFF2196F3).copy(alpha = 0.45f) else Color.Transparent,
+			animationSpec = tween(durationMillis = if (leftNavPressed) 50 else 300),
+			label = "leftNavGlow"
 		)
+
+		val arrowShape = if (isLeftBarShown) {
+			RoundedCornerShape(10.dp)
+		} else {
+			RoundedCornerShape(topStart = 0.dp, bottomStart = 0.dp, topEnd = 10.dp, bottomEnd = 10.dp)
+		}
+
 		Box(
 			contentAlignment = Alignment.Center,
 			modifier = Modifier
-				.width(48.dp)
-				.fillMaxHeight()
+				.width(leftArrowWidth)
+				.height(44.dp)
+				.clip(arrowShape)
+				.background(
+					Brush.horizontalGradient(
+						listOf(
+							Color(0xFF0F172A).copy(alpha = 0.92f),
+							Color(0xFF1E2B3E).copy(alpha = 0.95f),
+							Color(0xFF131A26).copy(alpha = 0.92f)
+						)
+					)
+				)
+				.border(
+					width = 1.dp,
+					brush = Brush.horizontalGradient(
+						listOf(
+							if (isLeftBarShown) Color(0x442196F3) else Color(0x112196F3),
+							Color(0x662196F3),
+							Color(0x882196F3)
+						)
+					),
+					shape = arrowShape
+				)
+				.background(leftNavGlow)
 				.clickable(
 					interactionSource = leftNavInteraction,
 					indication = null
@@ -1121,33 +1149,160 @@ fun AppSwitcherSection(
 					}
 				}
 		) {
-			Box(
-				contentAlignment = Alignment.Center,
-				modifier = Modifier
-					.size(44.dp)
-					.clip(RoundedCornerShape(10.dp))
-					.background(leftNavColor)
-			) {
-				Icon(
-					imageVector = Icons.Default.KeyboardArrowLeft,
-					contentDescription = "Send to Cluster",
-					tint = Color.White,
-					modifier = Modifier.size(28.dp)
-				)
+			if (!isLeftBarShown) {
+				// Wide version: <===|
+				Row(
+					modifier = Modifier
+						.fillMaxSize()
+						.padding(horizontal = 8.dp),
+					verticalAlignment = Alignment.CenterVertically,
+					horizontalArrangement = Arrangement.SpaceBetween
+				) {
+					Icon(
+						imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+						contentDescription = "Send to Cluster",
+						tint = if (leftNavPressed) Color(0xFF2196F3) else Color.White,
+						modifier = Modifier.size(24.dp)
+					)
+					// Gradient body: ===
+					Box(
+						modifier = Modifier
+							.weight(1f)
+							.padding(horizontal = 6.dp)
+							.height(2.dp)
+							.background(
+								Brush.horizontalGradient(
+									listOf(
+										Color(0xAA2196F3),
+										Color(0x442196F3),
+										Color(0x882196F3)
+									)
+								)
+							)
+					)
+					// Terminator line: |
+					Box(
+						modifier = Modifier
+							.width(2.5.dp)
+							.height(18.dp)
+							.clip(RoundedCornerShape(1.dp))
+							.background(Color(0xFF2196F3))
+					)
+				}
+			} else {
+				// Compact version: <|
+				Row(
+					modifier = Modifier.fillMaxSize(),
+					verticalAlignment = Alignment.CenterVertically,
+					horizontalArrangement = Arrangement.Center
+				) {
+					Icon(
+						imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+						contentDescription = "Send to Cluster",
+						tint = if (leftNavPressed) Color(0xFF2196F3) else Color.White,
+						modifier = Modifier.size(24.dp)
+					)
+					Spacer(modifier = Modifier.width(2.dp))
+					Box(
+						modifier = Modifier
+							.width(2.5.dp)
+							.height(18.dp)
+							.clip(RoundedCornerShape(1.dp))
+							.background(Color(0xFF2196F3))
+					)
+				}
 			}
 		}
 
-		// 2. [ ⊞ ] All Apps Button - FIRST IN LIST!
+		// 2. [>] Bring to Main Display (Grayed out if no apps on secondary displays)
+		val rightNavInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+		val rightNavPressed by rightNavInteraction.collectIsPressedAsState()
+		val rightNavGlow by animateColorAsState(
+			targetValue = if (rightNavPressed) Color(0xFF2196F3).copy(alpha = 0.45f) else Color.Transparent,
+			animationSpec = tween(durationMillis = if (rightNavPressed) 50 else 300),
+			label = "rightNavGlow"
+		)
+
+		Box(
+			contentAlignment = Alignment.Center,
+			modifier = Modifier
+				.width(44.dp)
+				.height(44.dp)
+				.alpha(if (hasSecondaryApps) 1.0f else 0.28f)
+				.clip(RoundedCornerShape(10.dp))
+				.background(
+					Brush.horizontalGradient(
+						listOf(
+							Color(0xFF131A26).copy(alpha = 0.92f),
+							Color(0xFF1E2B3E).copy(alpha = 0.95f)
+						)
+					)
+				)
+				.border(
+					width = 1.dp,
+					brush = Brush.horizontalGradient(
+						listOf(
+							Color(0x662196F3),
+							Color(0x332196F3)
+						)
+					),
+					shape = RoundedCornerShape(10.dp)
+				)
+				.background(rightNavGlow)
+				.clickable(
+					enabled = hasSecondaryApps,
+					interactionSource = rightNavInteraction,
+					indication = null
+				) {
+					Log.w(BOTTOM_BAR_TAG, "Dock: Bring to Main Display clicked")
+					scope.launch {
+						val moved = DisplayAppLauncher.bringAllToMainDisplay()
+						Log.w(BOTTOM_BAR_TAG, "Dock: bringAllToMainDisplay moved=${moved.joinToString(",")}")
+						BottomBarState.hasAppsOnSecondaryDisplays = false
+					}
+				}
+		) {
+			Icon(
+				imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+				contentDescription = "Bring to Main",
+				tint = Color.White,
+				modifier = Modifier.size(24.dp)
+			)
+		}
+	}
+}
+
+@Composable
+fun CenteredAppLauncherSection(
+	scope: CoroutineScope,
+	context: Context
+) {
+	val recents = RecentAppsManager.recentApps
+	val configs = getBottomBarAppConfigs()
+	val isAppMenuExpanded = BottomBarState.isMenuExpanded
+	val activePkg = BottomBarState.currentPackage
+
+	Row(
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		modifier = Modifier
+			.fillMaxHeight()
+			.onGloballyPositioned { coords ->
+				BottomBarState.launcherCenterX = coords.positionInRoot().x + coords.size.width / 2f
+			}
+	) {
+		// 1. [ ⊞ ] All Apps Button - FIRST IN LIST!
 		val appsInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 		val appsPressed by appsInteraction.collectIsPressedAsState()
 		val appsColor by animateColorAsState(
 			targetValue = if (appsPressed || isAppMenuExpanded) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
-			animationSpec = tween(durationMillis = if (appsPressed) 50 else 300)
+			animationSpec = tween(durationMillis = if (appsPressed) 50 else 300),
+			label = "appsColor"
 		)
 		Box(
 			contentAlignment = Alignment.Center,
 			modifier = Modifier
-				.width(48.dp)
+				.width(44.dp)
 				.fillMaxHeight()
 				.clickable(
 					interactionSource = appsInteraction,
@@ -1177,8 +1332,8 @@ fun AppSwitcherSection(
 			}
 		}
 
-		// 3. Up to 3 Recent Apps
-		for (pkg in recents.take(3)) {
+		// 2. Up to 5 Recent Apps (+2 more apps)
+		for (pkg in recents.take(5)) {
 			val isCurrentApp = pkg == activePkg
 			val config = configs.find { it.packageName == pkg }
 			val substituteIcon = getSubstituteIconVector(config?.substituteIcon)
@@ -1187,13 +1342,14 @@ fun AppSwitcherSection(
 			val appPressed by appInteraction.collectIsPressedAsState()
 			val appColor by animateColorAsState(
 				targetValue = if (appPressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
-				animationSpec = tween(durationMillis = if (appPressed) 50 else 300)
+				animationSpec = tween(durationMillis = if (appPressed) 50 else 300),
+				label = "appColor"
 			)
 
 			Box(
 				contentAlignment = Alignment.Center,
 				modifier = Modifier
-					.width(48.dp)
+					.width(44.dp)
 					.fillMaxHeight()
 					.clickable(
 						interactionSource = appInteraction,
@@ -1243,49 +1399,20 @@ fun AppSwitcherSection(
 				}
 			}
 		}
-
-		// 4. [ > ] Bring to Main Display (Grayed out if no apps on secondary displays)
-		val rightNavInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-		val rightNavPressed by rightNavInteraction.collectIsPressedAsState()
-		val rightNavColor by animateColorAsState(
-			targetValue = if (rightNavPressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
-			animationSpec = tween(durationMillis = if (rightNavPressed) 50 else 300)
-		)
-		Box(
-			contentAlignment = Alignment.Center,
-			modifier = Modifier
-				.width(48.dp)
-				.fillMaxHeight()
-				.alpha(if (hasSecondaryApps) 1.0f else 0.28f)
-				.clickable(
-					enabled = hasSecondaryApps,
-					interactionSource = rightNavInteraction,
-					indication = null
-				) {
-					Log.w(BOTTOM_BAR_TAG, "Dock: Bring to Main Display clicked")
-					scope.launch {
-						val moved = DisplayAppLauncher.bringAllToMainDisplay()
-						Log.w(BOTTOM_BAR_TAG, "Dock: bringAllToMainDisplay moved=${moved.joinToString(",")}")
-						BottomBarState.hasAppsOnSecondaryDisplays = false
-					}
-				}
-		) {
-			Box(
-				contentAlignment = Alignment.Center,
-				modifier = Modifier
-					.size(44.dp)
-					.clip(RoundedCornerShape(10.dp))
-					.background(rightNavColor)
-			) {
-				Icon(
-					imageVector = Icons.Default.KeyboardArrowRight,
-					contentDescription = "Bring to Main",
-					tint = Color.White,
-					modifier = Modifier.size(28.dp)
-				)
-			}
-		}
 	}
+}
+
+@Composable
+fun CenteredAppDock(scope: CoroutineScope, context: Context) {
+	CenteredAppLauncherSection(scope, context)
+}
+
+@Composable
+fun AppSwitcherSection(
+	scope: CoroutineScope,
+	context: Context
+) {
+	CenteredAppLauncherSection(scope, context)
 }
 
 @Composable
@@ -1418,6 +1545,7 @@ fun BottomBarContent() {
         // hides the pane.
         val leftGutterPx = BottomBarState.overlayLeftGutterPx
         val androidAutoOnMain = isAndroidAutoShownOnMainDisplay(BottomBarState.currentPackage)
+        val isLeftBarShown = androidAutoOnMain || leftGutterPx > 0
         val aaCutoutPx = resolveAndroidAutoBottomBarCutoutPx(androidAutoOnMain)
         val density = LocalDensity.current
         // Punch only the AA rail hole in the black strip; keep the button Row at the same physical
@@ -1430,6 +1558,11 @@ fun BottomBarContent() {
         val barContext = LocalContext.current
         // Safe left padding to comfortably accommodate the car's physical vertical rail without cramping the controls
         val effectiveStartPad = maxOf(rowStartPad + 16.dp, 36.dp)
+        val rowStartPadAnimated by animateDpAsState(
+                targetValue = if (isLeftBarShown) effectiveStartPad else 0.dp,
+                animationSpec = tween(durationMillis = 250),
+                label = "rowStartPadAnimated"
+        )
 
         LaunchedEffect(Unit) {
                 while (isActive) {
@@ -1551,7 +1684,7 @@ fun BottomBarContent() {
                                                         Modifier.fillMaxWidth()
                                                                 .fillMaxHeight()
                                                                 .padding(
-                                                                        start = effectiveStartPad,
+                                                                        start = rowStartPadAnimated,
                                                                         end = 8.dp
                                                                 ),
                                                 verticalAlignment = Alignment.CenterVertically,
@@ -1559,8 +1692,10 @@ fun BottomBarContent() {
                                         ) {
                                                 val isACEnabled = hvacPower == "1"
 
-                                                // 1. App Switcher / Launcher Section on the LEFT
-                                                AppSwitcherSection(
+                                                // 1. Left Arrows Section (ONLY arrows on the left!)
+                                                LeftArrowsSection(
+                                                        isLeftBarShown = isLeftBarShown,
+                                                        hasSecondaryApps = BottomBarState.hasAppsOnSecondaryDisplays,
                                                         scope = scope,
                                                         context = barContext
                                                 )
@@ -1588,7 +1723,13 @@ fun BottomBarContent() {
                                                 // 3. Controls Section (Voltar + Condução)
                                                 ControlsSection(scope = scope)
 
-                                                // 4. Fan Button ("Ventilação")
+                                                // 4. Centered App Launcher Section (Launcher ⊞ + 5 Apps in CENTER!)
+                                                CenteredAppLauncherSection(
+                                                        scope = scope,
+                                                        context = barContext
+                                                )
+
+                                                // 5. Fan Button ("Ventilação")
                                                 FanButton(
                                                         fanSpeed = fanSpeed,
                                                         isPowerOn = isACEnabled,
@@ -2834,14 +2975,23 @@ fun BottomBarMenus() {
                                         }
 
                                 Box(modifier = Modifier.fillMaxWidth().padding(start = leftGutter)) {
-                                        // App Menu (Above left App Switcher)
+                                        // App Menu (Above Centered App Launcher)
                                         if (br.com.redesurftank.havalshisuku.models.BottomBarState
                                                         .isMenuExpanded
                                         ) {
+                                                val density = LocalDensity.current
+                                                val screenWidth = BottomBarState.overlayWindowWidthPx
+                                                val appMenuWidthDp = with(density) { (if (screenWidth > 0) screenWidth * 0.25f else 480f).toDp().coerceAtLeast(320.dp) }
+                                                val appStartPad = if (BottomBarState.launcherCenterX > 0f) {
+                                                        val launcherCenterDp = with(density) { BottomBarState.launcherCenterX.toDp() }
+                                                        (launcherCenterDp - appMenuWidthDp / 2).coerceAtLeast(16.dp)
+                                                } else {
+                                                        300.dp
+                                                }
                                                 Box(
                                                         modifier =
-                                                                Modifier.align(Alignment.BottomStart)
-                                                                        .padding(start = 16.dp)
+                                                                Modifier.padding(start = appStartPad)
+                                                                        .align(Alignment.BottomStart)
                                                                         .onGloballyPositioned {
                                                                                 appMenuBounds =
                                                                                         it.boundsInRoot()
