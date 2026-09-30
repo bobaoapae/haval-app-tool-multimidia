@@ -59,6 +59,20 @@ object BottomBarState {
         }
     }
 
+    data class SwipeHudData(
+        val type: SliderType,
+        val title: String,
+        val valueText: String,
+        val fraction: Float,
+        val targetCenterX: Float,
+        val minLabel: String,
+        val maxLabel: String,
+        val isFan: Boolean = false,
+        val fanSpeed: Int = 0
+    )
+    var activeSwipeHud by mutableStateOf<SwipeHudData?>(null)
+    var isAcMenuExpanded by mutableStateOf(false)
+
     var activeSliderType by mutableStateOf<SliderType?>(null)
     var sliderPositionX by mutableStateOf(0f)
     var sliderInteractionTrigger by mutableStateOf(0)
@@ -86,6 +100,7 @@ object BottomBarState {
     var isFridaRunning by mutableStateOf(false)
     var isDeleteModeEnabled by mutableStateOf(false)
     val restoredApps = mutableStateListOf<String>()
+    var hasAppsOnSecondaryDisplays by mutableStateOf(false)
 
     // Overlay flutuante de CPU/RAM (opt-in). Espelhos observáveis das prefs — UI e service atualizam.
     var resourceOverlayEnabled by mutableStateOf(false)

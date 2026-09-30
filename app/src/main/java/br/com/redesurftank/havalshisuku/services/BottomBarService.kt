@@ -451,12 +451,18 @@ class BottomBarService : LifecycleService() {
         }
     }
 
-    private fun isAnyMenuExpanded(): Boolean =
+    private fun isInteractiveMenuExpanded(): Boolean =
             BottomBarState.isMenuExpanded ||
                     BottomBarState.isDashboardExpanded ||
                     BottomBarState.isSettingsMenuExpanded ||
                     BottomBarState.isOverrideMenuExpanded ||
+                    BottomBarState.isAcMenuExpanded ||
                     BottomBarState.activeSliderType != null
+
+    private fun isAnyMenuOrHudVisible(): Boolean =
+            isInteractiveMenuExpanded() || BottomBarState.activeSwipeHud != null
+
+    private fun isAnyMenuExpanded(): Boolean = isAnyMenuOrHudVisible()
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
@@ -3605,10 +3611,7 @@ class BottomBarService : LifecycleService() {
     private fun observeMenuState() {
         lifecycleScope.launch {
             snapshotFlow {
-                BottomBarState.isMenuExpanded ||
-                        BottomBarState.isSettingsMenuExpanded ||
-                        BottomBarState.isOverrideMenuExpanded ||
-                        BottomBarState.activeSliderType != null
+                isAnyMenuOrHudVisible()
             }
                     .collectLatest { expanded ->
                         updateMenuWindow(expanded)
@@ -3670,7 +3673,9 @@ class BottomBarService : LifecycleService() {
             BottomBarState.isMenuExpanded = false
             BottomBarState.isSettingsMenuExpanded = false
             BottomBarState.isOverrideMenuExpanded = false
+            BottomBarState.isAcMenuExpanded = false
             BottomBarState.activeSliderType = null
+            BottomBarState.activeSwipeHud = null
             composeView?.requestLayout()
             menuComposeView?.requestLayout()
         }
@@ -3730,7 +3735,9 @@ class BottomBarService : LifecycleService() {
                     BottomBarState.isMenuExpanded = false
                     BottomBarState.isSettingsMenuExpanded = false
                     BottomBarState.isOverrideMenuExpanded = false
+                    BottomBarState.isAcMenuExpanded = false
                     BottomBarState.activeSliderType = null
+                    BottomBarState.activeSwipeHud = null
                     launchDashboardActivity()
                 }
     }
@@ -3747,7 +3754,9 @@ class BottomBarService : LifecycleService() {
             BottomBarState.isMenuExpanded = false
             BottomBarState.isSettingsMenuExpanded = false
             BottomBarState.isOverrideMenuExpanded = false
+            BottomBarState.isAcMenuExpanded = false
             BottomBarState.activeSliderType = null
+            BottomBarState.activeSwipeHud = null
             composeView?.requestLayout()
             menuComposeView?.requestLayout()
             if (targetExpanded) {
@@ -3803,7 +3812,9 @@ class BottomBarService : LifecycleService() {
                     BottomBarState.isMenuExpanded = false
                     BottomBarState.isSettingsMenuExpanded = false
                     BottomBarState.isOverrideMenuExpanded = false
+                    BottomBarState.isAcMenuExpanded = false
                     BottomBarState.activeSliderType = null
+                    BottomBarState.activeSwipeHud = null
                 }
                 // Trigger zone - keep 40dp (20dp on screen) area touchable
                 withContext(Dispatchers.Main) {
@@ -3847,9 +3858,14 @@ class BottomBarService : LifecycleService() {
         mp.y = 0
         mp.gravity = Gravity.BOTTOM or Gravity.RIGHT
 
+        val interactive = isInteractiveMenuExpanded()
         if (show) {
             mp.alpha = 1f
-            mp.flags = mp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            if (interactive) {
+                mp.flags = mp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            } else {
+                mp.flags = mp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            }
         } else {
             // alpha 0 lets the compositor skip the layer entirely, so an always-present full-screen
             // overlay costs nothing while no menu is open.
@@ -4084,12 +4100,12 @@ class BottomBarService : LifecycleService() {
 
                             if (isMenuWindow) {
                                 // Menu window covers the full pinned display
-                                val anyMenuExpanded = isAnyMenuExpanded()
+                                val interactive = isInteractiveMenuExpanded()
                                 Log.d(
                                         "BottomBarService",
-                                        "TouchRegion[MENU] anyMenuExpanded=$anyMenuExpanded"
+                                        "TouchRegion[MENU] interactive=$interactive"
                                 )
-                                if (anyMenuExpanded) {
+                                if (interactive) {
                                     val screenHeight = displayMetrics.heightPixels
                                     region.union(Rect(0, 0, windowWidth, screenHeight))
                                 }
