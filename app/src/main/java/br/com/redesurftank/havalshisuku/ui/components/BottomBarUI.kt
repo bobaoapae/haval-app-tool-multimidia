@@ -280,32 +280,44 @@ private fun performSwipeUpAction(context: Context) {
 // ==========================================
 
 @Composable
-fun FanBladeIcon(
-        modifier: Modifier = Modifier,
-        tint: Color = Color.White
+fun FanSpeedIcon(
+        speed: Int,
+        modifier: Modifier = Modifier.size(24.dp).padding(2.dp),
+        activeColor: Color = Color.White
 ) {
         Canvas(modifier = modifier) {
                 val center = Offset(size.width / 2f, size.height / 2f)
-                val r = size.minDimension / 2f
-                val hubR = r * 0.22f
+                val radius = size.minDimension / 2f
+                val innerRadius = radius * 0.3f
 
-                for (i in 0 until 3) {
-                        val angleDeg = i * 120.0
-                        val rad = Math.toRadians(angleDeg)
-                        val path = Path().apply {
-                                moveTo(center.x, center.y)
-                                val p1x = (center.x + r * 0.9f * kotlin.math.cos(rad - 0.35)).toFloat()
-                                val p1y = (center.y + r * 0.9f * kotlin.math.sin(rad - 0.35)).toFloat()
-                                val p2x = (center.x + r * 0.95f * kotlin.math.cos(rad + 0.15)).toFloat()
-                                val p2y = (center.y + r * 0.95f * kotlin.math.sin(rad + 0.15)).toFloat()
-                                cubicTo(p1x, p1y, p2x, p2y, center.x, center.y)
-                                close()
-                        }
-                        drawPath(path, color = tint)
+                // Draw 7 segments around the circle
+                val segmentGap = 10f
+                val totalGap = segmentGap * 7
+                val sweepAngle = (360f - totalGap) / 7f
+
+                for (i in 0 until 7) {
+                        val startAngle = i * (sweepAngle + segmentGap) - 90f
+                        val isActive = i < speed
+                        val color = if (isActive) activeColor else Color.Gray.copy(alpha = 0.3f)
+
+                        drawArc(
+                                color = color,
+                                startAngle = startAngle,
+                                sweepAngle = sweepAngle,
+                                useCenter = false,
+                                style = Stroke(width = (radius * 0.28f).coerceIn(2.dp.toPx(), 4.dp.toPx()), cap = StrokeCap.Round)
+                        )
                 }
-                drawCircle(color = tint, radius = hubR, center = center)
+
+                // Draw a small fan hub in the center
+                drawCircle(
+                        color = (if (speed > 0) activeColor else Color.Gray).copy(alpha = 0.9f),
+                        radius = innerRadius,
+                        center = center
+                )
         }
 }
+
 
 @Composable
 fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
@@ -346,8 +358,8 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                         Surface(
                                 modifier = Modifier.fillMaxWidth().height(hudHeightDp),
                                 shape = RoundedCornerShape(14.dp),
-                                color = Color(0xFF131720).copy(alpha = 0.96f),
-                                border = BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.35f)),
+                                color = Color(0xFF11141A).copy(alpha = 0.98f),
+                                border = BorderStroke(1.dp, Color(0xFF2196F3).copy(alpha = 0.45f)),
                                 shadowElevation = 8.dp
                         ) {
                                 Column(
@@ -363,18 +375,24 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                                         ) {
                                                 Text(
                                                         text = hud.title.uppercase(),
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFF60A5FA),
-                                                        letterSpacing = 0.5.sp,
+                                                        style =
+                                                                labelStyle.copy(
+                                                                        fontSize = 11.sp,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        color = Color(0xFF2196F3),
+                                                                        letterSpacing = 0.8.sp
+                                                                ),
                                                         maxLines = 1,
                                                         softWrap = false
                                                 )
                                                 Text(
                                                         text = hud.valueText,
-                                                        fontSize = 16.sp,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        color = Color.White,
+                                                        style =
+                                                                commonTextStyle.copy(
+                                                                        fontSize = 18.sp,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        color = Color.White
+                                                                ),
                                                         maxLines = 1,
                                                         softWrap = false
                                                 )
@@ -397,8 +415,8 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                                                                                                 if (active)
                                                                                                         Brush.horizontalGradient(
                                                                                                                 listOf(
-                                                                                                                        Color(0xFF2563EB),
-                                                                                                                        Color(0xFF38BDF8)
+                                                                                                                        Color(0xFF1976D2),
+                                                                                                                        Color(0xFF00B0FF)
                                                                                                                 )
                                                                                                         )
                                                                                                 else
@@ -426,8 +444,8 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                                                                                         .background(
                                                                                                 Brush.horizontalGradient(
                                                                                                         listOf(
-                                                                                                                Color(0xFF2563EB),
-                                                                                                                Color(0xFF00E5FF)
+                                                                                                                Color(0xFF1976D2),
+                                                                                                                Color(0xFF00B0FF)
                                                                                                         )
                                                                                                 )
                                                                                         )
@@ -440,13 +458,11 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                                                         ) {
                                                                 Text(
                                                                         text = hud.minLabel,
-                                                                        fontSize = 9.sp,
-                                                                        color = Color.White.copy(alpha = 0.5f)
+                                                                        style = labelStyle.copy(fontSize = 9.sp, color = Color.LightGray)
                                                                 )
                                                                 Text(
                                                                         text = hud.maxLabel,
-                                                                        fontSize = 9.sp,
-                                                                        color = Color.White.copy(alpha = 0.5f)
+                                                                        style = labelStyle.copy(fontSize = 9.sp, color = Color.LightGray)
                                                                 )
                                                         }
                                                 }
@@ -466,7 +482,7 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                                                         lineTo(size.width / 2f, size.height)
                                                         close()
                                                 }
-                                        drawPath(path, color = Color(0xFF131720).copy(alpha = 0.96f))
+                                        drawPath(path, color = Color(0xFF11141A).copy(alpha = 0.98f))
                                 }
                         }
                 }
@@ -551,8 +567,8 @@ fun AcQuickMenuContent() {
         Surface(
                 modifier = Modifier.width(360.dp).padding(bottom = 8.dp),
                 shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF161A22).copy(alpha = 0.98f),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                color = Color(0xFF11141A).copy(alpha = 0.98f),
+                border = BorderStroke(1.dp, Color(0xFF1F2530)),
                 shadowElevation = 12.dp
         ) {
                 Column(
@@ -569,12 +585,19 @@ fun AcQuickMenuContent() {
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                        FanBladeIcon(modifier = Modifier.size(22.dp), tint = if (isPowerOn) Color(0xFF2196F3) else Color.White.copy(alpha = 0.4f))
+                                        FanSpeedIcon(
+                                                speed = if (isPowerOn) fanSpeed else 0,
+                                                modifier = Modifier.size(22.dp).padding(1.dp),
+                                                activeColor = if (isPowerOn) Color(0xFF2196F3) else Color.White.copy(alpha = 0.4f)
+                                        )
                                         Text(
                                                 text = "Climatiza\u00e7\u00e3o",
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White
+                                                style =
+                                                        labelStyle.copy(
+                                                                fontSize = 15.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = Color.White
+                                                        )
                                         )
                                 }
 
@@ -584,6 +607,12 @@ fun AcQuickMenuContent() {
                                                         .background(
                                                                 if (isPowerOn) Color(0xFF2196F3).copy(alpha = 0.25f)
                                                                 else Color.White.copy(alpha = 0.08f)
+                                                        )
+                                                        .border(
+                                                                1.dp,
+                                                                if (isPowerOn) Color(0xFF2196F3).copy(alpha = 0.5f)
+                                                                else Color.White.copy(alpha = 0.12f),
+                                                                RoundedCornerShape(8.dp)
                                                         )
                                                         .clickable {
                                                                 val nextPower = if (isPowerOn) "0" else "1"
@@ -606,9 +635,12 @@ fun AcQuickMenuContent() {
                                                 )
                                                 Text(
                                                         text = if (isPowerOn) "LIGADO" else "DESLIGADO",
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = if (isPowerOn) Color(0xFF2196F3) else Color.White.copy(alpha = 0.5f)
+                                                        style =
+                                                                labelStyle.copy(
+                                                                        fontSize = 10.sp,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        color = if (isPowerOn) Color(0xFF2196F3) else Color.White.copy(alpha = 0.5f)
+                                                                )
                                                 )
                                         }
                                 }
@@ -623,15 +655,21 @@ fun AcQuickMenuContent() {
                                 ) {
                                         Text(
                                                 text = "VELOCIDADE DO AR",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = Color.White.copy(alpha = 0.6f)
+                                                style =
+                                                        labelStyle.copy(
+                                                                fontSize = 10.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = Color.LightGray
+                                                        )
                                         )
                                         Text(
-                                                text = if (!isPowerOn || fanSpeed == 0) "Desligado" else "Nível $fanSpeed",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isPowerOn && fanSpeed > 0) Color(0xFF2196F3) else Color.White.copy(alpha = 0.4f)
+                                                text = if (!isPowerOn || fanSpeed == 0) "Desligado" else "N\u00edvel $fanSpeed",
+                                                style =
+                                                        labelStyle.copy(
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = if (isPowerOn && fanSpeed > 0) Color(0xFF2196F3) else Color.White.copy(alpha = 0.4f)
+                                                        )
                                         )
                                 }
 
@@ -649,6 +687,12 @@ fun AcQuickMenuContent() {
                                                                         if (isOffSelected) Color(0xFFE53935).copy(alpha = 0.35f)
                                                                         else Color.White.copy(alpha = 0.08f)
                                                                 )
+                                                                .border(
+                                                                        1.dp,
+                                                                        if (isOffSelected) Color(0xFFE53935).copy(alpha = 0.6f)
+                                                                        else Color.Transparent,
+                                                                        RoundedCornerShape(6.dp)
+                                                                )
                                                                 .clickable {
                                                                         serviceManager.updateData(
                                                                                 CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
@@ -663,9 +707,12 @@ fun AcQuickMenuContent() {
                                         ) {
                                                 Text(
                                                         text = "OFF",
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = if (isOffSelected) Color(0xFFFF5252) else Color.White.copy(alpha = 0.6f)
+                                                        style =
+                                                                labelStyle.copy(
+                                                                        fontSize = 10.sp,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        color = if (isOffSelected) Color(0xFFFF5252) else Color.White.copy(alpha = 0.6f)
+                                                                )
                                                 )
                                         }
 
@@ -696,9 +743,12 @@ fun AcQuickMenuContent() {
                                                 ) {
                                                         Text(
                                                                 text = "$step",
-                                                                fontSize = 12.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f)
+                                                                style =
+                                                                        labelStyle.copy(
+                                                                                fontSize = 11.sp,
+                                                                                fontWeight = FontWeight.Bold,
+                                                                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f)
+                                                                        )
                                                         )
                                                 }
                                         }
@@ -709,6 +759,15 @@ fun AcQuickMenuContent() {
 
                         // AC Control Options Grid
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                        text = "MODOS & RECIRCULA\u00c7\u00c3O",
+                                        style =
+                                                labelStyle.copy(
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.LightGray
+                                                )
+                                )
                                 Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -746,12 +805,7 @@ fun AcQuickMenuContent() {
                                                 val next = if (acAuto == "1") "0" else "1"
                                                 serviceManager.updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), next)
                                         }
-                                }
 
-                                Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
                                         AcQuickMenuItem(
                                                 modifier = Modifier.weight(1f),
                                                 iconVector = Icons.Default.AcUnit,
@@ -762,7 +816,21 @@ fun AcQuickMenuContent() {
                                                 val next = if (acMax == "1") "0" else "1"
                                                 serviceManager.updateData(CarConstants.CAR_HVAC_ACMAX_ENABLE.getValue(), next)
                                         }
+                                }
 
+                                Text(
+                                        text = "DESEMBA\u00c7ADOR",
+                                        style =
+                                                labelStyle.copy(
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.LightGray
+                                                )
+                                )
+                                Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
                                         AcQuickMenuItem(
                                                 modifier = Modifier.weight(1f),
                                                 iconVector = Icons.Default.Shield,
@@ -801,8 +869,8 @@ private fun AcQuickMenuItem(
         onClick: () -> Unit
 ) {
         val activeColor = Color(0xFF2196F3)
-        val bgColor = if (isActive && isEnabled) activeColor.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.06f)
-        val borderColor = if (isActive && isEnabled) activeColor.copy(alpha = 0.6f) else Color.Transparent
+        val bgColor = if (isActive && isEnabled) activeColor.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.05f)
+        val borderColor = if (isActive && isEnabled) activeColor else Color.Transparent
 
         Box(
                 modifier =
@@ -841,9 +909,12 @@ private fun AcQuickMenuItem(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                                 text = label,
-                                fontSize = 10.sp,
-                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isActive && isEnabled) activeColor else Color.White.copy(alpha = if (isEnabled) 0.8f else 0.35f),
+                                style =
+                                        labelStyle.copy(
+                                                fontSize = 10.sp,
+                                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isActive && isEnabled) activeColor else Color.White.copy(alpha = if (isEnabled) 0.8f else 0.35f)
+                                        ),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                         )
@@ -864,26 +935,12 @@ fun FanButton(
 	val isAcMenuExpanded = BottomBarState.isAcMenuExpanded
 	val isActive = isPowerOn && fanSpeed > 0
 
-	val infiniteTransition = rememberInfiniteTransition(label = "fanSpin")
-	val rotation by infiniteTransition.animateFloat(
-		initialValue = 0f,
-		targetValue = 360f,
-		animationSpec = infiniteRepeatable(
-			animation = tween(
-				durationMillis = (1400 / fanSpeed.coerceAtLeast(1)),
-				easing = LinearEasing
-			),
-			repeatMode = RepeatMode.Restart
-		),
-		label = "fanRotation"
-	)
-
 	val currentSpeedRef by rememberUpdatedState(fanSpeed)
 
 	fun postHud(newSpeed: Int, autoDismiss: Boolean = true) {
 		BottomBarState.activeSwipeHud = BottomBarState.SwipeHudData(
 			type = BottomBarState.SliderType.FAN,
-			title = "VENTILADOR",
+			title = "VENTILA\u00c7\u00c3O",
 			valueText = if (newSpeed == 0) "OFF" else "N\u00edvel $newSpeed",
 			fraction = (newSpeed / 7f).coerceIn(0f, 1f),
 			targetCenterX = centerX,
@@ -912,7 +969,7 @@ fun FanButton(
 	Box(
 		contentAlignment = Alignment.Center,
 		modifier = Modifier
-			.width(56.dp)
+			.width(92.dp)
 			.fillMaxHeight()
 			.onGloballyPositioned { coords ->
 				centerX = coords.positionInRoot().x + coords.size.width / 2f
@@ -944,7 +1001,7 @@ fun FanButton(
 							if (isDragging) {
 								change.consume()
 								accumulatedDragX += deltaX
-								val stepPx = 20.dp.toPx()
+								val stepPx = 18.dp.toPx()
 								if (abs(accumulatedDragX) >= stepPx) {
 									val deltaSpeed = if (accumulatedDragX > 0) 1 else -1
 									accumulatedDragX -= deltaSpeed * stepPx
@@ -970,29 +1027,39 @@ fun FanButton(
 				}
 			}
 	) {
-		Box(
-			contentAlignment = Alignment.Center,
+		Column(
+			horizontalAlignment = Alignment.CenterHorizontally,
+			verticalArrangement = Arrangement.Center,
 			modifier = Modifier
-				.size(44.dp)
+				.fillMaxHeight()
 				.clip(RoundedCornerShape(8.dp))
 				.background(animatedColor)
+				.padding(horizontal = 6.dp, vertical = 4.dp)
 		) {
-			Column(
-				horizontalAlignment = Alignment.CenterHorizontally,
-				verticalArrangement = Arrangement.Center
+			Text(
+				text = "Ventila\u00e7\u00e3o",
+				style = labelStyle.copy(
+					fontSize = 10.sp,
+					color = if (isAcMenuExpanded) Color(0xFF2196F3) else Color.LightGray
+				),
+				maxLines = 1,
+				softWrap = false
+			)
+			Spacer(modifier = Modifier.height(2.dp))
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(6.dp)
 			) {
-				FanBladeIcon(
-					modifier = Modifier.size(22.dp).graphicsLayer {
-						if (isActive) rotationZ = rotation
-					},
-					tint = if (isActive) Color(0xFF2196F3) else Color.White.copy(alpha = 0.8f)
+				FanSpeedIcon(
+					speed = if (isPowerOn) fanSpeed else 0,
+					modifier = Modifier.size(20.dp).padding(1.dp),
+					activeColor = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.5f)
 				)
-				Spacer(modifier = Modifier.height(2.dp))
 				Text(
 					text = if (!isPowerOn || fanSpeed == 0) "OFF" else "$fanSpeed",
-					style = labelStyle.copy(
-						fontSize = 9.sp,
-						color = if (isActive) Color(0xFF64B5F6) else Color.LightGray
+					style = commonTextStyle.copy(
+						fontSize = 18.sp,
+						color = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.5f)
 					)
 				)
 			}
@@ -1017,7 +1084,7 @@ fun CenteredAppDock(
 
 	Row(
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(4.dp),
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
 		modifier = Modifier.fillMaxHeight()
 	) {
 		// 1. [<] Send to Cluster Button
@@ -1030,7 +1097,7 @@ fun CenteredAppDock(
 		Box(
 			contentAlignment = Alignment.Center,
 			modifier = Modifier
-				.width(44.dp)
+				.width(48.dp)
 				.fillMaxHeight()
 				.clickable(
 					interactionSource = leftNavInteraction,
@@ -1051,20 +1118,20 @@ fun CenteredAppDock(
 			Box(
 				contentAlignment = Alignment.Center,
 				modifier = Modifier
-					.size(36.dp)
-					.clip(RoundedCornerShape(8.dp))
+					.size(44.dp)
+					.clip(RoundedCornerShape(10.dp))
 					.background(leftNavColor)
 			) {
 				Icon(
 					imageVector = Icons.Default.KeyboardArrowLeft,
 					contentDescription = "Send to Cluster",
 					tint = Color.White,
-					modifier = Modifier.size(24.dp)
+					modifier = Modifier.size(28.dp)
 				)
 			}
 		}
 
-		// 2. [ âŠž ] All Apps Button - FIRST IN LIST!
+		// 2. [ ⊞ ] All Apps Button - FIRST IN LIST!
 		val appsInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 		val appsPressed by appsInteraction.collectIsPressedAsState()
 		val appsColor by animateColorAsState(
@@ -1074,7 +1141,7 @@ fun CenteredAppDock(
 		Box(
 			contentAlignment = Alignment.Center,
 			modifier = Modifier
-				.width(44.dp)
+				.width(48.dp)
 				.fillMaxHeight()
 				.clickable(
 					interactionSource = appsInteraction,
@@ -1091,15 +1158,15 @@ fun CenteredAppDock(
 			Box(
 				contentAlignment = Alignment.Center,
 				modifier = Modifier
-					.size(36.dp)
-					.clip(RoundedCornerShape(8.dp))
+					.size(44.dp)
+					.clip(RoundedCornerShape(10.dp))
 					.background(appsColor)
 			) {
 				Icon(
 					imageVector = Icons.Default.Apps,
 					contentDescription = "All Apps",
 					tint = if (isAppMenuExpanded) Color(0xFF2196F3) else Color.White,
-					modifier = Modifier.size(24.dp)
+					modifier = Modifier.size(28.dp)
 				)
 			}
 		}
@@ -1120,7 +1187,7 @@ fun CenteredAppDock(
 			Box(
 				contentAlignment = Alignment.Center,
 				modifier = Modifier
-					.width(44.dp)
+					.width(48.dp)
 					.fillMaxHeight()
 					.clickable(
 						interactionSource = appInteraction,
@@ -1135,8 +1202,8 @@ fun CenteredAppDock(
 				Box(
 					contentAlignment = Alignment.Center,
 					modifier = Modifier
-						.size(36.dp)
-						.clip(RoundedCornerShape(8.dp))
+						.size(44.dp)
+						.clip(RoundedCornerShape(10.dp))
 						.background(appColor)
 				) {
 					if (substituteIcon != null) {
@@ -1144,7 +1211,7 @@ fun CenteredAppDock(
 							imageVector = substituteIcon,
 							contentDescription = config?.customName ?: pkg,
 							tint = Color.White,
-							modifier = Modifier.size(28.dp)
+							modifier = Modifier.size(36.dp)
 						)
 					} else {
 						val appInfo = remember(pkg) {
@@ -1153,7 +1220,7 @@ fun CenteredAppDock(
 						AsyncImage(
 							model = ImageRequest.Builder(context).data(appInfo.icon).build(),
 							contentDescription = appInfo.label,
-							modifier = Modifier.size(28.dp)
+							modifier = Modifier.size(36.dp)
 						)
 					}
 				}
@@ -1181,7 +1248,7 @@ fun CenteredAppDock(
 		Box(
 			contentAlignment = Alignment.Center,
 			modifier = Modifier
-				.width(44.dp)
+				.width(48.dp)
 				.fillMaxHeight()
 				.alpha(if (hasSecondaryApps) 1.0f else 0.28f)
 				.clickable(
@@ -1200,15 +1267,15 @@ fun CenteredAppDock(
 			Box(
 				contentAlignment = Alignment.Center,
 				modifier = Modifier
-					.size(36.dp)
-					.clip(RoundedCornerShape(8.dp))
+					.size(44.dp)
+					.clip(RoundedCornerShape(10.dp))
 					.background(rightNavColor)
 			) {
 				Icon(
 					imageVector = Icons.Default.KeyboardArrowRight,
 					contentDescription = "Bring to Main",
 					tint = Color.White,
-					modifier = Modifier.size(24.dp)
+					modifier = Modifier.size(28.dp)
 				)
 			}
 		}
@@ -1355,6 +1422,8 @@ fun BottomBarContent() {
                         resolveBottomBarRowStartPadPx(leftGutterPx, aaCutoutPx).toDp()
                 }
         val barContext = LocalContext.current
+        // Safe left padding to comfortably accommodate the car's physical vertical rail without cramping the Motorista controls
+        val effectiveStartPad = maxOf(rowStartPad + 16.dp, 28.dp)
 
         // Note the gutter is applied to the content Row below, NOT here: the black Surface has to span
         // the whole window so the bar reads as one continuous strip. Padding it here leaves the left
@@ -1466,7 +1535,7 @@ fun BottomBarContent() {
                                                         Modifier.fillMaxWidth()
                                                                 .fillMaxHeight()
                                                                 .padding(
-                                                                        start = rowStartPad,
+                                                                        start = effectiveStartPad,
                                                                         end = 8.dp
                                                                 ),
                                                 verticalAlignment = Alignment.CenterVertically
@@ -2002,10 +2071,10 @@ fun AppMenuContent() {
         Box(
                 modifier =
                         Modifier.background(
-                                        Color(0xFF13151A).copy(alpha = 0.95f),
-                                        RoundedCornerShape(12.dp)
+                                        Color(0xFF11141A).copy(alpha = 0.98f),
+                                        RoundedCornerShape(14.dp)
                                 )
-                                .border(1.dp, Color(0xFF1D2430), RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0xFF1F2530), RoundedCornerShape(14.dp))
                                 .fillMaxWidth(0.25f)
                                 .padding(16.dp)
                                 .pointerInput(Unit) {
@@ -2034,12 +2103,15 @@ fun AppMenuContent() {
                                                         if (BottomBarState.isDeleteModeEnabled)
                                                                 "Organizar"
                                                         else "Aplicativos",
-                                                color =
-                                                        if (BottomBarState.isDeleteModeEnabled)
-                                                                Color(0xFF4CAF50)
-                                                        else Color.White,
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.Bold
+                                                style =
+                                                        labelStyle.copy(
+                                                                fontSize = 15.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color =
+                                                                        if (BottomBarState.isDeleteModeEnabled)
+                                                                                Color(0xFF4CAF50)
+                                                                        else Color.White
+                                                        )
                                         )
                                         if (BottomBarState.isDeleteModeEnabled) {
                                                 Box(
@@ -2501,10 +2573,10 @@ fun SettingsMenuContent(drive: String, ev: String, regen: String, steer: String)
         Box(
                 modifier =
                         Modifier.background(
-                                        Color(0xFF13151A).copy(alpha = 0.95f),
-                                        RoundedCornerShape(12.dp)
+                                        Color(0xFF11141A).copy(alpha = 0.98f),
+                                        RoundedCornerShape(14.dp)
                                 )
-                                .border(1.dp, Color(0xFF1D2430), RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0xFF1F2530), RoundedCornerShape(14.dp))
                                 .width(480.dp)
                                 .padding(16.dp)
         ) {
@@ -6899,40 +6971,6 @@ fun FanControlSection(
         }
 }
 
-@Composable
-fun FanSpeedIcon(speed: Int) {
-        Canvas(modifier = Modifier.size(24.dp).padding(2.dp)) {
-                val center = Offset(size.width / 2, size.height / 2)
-                val radius = size.minDimension / 2f
-                val innerRadius = radius * 0.3f
-
-                // Draw 7 segments around the circle
-                val segmentGap = 10f
-                val totalGap = segmentGap * 7
-                val sweepAngle = (360f - totalGap) / 7f
-
-                for (i in 0 until 7) {
-                        val startAngle = i * (sweepAngle + segmentGap) - 90f
-                        val isActive = i < speed
-                        val color = if (isActive) Color.White else Color.Gray.copy(alpha = 0.3f)
-
-                        drawArc(
-                                color = color,
-                                startAngle = startAngle,
-                                sweepAngle = sweepAngle,
-                                useCenter = false,
-                                style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                }
-
-                // Draw a small fan hub in the center
-                drawCircle(
-                        color = Color.White.copy(alpha = 0.9f),
-                        radius = innerRadius,
-                        center = center
-                )
-        }
-}
 
 @Composable
 fun VolumeControlSection(
@@ -7060,10 +7098,10 @@ fun ControlsSection(scope: CoroutineScope) {
                         targetValue = if (voltarPressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
                         animationSpec = tween(durationMillis = if (voltarPressed) 50 else 300)
                 )
-                Box(
-                        contentAlignment = Alignment.Center,
+                Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
-                                .size(48.dp)
+                                .width(64.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(voltarColor)
                                 .clickable(
@@ -7076,12 +7114,18 @@ fun ControlsSection(scope: CoroutineScope) {
                                                 )
                                         }
                                 }
+                                .padding(vertical = 4.dp)
                 ) {
+                        Text(
+                                text = "Voltar",
+                                style = labelStyle.copy(fontSize = 10.sp, color = Color.White)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
                         Icon(
                                 Icons.AutoMirrored.Filled.Undo,
                                 contentDescription = "Voltar",
                                 tint = Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(22.dp)
                         )
                 }
 
@@ -7092,10 +7136,10 @@ fun ControlsSection(scope: CoroutineScope) {
                         targetValue = if (conducaoPressed || showSettings) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
                         animationSpec = tween(durationMillis = if (conducaoPressed) 50 else 300)
                 )
-                Box(
-                        contentAlignment = Alignment.Center,
+                Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
-                                .size(48.dp)
+                                .width(70.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(conducaoColor)
                                 .clickable(
@@ -7109,12 +7153,21 @@ fun ControlsSection(scope: CoroutineScope) {
                                                 BottomBarState.isAcMenuExpanded = false
                                         }
                                 }
+                                .padding(vertical = 4.dp)
                 ) {
+                        Text(
+                                text = "Condu\u00e7\u00e3o",
+                                style = labelStyle.copy(
+                                        fontSize = 10.sp,
+                                        color = if (showSettings) Color(0xFF2196F3) else Color.White
+                                )
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
                         Icon(
-                                painter = painterResource(id = R.drawable.ic_car_settings),
+                                imageVector = Icons.Default.ElectricCar,
                                 contentDescription = "Condu\u00e7\u00e3o",
                                 tint = if (showSettings) Color(0xFF2196F3) else Color.White,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(22.dp)
                         )
                 }
         }
@@ -7510,10 +7563,13 @@ fun AppGridItem(
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                         text = displayName,
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        lineHeight = 12.sp,
+                        style =
+                                labelStyle.copy(
+                                        fontSize = 11.sp,
+                                        color = Color.White,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        lineHeight = 13.sp
+                                ),
                         maxLines = 2,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier.fillMaxWidth()
@@ -7600,10 +7656,10 @@ fun OverrideMenuContent() {
         Box(
                 modifier =
                         Modifier.background(
-                                        Color(0xFF13151A).copy(alpha = 0.95f),
-                                        RoundedCornerShape(12.dp)
+                                        Color(0xFF11141A).copy(alpha = 0.98f),
+                                        RoundedCornerShape(14.dp)
                                 )
-                                .border(1.dp, Color(0xFF1D2430), RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0xFF1F2530), RoundedCornerShape(14.dp))
                                 .width(360.dp)
                                 .padding(16.dp)
         ) {
