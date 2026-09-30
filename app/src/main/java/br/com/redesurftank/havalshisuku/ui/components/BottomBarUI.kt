@@ -484,7 +484,7 @@ fun BackButton(
                 contentAlignment = Alignment.Center,
                 modifier = modifier
                         .size(42.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(animatedBg)
                         .clickable(
                                 interactionSource = interactionSource,
@@ -521,7 +521,7 @@ fun VehicleSettingsButton(
                 contentAlignment = Alignment.Center,
                 modifier = modifier
                         .size(42.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(conducaoColor)
                         .onGloballyPositioned { coords ->
                                 BottomBarState.conducaoCenterX = coords.positionInRoot().x + coords.size.width / 2f
@@ -563,7 +563,7 @@ fun HomeButton(
                 contentAlignment = Alignment.Center,
                 modifier = modifier
                         .size(42.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(animatedBg)
                         .clickable(
                                 interactionSource = interactionSource,
@@ -1243,8 +1243,9 @@ fun FanButton(
 	Box(
 		contentAlignment = Alignment.Center,
 		modifier = Modifier
-			.width(68.dp)
-			.fillMaxHeight()
+			.size(42.dp)
+			.clip(RoundedCornerShape(10.dp))
+			.background(animatedColor)
 			.onGloballyPositioned { coords ->
 				centerX = coords.positionInRoot().x + coords.size.width / 2f
 				BottomBarState.fanButtonCenterX = centerX
@@ -1304,27 +1305,22 @@ fun FanButton(
 	) {
 		Row(
 			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.Center,
-			modifier = Modifier
-				.fillMaxHeight()
-				.clip(RoundedCornerShape(8.dp))
-				.background(animatedColor)
-				.padding(horizontal = 8.dp)
+			horizontalArrangement = Arrangement.Center
 		) {
 			CoffeeOsFanIcon(
-				modifier = Modifier.size(24.dp),
+				modifier = Modifier.size(22.dp),
 				tint = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.4f)
 			)
-			Spacer(modifier = Modifier.width(3.dp))
+			Spacer(modifier = Modifier.width(2.dp))
 			Text(
 				text = if (!isPowerOn || fanSpeed == 0) "OFF" else "$fanSpeed",
 				style = TextStyle(
 					fontFamily = Michroma,
-					fontSize = if (!isPowerOn || fanSpeed == 0) 10.sp else 12.sp,
+					fontSize = if (!isPowerOn || fanSpeed == 0) 9.sp else 11.sp,
 					fontWeight = FontWeight.Bold,
 					color = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.4f)
 				),
-				modifier = Modifier.align(Alignment.Bottom).padding(bottom = 8.dp)
+				modifier = Modifier.align(Alignment.Bottom).padding(bottom = 6.dp)
 			)
 		}
 	}
@@ -1626,6 +1622,10 @@ fun LeftArrowsSection(
 
 @Composable
 fun CenteredAppLauncherSection(
+	fanSpeed: Int = 1,
+	isPowerOn: Boolean = true,
+	onSpeedChange: (Int) -> Unit = {},
+	onFanClick: () -> Unit = {},
 	scope: CoroutineScope,
 	context: Context
 ) {
@@ -1636,12 +1636,8 @@ fun CenteredAppLauncherSection(
 
 	Row(
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-		modifier = Modifier
-			.fillMaxHeight()
-			.onGloballyPositioned { coords ->
-				BottomBarState.launcherCenterX = coords.positionInRoot().x + coords.size.width / 2f
-			}
+		horizontalArrangement = Arrangement.spacedBy(16.dp),
+		modifier = Modifier.fillMaxHeight()
 	) {
 		// 1. [ ⊞ ] All Apps Button - FIRST IN LIST!
 		val appsInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -1654,8 +1650,12 @@ fun CenteredAppLauncherSection(
 		Box(
 			contentAlignment = Alignment.Center,
 			modifier = Modifier
-				.width(44.dp)
-				.fillMaxHeight()
+				.size(42.dp)
+				.clip(RoundedCornerShape(10.dp))
+				.background(appsColor)
+				.onGloballyPositioned { coords ->
+					BottomBarState.launcherCenterX = coords.positionInRoot().x + coords.size.width / 2f
+				}
 				.clickable(
 					interactionSource = appsInteraction,
 					indication = null
@@ -1668,24 +1668,22 @@ fun CenteredAppLauncherSection(
 					}
 				}
 		) {
-			Box(
-				contentAlignment = Alignment.Center,
-				modifier = Modifier
-					.size(44.dp)
-					.clip(RoundedCornerShape(10.dp))
-					.background(appsColor)
-			) {
-				Icon(
-					imageVector = Icons.Default.Apps,
-					contentDescription = "All Apps",
-					tint = if (isAppMenuExpanded) Color(0xFF2196F3) else Color.White,
-					modifier = Modifier.size(28.dp)
-				)
-			}
+			Icon(
+				imageVector = Icons.Default.Apps,
+				contentDescription = "All Apps",
+				tint = if (isAppMenuExpanded) Color(0xFF2196F3) else Color.White,
+				modifier = Modifier.size(26.dp)
+			)
 		}
 
 		// 2. Up to 5 Recent Apps (+2 more apps)
-		for (pkg in recents.take(5)) {
+		val validRecents = remember(recents.toList(), configs) {
+			recents.filter { pkg ->
+				val cfg = configs.find { it.packageName == pkg }
+				cfg?.substituteIcon != null || DisplayAppLauncher.resolveAppInfo(context, pkg).icon != null
+			}.take(5)
+		}
+		for (pkg in validRecents) {
 			val isCurrentApp = pkg == activePkg
 			val config = configs.find { it.packageName == pkg }
 			val substituteIcon = getSubstituteIconVector(config?.substituteIcon)
@@ -1701,8 +1699,9 @@ fun CenteredAppLauncherSection(
 			Box(
 				contentAlignment = Alignment.Center,
 				modifier = Modifier
-					.width(44.dp)
-					.fillMaxHeight()
+					.size(42.dp)
+					.clip(RoundedCornerShape(10.dp))
+					.background(appColor)
 					.clickable(
 						interactionSource = appInteraction,
 						indication = null
@@ -1713,30 +1712,22 @@ fun CenteredAppLauncherSection(
 						}
 					}
 			) {
-				Box(
-					contentAlignment = Alignment.Center,
-					modifier = Modifier
-						.size(44.dp)
-						.clip(RoundedCornerShape(10.dp))
-						.background(appColor)
-				) {
-					if (substituteIcon != null) {
-						Icon(
-							imageVector = substituteIcon,
-							contentDescription = config?.customName ?: pkg,
-							tint = Color.White,
-							modifier = Modifier.size(36.dp)
-						)
-					} else {
-						val appInfo = remember(pkg) {
-							DisplayAppLauncher.resolveAppInfo(context, pkg, config?.customName)
-						}
-						AsyncImage(
-							model = ImageRequest.Builder(context).data(appInfo.icon).build(),
-							contentDescription = appInfo.label,
-							modifier = Modifier.size(36.dp)
-						)
+				if (substituteIcon != null) {
+					Icon(
+						imageVector = substituteIcon,
+						contentDescription = config?.customName ?: pkg,
+						tint = Color.White,
+						modifier = Modifier.size(34.dp)
+					)
+				} else {
+					val appInfo = remember(pkg) {
+						DisplayAppLauncher.resolveAppInfo(context, pkg, config?.customName)
 					}
+					AsyncImage(
+						model = ImageRequest.Builder(context).data(appInfo.icon).build(),
+						contentDescription = appInfo.label,
+						modifier = Modifier.size(34.dp)
+					)
 				}
 
 				if (isCurrentApp) {
@@ -1751,12 +1742,26 @@ fun CenteredAppLauncherSection(
 				}
 			}
 		}
+
+		// 3. [ 🪭 1 ] Fan Button ("Ventilação")
+		FanButton(
+			fanSpeed = fanSpeed,
+			isPowerOn = isPowerOn,
+			onSpeedChange = onSpeedChange,
+			onClick = onFanClick
+		)
+
+		// 4. [ 🚗 ] Vehicle Settings (Condução - CoffeeOS 3.0 style)
+		VehicleSettingsButton()
+
+		// 5. [ 🏠 ] Home Button (CoffeeOS 3.0 style)
+		HomeButton(scope = scope, context = context)
 	}
 }
 
 @Composable
 fun CenteredAppDock(scope: CoroutineScope, context: Context) {
-	CenteredAppLauncherSection(scope, context)
+	CenteredAppLauncherSection(scope = scope, context = context)
 }
 
 @Composable
@@ -1764,7 +1769,7 @@ fun AppSwitcherSection(
 	scope: CoroutineScope,
 	context: Context
 ) {
-	CenteredAppLauncherSection(scope, context)
+	CenteredAppLauncherSection(scope = scope, context = context)
 }
 
 @Composable
@@ -2031,172 +2036,174 @@ fun BottomBarContent() {
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.CenterEnd
                                 ) {
-                                        Row(
+                                        Box(
                                                 modifier =
                                                         Modifier.fillMaxWidth()
                                                                 .fillMaxHeight()
                                                                 .padding(
                                                                         start = rowStartPadAnimated,
                                                                         end = 8.dp
-                                                                ),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
+                                                                )
                                         ) {
                                                 val isACEnabled = hvacPower == "1"
 
-                                                // 1. Left Arrows Section (ONLY arrows on the left!)
-                                                LeftArrowsSection(
-                                                        isLeftBarShown = isLeftBarShown,
-                                                        hasSecondaryApps = BottomBarState.hasAppsOnSecondaryDisplays,
-                                                        scope = scope,
-                                                        context = barContext
-                                                )
-
-                                                // 2. Voltar (Back button)
-                                                BackButton(scope = scope)
-
-                                                // 3. Motorista Temp
-                                                TempControlSection(
-                                                        label = "Motorista",
-                                                        temp = driverTemp,
-                                                        isEnabled = isACEnabled,
-                                                        sliderType = BottomBarState.SliderType.DRIVER_TEMP
-                                                ) { delta ->
-                                                        val cur = driverTemp.toFloatOrNull() ?: 22.0f
-                                                        val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
-                                                        driverTemp = String.format(java.util.Locale.US, "%.1f", newTemp)
-                                                        serviceManager.updateData(
-                                                                CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),
-                                                                driverTemp
+                                                // 1. Extremidade Esquerda (Setas, Temp Motorista, Voltar e Volume)
+                                                Row(
+                                                        modifier = Modifier.align(Alignment.CenterStart),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                        LeftArrowsSection(
+                                                                isLeftBarShown = isLeftBarShown,
+                                                                hasSecondaryApps = BottomBarState.hasAppsOnSecondaryDisplays,
+                                                                scope = scope,
+                                                                context = barContext
                                                         )
-                                                        if (!isACEnabled) {
-                                                                hvacPower = "1"
-                                                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
-                                                        }
-                                                }
 
-                                                // 4. Centered App Launcher Section (Launcher ⊞ + 5 Apps in CENTER!)
-                                                CenteredAppLauncherSection(
-                                                        scope = scope,
-                                                        context = barContext
-                                                )
-
-                                                // 5. Fan Button ("Ventilação")
-                                                FanButton(
-                                                        fanSpeed = fanSpeed,
-                                                        isPowerOn = isACEnabled,
-                                                        onSpeedChange = { newSpeed ->
-                                                                fanSpeed = newSpeed
+                                                        TempControlSection(
+                                                                label = "Motorista",
+                                                                temp = driverTemp,
+                                                                isEnabled = isACEnabled,
+                                                                sliderType = BottomBarState.SliderType.DRIVER_TEMP
+                                                        ) { delta ->
+                                                                val cur = driverTemp.toFloatOrNull() ?: 22.0f
+                                                                val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
+                                                                driverTemp = String.format(java.util.Locale.US, "%.1f", newTemp)
                                                                 serviceManager.updateData(
-                                                                        CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
-                                                                        newSpeed.toString()
+                                                                        CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),
+                                                                        driverTemp
                                                                 )
-                                                                if (newSpeed == 0 && isACEnabled) {
-                                                                        hvacPower = "0"
-                                                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "0")
-                                                                } else if (newSpeed > 0 && !isACEnabled) {
+                                                                if (!isACEnabled) {
                                                                         hvacPower = "1"
                                                                         serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
                                                                 }
-                                                        },
-                                                        onClick = {
-                                                                BottomBarState.isAcMenuExpanded = !BottomBarState.isAcMenuExpanded
-                                                                if (BottomBarState.isAcMenuExpanded) {
-                                                                        BottomBarState.isMenuExpanded = false
-                                                                        BottomBarState.isSettingsMenuExpanded = false
-                                                                        BottomBarState.isOverrideMenuExpanded = false
+                                                        }
+
+                                                        BackButton(scope = scope)
+
+                                                        VolumeControlSection(
+                                                                label = "Volume",
+                                                                volume = volume,
+                                                                sliderType = BottomBarState.SliderType.VOLUME
+                                                        ) { delta ->
+                                                                val newVol = (volume + delta).coerceIn(0, 30)
+                                                                volume = newVol
+                                                                serviceManager.updateData(
+                                                                        CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
+                                                                        newVol.toString()
+                                                                )
+                                                        }
+                                                }
+
+                                                // 2. Centro Absoluto: Doca de Apps + Fan + Condução + Home
+                                                Box(
+                                                        modifier = Modifier.align(Alignment.Center),
+                                                        contentAlignment = Alignment.Center
+                                                ) {
+                                                        CenteredAppLauncherSection(
+                                                                fanSpeed = fanSpeed,
+                                                                isPowerOn = isACEnabled,
+                                                                onSpeedChange = { newSpeed ->
+                                                                        fanSpeed = newSpeed
+                                                                        serviceManager.updateData(
+                                                                                CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
+                                                                                newSpeed.toString()
+                                                                        )
+                                                                        if (newSpeed == 0 && isACEnabled) {
+                                                                                hvacPower = "0"
+                                                                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "0")
+                                                                        } else if (newSpeed > 0 && !isACEnabled) {
+                                                                                hvacPower = "1"
+                                                                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                                                        }
+                                                                },
+                                                                onFanClick = {
+                                                                        BottomBarState.isAcMenuExpanded = !BottomBarState.isAcMenuExpanded
+                                                                        if (BottomBarState.isAcMenuExpanded) {
+                                                                                BottomBarState.isMenuExpanded = false
+                                                                                BottomBarState.isSettingsMenuExpanded = false
+                                                                                BottomBarState.isOverrideMenuExpanded = false
+                                                                        }
+                                                                },
+                                                                scope = scope,
+                                                                context = barContext
+                                                        )
+                                                }
+
+                                                // 3. Extremidade Direita (Temp Passageiro e Override)
+                                                Row(
+                                                        modifier = Modifier.align(Alignment.CenterEnd),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                        TempControlSection(
+                                                                label = "Passageiro",
+                                                                temp = passTemp,
+                                                                isEnabled = isACEnabled,
+                                                                sliderType = BottomBarState.SliderType.PASS_TEMP
+                                                        ) { delta ->
+                                                                val cur = passTemp.toFloatOrNull() ?: 22.0f
+                                                                val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
+                                                                passTemp = String.format(java.util.Locale.US, "%.1f", newTemp)
+                                                                serviceManager.updateData(
+                                                                        CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(),
+                                                                        passTemp
+                                                                )
+                                                                if (!isACEnabled) {
+                                                                        hvacPower = "1"
+                                                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
                                                                 }
                                                         }
-                                                )
 
-                                                // 5. Volume
-                                                VolumeControlSection(
-                                                        label = "Volume",
-                                                        volume = volume,
-                                                        sliderType = BottomBarState.SliderType.VOLUME
-                                                ) { delta ->
-                                                        val newVol = (volume + delta).coerceIn(0, 30)
-                                                        volume = newVol
-                                                        serviceManager.updateData(
-                                                                CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
-                                                                newVol.toString()
+                                                        // Override Section
+                                                        val isOverrideExpanded = BottomBarState.isOverrideMenuExpanded
+                                                        val overrideInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                                                        val overridePressed by overrideInteraction.collectIsPressedAsState()
+                                                        val overrideColor by animateColorAsState(
+                                                                targetValue = if (overridePressed || isOverrideExpanded) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
+                                                                animationSpec = tween(durationMillis = if (overridePressed) 50 else 300)
                                                         )
-                                                }
-
-                                                // 7. Passageiro Temp
-                                                TempControlSection(
-                                                        label = "Passageiro",
-                                                        temp = passTemp,
-                                                        isEnabled = isACEnabled,
-                                                        sliderType = BottomBarState.SliderType.PASS_TEMP
-                                                ) { delta ->
-                                                        val cur = passTemp.toFloatOrNull() ?: 22.0f
-                                                        val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
-                                                        passTemp = String.format(java.util.Locale.US, "%.1f", newTemp)
-                                                        serviceManager.updateData(
-                                                                CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(),
-                                                                passTemp
-                                                        )
-                                                        if (!isACEnabled) {
-                                                                hvacPower = "1"
-                                                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
-                                                        }
-                                                }
-
-                                                // 8. Vehicle Settings (Condução - CoffeeOS 3.0 style)
-                                                VehicleSettingsButton()
-
-                                                // 9. Home Button (CoffeeOS 3.0 style)
-                                                HomeButton(scope = scope, context = barContext)
-
-                                                // 10. Override Section
-                                                val isOverrideExpanded = BottomBarState.isOverrideMenuExpanded
-                                                val overrideInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                                                val overridePressed by overrideInteraction.collectIsPressedAsState()
-                                                val overrideColor by animateColorAsState(
-                                                        targetValue = if (overridePressed || isOverrideExpanded) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
-                                                        animationSpec = tween(durationMillis = if (overridePressed) 50 else 300)
-                                                )
-                                                Box(
-                                                        modifier =
-                                                                Modifier.width(44.dp)
-                                                                        .fillMaxHeight()
-                                                                        .pointerInput(Unit) {
-                                                                                awaitPointerEventScope {
-                                                                                        while (true) {
-                                                                                                val down = awaitFirstDown(requireUnconsumed = false)
-                                                                                                var totalDrag = 0f
-                                                                                                do {
-                                                                                                        val event = awaitPointerEvent()
-                                                                                                        val change = event.changes.first()
-                                                                                                        totalDrag += (change.position - change.previousPosition).getDistance()
-                                                                                                } while (event.changes.any { it.pressed })
-                                                                                                if (totalDrag < 10f) {
-                                                                                                        BottomBarState.isOverrideMenuExpanded = !BottomBarState.isOverrideMenuExpanded
-                                                                                                        if (BottomBarState.isOverrideMenuExpanded) {
-                                                                                                                BottomBarState.isMenuExpanded = false
-                                                                                                                BottomBarState.isSettingsMenuExpanded = false
-                                                                                                                BottomBarState.isAcMenuExpanded = false
+                                                        Box(
+                                                                modifier =
+                                                                        Modifier.width(44.dp)
+                                                                                .fillMaxHeight()
+                                                                                .pointerInput(Unit) {
+                                                                                        awaitPointerEventScope {
+                                                                                                while (true) {
+                                                                                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                                                                                        var totalDrag = 0f
+                                                                                                        do {
+                                                                                                                val event = awaitPointerEvent()
+                                                                                                                val change = event.changes.first()
+                                                                                                                totalDrag += (change.position - change.previousPosition).getDistance()
+                                                                                                        } while (event.changes.any { it.pressed })
+                                                                                                        if (totalDrag < 10f) {
+                                                                                                                BottomBarState.isOverrideMenuExpanded = !BottomBarState.isOverrideMenuExpanded
+                                                                                                                if (BottomBarState.isOverrideMenuExpanded) {
+                                                                                                                        BottomBarState.isMenuExpanded = false
+                                                                                                                        BottomBarState.isSettingsMenuExpanded = false
+                                                                                                                        BottomBarState.isAcMenuExpanded = false
+                                                                                                                }
                                                                                                         }
                                                                                                 }
                                                                                         }
-                                                                                }
-                                                                        },
-                                                        contentAlignment = Alignment.Center
-                                                ) {
-                                                        Box(
-                                                                contentAlignment = Alignment.Center,
-                                                                modifier = Modifier
-                                                                        .size(36.dp)
-                                                                        .clip(RoundedCornerShape(8.dp))
-                                                                        .background(overrideColor)
+                                                                                },
+                                                                contentAlignment = Alignment.Center
                                                         ) {
-                                                                Icon(
-                                                                        Icons.Default.SwapVert,
-                                                                        contentDescription = "Override",
-                                                                        tint = if (isOverrideExpanded) Color(0xFF2196F3) else Color.White.copy(alpha = 0.7f),
-                                                                        modifier = Modifier.size(24.dp)
-                                                                )
+                                                                Box(
+                                                                        contentAlignment = Alignment.Center,
+                                                                        modifier = Modifier
+                                                                                .size(36.dp)
+                                                                                .clip(RoundedCornerShape(8.dp))
+                                                                                .background(overrideColor)
+                                                                ) {
+                                                                        Icon(
+                                                                                Icons.Default.SwapVert,
+                                                                                contentDescription = "Override",
+                                                                                tint = if (isOverrideExpanded) Color(0xFF2196F3) else Color.White.copy(alpha = 0.7f),
+                                                                                modifier = Modifier.size(24.dp)
+                                                                        )
+                                                                }
                                                         }
                                                 }
                                         }
@@ -7385,7 +7392,7 @@ fun TempControlSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier
-                        .width(116.dp)
+                        .width(138.dp)
                         .height(44.dp)
                         .alpha(alpha)
         ) {
@@ -7393,8 +7400,8 @@ fun TempControlSection(
                 Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                                .size(width = 28.dp, height = 40.dp)
-                                .clip(RoundedCornerShape(6.dp))
+                                .size(width = 34.dp, height = 40.dp)
+                                .clip(RoundedCornerShape(8.dp))
                                 .clickable(
                                         enabled = canInteract,
                                         interactionSource = leftInteraction,
@@ -7425,7 +7432,7 @@ fun TempControlSection(
                 Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                                .width(60.dp)
+                                .width(70.dp)
                                 .fillMaxHeight()
                                 .onGloballyPositioned { coordinates ->
                                         centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
@@ -7520,8 +7527,8 @@ fun TempControlSection(
                 Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                                .size(width = 28.dp, height = 40.dp)
-                                .clip(RoundedCornerShape(6.dp))
+                                .size(width = 34.dp, height = 40.dp)
+                                .clip(RoundedCornerShape(8.dp))
                                 .clickable(
                                         enabled = canInteract,
                                         interactionSource = rightInteraction,
