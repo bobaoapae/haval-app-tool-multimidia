@@ -37,6 +37,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.input.pointer.PointerInputChange
@@ -319,6 +320,279 @@ fun FanSpeedIcon(
         }
 }
 
+/**
+ * Authentic CoffeeOS 3.0 4-blade curved propeller automotive fan icon.
+ */
+@Composable
+fun CoffeeOsFanIcon(
+        modifier: Modifier = Modifier.size(24.dp),
+        tint: Color = Color.White
+) {
+        Canvas(modifier = modifier) {
+                val w = size.width
+                val h = size.height
+                val cx = w / 2f
+                val cy = h / 2f
+                val hubRadius = w * 0.11f
+
+                // Central hub
+                drawCircle(color = tint, radius = hubRadius, center = Offset(cx, cy))
+
+                // 4 curved aerodynamic blades radiating at 0, 90, 180, 270 degrees
+                for (i in 0 until 4) {
+                        rotate(degrees = i * 90f, pivot = Offset(cx, cy)) {
+                                val blade = Path().apply {
+                                        moveTo(cx, cy - hubRadius * 0.7f)
+                                        // Outer sweep curve to blade tip
+                                        cubicTo(
+                                                cx + w * 0.08f, cy - h * 0.22f,
+                                                cx + w * 0.28f, cy - h * 0.36f,
+                                                cx + w * 0.24f, cy - h * 0.45f
+                                        )
+                                        // Rounded outer tip
+                                        cubicTo(
+                                                cx + w * 0.18f, cy - h * 0.48f,
+                                                cx + w * 0.06f, cy - h * 0.44f,
+                                                cx - w * 0.06f, cy - h * 0.32f
+                                        )
+                                        // Inner return curve back to hub
+                                        cubicTo(
+                                                cx - w * 0.10f, cy - h * 0.22f,
+                                                cx - hubRadius * 0.8f, cy - hubRadius * 0.6f,
+                                                cx, cy - hubRadius * 0.7f
+                                        )
+                                        close()
+                                }
+                                drawPath(blade, color = tint)
+                        }
+                }
+        }
+}
+
+/**
+ * CoffeeOS 3.0 Home icon: gabled roof house outline with arched doorway cutout.
+ */
+@Composable
+fun CoffeeOsHomeIcon(
+        modifier: Modifier = Modifier.size(24.dp),
+        tint: Color = Color.White
+) {
+        Canvas(modifier = modifier) {
+                val w = size.width
+                val h = size.height
+                val strokeW = 1.8.dp.toPx()
+
+                val path = Path().apply {
+                        // Roof peak
+                        moveTo(w * 0.50f, h * 0.14f)
+                        // Right roof slope
+                        lineTo(w * 0.88f, h * 0.46f)
+                        // Right wall
+                        lineTo(w * 0.88f, h * 0.86f)
+                        quadraticTo(w * 0.88f, h * 0.90f, w * 0.84f, h * 0.90f)
+                        // Doorway right side
+                        lineTo(w * 0.62f, h * 0.90f)
+                        lineTo(w * 0.62f, h * 0.64f)
+                        quadraticTo(w * 0.50f, h * 0.54f, w * 0.38f, h * 0.64f)
+                        lineTo(w * 0.38f, h * 0.90f)
+                        // Doorway left side
+                        lineTo(w * 0.16f, h * 0.90f)
+                        quadraticTo(w * 0.12f, h * 0.90f, w * 0.12f, h * 0.86f)
+                        lineTo(w * 0.12f, h * 0.46f)
+                        close()
+                }
+                drawPath(
+                        path = path,
+                        color = tint,
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+        }
+}
+
+/**
+ * CoffeeOS 3.0 Car icon: front vehicle silhouette outline with headlights and roofline.
+ */
+@Composable
+fun CoffeeOsCarIcon(
+        modifier: Modifier = Modifier.size(24.dp),
+        tint: Color = Color.White
+) {
+        Canvas(modifier = modifier) {
+                val w = size.width
+                val h = size.height
+                val strokeW = 1.8.dp.toPx()
+
+                val carBody = Path().apply {
+                        moveTo(w * 0.32f, h * 0.22f)
+                        lineTo(w * 0.68f, h * 0.22f)
+                        cubicTo(w * 0.74f, h * 0.24f, w * 0.80f, h * 0.42f, w * 0.88f, h * 0.48f)
+                        lineTo(w * 0.88f, h * 0.72f)
+                        lineTo(w * 0.84f, h * 0.80f)
+                        lineTo(w * 0.76f, h * 0.80f)
+                        lineTo(w * 0.72f, h * 0.74f)
+                        lineTo(w * 0.28f, h * 0.74f)
+                        lineTo(w * 0.24f, h * 0.80f)
+                        lineTo(w * 0.16f, h * 0.80f)
+                        lineTo(w * 0.12f, h * 0.72f)
+                        lineTo(w * 0.12f, h * 0.48f)
+                        cubicTo(w * 0.20f, h * 0.42f, w * 0.26f, h * 0.24f, w * 0.32f, h * 0.22f)
+                        close()
+                }
+                drawPath(
+                        path = carBody,
+                        color = tint,
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+
+                val windshieldPath = Path().apply {
+                        moveTo(w * 0.22f, h * 0.48f)
+                        lineTo(w * 0.78f, h * 0.48f)
+                }
+                drawPath(
+                        path = windshieldPath,
+                        color = tint,
+                        style = Stroke(width = strokeW * 0.85f, cap = StrokeCap.Round)
+                )
+
+                drawCircle(
+                        color = tint,
+                        radius = strokeW * 0.85f,
+                        center = Offset(w * 0.24f, h * 0.58f)
+                )
+                drawCircle(
+                        color = tint,
+                        radius = strokeW * 0.85f,
+                        center = Offset(w * 0.76f, h * 0.58f)
+                )
+        }
+}
+
+@Composable
+fun BackButton(
+        scope: CoroutineScope,
+        modifier: Modifier = Modifier
+) {
+        val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val isPressed by interactionSource.collectIsPressedAsState()
+        val animatedBg by animateColorAsState(
+                targetValue = if (isPressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
+                animationSpec = tween(durationMillis = if (isPressed) 50 else 300),
+                label = "backBg"
+        )
+
+        Box(
+                contentAlignment = Alignment.Center,
+                modifier = modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(animatedBg)
+                        .clickable(
+                                interactionSource = interactionSource,
+                                indication = null
+                        ) {
+                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                        ShizukuUtils.runCommandAndGetOutput(arrayOf("input", "keyevent", "4"))
+                                }
+                        }
+        ) {
+                Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Voltar",
+                        tint = if (isPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(22.dp)
+                )
+        }
+}
+
+@Composable
+fun VehicleSettingsButton(
+        modifier: Modifier = Modifier
+) {
+        val showSettings = BottomBarState.isSettingsMenuExpanded
+        val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val isPressed by interactionSource.collectIsPressedAsState()
+        val conducaoColor by animateColorAsState(
+                targetValue = if (isPressed || showSettings) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
+                animationSpec = tween(durationMillis = if (isPressed) 50 else 300),
+                label = "conducaoColor"
+        )
+
+        Box(
+                contentAlignment = Alignment.Center,
+                modifier = modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(conducaoColor)
+                        .onGloballyPositioned { coords ->
+                                BottomBarState.conducaoCenterX = coords.positionInRoot().x + coords.size.width / 2f
+                        }
+                        .clickable(
+                                interactionSource = interactionSource,
+                                indication = null
+                        ) {
+                                BottomBarState.isSettingsMenuExpanded = !showSettings
+                                if (BottomBarState.isSettingsMenuExpanded) {
+                                        BottomBarState.isMenuExpanded = false
+                                        BottomBarState.isOverrideMenuExpanded = false
+                                        BottomBarState.isAcMenuExpanded = false
+                                }
+                        }
+        ) {
+                CoffeeOsCarIcon(
+                        modifier = Modifier.size(24.dp),
+                        tint = if (showSettings) Color(0xFF2196F3) else Color.White.copy(alpha = 0.90f)
+                )
+        }
+}
+
+@Composable
+fun HomeButton(
+        scope: CoroutineScope,
+        context: Context,
+        modifier: Modifier = Modifier
+) {
+        val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val isPressed by interactionSource.collectIsPressedAsState()
+        val animatedBg by animateColorAsState(
+                targetValue = if (isPressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
+                animationSpec = tween(durationMillis = if (isPressed) 50 else 300),
+                label = "homeBg"
+        )
+
+        Box(
+                contentAlignment = Alignment.Center,
+                modifier = modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(animatedBg)
+                        .clickable(
+                                interactionSource = interactionSource,
+                                indication = null
+                        ) {
+                                BottomBarState.isMenuExpanded = false
+                                BottomBarState.isSettingsMenuExpanded = false
+                                BottomBarState.isOverrideMenuExpanded = false
+                                BottomBarState.isAcMenuExpanded = false
+
+                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                        ShizukuUtils.runCommandAndGetOutput(arrayOf("input", "keyevent", "3"))
+                                }
+                                val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+                                        addCategory(android.content.Intent.CATEGORY_HOME)
+                                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                try {
+                                        context.startActivity(homeIntent)
+                                } catch (_: Exception) {}
+                        }
+        ) {
+                CoffeeOsHomeIcon(
+                        modifier = Modifier.size(24.dp),
+                        tint = if (isPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.90f)
+                )
+        }
+}
+
 
 @Composable
 fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
@@ -586,10 +860,9 @@ fun AcQuickMenuContent() {
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                        FanSpeedIcon(
-                                                speed = if (isPowerOn) fanSpeed else 0,
+                                        CoffeeOsFanIcon(
                                                 modifier = Modifier.size(22.dp).padding(1.dp),
-                                                activeColor = if (isPowerOn) Color(0xFF2196F3) else Color.White.copy(alpha = 0.4f)
+                                                tint = if (isPowerOn) Color(0xFF2196F3) else Color.White.copy(alpha = 0.4f)
                                         )
                                         Text(
                                                 text = "Climatiza\u00e7\u00e3o",
@@ -970,7 +1243,7 @@ fun FanButton(
 	Box(
 		contentAlignment = Alignment.Center,
 		modifier = Modifier
-			.width(92.dp)
+			.width(68.dp)
 			.fillMaxHeight()
 			.onGloballyPositioned { coords ->
 				centerX = coords.positionInRoot().x + coords.size.width / 2f
@@ -1029,42 +1302,30 @@ fun FanButton(
 				}
 			}
 	) {
-		Column(
-			horizontalAlignment = Alignment.CenterHorizontally,
-			verticalArrangement = Arrangement.Center,
+		Row(
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.Center,
 			modifier = Modifier
 				.fillMaxHeight()
 				.clip(RoundedCornerShape(8.dp))
 				.background(animatedColor)
-				.padding(horizontal = 6.dp, vertical = 4.dp)
+				.padding(horizontal = 8.dp)
 		) {
-			Text(
-				text = "Ventila\u00e7\u00e3o",
-				style = labelStyle.copy(
-					fontSize = 10.sp,
-					color = if (isAcMenuExpanded) Color(0xFF2196F3) else Color.LightGray
-				),
-				maxLines = 1,
-				softWrap = false
+			CoffeeOsFanIcon(
+				modifier = Modifier.size(24.dp),
+				tint = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.4f)
 			)
-			Spacer(modifier = Modifier.height(2.dp))
-			Row(
-				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(6.dp)
-			) {
-				FanSpeedIcon(
-					speed = if (isPowerOn) fanSpeed else 0,
-					modifier = Modifier.size(20.dp).padding(1.dp),
-					activeColor = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.5f)
-				)
-				Text(
-					text = if (!isPowerOn || fanSpeed == 0) "OFF" else "$fanSpeed",
-					style = commonTextStyle.copy(
-						fontSize = 18.sp,
-						color = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.5f)
-					)
-				)
-			}
+			Spacer(modifier = Modifier.width(3.dp))
+			Text(
+				text = if (!isPowerOn || fanSpeed == 0) "OFF" else "$fanSpeed",
+				style = TextStyle(
+					fontFamily = Michroma,
+					fontSize = if (!isPowerOn || fanSpeed == 0) 10.sp else 12.sp,
+					fontWeight = FontWeight.Bold,
+					color = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.4f)
+				),
+				modifier = Modifier.align(Alignment.Bottom).padding(bottom = 8.dp)
+			)
 		}
 	}
 }
@@ -1791,7 +2052,10 @@ fun BottomBarContent() {
                                                         context = barContext
                                                 )
 
-                                                // 2. Motorista Temp
+                                                // 2. Voltar (Back button)
+                                                BackButton(scope = scope)
+
+                                                // 3. Motorista Temp
                                                 TempControlSection(
                                                         label = "Motorista",
                                                         temp = driverTemp,
@@ -1810,9 +2074,6 @@ fun BottomBarContent() {
                                                                 serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
                                                         }
                                                 }
-
-                                                // 3. Controls Section (Voltar + Condução)
-                                                ControlsSection(scope = scope)
 
                                                 // 4. Centered App Launcher Section (Launcher ⊞ + 5 Apps in CENTER!)
                                                 CenteredAppLauncherSection(
@@ -1862,7 +2123,7 @@ fun BottomBarContent() {
                                                         )
                                                 }
 
-                                                // 6. Passageiro Temp
+                                                // 7. Passageiro Temp
                                                 TempControlSection(
                                                         label = "Passageiro",
                                                         temp = passTemp,
@@ -1882,7 +2143,13 @@ fun BottomBarContent() {
                                                         }
                                                 }
 
-                                                // 7. Override Section
+                                                // 8. Vehicle Settings (Condução - CoffeeOS 3.0 style)
+                                                VehicleSettingsButton()
+
+                                                // 9. Home Button (CoffeeOS 3.0 style)
+                                                HomeButton(scope = scope, context = barContext)
+
+                                                // 10. Override Section
                                                 val isOverrideExpanded = BottomBarState.isOverrideMenuExpanded
                                                 val overrideInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                                                 val overridePressed by overrideInteraction.collectIsPressedAsState()
@@ -3094,9 +3361,10 @@ fun BottomBarMenus() {
                                         if (BottomBarState.isAcMenuExpanded) {
                                                 val acMenuWidthDp = 360.dp
                                                 val density = LocalDensity.current
+                                                val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
                                                 val acStartPad = if (BottomBarState.fanButtonCenterX > 0f) {
                                                         val fanCenterDp = with(density) { BottomBarState.fanButtonCenterX.toDp() }
-                                                        (fanCenterDp - acMenuWidthDp / 2).coerceAtLeast(16.dp)
+                                                        (fanCenterDp - acMenuWidthDp / 2).coerceIn(16.dp, (screenWidthDp - acMenuWidthDp - 16.dp).coerceAtLeast(16.dp))
                                                 } else {
                                                         450.dp
                                                 }
@@ -3117,9 +3385,10 @@ fun BottomBarMenus() {
                                         ) {
                                                 val settingsMenuWidthDp = 480.dp
                                                 val density = LocalDensity.current
+                                                val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
                                                 val settingsStartPad = if (BottomBarState.conducaoCenterX > 0f) {
                                                         val conducaoCenterDp = with(density) { BottomBarState.conducaoCenterX.toDp() }
-                                                        (conducaoCenterDp - settingsMenuWidthDp / 2).coerceAtLeast(16.dp)
+                                                        (conducaoCenterDp - settingsMenuWidthDp / 2).coerceIn(16.dp, (screenWidthDp - settingsMenuWidthDp - 16.dp).coerceAtLeast(16.dp))
                                                 } else {
                                                         300.dp
                                                 }
@@ -7107,17 +7376,55 @@ fun TempControlSection(
                 }
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.alpha(alpha)) {
-                SmallButton(Icons.Default.Remove, canInteract, width = buttonWidth) {
-                        val cur = currentTempRef.toFloatOrNull() ?: 22.0f
-                        val next = (cur - 0.5f).coerceIn(16.0f, 30.0f)
-                        onValueChange(-0.5f)
-                        postHud(next, autoDismiss = true)
-                }
-                Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
+        val leftInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val leftPressed by leftInteraction.collectIsPressedAsState()
+        val rightInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val rightPressed by rightInteraction.collectIsPressedAsState()
+
+        Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                        .height(44.dp)
+                        .alpha(alpha)
+        ) {
+                // Left Chevron < (Decrease temp)
+                Box(
+                        contentAlignment = Alignment.Center,
                         modifier = Modifier
-                                .width(88.dp)
+                                .size(width = 30.dp, height = 40.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable(
+                                        enabled = canInteract,
+                                        interactionSource = leftInteraction,
+                                        indication = null
+                                ) {
+                                        val cur = currentTempRef.toFloatOrNull() ?: 22.0f
+                                        val next = (cur - 0.5f).coerceIn(16.0f, 30.0f)
+                                        onValueChange(-0.5f)
+                                        postHud(next, autoDismiss = true)
+                                }
+                ) {
+                        Canvas(modifier = Modifier.size(16.dp)) {
+                                val strokeW = 2.dp.toPx()
+                                val path = Path().apply {
+                                        moveTo(size.width * 0.65f, size.height * 0.15f)
+                                        lineTo(size.width * 0.35f, size.height * 0.50f)
+                                        lineTo(size.width * 0.65f, size.height * 0.85f)
+                                }
+                                drawPath(
+                                        path = path,
+                                        color = if (leftPressed) Color(0xFF2196F3) else Color.White.copy(alpha = if (canInteract) 0.85f else 0.35f),
+                                        style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                        }
+                }
+
+                // Center Temperature Display (e.g. 21.5℃)
+                Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                                .padding(horizontal = 4.dp)
                                 .onGloballyPositioned { coordinates ->
                                         centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
                                 }
@@ -7176,27 +7483,67 @@ fun TempControlSection(
                                         }
                                 }
                 ) {
-                        Text(text = label, style = labelStyle)
                         val displayTemp = if (temp == "--") "--" else temp
                         val tempColor = if (floatTemp > 30f) Color.Red else Color.White
-                        Text(
-                                text =
-                                        buildAnnotatedString {
-                                                withStyle(style = SpanStyle(color = tempColor)) {
-                                                        append(displayTemp)
-                                                }
-                                                if (displayTemp != "--") append("\u00b0C")
-                                        },
-                                style = commonTextStyle.copy(fontSize = 18.sp),
-                                modifier = Modifier.padding(horizontal = 4.dp),
-                                maxLines = 1
-                        )
+
+                        Row(
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.Center
+                        ) {
+                                Text(
+                                        text = displayTemp,
+                                        style = TextStyle(
+                                                fontFamily = Michroma,
+                                                fontSize = 17.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = if (isTempValid) tempColor else Color.White.copy(alpha = 0.4f)
+                                        )
+                                )
+                                if (displayTemp != "--") {
+                                        Text(
+                                                text = "\u2103",
+                                                style = TextStyle(
+                                                        fontFamily = Michroma,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Normal,
+                                                        color = if (isTempValid) tempColor.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.35f)
+                                                ),
+                                                modifier = Modifier.padding(start = 1.dp, top = 1.dp)
+                                        )
+                                }
+                        }
                 }
-                SmallButton(Icons.Default.Add, canInteract, width = buttonWidth) {
-                        val cur = currentTempRef.toFloatOrNull() ?: 22.0f
-                        val next = (cur + 0.5f).coerceIn(16.0f, 30.0f)
-                        onValueChange(0.5f)
-                        postHud(next, autoDismiss = true)
+
+                // Right Chevron > (Increase temp)
+                Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                                .size(width = 30.dp, height = 40.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable(
+                                        enabled = canInteract,
+                                        interactionSource = rightInteraction,
+                                        indication = null
+                                ) {
+                                        val cur = currentTempRef.toFloatOrNull() ?: 22.0f
+                                        val next = (cur + 0.5f).coerceIn(16.0f, 30.0f)
+                                        onValueChange(0.5f)
+                                        postHud(next, autoDismiss = true)
+                                }
+                ) {
+                        Canvas(modifier = Modifier.size(16.dp)) {
+                                val strokeW = 2.dp.toPx()
+                                val path = Path().apply {
+                                        moveTo(size.width * 0.35f, size.height * 0.15f)
+                                        lineTo(size.width * 0.65f, size.height * 0.50f)
+                                        lineTo(size.width * 0.35f, size.height * 0.85f)
+                                }
+                                drawPath(
+                                        path = path,
+                                        color = if (rightPressed) Color(0xFF2196F3) else Color.White.copy(alpha = if (canInteract) 0.85f else 0.35f),
+                                        style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                        }
                 }
         }
 }
@@ -7273,16 +7620,52 @@ fun VolumeControlSection(
                 }
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-                SmallButton(Icons.Default.Remove, width = buttonWidth) {
-                        val next = (currentVolRef - 1).coerceIn(0, 30)
-                        onValueChange(-1)
-                        postHud(next, autoDismiss = true)
-                }
-                Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
+        val leftInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val leftPressed by leftInteraction.collectIsPressedAsState()
+        val rightInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val rightPressed by rightInteraction.collectIsPressedAsState()
+
+        Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.height(44.dp)
+        ) {
+                // Vol down chevron <
+                Box(
+                        contentAlignment = Alignment.Center,
                         modifier = Modifier
-                                .width(60.dp)
+                                .size(width = 24.dp, height = 40.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable(
+                                        interactionSource = leftInteraction,
+                                        indication = null
+                                ) {
+                                        val next = (currentVolRef - 1).coerceIn(0, 30)
+                                        onValueChange(-1)
+                                        postHud(next, autoDismiss = true)
+                                }
+                ) {
+                        Canvas(modifier = Modifier.size(14.dp)) {
+                                val strokeW = 1.8.dp.toPx()
+                                val path = Path().apply {
+                                        moveTo(size.width * 0.65f, size.height * 0.15f)
+                                        lineTo(size.width * 0.35f, size.height * 0.50f)
+                                        lineTo(size.width * 0.65f, size.height * 0.85f)
+                                }
+                                drawPath(
+                                        path = path,
+                                        color = if (leftPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.85f),
+                                        style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                        }
+                }
+
+                // Center Speaker Icon & Number
+                Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                                .padding(horizontal = 4.dp)
                                 .onGloballyPositioned { coordinates ->
                                         centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
                                 }
@@ -7338,18 +7721,51 @@ fun VolumeControlSection(
                                         }
                                 }
                 ) {
-                        Text(text = label, style = labelStyle)
+                        Icon(
+                                imageVector = if (volume == 0) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
+                                contentDescription = "Volume",
+                                tint = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(19.dp)
+                        )
                         Text(
                                 text = volume.toString(),
-                                style = commonTextStyle,
-                                modifier = Modifier.padding(horizontal = 4.dp),
-                                maxLines = 1
+                                style = TextStyle(
+                                        fontFamily = Michroma,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color.White
+                                )
                         )
                 }
-                SmallButton(Icons.Default.Add, width = buttonWidth) {
-                        val next = (currentVolRef + 1).coerceIn(0, 30)
-                        onValueChange(1)
-                        postHud(next, autoDismiss = true)
+
+                // Vol up chevron >
+                Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                                .size(width = 24.dp, height = 40.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable(
+                                        interactionSource = rightInteraction,
+                                        indication = null
+                                ) {
+                                        val next = (currentVolRef + 1).coerceIn(0, 30)
+                                        onValueChange(1)
+                                        postHud(next, autoDismiss = true)
+                                }
+                ) {
+                        Canvas(modifier = Modifier.size(14.dp)) {
+                                val strokeW = 1.8.dp.toPx()
+                                val path = Path().apply {
+                                        moveTo(size.width * 0.35f, size.height * 0.15f)
+                                        lineTo(size.width * 0.65f, size.height * 0.50f)
+                                        lineTo(size.width * 0.35f, size.height * 0.85f)
+                                }
+                                drawPath(
+                                        path = path,
+                                        color = if (rightPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.85f),
+                                        style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                        }
                 }
         }
 }
