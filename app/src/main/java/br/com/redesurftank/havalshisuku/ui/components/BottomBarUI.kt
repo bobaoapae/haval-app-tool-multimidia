@@ -321,52 +321,19 @@ fun FanSpeedIcon(
 }
 
 /**
- * Authentic CoffeeOS 3.0 4-blade curved propeller automotive fan icon.
+ * Authentic Haval / CoffeeOS automotive 4-blade fan icon.
  */
 @Composable
 fun CoffeeOsFanIcon(
         modifier: Modifier = Modifier.size(24.dp),
         tint: Color = Color.White
 ) {
-        Canvas(modifier = modifier) {
-                val w = size.width
-                val h = size.height
-                val cx = w / 2f
-                val cy = h / 2f
-                val hubRadius = w * 0.11f
-
-                // Central hub
-                drawCircle(color = tint, radius = hubRadius, center = Offset(cx, cy))
-
-                // 4 curved aerodynamic blades radiating at 0, 90, 180, 270 degrees
-                for (i in 0 until 4) {
-                        rotate(degrees = i * 90f, pivot = Offset(cx, cy)) {
-                                val blade = Path().apply {
-                                        moveTo(cx, cy - hubRadius * 0.7f)
-                                        // Outer sweep curve to blade tip
-                                        cubicTo(
-                                                cx + w * 0.08f, cy - h * 0.22f,
-                                                cx + w * 0.28f, cy - h * 0.36f,
-                                                cx + w * 0.24f, cy - h * 0.45f
-                                        )
-                                        // Rounded outer tip
-                                        cubicTo(
-                                                cx + w * 0.18f, cy - h * 0.48f,
-                                                cx + w * 0.06f, cy - h * 0.44f,
-                                                cx - w * 0.06f, cy - h * 0.32f
-                                        )
-                                        // Inner return curve back to hub
-                                        cubicTo(
-                                                cx - w * 0.10f, cy - h * 0.22f,
-                                                cx - hubRadius * 0.8f, cy - hubRadius * 0.6f,
-                                                cx, cy - hubRadius * 0.7f
-                                        )
-                                        close()
-                                }
-                                drawPath(blade, color = tint)
-                        }
-                }
-        }
+        Icon(
+                painter = painterResource(id = R.drawable.ic_hvac_fan),
+                contentDescription = "Fan",
+                tint = tint,
+                modifier = modifier
+        )
 }
 
 /**
@@ -555,9 +522,6 @@ fun CoffeeOsSeatVentilationButton(
         modifier: Modifier = Modifier,
         onLevelChange: (String) -> Unit
 ) {
-        val scope = rememberCoroutineScope()
-        var dismissJob by remember { mutableStateOf<Job?>(null) }
-        var centerX by remember { mutableFloatStateOf(0f) }
         val parsedLevel = parseSeatVentilationLevel(level, maxLevel)
         val parsedMax = parseSeatVentilationMaxLevel(maxLevel).coerceAtMost(3)
         val isActive = parsedLevel > 0
@@ -576,41 +540,18 @@ fun CoffeeOsSeatVentilationButton(
                 label = "seatBg"
         )
 
-        fun postHud(newLevel: Int) {
-                BottomBarState.activeSwipeHud = BottomBarState.SwipeHudData(
-                        type = if (isDriver) BottomBarState.SliderType.DRIVER_TEMP else BottomBarState.SliderType.PASS_TEMP,
-                        title = if (isDriver) "VENTILA\u00c7\u00c3O MOTORISTA" else "VENTILA\u00c7\u00c3O PASSAGEIRO",
-                        valueText = if (newLevel == 0) "DESLIGADO" else "N\u00edvel $newLevel",
-                        fraction = (newLevel / 3f).coerceIn(0f, 1f),
-                        targetCenterX = centerX,
-                        minLabel = "OFF",
-                        maxLabel = "MAX (3)",
-                        isFan = false
-                )
-                dismissJob?.cancel()
-                dismissJob = scope.launch {
-                        delay(1000)
-                        BottomBarState.activeSwipeHud = null
-                }
-        }
-
         Box(
                 contentAlignment = Alignment.Center,
                 modifier = modifier
                         .size(width = 44.dp, height = 44.dp)
                         .clip(RoundedCornerShape(11.dp))
                         .background(animatedBg)
-                        .onGloballyPositioned { coordinates ->
-                                centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
-                        }
                         .clickable(
                                 interactionSource = interactionSource,
                                 indication = null
                         ) {
                                 val next = nextSeatVentilationLevel(level, maxLevel)
-                                val parsedNext = parseSeatVentilationLevel(next, maxLevel)
                                 onLevelChange(next)
-                                postHud(parsedNext)
                         }
         ) {
                 Column(
@@ -619,10 +560,14 @@ fun CoffeeOsSeatVentilationButton(
                         modifier = Modifier.fillMaxSize()
                 ) {
                         Icon(
-                                imageVector = Icons.Default.EventSeat,
+                                painter = painterResource(id = R.drawable.ic_seat_ventilation),
                                 contentDescription = if (isDriver) "Ventilação Motorista" else "Ventilação Passageiro",
                                 tint = if (isActive) cyanColor else Color.White.copy(alpha = 0.65f),
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier
+                                        .size(23.dp)
+                                        .then(
+                                                if (!isDriver) Modifier.graphicsLayer(scaleX = -1f) else Modifier
+                                        )
                         )
                         Spacer(modifier = Modifier.height(2.5.dp))
                         Row(
@@ -2174,7 +2119,7 @@ fun BottomBarContent() {
                                         ) {
                                                 val isACEnabled = hvacPower == "1"
 
-                                                // 1. Extremidade Esquerda (Setas, Ventilação Motorista, Temp Motorista, Fan < >)
+                                                // 1. Extremidade Esquerda (Setas, Temp Motorista, Ventilação Motorista, Fan < >)
                                                 Row(
                                                         modifier = Modifier.align(Alignment.CenterStart),
                                                         verticalAlignment = Alignment.CenterVertically,
@@ -2185,20 +2130,6 @@ fun BottomBarContent() {
                                                                 hasSecondaryApps = BottomBarState.hasAppsOnSecondaryDisplays,
                                                                 scope = scope,
                                                                 context = barContext
-                                                        )
-
-                                                        CoffeeOsSeatVentilationButton(
-                                                                isDriver = true,
-                                                                level = driverSeatVentilation,
-                                                                maxLevel = seatVentilationMaxLevel,
-                                                                onLevelChange = { nextLevel ->
-                                                                        driverSeatVentilation = nextLevel
-                                                                        updateSeatVentilationLevel(
-                                                                                serviceManager,
-                                                                                CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL,
-                                                                                nextLevel
-                                                                        )
-                                                                }
                                                         )
 
                                                         TempControlSection(
@@ -2219,6 +2150,20 @@ fun BottomBarContent() {
                                                                         serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
                                                                 }
                                                         }
+
+                                                        CoffeeOsSeatVentilationButton(
+                                                                isDriver = true,
+                                                                level = driverSeatVentilation,
+                                                                maxLevel = seatVentilationMaxLevel,
+                                                                onLevelChange = { nextLevel ->
+                                                                        driverSeatVentilation = nextLevel
+                                                                        updateSeatVentilationLevel(
+                                                                                serviceManager,
+                                                                                CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL,
+                                                                                nextLevel
+                                                                        )
+                                                                }
+                                                        )
 
                                                         FanControlSection(
                                                                 speed = fanSpeed,
@@ -2260,7 +2205,7 @@ fun BottomBarContent() {
                                                         )
                                                 }
 
-                                                // 3. Extremidade Direita (Volume, Temp Passageiro, Ventilação Passageiro, Override e Spacer)
+                                                // 3. Extremidade Direita (Volume, Ventilação Passageiro, Temp Passageiro, Override e Spacer)
                                                 Row(
                                                         modifier = Modifier.align(Alignment.CenterEnd),
                                                         verticalAlignment = Alignment.CenterVertically,
@@ -2278,6 +2223,20 @@ fun BottomBarContent() {
                                                                         newVol.toString()
                                                                 )
                                                         }
+
+                                                        CoffeeOsSeatVentilationButton(
+                                                                isDriver = false,
+                                                                level = passengerSeatVentilation,
+                                                                maxLevel = seatVentilationMaxLevel,
+                                                                onLevelChange = { nextLevel ->
+                                                                        passengerSeatVentilation = nextLevel
+                                                                        updateSeatVentilationLevel(
+                                                                                serviceManager,
+                                                                                CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL,
+                                                                                nextLevel
+                                                                        )
+                                                                }
+                                                        )
 
                                                         TempControlSection(
                                                                 label = "Passageiro",
@@ -2297,20 +2256,6 @@ fun BottomBarContent() {
                                                                         serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
                                                                 }
                                                         }
-
-                                                        CoffeeOsSeatVentilationButton(
-                                                                isDriver = false,
-                                                                level = passengerSeatVentilation,
-                                                                maxLevel = seatVentilationMaxLevel,
-                                                                onLevelChange = { nextLevel ->
-                                                                        passengerSeatVentilation = nextLevel
-                                                                        updateSeatVentilationLevel(
-                                                                                serviceManager,
-                                                                                CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL,
-                                                                                nextLevel
-                                                                        )
-                                                                }
-                                                        )
 
                                                         // Override Section
                                                         val isOverrideExpanded = BottomBarState.isOverrideMenuExpanded
