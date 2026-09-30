@@ -101,6 +101,8 @@ object BottomBarState {
     var isDeleteModeEnabled by mutableStateOf(false)
     val restoredApps = mutableStateListOf<String>()
     var hasAppsOnSecondaryDisplays by mutableStateOf(false)
+    var fanButtonCenterX by mutableStateOf(0f)
+    var conducaoCenterX by mutableStateOf(0f)
 
     // Overlay flutuante de CPU/RAM (opt-in). Espelhos observáveis das prefs — UI e service atualizam.
     var resourceOverlayEnabled by mutableStateOf(false)

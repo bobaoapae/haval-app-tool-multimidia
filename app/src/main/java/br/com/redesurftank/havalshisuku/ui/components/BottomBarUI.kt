@@ -973,6 +973,7 @@ fun FanButton(
 			.fillMaxHeight()
 			.onGloballyPositioned { coords ->
 				centerX = coords.positionInRoot().x + coords.size.width / 2f
+				BottomBarState.fanButtonCenterX = centerX
 			}
 			.pointerInput(Unit) {
 				awaitPointerEventScope {
@@ -1068,7 +1069,12 @@ fun FanButton(
 }
 
 @Composable
-fun CenteredAppDock(
+fun CenteredAppDock(scope: CoroutineScope, context: Context) {
+	AppSwitcherSection(scope, context)
+}
+
+@Composable
+fun AppSwitcherSection(
 	scope: CoroutineScope,
 	context: Context
 ) {
@@ -1422,8 +1428,18 @@ fun BottomBarContent() {
                         resolveBottomBarRowStartPadPx(leftGutterPx, aaCutoutPx).toDp()
                 }
         val barContext = LocalContext.current
-        // Safe left padding to comfortably accommodate the car's physical vertical rail without cramping the Motorista controls
-        val effectiveStartPad = maxOf(rowStartPad + 16.dp, 28.dp)
+        // Safe left padding to comfortably accommodate the car's physical vertical rail without cramping the controls
+        val effectiveStartPad = maxOf(rowStartPad + 16.dp, 36.dp)
+
+        LaunchedEffect(Unit) {
+                while (isActive) {
+                        val hasSec = withContext(Dispatchers.IO) {
+                                DisplayAppLauncher.hasAppsOnSecondaryDisplays()
+                        }
+                        BottomBarState.hasAppsOnSecondaryDisplays = hasSec
+                        delay(2500)
+                }
+        }
 
         // Note the gutter is applied to the content Row below, NOT here: the black Surface has to span
         // the whole window so the bar reads as one continuous strip. Padding it here leaves the left
@@ -1538,11 +1554,18 @@ fun BottomBarContent() {
                                                                         start = effectiveStartPad,
                                                                         end = 8.dp
                                                                 ),
-                                                verticalAlignment = Alignment.CenterVertically
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
                                                 val isACEnabled = hvacPower == "1"
 
-                                                // 1. Motorista Temp
+                                                // 1. App Switcher / Launcher Section on the LEFT
+                                                AppSwitcherSection(
+                                                        scope = scope,
+                                                        context = barContext
+                                                )
+
+                                                // 2. Motorista Temp
                                                 TempControlSection(
                                                         label = "Motorista",
                                                         temp = driverTemp,
@@ -1562,21 +1585,10 @@ fun BottomBarContent() {
                                                         }
                                                 }
 
-                                                // 2. Volume
-                                                VolumeControlSection(
-                                                        label = "Volume",
-                                                        volume = volume,
-                                                        sliderType = BottomBarState.SliderType.VOLUME
-                                                ) { delta ->
-                                                        val newVol = (volume + delta).coerceIn(0, 30)
-                                                        volume = newVol
-                                                        serviceManager.updateData(
-                                                                CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
-                                                                newVol.toString()
-                                                        )
-                                                }
+                                                // 3. Controls Section (Voltar + Condução)
+                                                ControlsSection(scope = scope)
 
-                                                // 3. Fan Button (Compact icon with blades, swipe speed, tap for quick menu)
+                                                // 4. Fan Button ("Ventilação")
                                                 FanButton(
                                                         fanSpeed = fanSpeed,
                                                         isPowerOn = isACEnabled,
@@ -1604,19 +1616,19 @@ fun BottomBarContent() {
                                                         }
                                                 )
 
-                                                // 4. Centered App Dock
-                                                Box(
-                                                        modifier = Modifier.weight(1f),
-                                                        contentAlignment = Alignment.Center
-                                                ) {
-                                                        CenteredAppDock(
-                                                                scope = scope,
-                                                                context = barContext
+                                                // 5. Volume
+                                                VolumeControlSection(
+                                                        label = "Volume",
+                                                        volume = volume,
+                                                        sliderType = BottomBarState.SliderType.VOLUME
+                                                ) { delta ->
+                                                        val newVol = (volume + delta).coerceIn(0, 30)
+                                                        volume = newVol
+                                                        serviceManager.updateData(
+                                                                CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
+                                                                newVol.toString()
                                                         )
                                                 }
-
-                                                // 5. Controls Section (ConduÃ§Ã£o + Voltar)
-                                                ControlsSection(scope = scope)
 
                                                 // 6. Passageiro Temp
                                                 TempControlSection(
@@ -2822,15 +2834,14 @@ fun BottomBarMenus() {
                                         }
 
                                 Box(modifier = Modifier.fillMaxWidth().padding(start = leftGutter)) {
-                                        // App Menu (Centered above dock)
+                                        // App Menu (Above left App Switcher)
                                         if (br.com.redesurftank.havalshisuku.models.BottomBarState
                                                         .isMenuExpanded
                                         ) {
                                                 Box(
                                                         modifier =
-                                                                Modifier.align(
-                                                                                Alignment.BottomCenter
-                                                                        )
+                                                                Modifier.align(Alignment.BottomStart)
+                                                                        .padding(start = 16.dp)
                                                                         .onGloballyPositioned {
                                                                                 appMenuBounds =
                                                                                         it.boundsInRoot()
@@ -2840,12 +2851,18 @@ fun BottomBarMenus() {
 
                                         // AC Quick Menu (Above Fan Button)
                                         if (BottomBarState.isAcMenuExpanded) {
+                                                val acMenuWidthDp = 360.dp
+                                                val density = LocalDensity.current
+                                                val acStartPad = if (BottomBarState.fanButtonCenterX > 0f) {
+                                                        val fanCenterDp = with(density) { BottomBarState.fanButtonCenterX.toDp() }
+                                                        (fanCenterDp - acMenuWidthDp / 2).coerceAtLeast(16.dp)
+                                                } else {
+                                                        450.dp
+                                                }
                                                 Box(
                                                         modifier =
-                                                                Modifier.padding(start = 140.dp)
-                                                                        .align(
-                                                                                Alignment.BottomStart
-                                                                        )
+                                                                Modifier.padding(start = acStartPad)
+                                                                        .align(Alignment.BottomStart)
                                                                         .onGloballyPositioned {
                                                                                 acMenuBounds =
                                                                                         it.boundsInRoot()
@@ -2857,14 +2874,24 @@ fun BottomBarMenus() {
                                         if (BottomBarState.isSettingsMenuExpanded ||
                                                         BottomBarState.isOverrideMenuExpanded
                                         ) {
+                                                val settingsMenuWidthDp = 480.dp
+                                                val density = LocalDensity.current
+                                                val settingsStartPad = if (BottomBarState.conducaoCenterX > 0f) {
+                                                        val conducaoCenterDp = with(density) { BottomBarState.conducaoCenterX.toDp() }
+                                                        (conducaoCenterDp - settingsMenuWidthDp / 2).coerceAtLeast(16.dp)
+                                                } else {
+                                                        300.dp
+                                                }
                                                 Box(
                                                         modifier =
-                                                                Modifier.align(Alignment.BottomEnd)
-                                                                        .padding(end = if (BottomBarState.isSettingsMenuExpanded) 50.dp else 16.dp)
-                                                                        .onGloballyPositioned {
-                                                                                secondaryMenuBounds =
-                                                                                        it.boundsInRoot()
-                                                                        }
+                                                                (if (BottomBarState.isSettingsMenuExpanded) {
+                                                                        Modifier.padding(start = settingsStartPad).align(Alignment.BottomStart)
+                                                                } else {
+                                                                        Modifier.align(Alignment.BottomEnd).padding(end = 16.dp)
+                                                                }).onGloballyPositioned {
+                                                                        secondaryMenuBounds =
+                                                                                it.boundsInRoot()
+                                                                }
                                                 ) {
                                                         if (BottomBarState.isSettingsMenuExpanded) {
                                                                 SettingsMenuContent(
@@ -7142,6 +7169,9 @@ fun ControlsSection(scope: CoroutineScope) {
                                 .width(70.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(conducaoColor)
+                                .onGloballyPositioned { coords ->
+                                        BottomBarState.conducaoCenterX = coords.positionInRoot().x + coords.size.width / 2f
+                                }
                                 .clickable(
                                         interactionSource = conducaoInteraction,
                                         indication = null
