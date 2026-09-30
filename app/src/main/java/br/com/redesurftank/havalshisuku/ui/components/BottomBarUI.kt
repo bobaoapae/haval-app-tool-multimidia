@@ -1355,15 +1355,15 @@ fun ChevronArrowButton(
 	)
 
 	val primaryColor = if (enabled) {
-		if (isPressed) Color(0xFF64B5F6) else Color(0xFF2196F3)
+		if (isPressed) Color.White else Color(0xFFE2E6EA)
 	} else {
-		Color.White.copy(alpha = 0.30f)
+		Color(0xFF9EA4B0).copy(alpha = 0.35f)
 	}
 
 	val bodyFillColor = if (enabled) {
-		if (isPressed) Color(0xFF1E3552) else Color(0xFF131D2A)
+		if (isPressed) Color(0xFF2D323E) else Color(0xFF161A22)
 	} else {
-		Color(0xFF0F141C).copy(alpha = 0.5f)
+		Color(0xFF101318).copy(alpha = 0.45f)
 	}
 
 	Box(
@@ -7385,6 +7385,7 @@ fun TempControlSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier
+                        .width(116.dp)
                         .height(44.dp)
                         .alpha(alpha)
         ) {
@@ -7392,7 +7393,7 @@ fun TempControlSection(
                 Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                                .size(width = 30.dp, height = 40.dp)
+                                .size(width = 28.dp, height = 40.dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .clickable(
                                         enabled = canInteract,
@@ -7424,7 +7425,8 @@ fun TempControlSection(
                 Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                                .padding(horizontal = 4.dp)
+                                .width(60.dp)
+                                .fillMaxHeight()
                                 .onGloballyPositioned { coordinates ->
                                         centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
                                 }
@@ -7518,7 +7520,7 @@ fun TempControlSection(
                 Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                                .size(width = 30.dp, height = 40.dp)
+                                .size(width = 28.dp, height = 40.dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .clickable(
                                         enabled = canInteract,
@@ -7620,152 +7622,96 @@ fun VolumeControlSection(
                 }
         }
 
-        val leftInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-        val leftPressed by leftInteraction.collectIsPressedAsState()
-        val rightInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-        val rightPressed by rightInteraction.collectIsPressedAsState()
+        var isPressed by remember { mutableStateOf(false) }
+        val animatedBg by animateColorAsState(
+                targetValue = if (isPressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
+                animationSpec = tween(durationMillis = if (isPressed) 50 else 300),
+                label = "volBg"
+        )
 
-        Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.height(44.dp)
-        ) {
-                // Vol down chevron <
-                Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                                .size(width = 24.dp, height = 40.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable(
-                                        interactionSource = leftInteraction,
-                                        indication = null
-                                ) {
-                                        val next = (currentVolRef - 1).coerceIn(0, 30)
-                                        onValueChange(-1)
-                                        postHud(next, autoDismiss = true)
-                                }
-                ) {
-                        Canvas(modifier = Modifier.size(14.dp)) {
-                                val strokeW = 1.8.dp.toPx()
-                                val path = Path().apply {
-                                        moveTo(size.width * 0.65f, size.height * 0.15f)
-                                        lineTo(size.width * 0.35f, size.height * 0.50f)
-                                        lineTo(size.width * 0.65f, size.height * 0.85f)
-                                }
-                                drawPath(
-                                        path = path,
-                                        color = if (leftPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.85f),
-                                        style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                                )
+        Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(animatedBg)
+                        .onGloballyPositioned { coordinates ->
+                                centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
                         }
-                }
+                        .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                        while (true) {
+                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                isPressed = true
+                                                val startX = down.position.x
+                                                val startY = down.position.y
+                                                var totalDragX = 0f
+                                                var isDragging = false
+                                                var accumulatedDragX = 0f
 
-                // Center Speaker Icon & Number
-                Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier
-                                .padding(horizontal = 4.dp)
-                                .onGloballyPositioned { coordinates ->
-                                        centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
-                                }
-                                .pointerInput(Unit) {
-                                        awaitPointerEventScope {
-                                                while (true) {
-                                                        val down = awaitFirstDown(requireUnconsumed = false)
-                                                        val startX = down.position.x
-                                                        val startY = down.position.y
-                                                        var totalDragX = 0f
-                                                        var isDragging = false
-                                                        var accumulatedDragX = 0f
+                                                do {
+                                                        val event = awaitPointerEvent()
+                                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                        if (!change.pressed) break
 
-                                                        do {
-                                                                val event = awaitPointerEvent()
-                                                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                                                if (!change.pressed) break
+                                                        val deltaX = change.position.x - change.previousPosition.x
+                                                        totalDragX += deltaX
 
-                                                                val deltaX = change.position.x - change.previousPosition.x
-                                                                totalDragX += deltaX
-
-                                                                if (!isDragging && kotlin.math.abs(totalDragX) > 10.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(change.position.y - startY)) {
-                                                                        isDragging = true
-                                                                        postHud(currentVolRef, autoDismiss = false)
-                                                                }
-
-                                                                if (isDragging) {
-                                                                        change.consume()
-                                                                        accumulatedDragX += deltaX
-                                                                        val stepPx = 14.dp.toPx()
-                                                                        if (kotlin.math.abs(accumulatedDragX) >= stepPx) {
-                                                                                val deltaVol = if (accumulatedDragX > 0) 1 else -1
-                                                                                accumulatedDragX -= if (accumulatedDragX > 0) stepPx else -stepPx
-                                                                                val next = (currentVolRef + deltaVol).coerceIn(0, 30)
-                                                                                if (next != currentVolRef) {
-                                                                                        onValueChange(deltaVol)
-                                                                                        postHud(next, autoDismiss = false)
-                                                                                }
-                                                                        }
-                                                                }
-                                                        } while (change.pressed)
+                                                        if (!isDragging && kotlin.math.abs(totalDragX) > 10.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(change.position.y - startY)) {
+                                                                isDragging = true
+                                                                postHud(currentVolRef, autoDismiss = false)
+                                                        }
 
                                                         if (isDragging) {
-                                                                dismissJob?.cancel()
-                                                                dismissJob = scope.launch {
-                                                                        delay(1000)
-                                                                        BottomBarState.activeSwipeHud = null
+                                                                change.consume()
+                                                                accumulatedDragX += deltaX
+                                                                val stepPx = 14.dp.toPx()
+                                                                if (kotlin.math.abs(accumulatedDragX) >= stepPx) {
+                                                                        val deltaVol = if (accumulatedDragX > 0) 1 else -1
+                                                                        accumulatedDragX -= if (accumulatedDragX > 0) stepPx else -stepPx
+                                                                        val next = (currentVolRef + deltaVol).coerceIn(0, 30)
+                                                                        if (next != currentVolRef) {
+                                                                                onValueChange(deltaVol)
+                                                                                postHud(next, autoDismiss = false)
+                                                                        }
                                                                 }
-                                                        } else {
-                                                                postHud(currentVolRef, autoDismiss = true)
                                                         }
+                                                } while (change.pressed)
+
+                                                isPressed = false
+                                                if (isDragging) {
+                                                        dismissJob?.cancel()
+                                                        dismissJob = scope.launch {
+                                                                delay(1000)
+                                                                BottomBarState.activeSwipeHud = null
+                                                        }
+                                                } else {
+                                                        postHud(currentVolRef, autoDismiss = true)
                                                 }
                                         }
                                 }
+                        }
+                        .padding(horizontal = 8.dp)
+        ) {
+                Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                         Icon(
                                 imageVector = if (volume == 0) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
                                 contentDescription = "Volume",
-                                tint = Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(19.dp)
+                                tint = if (isPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.88f),
+                                modifier = Modifier.size(20.dp)
                         )
                         Text(
                                 text = volume.toString(),
                                 style = TextStyle(
                                         fontFamily = Michroma,
-                                        fontSize = 15.sp,
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = Color.White
+                                        color = if (isPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.90f)
                                 )
                         )
-                }
-
-                // Vol up chevron >
-                Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                                .size(width = 24.dp, height = 40.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable(
-                                        interactionSource = rightInteraction,
-                                        indication = null
-                                ) {
-                                        val next = (currentVolRef + 1).coerceIn(0, 30)
-                                        onValueChange(1)
-                                        postHud(next, autoDismiss = true)
-                                }
-                ) {
-                        Canvas(modifier = Modifier.size(14.dp)) {
-                                val strokeW = 1.8.dp.toPx()
-                                val path = Path().apply {
-                                        moveTo(size.width * 0.35f, size.height * 0.15f)
-                                        lineTo(size.width * 0.65f, size.height * 0.50f)
-                                        lineTo(size.width * 0.35f, size.height * 0.85f)
-                                }
-                                drawPath(
-                                        path = path,
-                                        color = if (rightPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.85f),
-                                        style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                                )
-                        }
                 }
         }
 }
