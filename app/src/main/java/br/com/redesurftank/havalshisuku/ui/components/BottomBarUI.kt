@@ -1069,6 +1069,247 @@ fun FanButton(
 	}
 }
 
+enum class ChevronDirection {
+	LEFT,
+	RIGHT
+}
+
+@Composable
+fun ChevronArrowButton(
+	direction: ChevronDirection,
+	isCompact: Boolean,
+	label: String,
+	enabled: Boolean,
+	modifier: Modifier = Modifier,
+	onClick: () -> Unit
+) {
+	val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+	val isPressed by interactionSource.collectIsPressedAsState()
+
+	val targetWidth = if (isCompact) 46.dp else 114.dp
+	val animatedWidth by animateDpAsState(
+		targetValue = targetWidth,
+		animationSpec = tween(durationMillis = 250),
+		label = "chevronWidth"
+	)
+
+	val primaryColor = if (enabled) {
+		if (isPressed) Color(0xFF64B5F6) else Color(0xFF2196F3)
+	} else {
+		Color.White.copy(alpha = 0.30f)
+	}
+
+	val bodyFillColor = if (enabled) {
+		if (isPressed) Color(0xFF1E3552) else Color(0xFF131D2A)
+	} else {
+		Color(0xFF0F141C).copy(alpha = 0.5f)
+	}
+
+	Box(
+		modifier = modifier
+			.width(animatedWidth)
+			.height(42.dp)
+			.alpha(if (enabled) 1.0f else 0.32f)
+			.clickable(
+				enabled = enabled,
+				interactionSource = interactionSource,
+				indication = null,
+				onClick = onClick
+			),
+		contentAlignment = Alignment.Center
+	) {
+		Canvas(modifier = Modifier.fillMaxSize()) {
+			val w = size.width
+			val h = size.height
+			val slant = h * 0.36f // chevron slope offset
+			val stripeW = 4.5.dp.toPx()
+			val stripeGap = 3.5.dp.toPx()
+			val cornerRadius = 6.dp.toPx()
+
+			if (isCompact) {
+				// Image 2 style: 3 speed chevrons without body and without label
+				val totalChevronsW = 3 * stripeW + 2 * stripeGap + slant
+				val startX = (w - totalChevronsW) / 2f
+
+				for (i in 0 until 3) {
+					val chevronX = if (direction == ChevronDirection.RIGHT) {
+						startX + i * (stripeW + stripeGap)
+					} else {
+						startX + (2 - i) * (stripeW + stripeGap)
+					}
+
+					val path = Path().apply {
+						if (direction == ChevronDirection.RIGHT) {
+							moveTo(chevronX, 0f)
+							lineTo(chevronX + stripeW, 0f)
+							lineTo(chevronX + stripeW + slant, h / 2f)
+							lineTo(chevronX + stripeW, h)
+							lineTo(chevronX, h)
+							lineTo(chevronX + slant, h / 2f)
+						} else {
+							moveTo(chevronX + slant, 0f)
+							lineTo(chevronX, h / 2f)
+							lineTo(chevronX + slant, h)
+							lineTo(chevronX + slant + stripeW, h)
+							lineTo(chevronX + stripeW, h / 2f)
+							lineTo(chevronX + slant + stripeW, 0f)
+						}
+						close()
+					}
+					drawPath(
+						path = path,
+						color = primaryColor
+					)
+				}
+			} else {
+				// Image 1 style: wide body with label + chevron stripes
+				if (direction == ChevronDirection.LEFT) {
+					// LEFT (Enviar): stripes on left, body extends to the right
+					val s0X = 2.dp.toPx()
+					val s1X = s0X + stripeW + stripeGap
+					val bodyTipX = s1X + stripeW + stripeGap
+
+					// Stripe 0 (outermost left)
+					val pathS0 = Path().apply {
+						moveTo(s0X + slant, 0f)
+						lineTo(s0X, h / 2f)
+						lineTo(s0X + slant, h)
+						lineTo(s0X + slant + stripeW, h)
+						lineTo(s0X + stripeW, h / 2f)
+						lineTo(s0X + slant + stripeW, 0f)
+						close()
+					}
+					drawPath(pathS0, primaryColor)
+
+					// Stripe 1 (inner left)
+					val pathS1 = Path().apply {
+						moveTo(s1X + slant, 0f)
+						lineTo(s1X, h / 2f)
+						lineTo(s1X + slant, h)
+						lineTo(s1X + slant + stripeW, h)
+						lineTo(s1X + stripeW, h / 2f)
+						lineTo(s1X + slant + stripeW, 0f)
+						close()
+					}
+					drawPath(pathS1, primaryColor)
+
+					// Body: arrow tip on left, flat rounded edge on right
+					val bodyPath = Path().apply {
+						moveTo(bodyTipX + slant, 0f)
+						lineTo(w - cornerRadius, 0f)
+						quadraticTo(w, 0f, w, cornerRadius)
+						lineTo(w, h - cornerRadius)
+						quadraticTo(w, h, w - cornerRadius, h)
+						lineTo(bodyTipX + slant, h)
+						lineTo(bodyTipX, h / 2f)
+						close()
+					}
+					drawPath(
+						bodyPath,
+						brush = Brush.horizontalGradient(
+							listOf(
+								bodyFillColor,
+								bodyFillColor.copy(alpha = 0.9f)
+							)
+						)
+					)
+					// Border stroke for body
+					drawPath(
+						bodyPath,
+						color = primaryColor.copy(alpha = 0.45f),
+						style = Stroke(width = 1.dp.toPx())
+					)
+				} else {
+					// RIGHT (Trazer): flat rounded edge on left, arrow tip + stripes on right
+					val s0X = w - 2.dp.toPx() - stripeW - slant
+					val s1X = s0X - stripeW - stripeGap
+					val bodyTipRightX = s1X + slant - stripeGap
+
+					// Stripe 0 (outermost right)
+					val pathS0 = Path().apply {
+						moveTo(s0X, 0f)
+						lineTo(s0X + stripeW, 0f)
+						lineTo(s0X + stripeW + slant, h / 2f)
+						lineTo(s0X + stripeW, h)
+						lineTo(s0X, h)
+						lineTo(s0X + slant, h / 2f)
+						close()
+					}
+					drawPath(pathS0, primaryColor)
+
+					// Stripe 1 (inner right)
+					val pathS1 = Path().apply {
+						moveTo(s1X, 0f)
+						lineTo(s1X + stripeW, 0f)
+						lineTo(s1X + stripeW + slant, h / 2f)
+						lineTo(s1X + stripeW, h)
+						lineTo(s1X, h)
+						lineTo(s1X + slant, h / 2f)
+						close()
+					}
+					drawPath(pathS1, primaryColor)
+
+					// Body: flat rounded edge on left, arrow tip on right
+					val bodyBaseRightX = bodyTipRightX - slant
+					val bodyPath = Path().apply {
+						moveTo(cornerRadius, 0f)
+						lineTo(bodyBaseRightX, 0f)
+						lineTo(bodyTipRightX, h / 2f)
+						lineTo(bodyBaseRightX, h)
+						lineTo(cornerRadius, h)
+						quadraticTo(0f, h, 0f, h - cornerRadius)
+						lineTo(0f, cornerRadius)
+						quadraticTo(0f, 0f, cornerRadius, 0f)
+						close()
+					}
+					drawPath(
+						bodyPath,
+						brush = Brush.horizontalGradient(
+							listOf(
+								bodyFillColor.copy(alpha = 0.9f),
+								bodyFillColor
+							)
+						)
+					)
+					drawPath(
+						bodyPath,
+						color = primaryColor.copy(alpha = 0.45f),
+						style = Stroke(width = 1.dp.toPx())
+					)
+				}
+			}
+		}
+
+		// Label in Wide mode
+		if (!isCompact) {
+			val labelPadding = if (direction == ChevronDirection.LEFT) {
+				PaddingValues(start = 30.dp, end = 6.dp)
+			} else {
+				PaddingValues(start = 6.dp, end = 30.dp)
+			}
+			Box(
+				modifier = Modifier
+					.fillMaxSize()
+					.padding(labelPadding),
+				contentAlignment = Alignment.Center
+			) {
+				Text(
+					text = label,
+					style = TextStyle(
+						fontFamily = Michroma,
+						fontSize = 11.sp,
+						fontWeight = FontWeight.Bold,
+						color = if (enabled) Color.White else Color.White.copy(alpha = 0.35f),
+						letterSpacing = 0.8.sp
+					),
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis
+				)
+			}
+		}
+	}
+}
+
 @Composable
 fun LeftArrowsSection(
 	isLeftBarShown: Boolean,
@@ -1079,196 +1320,46 @@ fun LeftArrowsSection(
 	val configs = getBottomBarAppConfigs()
 	val activePkg = BottomBarState.currentPackage
 
-	// Animate arrow width between compact (44dp) and wide (112dp)
-	val leftArrowWidth by animateDpAsState(
-		targetValue = if (isLeftBarShown) 44.dp else 112.dp,
-		animationSpec = tween(durationMillis = 250),
-		label = "leftArrowWidth"
-	)
-
 	Row(
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(6.dp),
 		modifier = Modifier.fillMaxHeight()
 	) {
-		// 1. [<] Send to Cluster Button (Wide <===| or Compact <|)
-		val leftNavInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-		val leftNavPressed by leftNavInteraction.collectIsPressedAsState()
-		val leftNavGlow by animateColorAsState(
-			targetValue = if (leftNavPressed) Color(0xFF2196F3).copy(alpha = 0.45f) else Color.Transparent,
-			animationSpec = tween(durationMillis = if (leftNavPressed) 50 else 300),
-			label = "leftNavGlow"
-		)
-
-		val arrowShape = if (isLeftBarShown) {
-			RoundedCornerShape(10.dp)
-		} else {
-			RoundedCornerShape(topStart = 0.dp, bottomStart = 0.dp, topEnd = 10.dp, bottomEnd = 10.dp)
-		}
-
-		Box(
-			contentAlignment = Alignment.Center,
-			modifier = Modifier
-				.width(leftArrowWidth)
-				.height(44.dp)
-				.clip(arrowShape)
-				.background(
-					Brush.horizontalGradient(
-						listOf(
-							Color(0xFF0F172A).copy(alpha = 0.92f),
-							Color(0xFF1E2B3E).copy(alpha = 0.95f),
-							Color(0xFF131A26).copy(alpha = 0.92f)
-						)
-					)
-				)
-				.border(
-					width = 1.dp,
-					brush = Brush.horizontalGradient(
-						listOf(
-							if (isLeftBarShown) Color(0x442196F3) else Color(0x112196F3),
-							Color(0x662196F3),
-							Color(0x882196F3)
-						)
-					),
-					shape = arrowShape
-				)
-				.background(leftNavGlow)
-				.clickable(
-					interactionSource = leftNavInteraction,
-					indication = null
-				) {
-					val targetPkg =
-						if (activePkg.isNotEmpty()) activePkg
-						else configs.firstOrNull()?.packageName ?: ""
-					Log.w(BOTTOM_BAR_TAG, "Dock: Send to Cluster clicked for package=$targetPkg")
-					scope.launch {
-						DisplayAppLauncher.getOrCreateDefaultConfig(context, targetPkg)?.let { cfg ->
-							DisplayAppLauncher.sendToDisplay(cfg)
-							BottomBarState.hasAppsOnSecondaryDisplays = true
-						}
+		// [Enviar (<)]
+		ChevronArrowButton(
+			direction = ChevronDirection.LEFT,
+			isCompact = isLeftBarShown,
+			label = "Enviar",
+			enabled = true,
+			onClick = {
+				val targetPkg =
+					if (activePkg.isNotEmpty()) activePkg
+					else configs.firstOrNull()?.packageName ?: ""
+				Log.w(BOTTOM_BAR_TAG, "Dock: Send to Cluster clicked for package=$targetPkg")
+				scope.launch {
+					DisplayAppLauncher.getOrCreateDefaultConfig(context, targetPkg)?.let { cfg ->
+						DisplayAppLauncher.sendToDisplay(cfg)
+						BottomBarState.hasAppsOnSecondaryDisplays = true
 					}
-				}
-		) {
-			if (!isLeftBarShown) {
-				// Wide version: <===|
-				Row(
-					modifier = Modifier
-						.fillMaxSize()
-						.padding(horizontal = 8.dp),
-					verticalAlignment = Alignment.CenterVertically,
-					horizontalArrangement = Arrangement.SpaceBetween
-				) {
-					Icon(
-						imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-						contentDescription = "Send to Cluster",
-						tint = if (leftNavPressed) Color(0xFF2196F3) else Color.White,
-						modifier = Modifier.size(24.dp)
-					)
-					// Gradient body: ===
-					Box(
-						modifier = Modifier
-							.weight(1f)
-							.padding(horizontal = 6.dp)
-							.height(2.dp)
-							.background(
-								Brush.horizontalGradient(
-									listOf(
-										Color(0xAA2196F3),
-										Color(0x442196F3),
-										Color(0x882196F3)
-									)
-								)
-							)
-					)
-					// Terminator line: |
-					Box(
-						modifier = Modifier
-							.width(2.5.dp)
-							.height(18.dp)
-							.clip(RoundedCornerShape(1.dp))
-							.background(Color(0xFF2196F3))
-					)
-				}
-			} else {
-				// Compact version: <|
-				Row(
-					modifier = Modifier.fillMaxSize(),
-					verticalAlignment = Alignment.CenterVertically,
-					horizontalArrangement = Arrangement.Center
-				) {
-					Icon(
-						imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-						contentDescription = "Send to Cluster",
-						tint = if (leftNavPressed) Color(0xFF2196F3) else Color.White,
-						modifier = Modifier.size(24.dp)
-					)
-					Spacer(modifier = Modifier.width(2.dp))
-					Box(
-						modifier = Modifier
-							.width(2.5.dp)
-							.height(18.dp)
-							.clip(RoundedCornerShape(1.dp))
-							.background(Color(0xFF2196F3))
-					)
 				}
 			}
-		}
-
-		// 2. [>] Bring to Main Display (Grayed out if no apps on secondary displays)
-		val rightNavInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-		val rightNavPressed by rightNavInteraction.collectIsPressedAsState()
-		val rightNavGlow by animateColorAsState(
-			targetValue = if (rightNavPressed) Color(0xFF2196F3).copy(alpha = 0.45f) else Color.Transparent,
-			animationSpec = tween(durationMillis = if (rightNavPressed) 50 else 300),
-			label = "rightNavGlow"
 		)
 
-		Box(
-			contentAlignment = Alignment.Center,
-			modifier = Modifier
-				.width(44.dp)
-				.height(44.dp)
-				.alpha(if (hasSecondaryApps) 1.0f else 0.28f)
-				.clip(RoundedCornerShape(10.dp))
-				.background(
-					Brush.horizontalGradient(
-						listOf(
-							Color(0xFF131A26).copy(alpha = 0.92f),
-							Color(0xFF1E2B3E).copy(alpha = 0.95f)
-						)
-					)
-				)
-				.border(
-					width = 1.dp,
-					brush = Brush.horizontalGradient(
-						listOf(
-							Color(0x662196F3),
-							Color(0x332196F3)
-						)
-					),
-					shape = RoundedCornerShape(10.dp)
-				)
-				.background(rightNavGlow)
-				.clickable(
-					enabled = hasSecondaryApps,
-					interactionSource = rightNavInteraction,
-					indication = null
-				) {
-					Log.w(BOTTOM_BAR_TAG, "Dock: Bring to Main Display clicked")
-					scope.launch {
-						val moved = DisplayAppLauncher.bringAllToMainDisplay()
-						Log.w(BOTTOM_BAR_TAG, "Dock: bringAllToMainDisplay moved=${moved.joinToString(",")}")
-						BottomBarState.hasAppsOnSecondaryDisplays = false
-					}
+		// [Trazer (>)]
+		ChevronArrowButton(
+			direction = ChevronDirection.RIGHT,
+			isCompact = isLeftBarShown,
+			label = "Trazer",
+			enabled = hasSecondaryApps,
+			onClick = {
+				Log.w(BOTTOM_BAR_TAG, "Dock: Bring to Main Display clicked")
+				scope.launch {
+					val moved = DisplayAppLauncher.bringAllToMainDisplay()
+					Log.w(BOTTOM_BAR_TAG, "Dock: bringAllToMainDisplay moved=${moved.joinToString(",")}")
+					BottomBarState.hasAppsOnSecondaryDisplays = false
 				}
-		) {
-			Icon(
-				imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-				contentDescription = "Bring to Main",
-				tint = Color.White,
-				modifier = Modifier.size(24.dp)
-			)
-		}
+			}
+		)
 	}
 }
 
