@@ -54,6 +54,7 @@ import br.com.redesurftank.havalshisuku.managers.BackgroundSyncServer
 import br.com.redesurftank.havalshisuku.managers.WallpaperLibrary
 import br.com.redesurftank.havalshisuku.managers.WebImage
 import br.com.redesurftank.havalshisuku.managers.WebImageSearch
+import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.DisplayAppConfig
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec
@@ -4806,12 +4807,17 @@ fun AppPickerDialog(
                     }
                 }
 
-                val allAvailableApps: List<InstalledAppInfo> = remember {
+                val allAvailableApps: List<InstalledAppInfo> = remember(BottomBarState.isProjectionShortcutEnabled) {
                     val combined = predefinedApps + installedApps
-                    if (alreadyConfigured.isNotEmpty()) {
-                        combined.filter { it.packageName !in alreadyConfigured }
+                    val filteredByProj = if (BottomBarState.isProjectionShortcutEnabled) {
+                        combined.filter { !br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isProjectionLikePackage(it.packageName) }
                     } else {
                         combined
+                    }
+                    if (alreadyConfigured.isNotEmpty()) {
+                        filteredByProj.filter { it.packageName !in alreadyConfigured }
+                    } else {
+                        filteredByProj
                     }
                 }
 

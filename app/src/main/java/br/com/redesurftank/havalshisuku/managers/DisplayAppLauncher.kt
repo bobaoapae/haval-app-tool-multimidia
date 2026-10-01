@@ -608,8 +608,18 @@ object DisplayAppLauncher {
         val normalized = packageName.lowercase()
         return normalized == ANDROID_AUTO_PACKAGE ||
                 normalized == ANDROID_AUTO_SERVICE_PACKAGE ||
+                normalized == "com.google.android.apps.auto" ||
                 normalized.contains("androidauto") ||
-                normalized.contains("gearhead")
+                normalized.contains("gearhead") ||
+                normalized.contains("apps.auto")
+    }
+
+    /**
+     * Checks if a given package name corresponds to a projection service/app (CarPlay or Android Auto).
+     */
+    fun isProjectionLikePackage(packageName: String?): Boolean {
+        if (packageName.isNullOrBlank()) return false
+        return isCarPlayLikePackage(packageName) || isAndroidAutoLikePackage(packageName)
     }
 
     private fun readNativeRadioPlayState(reason: String): String? {

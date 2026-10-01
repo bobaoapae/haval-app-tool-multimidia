@@ -133,13 +133,25 @@ internal fun mergeBottomBarProjectionConfigs(
         predefinedConfigs: List<DisplayAppConfig>
 ): List<DisplayAppConfig> {
         val savedPackages = savedConfigs.mapTo(mutableSetOf()) { it.packageName }
-        val projectionDefaults =
+        val isModernProjActive = BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key &&
+                BottomBarState.isProjectionShortcutEnabled
+
+        val projectionDefaults = if (isModernProjActive) {
+                emptyList()
+        } else {
                 predefinedConfigs.filter {
                         it.packageName == BOTTOM_BAR_CARPLAY_PACKAGE ||
                                 it.packageName == BOTTOM_BAR_ANDROID_AUTO_PACKAGE
                 }
+        }
 
-        return savedConfigs + projectionDefaults.filter { savedPackages.add(it.packageName) }
+        val baseConfigs = if (isModernProjActive) {
+                savedConfigs.filter { !br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isProjectionLikePackage(it.packageName) }
+        } else {
+                savedConfigs
+        }
+
+        return baseConfigs + projectionDefaults.filter { savedPackages.add(it.packageName) }
 }
 
 internal val HAVAL_H6_IGNORED_PACKAGES = setOf(
@@ -1948,6 +1960,9 @@ fun CenteredAppLauncherSection(
 			Box(
 				modifier = Modifier
 					.size(50.dp)
+					.onGloballyPositioned { coordinates ->
+						BottomBarState.projectionSlotCenterX = coordinates.positionInRoot().x + coordinates.size.width / 2f
+					}
 					.graphicsLayer {
 						rotationZ = if (isDockEditMode) jiggleRotation else 0f
 					},
@@ -2072,7 +2087,11 @@ fun CenteredAppLauncherSection(
 		} else if (isDockEditMode) {
 			// Quando desabilitado, exibe slot com '+' para reabilitar no modo de edição
 			Box(
-				modifier = Modifier.size(50.dp),
+				modifier = Modifier
+					.size(50.dp)
+					.onGloballyPositioned { coordinates ->
+						BottomBarState.projectionSlotCenterX = coordinates.positionInRoot().x + coordinates.size.width / 2f
+					},
 				contentAlignment = Alignment.Center
 			) {
 				Box(
@@ -2131,7 +2150,7 @@ fun CenteredAppLauncherSection(
 		val validDockConfigs = remember(candidateConfigs, configsVersion, isProjectionShortcutEnabled) {
 			val filtered = candidateConfigs.filter { cfg ->
 				(cfg.substituteIcon != null || br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.resolveAppInfo(context, cfg.packageName, cfg.customName).icon != null) &&
-				(!isProjectionShortcutEnabled || (cfg.packageName != BOTTOM_BAR_CARPLAY_PACKAGE && cfg.packageName != BOTTOM_BAR_ANDROID_AUTO_PACKAGE && !cfg.packageName.contains("carplay", ignoreCase = true) && !cfg.packageName.contains("androidauto", ignoreCase = true)))
+				(!isProjectionShortcutEnabled || !br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isProjectionLikePackage(cfg.packageName))
 			}
 			val validPackages = resolveDockApps(
 				telasPackages = filtered.map { it.packageName },
@@ -2339,7 +2358,7 @@ fun CenteredAppLauncherSection(
 			!validDockConfigs.any { it.packageName == activePkg } &&
 			!shouldHideFromAllApps(activePkg) &&
 			activePkg != context.packageName &&
-			(!isProjectionShortcutEnabled || (activePkg != BOTTOM_BAR_CARPLAY_PACKAGE && activePkg != BOTTOM_BAR_ANDROID_AUTO_PACKAGE && !activePkg.contains("carplay", ignoreCase = true) && !activePkg.contains("androidauto", ignoreCase = true)))
+			(!isProjectionShortcutEnabled || !br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isProjectionLikePackage(activePkg))
 		}
 
 		if (isDynamicAppVisible) {
@@ -3771,7 +3790,7 @@ fun AppMenuContent() {
         val scope = rememberCoroutineScope()
         val pm = context.packageManager
 
-        val systemApps = remember {
+        val systemApps = remember(BottomBarState.isProjectionShortcutEnabled) {
                 val intent = Intent(Intent.ACTION_MAIN, null).apply {
                         addCategory(Intent.CATEGORY_LAUNCHER)
                 }
@@ -3786,6 +3805,7 @@ fun AppMenuContent() {
                         val ai = info.activityInfo ?: continue
                         val pkg = ai.packageName ?: continue
                         if (pkg.isBlank() || shouldHideFromAllApps(pkg) || !seen.add(pkg)) continue
+                        if (BottomBarState.isProjectionShortcutEnabled && br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isProjectionLikePackage(pkg)) continue
 
                         val label = try {
                                 info.loadLabel(pm).toString().takeIf { it.isNotBlank() } ?: pkg
@@ -4055,7 +4075,7 @@ fun DockAddAppPicker(
                 existingConfigs.map { it.packageName }.toSet()
         }
 
-        val availableApps = remember(pinnedPkgs) {
+        val availableApps = remember(pinnedPkgs, BottomBarState.isProjectionShortcutEnabled) {
                 val intent = Intent(Intent.ACTION_MAIN, null).apply {
                         addCategory(Intent.CATEGORY_LAUNCHER)
                 }
@@ -4070,6 +4090,7 @@ fun DockAddAppPicker(
                         val ai = info.activityInfo ?: continue
                         val pkg = ai.packageName ?: continue
                         if (pkg.isBlank() || shouldHideFromAllApps(pkg) || pinnedPkgs.contains(pkg) || !seen.add(pkg)) continue
+                        if (BottomBarState.isProjectionShortcutEnabled && br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isProjectionLikePackage(pkg)) continue
 
                         val label = try {
                                 info.loadLabel(pm).toString().takeIf { it.isNotBlank() } ?: pkg
@@ -4803,6 +4824,10 @@ fun BottomBarMenus() {
         val dashboardExpanded = BottomBarState.isDashboardExpanded
 
         val isModern = BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key
+        val isFloatingProjOnly =
+                isModern &&
+                        BottomBarState.isDockEditMode &&
+                        !BottomBarState.isProjectionShortcutEnabled
 
         // The window hosting these menus is resized from 0x0 to full screen when one opens, and it is
         // anchored to the bottom, so the scrim and the menu would otherwise appear to sweep up from the
@@ -4816,7 +4841,8 @@ fun BottomBarMenus() {
                         (isModern && BottomBarState.isAcMenuExpanded) ||
                         (isModern && BottomBarState.dockAddSlotIndex != null) ||
                         BottomBarState.activeSliderType != null ||
-                        (isModern && BottomBarState.activeSwipeHud != null)
+                        (isModern && BottomBarState.activeSwipeHud != null) ||
+                        isFloatingProjOnly
         val contentAlpha by
                 animateFloatAsState(
                         targetValue = if (anyExpanded) 1f else 0f,
@@ -5005,9 +5031,113 @@ fun BottomBarMenus() {
                                                         )
                                                 }
                                         }
+
+                                        // Floating Button "Adicionar link para AA/Carplay" (Above Slot 0 in Edit Mode when disabled)
+                                        if (isModern &&
+                                                BottomBarState.isDockEditMode &&
+                                                !BottomBarState.isProjectionShortcutEnabled &&
+                                                BottomBarState.dockAddSlotIndex == null &&
+                                                !BottomBarState.isMenuExpanded &&
+                                                !BottomBarState.isSettingsMenuExpanded &&
+                                                !BottomBarState.isOverrideMenuExpanded
+                                        ) {
+                                                var buttonWidthPx by remember { mutableStateOf(0f) }
+                                                val density = LocalDensity.current
+                                                val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
+                                                val projCenterDp = with(density) { BottomBarState.projectionSlotCenterX.toDp() }
+                                                val buttonWidthDp = if (buttonWidthPx > 0f) with(density) { buttonWidthPx.toDp() } else 260.dp
+                                                val projStartPad = if (BottomBarState.projectionSlotCenterX > 0f) {
+                                                        (projCenterDp - buttonWidthDp / 2 - leftGutter).coerceIn(16.dp, (screenWidthDp - buttonWidthDp - 16.dp).coerceAtLeast(16.dp))
+                                                } else {
+                                                        200.dp
+                                                }
+                                                val context = LocalContext.current
+                                                val prefs = remember {
+                                                        context.getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+                                                }
+                                                Box(
+                                                        modifier = Modifier
+                                                                .padding(start = projStartPad, bottom = 4.dp)
+                                                                .align(Alignment.BottomStart)
+                                                                .onGloballyPositioned {
+                                                                        buttonWidthPx = it.size.width.toFloat()
+                                                                }
+                                                ) {
+                                                        ProjectionAddFloatingButton(
+                                                                onClick = {
+                                                                        BottomBarState.isProjectionShortcutEnabled = true
+                                                                        prefs.edit()
+                                                                                .putBoolean(
+                                                                                        SharedPreferencesKeys.BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT.key,
+                                                                                        true
+                                                                                )
+                                                                                .apply()
+                                                                }
+                                                        )
+                                                }
+                                        }
                                 }
                         }
                 }
+        }
+}
+
+@Composable
+fun ProjectionAddFloatingButton(
+        onClick: () -> Unit
+) {
+        val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val isPressed by interactionSource.collectIsPressedAsState()
+        val bgColor by animateColorAsState(
+                targetValue = if (isPressed) Color(0xFF1E88E5) else Color(0xF2161A22),
+                animationSpec = tween(50),
+                label = "projBtnBg"
+        )
+
+        Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.wrapContentWidth()
+        ) {
+                Surface(
+                        onClick = onClick,
+                        interactionSource = interactionSource,
+                        shape = RoundedCornerShape(12.dp),
+                        color = bgColor,
+                        border = BorderStroke(1.2.dp, Color(0xFF2196F3).copy(alpha = 0.8f)),
+                        shadowElevation = 6.dp,
+                        modifier = Modifier.height(38.dp)
+                ) {
+                        Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                        ) {
+                                Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = null,
+                                        tint = Color(0xFF2196F3),
+                                        modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                        text = "Adicionar link para AA/Carplay",
+                                        style = TextStyle(
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontFamily = Michroma,
+                                                fontWeight = FontWeight.SemiBold,
+                                                letterSpacing = 0.3.sp
+                                        )
+                                )
+                        }
+                }
+                Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = null,
+                        tint = Color(0xFF2196F3).copy(alpha = 0.8f),
+                        modifier = Modifier
+                                .size(16.dp)
+                                .offset(y = (-4).dp)
+                )
         }
 }
 

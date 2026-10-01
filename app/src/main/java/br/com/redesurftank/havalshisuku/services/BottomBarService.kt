@@ -458,7 +458,10 @@ class BottomBarService : LifecycleService() {
                     BottomBarState.isOverrideMenuExpanded ||
                     BottomBarState.isAcMenuExpanded ||
                     BottomBarState.dockAddSlotIndex != null ||
-                    BottomBarState.activeSliderType != null
+                    BottomBarState.activeSliderType != null ||
+                    (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key &&
+                            BottomBarState.isDockEditMode &&
+                            !BottomBarState.isProjectionShortcutEnabled)
 
     private fun isAnyMenuOrHudVisible(): Boolean =
             isInteractiveMenuExpanded() || BottomBarState.activeSwipeHud != null
@@ -3648,6 +3651,12 @@ class BottomBarService : LifecycleService() {
                         menuComposeView?.requestLayout()
                     }
         }
+        lifecycleScope.launch {
+            snapshotFlow { BottomBarState.projectionSlotCenterX }
+                    .collectLatest {
+                        menuComposeView?.requestLayout()
+                    }
+        }
     }
 
     private fun observeDashboardActivityState() {
@@ -4128,14 +4137,41 @@ class BottomBarService : LifecycleService() {
 
                             if (isMenuWindow) {
                                 // Menu window covers the full pinned display
-                                val interactive = isInteractiveMenuExpanded()
+                                val fullInteractive = BottomBarState.isMenuExpanded ||
+                                        BottomBarState.isDashboardExpanded ||
+                                        BottomBarState.isSettingsMenuExpanded ||
+                                        BottomBarState.isOverrideMenuExpanded ||
+                                        BottomBarState.isAcMenuExpanded ||
+                                        BottomBarState.dockAddSlotIndex != null ||
+                                        BottomBarState.activeSliderType != null
+
+                                val isFloatingProjOnly = BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key &&
+                                        BottomBarState.isDockEditMode &&
+                                        !BottomBarState.isProjectionShortcutEnabled &&
+                                        !fullInteractive
+
                                 Log.d(
                                         "BottomBarService",
-                                        "TouchRegion[MENU] interactive=$interactive"
+                                        "TouchRegion[MENU] fullInteractive=$fullInteractive isFloatingProjOnly=$isFloatingProjOnly"
                                 )
-                                if (interactive) {
+                                if (fullInteractive) {
                                     val screenHeight = displayMetrics.heightPixels
                                     region.union(Rect(0, 0, windowWidth, screenHeight))
+                                } else if (isFloatingProjOnly) {
+                                    val screenHeight = displayMetrics.heightPixels
+                                    val btnHeightPx = (60 * density).toInt()
+                                    val btnWidthPx = (340 * density).toInt()
+                                    val barHeightPx = (60 * density).toInt()
+                                    val centerX = if (BottomBarState.projectionSlotCenterX > 0f) {
+                                        BottomBarState.projectionSlotCenterX.toInt()
+                                    } else {
+                                        (windowWidth / 2)
+                                    }
+                                    val left = (centerX - btnWidthPx / 2).coerceAtLeast(0)
+                                    val right = (centerX + btnWidthPx / 2).coerceAtMost(windowWidth)
+                                    val bottom = screenHeight - barHeightPx
+                                    val top = bottom - btnHeightPx
+                                    region.union(Rect(left, top, right, bottom))
                                 }
                             } else if (BottomBarState.isDashboardExpanded) {
                                 Log.d(
