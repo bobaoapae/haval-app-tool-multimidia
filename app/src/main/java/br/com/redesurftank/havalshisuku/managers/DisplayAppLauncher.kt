@@ -403,6 +403,9 @@ object DisplayAppLauncher {
     @Volatile private var carPlayMainDisplayReconnectSeenAt = 0L
     @Volatile private var lastCarPlayVideoFocusPulseAt = 0L
     @Volatile private var lastCarPlayClusterHandoffAt = 0L
+    private val androidAutoCameraGuard = AndroidAutoCameraGuardPolicy()
+    @Volatile private var lastAndroidAutoClusterGuardGeneration = -1L
+    @Volatile private var lastAndroidAutoWindowFocusGuardGeneration = -1L
     @Volatile private var lastAndroidAutoClusterGuardAt = 0L
     @Volatile private var lastAndroidAutoWindowFocusGuardAt = 0L
     @Volatile private var lastAndroidAutoWindowFocusGuardPackage = ""
@@ -1426,13 +1429,17 @@ object DisplayAppLauncher {
         ensureAndroidAutoLinkCommandBound("${reason}_LINK_COMMAND")
     }
 
-    private fun sendAndroidAutoFocus(displayId: Int, reason: String) {
-        if (shouldBlockAndroidAutoProjectionActivationForNativeRadio("${reason}_NATIVE_RADIO_GUARD")) {
+    private fun sendAndroidAutoFocus(displayId: Int, reason: String, cameraGeneration: Long? = null) {
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
+        val nativeRadioBlocked = shouldBlockAndroidAutoProjectionActivationForNativeRadio("${reason}_NATIVE_RADIO_GUARD")
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
+        if (nativeRadioBlocked) {
             sh("am broadcast -a ts.car.androidauto.view_state --es state foreground --ei displayId $displayId")
             return
         }
         Log.w(TAG, "[$reason] Sending Android Auto video focus for display $displayId")
         sh("am broadcast -a ts.car.androidauto.view_state --es state foreground --ei displayId $displayId")
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         sh("am broadcast -a com.ts.androidauto.action.AndroidAutoService --es \"command\" \"requestVideoFocus\" --ei \"displayId\" $displayId")
     }
 
@@ -2323,8 +2330,10 @@ object DisplayAppLauncher {
         taskInfo: TaskInfo,
         displayId: Int,
         bounds: IntArray,
-        reason: String
+        reason: String,
+        cameraGeneration: Long? = null
     ) {
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         if (displayId == 0) {
             sh("am stack set-windowing-mode ${taskInfo.stackId} 1")
         }
@@ -2337,7 +2346,7 @@ object DisplayAppLauncher {
             )
         }
         Thread.sleep(160)
-        sendAndroidAutoFocus(displayId, reason)
+        if (canContinueAndroidAutoGuard(cameraGeneration)) sendAndroidAutoFocus(displayId, reason, cameraGeneration)
     }
 
     private fun ensureAndroidAutoFullscreenAndFocus(
@@ -2479,21 +2488,29 @@ object DisplayAppLauncher {
         notifyBottomBarUpdate()
     }
 
+    private fun canContinueAndroidAutoGuard(cameraGeneration: Long?): Boolean =
+        cameraGeneration == null || androidAutoCameraGuard.canRun(cameraGeneration)
+
     private suspend fun startAndroidAutoOnDisplay(
         sourceConfig: DisplayAppConfig,
-        reason: String
+        reason: String,
+        cameraGeneration: Long? = null
     ) {
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         val config = getAndroidAutoConfigForDisplay(sourceConfig.displayId, sourceConfig)
         val displayId = config.displayId
         val bounds = getEffectiveBounds(config)
         val previousDisplay = findTaskForPackage(ANDROID_AUTO_PACKAGE)?.displayId
 
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         prepareDisplay3MaskHoleBeforeMove(displayId, bounds, reason)
 
         rememberAndroidAutoDisplayTarget(displayId, reason)
         AndroidAutoPatchManager.ensureMounted()
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         configureAndroidAutoProjection(reason)
 
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         if (displayId != 0) {
             evictOtherAppsFromDisplay(displayId, ANDROID_AUTO_PACKAGE)
             BottomBarState.restoredApps.remove(ANDROID_AUTO_PACKAGE)
@@ -2502,13 +2519,16 @@ object DisplayAppLauncher {
         }
 
         var targetTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, displayId)
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         if (targetTask != null) {
-            resizeAndFocusAndroidAuto(targetTask, displayId, bounds, "${reason}_ALREADY_ON_TARGET")
+            resizeAndFocusAndroidAuto(targetTask, displayId, bounds, "${reason}_ALREADY_ON_TARGET", cameraGeneration)
+            if (!canContinueAndroidAutoGuard(cameraGeneration)) return
             closeAndroidAutoVisualStacks("${reason}_ALREADY_ON_TARGET_CLEAN_DUPLICATES", exceptStackId = targetTask.stackId)
             if (displayId == 3) {
                 recoverAndroidAutoClusterSurfaceIfStale(
                     targetTask,
-                    "${reason}_ALREADY_ON_TARGET_STALE_SURFACE_GUARD"
+                    "${reason}_ALREADY_ON_TARGET_STALE_SURFACE_GUARD",
+                    cameraGeneration
                 )
             }
             notifyAndroidAutoDisplayHandoff(displayId, previousDisplay)
@@ -2516,9 +2536,11 @@ object DisplayAppLauncher {
         }
 
         val currentTask = findTaskForPackage(ANDROID_AUTO_PACKAGE)
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         if (currentTask != null && currentTask.displayId != displayId) {
             saveCurrentBounds(ANDROID_AUTO_PACKAGE, currentTask)
             val tasksInStack = countTasksInStack(currentTask.stackId)
+            if (!canContinueAndroidAutoGuard(cameraGeneration)) return
 
             if (tasksInStack > 1) {
                 Log.w(
@@ -2527,12 +2549,14 @@ object DisplayAppLauncher {
                 )
                 bringOtherTaskInStackToFront(currentTask.stackId, ANDROID_AUTO_PACKAGE, reason)
                 Thread.sleep(220)
+                if (!canContinueAndroidAutoGuard(cameraGeneration)) return
                 startAndroidAutoActivity(displayId, "${reason}_MIXED_STACK_START")
             } else {
                 Log.w(TAG, "[$reason] Moving Android Auto stack ${currentTask.stackId} to display $displayId")
                 val result = sh("am display move-stack ${currentTask.stackId} $displayId")
                 if (result.contains("Exception") || result.contains("Error")) {
                     Log.e(TAG, "[$reason] Android Auto move-stack failed: $result")
+                    if (!canContinueAndroidAutoGuard(cameraGeneration)) return
                     startAndroidAutoActivity(displayId, "${reason}_MOVE_FAILED_START")
                 }
             }
@@ -2543,6 +2567,8 @@ object DisplayAppLauncher {
         Thread.sleep(700)
         targetTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, displayId)
 
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
+        var visualRecoveryStarted = false
         if (targetTask == null) {
             val wrongDisplayTask = findTaskForPackage(ANDROID_AUTO_PACKAGE)
             if (wrongDisplayTask != null && wrongDisplayTask.displayId != displayId) {
@@ -2556,6 +2582,8 @@ object DisplayAppLauncher {
 
             // Last resort for a black/stuck visual Activity. Do not force-stop
             // com.ts.androidauto so the phone-side projection service can recover.
+            if (!canContinueAndroidAutoGuard(cameraGeneration)) return
+            visualRecoveryStarted = true
             sh("am force-stop $ANDROID_AUTO_PACKAGE")
             Thread.sleep(650)
             configureAndroidAutoProjection("${reason}_VISUAL_RESTART")
@@ -2565,21 +2593,29 @@ object DisplayAppLauncher {
         }
 
         if (targetTask != null) {
-            resizeAndFocusAndroidAuto(targetTask, displayId, bounds, "${reason}_POST_START")
+            // Once force-stop has begun, finish recreation instead of leaving the visual app absent.
+            val completionGeneration = if (visualRecoveryStarted) null else cameraGeneration
+            if (!canContinueAndroidAutoGuard(completionGeneration)) return
+            resizeAndFocusAndroidAuto(targetTask, displayId, bounds, "${reason}_POST_START", completionGeneration)
+            if (!canContinueAndroidAutoGuard(completionGeneration)) return
             closeAndroidAutoVisualStacks("${reason}_POST_START_CLEAN_DUPLICATES", exceptStackId = targetTask.stackId)
 
             CoroutineScope(Dispatchers.IO).launch {
                 delay(500)
-                sendAndroidAutoFocus(displayId, "${reason}_POST_START_P1")
+                if (!canContinueAndroidAutoGuard(cameraGeneration)) return@launch
+                sendAndroidAutoFocus(displayId, "${reason}_POST_START_P1", cameraGeneration)
                 delay(900)
-                sendAndroidAutoFocus(displayId, "${reason}_POST_START_P2")
+                if (!canContinueAndroidAutoGuard(cameraGeneration)) return@launch
+                sendAndroidAutoFocus(displayId, "${reason}_POST_START_P2", cameraGeneration)
                 if (displayId == 3) {
                     delay(1_200)
+                    if (!canContinueAndroidAutoGuard(cameraGeneration)) return@launch
                     val refreshedTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 3)
                     if (refreshedTask != null) {
                         recoverAndroidAutoClusterSurfaceIfStale(
                             refreshedTask,
-                            "${reason}_POST_START_STALE_SURFACE_GUARD"
+                            "${reason}_POST_START_STALE_SURFACE_GUARD",
+                            cameraGeneration
                         )
                     }
                 }
@@ -2643,8 +2679,10 @@ object DisplayAppLauncher {
 
     private suspend fun recoverAndroidAutoClusterSurfaceIfStale(
         clusterTask: TaskInfo,
-        reason: String
+        reason: String,
+        cameraGeneration: Long? = null
     ): Boolean {
+        if (cameraGeneration != null && !androidAutoCameraGuard.canRun(cameraGeneration)) return false
         val now = System.currentTimeMillis()
         if (now - lastAndroidAutoSurfaceProbeAt < ANDROID_AUTO_SURFACE_PROBE_COOLDOWN_MS) {
             Log.w(TAG, "[$reason] Skipping Android Auto D3 Surface probe because cooldown is active")
@@ -2653,6 +2691,8 @@ object DisplayAppLauncher {
         lastAndroidAutoSurfaceProbeAt = now
 
         val before = inspectAndroidAutoClusterSurfaceBuffer("${reason}_SURFACE_CHECK")
+        // The shell probe can overlap a camera transition. Re-check before any recovery.
+        if (cameraGeneration != null && !androidAutoCameraGuard.canRun(cameraGeneration)) return false
         if (!isAndroidAutoSurfaceBufferStaleForTest(before)) {
             Log.w(
                 TAG,
@@ -5466,6 +5506,15 @@ object DisplayAppLauncher {
         }
     }
 
+    /** Camera telemetry only invalidates automatic AA guards; it never controls the camera. */
+    fun onAndroidAutoCameraPreviewStatus(value: String) {
+        val before = androidAutoCameraGuard.generation()
+        androidAutoCameraGuard.onPreviewStatus(value)
+        if (before != androidAutoCameraGuard.generation()) {
+            Log.d(TAG, "[AA_CAMERA_GUARD] AVM status=$value invalidated pending window recovery")
+        }
+    }
+
     fun pulseAndroidAutoFocusAfterNativePanelExit(reason: String) {
         if (!ANDROID_AUTO_NATIVE_PANEL_FOCUS_PULSE_ENABLED) {
             Log.w(TAG, "[$reason] Skipping Android Auto post-native-panel focus pulse")
@@ -5538,25 +5587,31 @@ object DisplayAppLauncher {
         primaryDelayMs: Long,
         verifyDelayMs: Long
     ) {
+        val cameraGeneration = androidAutoCameraGuard.generation()
+        if (!androidAutoCameraGuard.canRun(cameraGeneration)) return
         if (!isAndroidAutoClusterPreservationEligible()) return
 
         val now = System.currentTimeMillis()
-        if (now - lastAndroidAutoClusterGuardAt < ANDROID_AUTO_CLUSTER_GUARD_COOLDOWN_MS) {
+        if (lastAndroidAutoClusterGuardGeneration == cameraGeneration &&
+            now - lastAndroidAutoClusterGuardAt < ANDROID_AUTO_CLUSTER_GUARD_COOLDOWN_MS) {
             Log.w(TAG, "[$reason] Skipping Android Auto cluster guard because cooldown is active")
             return
         }
         lastAndroidAutoClusterGuardAt = now
+        lastAndroidAutoClusterGuardGeneration = cameraGeneration
 
         scope.launch {
             delay(primaryDelayMs)
-            restoreOrRefreshAndroidAutoClusterContract("${reason}_AA_CONTRACT_PRIMARY", action)
+            restoreOrRefreshAndroidAutoClusterContract("${reason}_AA_CONTRACT_PRIMARY", action, cameraGeneration)
 
             delay(verifyDelayMs)
-            restoreOrRefreshAndroidAutoClusterContract("${reason}_AA_CONTRACT_VERIFY", action)
+            restoreOrRefreshAndroidAutoClusterContract("${reason}_AA_CONTRACT_VERIFY", action, cameraGeneration)
         }
     }
 
     private fun preserveAndroidAutoClusterContractAfterWindowChange(packageName: String) {
+        val cameraGeneration = androidAutoCameraGuard.generation()
+        if (!androidAutoCameraGuard.canRun(cameraGeneration)) return
         if (!isAndroidAutoClusterPreservationEligible()) return
 
         if (shouldRestoreAndroidAutoClusterAfterProjectionWindowChange(packageName)) {
@@ -5565,7 +5620,8 @@ object DisplayAppLauncher {
                 delay(250L)
                 restoreOrRefreshAndroidAutoClusterContract(
                     "WINDOW_CHANGE_${safePackage}_AA_RETURN_TO_DESIRED_CLUSTER",
-                    ExistingClusterAndroidAutoAction.VERIFY_ONLY
+                    ExistingClusterAndroidAutoAction.VERIFY_ONLY,
+                    cameraGeneration
                 )
             }
             return
@@ -5575,7 +5631,8 @@ object DisplayAppLauncher {
         val action = resolveAndroidAutoWindowFocusGuardAction(packageName, selfPackageName) ?: return
 
         val now = System.currentTimeMillis()
-        if (shouldSkipAndroidAutoWindowFocusGuard(
+        if (lastAndroidAutoWindowFocusGuardGeneration == cameraGeneration &&
+            shouldSkipAndroidAutoWindowFocusGuard(
                 now = now,
                 packageName = packageName,
                 action = action
@@ -5585,6 +5642,7 @@ object DisplayAppLauncher {
             return
         }
         lastAndroidAutoWindowFocusGuardAt = now
+        lastAndroidAutoWindowFocusGuardGeneration = cameraGeneration
         lastAndroidAutoWindowFocusGuardPackage = packageName
         lastAndroidAutoWindowFocusGuardAction = action
 
@@ -5595,26 +5653,30 @@ object DisplayAppLauncher {
             delay(primaryDelayMs)
             restoreOrRefreshAndroidAutoClusterContract(
                 "WINDOW_CHANGE_${safePackage}_AA_CONTRACT_PRIMARY",
-                action
+                action,
+                cameraGeneration
             )
 
             delay(verifyDelayMs)
             restoreOrRefreshAndroidAutoClusterContract(
                 "WINDOW_CHANGE_${safePackage}_AA_CONTRACT_VERIFY",
-                action
+                action,
+                cameraGeneration
             )
 
             if (action == ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY) {
                 delay(ANDROID_AUTO_WINDOW_FOCUS_LATE_VERIFY_DELAY_MS)
                 restoreOrRefreshAndroidAutoClusterContract(
                     "WINDOW_CHANGE_${safePackage}_AA_CONTRACT_LATE_VERIFY",
-                    ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY
+                    ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY,
+                    cameraGeneration
                 )
 
                 delay(ANDROID_AUTO_WINDOW_FOCUS_FINAL_VERIFY_DELAY_MS)
                 restoreOrRefreshAndroidAutoClusterContract(
                     "WINDOW_CHANGE_${safePackage}_AA_CONTRACT_FINAL_VERIFY",
-                    ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY
+                    ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY,
+                    cameraGeneration
                 )
             }
         }
@@ -5681,8 +5743,10 @@ object DisplayAppLauncher {
 
     private suspend fun restoreOrRefreshAndroidAutoClusterContract(
         reason: String,
-        action: ExistingClusterAndroidAutoAction
+        action: ExistingClusterAndroidAutoAction,
+        cameraGeneration: Long
     ) {
+        if (!androidAutoCameraGuard.canRun(cameraGeneration)) return
         val activeProjection = resolveActiveProjectionPackageForDisplay(3)
         if (activeProjection == CARPLAY_PACKAGE) {
             Log.w(TAG, "[$reason] Skipping Android Auto guard because CarPlay is active on cluster 3")
@@ -5690,6 +5754,7 @@ object DisplayAppLauncher {
         }
 
         val clusterTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 3)
+        if (!androidAutoCameraGuard.canRun(cameraGeneration)) return
         if (clusterTask != null) {
             Log.w(
                 TAG,
@@ -5700,8 +5765,12 @@ object DisplayAppLauncher {
                 closeAndroidAutoVisualStacks("${reason}_CLEAN_DUPLICATES", exceptStackId = clusterTask.stackId)
                 notifyAndroidAutoDisplayHandoff(3, clusterTask.displayId)
             } else if (action == ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY) {
-                if (!recoverAndroidAutoClusterSurfaceIfStale(clusterTask, "${reason}_STALE_SURFACE_GUARD")) {
-                    sendAndroidAutoFocus(3, reason)
+                if (!recoverAndroidAutoClusterSurfaceIfStale(
+                        clusterTask, "${reason}_STALE_SURFACE_GUARD", cameraGeneration
+                    )) {
+                    if (androidAutoCameraGuard.canRun(cameraGeneration)) {
+                        sendAndroidAutoFocus(3, reason, cameraGeneration)
+                    }
                 }
             }
             return
@@ -5722,9 +5791,11 @@ object DisplayAppLauncher {
             Log.w(TAG, "[$reason] Desired Android Auto target is cluster 3 but no visual task is active; recreating")
         }
 
+        if (!androidAutoCameraGuard.canRun(cameraGeneration)) return
         startAndroidAutoOnDisplay(
             getAndroidAutoConfigForDisplay(3),
-            "${reason}_RESTORE_CLUSTER"
+            "${reason}_RESTORE_CLUSTER",
+            cameraGeneration
         )
     }
 
@@ -9049,6 +9120,13 @@ object DisplayAppLauncher {
      * fullscreen mode works fine after move-stack.
      */
     fun onAppWindowChanged(packageName: String) {
+        androidAutoCameraGuard.onWindowChanged(
+            when {
+                isNativeCameraDisplayZeroPanelPackage(packageName) -> true
+                isProjectionMirrorPackage(packageName) || isPassiveCarPlayWindowFocusPackage(packageName) -> null
+                else -> false
+            }
+        )
         BottomBarService.requestBarRestoreAfterExternalFocus(
             packageName,
             "D0_WINDOW_CHANGED"

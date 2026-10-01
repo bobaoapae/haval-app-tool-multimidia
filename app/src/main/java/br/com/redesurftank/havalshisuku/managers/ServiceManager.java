@@ -2573,6 +2573,9 @@ public class ServiceManager {
     public void dispatchTelemetryOnly(String key, String value) {
         if (key == null || value == null) return;
         value = normalizeTelemetryValue(key, value);
+        if (key.equals(CarConstants.SYS_AVM_PREVIEW_STATUS.getValue())) {
+            DisplayAppLauncher.INSTANCE.onAndroidAutoCameraPreviewStatus(value);
+        }
         // Internal package-scoped broadcasts for havalshisuku UI components
         Intent broadcastIntent = new Intent("android.intent.haval." + key);
         broadcastIntent.putExtra("key", key);
