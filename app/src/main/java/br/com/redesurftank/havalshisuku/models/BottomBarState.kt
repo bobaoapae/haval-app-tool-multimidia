@@ -59,6 +59,31 @@ object BottomBarState {
         }
     }
 
+    enum class BarVersion(val key: String, val label: String, val description: String) {
+        OLD("old", "Clássica (v1.0)", "Layout original com atalhos de AC, botões clássicos e menu lateral"),
+        NEW("new", "Moderna (v2.0)", "Novo layout com doca central de até 9 apps, menu de climatização Haval H6 3D e HUDs fluidos");
+
+        companion object {
+            fun fromKey(key: String?): BarVersion = entries.firstOrNull { it.key == key } ?: OLD
+        }
+    }
+
+    var barVersion by mutableStateOf(BarVersion.OLD.key)
+
+    data class SwipeHudData(
+        val type: SliderType,
+        val title: String,
+        val valueText: String,
+        val fraction: Float,
+        val targetCenterX: Float,
+        val minLabel: String,
+        val maxLabel: String,
+        val isFan: Boolean = false,
+        val fanSpeed: Int = 0
+    )
+    var activeSwipeHud by mutableStateOf<SwipeHudData?>(null)
+    var isAcMenuExpanded by mutableStateOf(false)
+
     var activeSliderType by mutableStateOf<SliderType?>(null)
     var sliderPositionX by mutableStateOf(0f)
     var sliderInteractionTrigger by mutableStateOf(0)
@@ -86,6 +111,10 @@ object BottomBarState {
     var isFridaRunning by mutableStateOf(false)
     var isDeleteModeEnabled by mutableStateOf(false)
     val restoredApps = mutableStateListOf<String>()
+    var hasAppsOnSecondaryDisplays by mutableStateOf(false)
+    var fanButtonCenterX by mutableStateOf(0f)
+    var conducaoCenterX by mutableStateOf(0f)
+    var launcherCenterX by mutableStateOf(0f)
 
     // Overlay flutuante de CPU/RAM (opt-in). Espelhos observáveis das prefs — UI e service atualizam.
     var resourceOverlayEnabled by mutableStateOf(false)

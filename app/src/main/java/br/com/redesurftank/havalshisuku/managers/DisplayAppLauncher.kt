@@ -8126,6 +8126,21 @@ object DisplayAppLauncher {
         return null
     }
 
+    fun hasAppsOnSecondaryDisplays(): Boolean = runCatching {
+        val stackList = getStackList()
+        val displaysToEvict = setOf(1, 3)
+        for (line in stackList.lines()) {
+            val stackMatch = Regex("""Stack id=(\d+).*displayId=(\d+)""").find(line)
+            if (stackMatch != null) {
+                val dId = stackMatch.groupValues[2].toIntOrNull()
+                if (dId != null && displaysToEvict.contains(dId)) {
+                    return@runCatching true
+                }
+            }
+        }
+        false
+    }.getOrDefault(false)
+
     /**
      * Brings all applications from secondary displays (1 and 3) back to the main display (0).
      *
