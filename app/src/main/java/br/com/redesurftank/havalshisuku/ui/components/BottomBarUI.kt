@@ -1836,7 +1836,7 @@ fun ChevronArrowButton(
 						fontFamily = Michroma,
 						fontSize = 7.sp,
 						fontWeight = FontWeight.Bold,
-						color = if (enabled) Color(0xFF9EA4B0) else Color(0xFF6E7682).copy(alpha = 0.4f),
+						color = if (enabled) Color.White else Color.White.copy(alpha = 0.4f),
 						letterSpacing = 0.3.sp,
 						textAlign = TextAlign.Center,
 						lineHeight = 9.sp
