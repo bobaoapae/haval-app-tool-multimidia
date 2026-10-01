@@ -321,19 +321,92 @@ fun FanSpeedIcon(
 }
 
 /**
- * Authentic Haval / CoffeeOS automotive 4-blade fan icon.
+ * Authentic Haval / CoffeeOS automotive 4-blade fan icon with progressive 0..7 half-blade filling.
+ * Speed 0 = empty outline (apenas linhas), Speed 1..6 = progressive half-blades, Speed 7 = full solid (cheio).
  */
 @Composable
 fun CoffeeOsFanIcon(
+        speed: Int = 7,
         modifier: Modifier = Modifier.size(24.dp),
         tint: Color = Color.White
 ) {
-        Icon(
-                painter = painterResource(id = R.drawable.ic_hvac_fan),
-                contentDescription = "Fan",
-                tint = tint,
-                modifier = modifier
-        )
+        Canvas(modifier = modifier) {
+                val w = size.width
+                val h = size.height
+                val cx = w / 2f
+                val cy = h / 2f
+                val hubR = w * 0.11f
+                val strokeW = 1.3.dp.toPx()
+                val outlineColor = if (speed == 0) tint.copy(alpha = 0.40f) else tint.copy(alpha = 0.80f)
+
+                // 4 blades (8 half-blades from index 0 to 7)
+                for (b in 0 until 4) {
+                        val angle = b * 90f
+
+                        val half1Index = b * 2
+                        val isHalf1Filled = speed > 0 && (speed >= 7 || half1Index < speed)
+
+                        val half2Index = b * 2 + 1
+                        val isHalf2Filled = speed > 0 && (speed >= 7 || half2Index < speed)
+
+                        rotate(degrees = angle, pivot = Offset(cx, cy)) {
+                                // Half 1: leading side
+                                val pathHalf1 = Path().apply {
+                                        moveTo(cx, cy - hubR)
+                                        cubicTo(
+                                                cx + w * 0.10f, cy - h * 0.16f,
+                                                cx + w * 0.28f, cy - h * 0.28f,
+                                                cx + w * 0.22f, cy - h * 0.44f
+                                        )
+                                        cubicTo(
+                                                cx + w * 0.14f, cy - h * 0.45f,
+                                                cx + w * 0.05f, cy - h * 0.40f,
+                                                cx + w * 0.03f, cy - h * 0.30f
+                                        )
+                                        lineTo(cx, cy - hubR)
+                                        close()
+                                }
+
+                                if (isHalf1Filled) {
+                                        drawPath(pathHalf1, color = tint)
+                                }
+                                drawPath(
+                                        pathHalf1,
+                                        color = outlineColor,
+                                        style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+
+                                // Half 2: trailing side
+                                val pathHalf2 = Path().apply {
+                                        moveTo(cx, cy - hubR)
+                                        lineTo(cx + w * 0.03f, cy - h * 0.30f)
+                                        cubicTo(
+                                                cx - w * 0.04f, cy - h * 0.34f,
+                                                cx - w * 0.12f, cy - h * 0.22f,
+                                                cx - w * 0.08f, cy - h * 0.12f
+                                        )
+                                        lineTo(cx, cy - hubR)
+                                        close()
+                                }
+
+                                if (isHalf2Filled) {
+                                        drawPath(pathHalf2, color = tint)
+                                }
+                                drawPath(
+                                        pathHalf2,
+                                        color = outlineColor,
+                                        style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                        }
+                }
+
+                // Central hub
+                drawCircle(
+                        color = if (speed == 0) tint.copy(alpha = 0.45f) else tint,
+                        radius = hubR,
+                        center = Offset(cx, cy)
+                )
+        }
 }
 
 /**
@@ -566,7 +639,7 @@ fun CoffeeOsSeatVentilationButton(
                                 modifier = Modifier
                                         .size(23.dp)
                                         .then(
-                                                if (!isDriver) Modifier.graphicsLayer(scaleX = -1f) else Modifier
+                                                if (isDriver) Modifier.graphicsLayer(scaleX = -1f) else Modifier
                                         )
                         )
                         Spacer(modifier = Modifier.height(2.5.dp))
@@ -1389,7 +1462,7 @@ fun ChevronArrowButton(
 	val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 	val isPressed by interactionSource.collectIsPressedAsState()
 
-	val targetWidth = if (isCompact) 46.dp else 76.dp
+	val targetWidth = if (isCompact) 36.dp else 64.dp
 	val animatedWidth by animateDpAsState(
 		targetValue = targetWidth,
 		animationSpec = tween(durationMillis = 250),
@@ -1397,21 +1470,21 @@ fun ChevronArrowButton(
 	)
 
 	val primaryColor = if (enabled) {
-		if (isPressed) Color.White else Color(0xFFE2E6EA)
+		if (isPressed) Color(0xFFC0C7D0) else Color(0xFF727A86)
 	} else {
-		Color(0xFF9EA4B0).copy(alpha = 0.35f)
+		Color(0xFF505660).copy(alpha = 0.35f)
 	}
 
 	val bodyFillColor = if (enabled) {
-		if (isPressed) Color(0xFF2D323E) else Color(0xFF161A22)
+		if (isPressed) Color(0xFF22262E) else Color(0xFF13161C)
 	} else {
-		Color(0xFF101318).copy(alpha = 0.45f)
+		Color(0xFF0D0F14).copy(alpha = 0.45f)
 	}
 
 	Box(
 		modifier = modifier
 			.width(animatedWidth)
-			.height(42.dp)
+			.height(32.dp)
 			.alpha(if (enabled) 1.0f else 0.32f)
 			.clickable(
 				enabled = enabled,
@@ -1424,10 +1497,10 @@ fun ChevronArrowButton(
 		Canvas(modifier = Modifier.fillMaxSize()) {
 			val w = size.width
 			val h = size.height
-			val slant = h * 0.36f // chevron slope offset
-			val stripeW = 4.5.dp.toPx()
-			val stripeGap = 3.5.dp.toPx()
-			val cornerRadius = 6.dp.toPx()
+			val slant = h * 0.34f // chevron slope offset
+			val stripeW = 3.5.dp.toPx()
+			val stripeGap = 2.8.dp.toPx()
+			val cornerRadius = 5.dp.toPx()
 
 			if (isCompact) {
 				// Image 2 style: 3 speed chevrons without body and without label
@@ -1586,9 +1659,9 @@ fun ChevronArrowButton(
 		// Label in Wide mode
 		if (!isCompact) {
 			val labelPadding = if (direction == ChevronDirection.LEFT) {
-				PaddingValues(start = 20.dp, end = 4.dp)
+				PaddingValues(start = 16.dp, end = 2.dp)
 			} else {
-				PaddingValues(start = 4.dp, end = 20.dp)
+				PaddingValues(start = 2.dp, end = 16.dp)
 			}
 			Box(
 				modifier = Modifier
@@ -1600,12 +1673,12 @@ fun ChevronArrowButton(
 					text = label,
 					style = TextStyle(
 						fontFamily = Michroma,
-						fontSize = 8.5.sp,
+						fontSize = 7.sp,
 						fontWeight = FontWeight.Bold,
-						color = if (enabled) Color.White else Color.White.copy(alpha = 0.35f),
-						letterSpacing = 0.5.sp,
+						color = if (enabled) Color(0xFF9EA4B0) else Color(0xFF6E7682).copy(alpha = 0.4f),
+						letterSpacing = 0.3.sp,
 						textAlign = TextAlign.Center,
-						lineHeight = 11.sp
+						lineHeight = 9.sp
 					),
 					maxLines = 2,
 					overflow = TextOverflow.Ellipsis
@@ -2122,8 +2195,7 @@ fun BottomBarContent() {
                                                 // 1. Extremidade Esquerda (Setas, Temp Motorista, Ventilação Motorista, Fan < >)
                                                 Row(
                                                         modifier = Modifier.align(Alignment.CenterStart),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        verticalAlignment = Alignment.CenterVertically
                                                 ) {
                                                         LeftArrowsSection(
                                                                 isLeftBarShown = isLeftBarShown,
@@ -2131,6 +2203,8 @@ fun BottomBarContent() {
                                                                 scope = scope,
                                                                 context = barContext
                                                         )
+
+                                                        Spacer(modifier = Modifier.width(12.dp))
 
                                                         TempControlSection(
                                                                 label = "Motorista",
@@ -2151,6 +2225,8 @@ fun BottomBarContent() {
                                                                 }
                                                         }
 
+                                                        Spacer(modifier = Modifier.width(50.dp))
+
                                                         CoffeeOsSeatVentilationButton(
                                                                 isDriver = true,
                                                                 level = driverSeatVentilation,
@@ -2164,6 +2240,8 @@ fun BottomBarContent() {
                                                                         )
                                                                 }
                                                         )
+
+                                                        Spacer(modifier = Modifier.width(50.dp))
 
                                                         FanControlSection(
                                                                 speed = fanSpeed,
@@ -2208,8 +2286,7 @@ fun BottomBarContent() {
                                                 // 3. Extremidade Direita (Volume, Ventilação Passageiro, Temp Passageiro, Override e Spacer)
                                                 Row(
                                                         modifier = Modifier.align(Alignment.CenterEnd),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        verticalAlignment = Alignment.CenterVertically
                                                 ) {
                                                         VolumeControlSection(
                                                                 label = "Volume",
@@ -2224,6 +2301,8 @@ fun BottomBarContent() {
                                                                 )
                                                         }
 
+                                                        Spacer(modifier = Modifier.width(50.dp))
+
                                                         CoffeeOsSeatVentilationButton(
                                                                 isDriver = false,
                                                                 level = passengerSeatVentilation,
@@ -2237,6 +2316,8 @@ fun BottomBarContent() {
                                                                         )
                                                                 }
                                                         )
+
+                                                        Spacer(modifier = Modifier.width(50.dp))
 
                                                         TempControlSection(
                                                                 label = "Passageiro",
@@ -2256,6 +2337,8 @@ fun BottomBarContent() {
                                                                         serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
                                                                 }
                                                         }
+
+                                                        Spacer(modifier = Modifier.width(12.dp))
 
                                                         // Override Section
                                                         val isOverrideExpanded = BottomBarState.isOverrideMenuExpanded
@@ -2308,7 +2391,7 @@ fun BottomBarContent() {
                                                                 }
                                                         }
 
-                                                        Spacer(modifier = Modifier.width(118.dp))
+                                                        Spacer(modifier = Modifier.width(82.dp))
                                                 }
                                         }
                                 }
@@ -7817,10 +7900,12 @@ fun FanControlSection(
                                 }
                 ) {
                         Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
+                                verticalAlignment = Alignment.Bottom,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(bottom = 8.dp)
                         ) {
                                 CoffeeOsFanIcon(
+                                        speed = if (isPowerOn) speed else 0,
                                         modifier = Modifier.size(24.dp),
                                         tint = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.4f)
                                 )
@@ -7829,10 +7914,11 @@ fun FanControlSection(
                                         text = if (!isPowerOn || speed == 0) "OFF" else "$speed",
                                         style = TextStyle(
                                                 fontFamily = Michroma,
-                                                fontSize = if (!isPowerOn || speed == 0) 9.5.sp else 12.sp,
+                                                fontSize = if (!isPowerOn || speed == 0) 8.5.sp else 11.5.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.4f)
-                                        )
+                                        ),
+                                        modifier = Modifier.padding(bottom = 1.dp)
                                 )
                         }
                 }
@@ -7905,96 +7991,179 @@ fun VolumeControlSection(
                 }
         }
 
-        var isPressed by remember { mutableStateOf(false) }
-        val animatedBg by animateColorAsState(
-                targetValue = if (isPressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
-                animationSpec = tween(durationMillis = if (isPressed) 50 else 300),
-                label = "volBg"
+        val leftInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val leftPressed by leftInteraction.collectIsPressedAsState()
+        val rightInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val rightPressed by rightInteraction.collectIsPressedAsState()
+
+        var isCenterPressed by remember { mutableStateOf(false) }
+        val glowColor = Color(0xFF2196F3).copy(alpha = 0.35f)
+        val centerBg by animateColorAsState(
+                targetValue = if (isCenterPressed) glowColor else Color.Transparent,
+                animationSpec = tween(durationMillis = if (isCenterPressed) 50 else 300),
+                label = "volCenterBg"
         )
 
-        Box(
-                contentAlignment = Alignment.Center,
+        Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
                 modifier = Modifier
-                        .height(42.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(animatedBg)
+                        .width(104.dp)
+                        .height(44.dp)
                         .onGloballyPositioned { coordinates ->
                                 centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
                         }
-                        .pointerInput(Unit) {
-                                awaitPointerEventScope {
-                                        while (true) {
-                                                val down = awaitFirstDown(requireUnconsumed = false)
-                                                isPressed = true
-                                                val startX = down.position.x
-                                                val startY = down.position.y
-                                                var totalDragX = 0f
-                                                var isDragging = false
-                                                var accumulatedDragX = 0f
+        ) {
+                // Left Chevron < (Decrease volume)
+                Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                                .size(width = 26.dp, height = 40.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(
+                                        interactionSource = leftInteraction,
+                                        indication = null
+                                ) {
+                                        val next = (currentVolRef - 1).coerceIn(0, 30)
+                                        if (next != currentVolRef) {
+                                                onValueChange(-1)
+                                                postHud(next, autoDismiss = true)
+                                        }
+                                }
+                ) {
+                        Canvas(modifier = Modifier.size(15.dp)) {
+                                val strokeW = 2.dp.toPx()
+                                val path = Path().apply {
+                                        moveTo(size.width * 0.65f, size.height * 0.15f)
+                                        lineTo(size.width * 0.35f, size.height * 0.50f)
+                                        lineTo(size.width * 0.65f, size.height * 0.85f)
+                                }
+                                drawPath(
+                                        path = path,
+                                        color = if (leftPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.85f),
+                                        style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                        }
+                }
 
-                                                do {
-                                                        val event = awaitPointerEvent()
-                                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                                        if (!change.pressed) break
+                // Center Volume Icon + Value (with subscript text)
+                Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                                .width(52.dp)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(centerBg)
+                                .pointerInput(Unit) {
+                                        awaitPointerEventScope {
+                                                while (true) {
+                                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                                        isCenterPressed = true
+                                                        val startX = down.position.x
+                                                        val startY = down.position.y
+                                                        var totalDragX = 0f
+                                                        var isDragging = false
+                                                        var accumulatedDragX = 0f
 
-                                                        val deltaX = change.position.x - change.previousPosition.x
-                                                        totalDragX += deltaX
+                                                        do {
+                                                                val event = awaitPointerEvent()
+                                                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                                if (!change.pressed) break
 
-                                                        if (!isDragging && kotlin.math.abs(totalDragX) > 10.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(change.position.y - startY)) {
-                                                                isDragging = true
-                                                                postHud(currentVolRef, autoDismiss = false)
-                                                        }
+                                                                val deltaX = change.position.x - change.previousPosition.x
+                                                                val deltaY = change.position.y - change.previousPosition.y
+                                                                totalDragX += deltaX
 
-                                                        if (isDragging) {
-                                                                change.consume()
-                                                                accumulatedDragX += deltaX
-                                                                val stepPx = 14.dp.toPx()
-                                                                if (kotlin.math.abs(accumulatedDragX) >= stepPx) {
-                                                                        val deltaVol = if (accumulatedDragX > 0) 1 else -1
-                                                                        accumulatedDragX -= if (accumulatedDragX > 0) stepPx else -stepPx
-                                                                        val next = (currentVolRef + deltaVol).coerceIn(0, 30)
-                                                                        if (next != currentVolRef) {
-                                                                                onValueChange(deltaVol)
-                                                                                postHud(next, autoDismiss = false)
+                                                                if (!isDragging && kotlin.math.abs(totalDragX) > 10.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(deltaY)) {
+                                                                        isDragging = true
+                                                                        postHud(currentVolRef, autoDismiss = false)
+                                                                }
+
+                                                                if (isDragging) {
+                                                                        change.consume()
+                                                                        accumulatedDragX += deltaX
+                                                                        val stepPx = 14.dp.toPx()
+                                                                        if (kotlin.math.abs(accumulatedDragX) >= stepPx) {
+                                                                                val deltaVol = if (accumulatedDragX > 0) 1 else -1
+                                                                                accumulatedDragX -= if (accumulatedDragX > 0) stepPx else -stepPx
+                                                                                val next = (currentVolRef + deltaVol).coerceIn(0, 30)
+                                                                                if (next != currentVolRef) {
+                                                                                        onValueChange(deltaVol)
+                                                                                        postHud(next, autoDismiss = false)
+                                                                                }
                                                                         }
                                                                 }
-                                                        }
-                                                } while (change.pressed)
+                                                        } while (change.pressed)
 
-                                                isPressed = false
-                                                if (isDragging) {
-                                                        dismissJob?.cancel()
-                                                        dismissJob = scope.launch {
-                                                                delay(1000)
-                                                                BottomBarState.activeSwipeHud = null
+                                                        isCenterPressed = false
+                                                        if (isDragging) {
+                                                                dismissJob?.cancel()
+                                                                dismissJob = scope.launch {
+                                                                        delay(1000)
+                                                                        BottomBarState.activeSwipeHud = null
+                                                                }
+                                                        } else {
+                                                                postHud(currentVolRef, autoDismiss = true)
                                                         }
-                                                } else {
-                                                        postHud(currentVolRef, autoDismiss = true)
                                                 }
                                         }
                                 }
-                        }
-                        .padding(horizontal = 8.dp)
-        ) {
-                Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                        Icon(
-                                imageVector = if (volume == 0) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
-                                contentDescription = "Volume",
-                                tint = if (isPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.88f),
-                                modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                                text = volume.toString(),
-                                style = TextStyle(
-                                        fontFamily = Michroma,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = if (isPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.90f)
+                        Row(
+                                verticalAlignment = Alignment.Bottom,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                        ) {
+                                Icon(
+                                        imageVector = if (volume == 0) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
+                                        contentDescription = "Volume",
+                                        tint = if (isCenterPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.88f),
+                                        modifier = Modifier.size(24.dp)
                                 )
-                        )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                        text = if (volume == 0) "OFF" else volume.toString(),
+                                        style = TextStyle(
+                                                fontFamily = Michroma,
+                                                fontSize = if (volume == 0) 8.5.sp else 11.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isCenterPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.90f)
+                                        ),
+                                        modifier = Modifier.padding(bottom = 1.dp)
+                                )
+                        }
+                }
+
+                // Right Chevron > (Increase volume)
+                Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                                .size(width = 26.dp, height = 40.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(
+                                        interactionSource = rightInteraction,
+                                        indication = null
+                                ) {
+                                        val next = (currentVolRef + 1).coerceIn(0, 30)
+                                        if (next != currentVolRef) {
+                                                onValueChange(1)
+                                                postHud(next, autoDismiss = true)
+                                        }
+                                }
+                ) {
+                        Canvas(modifier = Modifier.size(15.dp)) {
+                                val strokeW = 2.dp.toPx()
+                                val path = Path().apply {
+                                        moveTo(size.width * 0.35f, size.height * 0.15f)
+                                        lineTo(size.width * 0.65f, size.height * 0.50f)
+                                        lineTo(size.width * 0.35f, size.height * 0.85f)
+                                }
+                                drawPath(
+                                        path = path,
+                                        color = if (rightPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.85f),
+                                        style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                        }
                 }
         }
 }
