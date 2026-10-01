@@ -2277,10 +2277,15 @@ private fun BoxScope.BottomBarNewContent(
 @Composable
 private fun BoxScope.BottomBarOldContent(
         driverTemp: String,
+        onDriverTempChange: (String) -> Unit,
         passTemp: String,
+        onPassTempChange: (String) -> Unit,
         volume: Int,
+        onVolumeChange: (Int) -> Unit,
         fanSpeed: Int,
+        onFanSpeedChange: (Int) -> Unit,
         hvacPower: String,
+        onHvacPowerChange: (String) -> Unit,
         acSync: String,
         acAuto: String,
         acRecirc: String,
@@ -2307,7 +2312,7 @@ private fun BoxScope.BottomBarOldContent(
                         modifier = Modifier.weight(0.14f),
                         contentAlignment = Alignment.Center
                 ) {
-                        OldTempControlSection(
+                        TempControlSection(
                                 label = "Motorista",
                                 temp = driverTemp,
                                 isEnabled = isACEnabled,
@@ -2316,11 +2321,13 @@ private fun BoxScope.BottomBarOldContent(
                                 val cur = driverTemp.toFloatOrNull() ?: 22.0f
                                 val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
                                 val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
+                                onDriverTempChange(formatted)
                                 serviceManager.updateData(
                                         CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),
                                         formatted
                                 )
                                 if (!isACEnabled) {
+                                        onHvacPowerChange("1")
                                         serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
                                 }
                         }
@@ -2339,22 +2346,33 @@ private fun BoxScope.BottomBarOldContent(
                         modifier = Modifier.weight(0.14f),
                         contentAlignment = Alignment.Center
                 ) {
-                        OldFanControlSection(
+                        FanControlSection(
                                 speed = fanSpeed,
-                                isEnabled = true,
-                                sliderType = BottomBarState.SliderType.FAN
-                        ) { delta ->
-                                val calculatedSpeed = (fanSpeed + delta).coerceIn(0, 7)
-                                serviceManager.updateData(
-                                        CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
-                                        calculatedSpeed.toString()
-                                )
-                                if (calculatedSpeed == 0 && isACEnabled) {
-                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "0")
-                                } else if (calculatedSpeed > 0 && !isACEnabled) {
-                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                isPowerOn = isACEnabled,
+                                sliderType = BottomBarState.SliderType.FAN,
+                                onSpeedChange = { newSpeed ->
+                                        onFanSpeedChange(newSpeed)
+                                        serviceManager.updateData(
+                                                CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
+                                                newSpeed.toString()
+                                        )
+                                        if (newSpeed == 0 && isACEnabled) {
+                                                onHvacPowerChange("0")
+                                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "0")
+                                        } else if (newSpeed > 0 && !isACEnabled) {
+                                                onHvacPowerChange("1")
+                                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                        }
+                                },
+                                onFanClick = {
+                                        BottomBarState.isAcMenuExpanded = !BottomBarState.isAcMenuExpanded
+                                        if (BottomBarState.isAcMenuExpanded) {
+                                                BottomBarState.isMenuExpanded = false
+                                                BottomBarState.isSettingsMenuExpanded = false
+                                                BottomBarState.isOverrideMenuExpanded = false
+                                        }
                                 }
-                        }
+                        )
                 }
 
                 // 5. AC Recirc/Sync/Auto (14%)
@@ -2402,12 +2420,13 @@ private fun BoxScope.BottomBarOldContent(
                         modifier = Modifier.weight(0.14f),
                         contentAlignment = Alignment.Center
                 ) {
-                        OldVolumeControlSection(
+                        VolumeControlSection(
                                 label = "Volume",
                                 volume = volume,
                                 sliderType = BottomBarState.SliderType.VOLUME
                         ) { delta ->
                                 val newVol = (volume + delta).coerceIn(0, 30)
+                                onVolumeChange(newVol)
                                 serviceManager.updateData(
                                         CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
                                         newVol.toString()
@@ -2420,7 +2439,7 @@ private fun BoxScope.BottomBarOldContent(
                         modifier = Modifier.weight(0.14f),
                         contentAlignment = Alignment.Center
                 ) {
-                        OldTempControlSection(
+                        TempControlSection(
                                 label = "Passageiro",
                                 temp = passTemp,
                                 isEnabled = isACEnabled,
@@ -2429,11 +2448,13 @@ private fun BoxScope.BottomBarOldContent(
                                 val cur = passTemp.toFloatOrNull() ?: 22.0f
                                 val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
                                 val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
+                                onPassTempChange(formatted)
                                 serviceManager.updateData(
                                         CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(),
                                         formatted
                                 )
                                 if (!isACEnabled) {
+                                        onHvacPowerChange("1")
                                         serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
                                 }
                         }
@@ -2832,10 +2853,15 @@ fun BottomBarContent() {
                                                 } else {
                                                         BottomBarOldContent(
                                                                 driverTemp = driverTemp,
+                                                                onDriverTempChange = { driverTemp = it },
                                                                 passTemp = passTemp,
+                                                                onPassTempChange = { passTemp = it },
                                                                 volume = volume,
+                                                                onVolumeChange = { volume = it },
                                                                 fanSpeed = fanSpeed,
+                                                                onFanSpeedChange = { fanSpeed = it },
                                                                 hvacPower = hvacPower,
+                                                                onHvacPowerChange = { hvacPower = it },
                                                                 acSync = acSync,
                                                                 acAuto = acAuto,
                                                                 acRecirc = acRecirc,
@@ -4189,8 +4215,8 @@ fun BottomBarMenus() {
                                         VerticalSliderOverlay()
                                 }
 
-                                // Floating Horizontal Swipe HUD Overlay
-                                if (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key && BottomBarState.activeSwipeHud != null) {
+                                // Floating Horizontal Swipe HUD Overlay (for both Modern and Classic bars)
+                                if (BottomBarState.activeSwipeHud != null) {
                                         FloatingSwipeHudOverlay(hud = BottomBarState.activeSwipeHud!!)
                                 }
 
@@ -4223,8 +4249,8 @@ fun BottomBarMenus() {
                                                 }
                                         }
 
-                                        // AC Quick Menu (Above Fan Button) - only in NEW mode
-                                        if (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key && BottomBarState.isAcMenuExpanded) {
+                                        // AC Quick Menu (Above Fan Button) - for both Modern and Classic bars
+                                        if (BottomBarState.isAcMenuExpanded) {
                                                 val acMenuWidthDp = 420.dp
                                                 val density = LocalDensity.current
                                                 val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
@@ -4245,42 +4271,38 @@ fun BottomBarMenus() {
                                                 ) { AcQuickMenuContent() }
                                         }
 
-                                        // Settings/Override Menu
-                                        if (BottomBarState.isSettingsMenuExpanded ||
-                                                        BottomBarState.isOverrideMenuExpanded
-                                        ) {
-                                                val settingsMenuWidthDp = 480.dp
-                                                val density = LocalDensity.current
-                                                val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
-                                                val settingsStartPad = if (BottomBarState.conducaoCenterX > 0f) {
-                                                        val conducaoCenterDp = with(density) { BottomBarState.conducaoCenterX.toDp() }
-                                                        (conducaoCenterDp - settingsMenuWidthDp / 2).coerceIn(16.dp, (screenWidthDp - settingsMenuWidthDp - 16.dp).coerceAtLeast(16.dp))
-                                                } else {
-                                                        300.dp
-                                                }
+                                        // Car Settings Menu (Moved to the left)
+                                        if (BottomBarState.isSettingsMenuExpanded) {
                                                 Box(
                                                         modifier =
-                                                                (if (BottomBarState.isSettingsMenuExpanded) {
-                                                                        Modifier.padding(start = settingsStartPad).align(Alignment.BottomStart)
-                                                                } else {
-                                                                        Modifier.align(Alignment.BottomEnd).padding(end = 16.dp)
-                                                                }).onGloballyPositioned {
-                                                                        secondaryMenuBounds =
-                                                                                it.boundsInRoot()
-                                                                }
+                                                                Modifier.padding(start = 16.dp, bottom = 10.dp)
+                                                                        .align(Alignment.BottomStart)
+                                                                        .onGloballyPositioned {
+                                                                                secondaryMenuBounds =
+                                                                                        it.boundsInRoot()
+                                                                        }
                                                 ) {
-                                                        if (BottomBarState.isSettingsMenuExpanded) {
-                                                                SettingsMenuContent(
-                                                                        driveMode,
-                                                                        powerModel,
-                                                                        energyRecovery,
-                                                                        steeringMode
-                                                                )
-                                                        } else if (BottomBarState
-                                                                        .isOverrideMenuExpanded
-                                                        ) {
-                                                                OverrideMenuContent()
-                                                        }
+                                                        SettingsMenuContent(
+                                                                driveMode,
+                                                                powerModel,
+                                                                energyRecovery,
+                                                                steeringMode
+                                                        )
+                                                }
+                                        }
+
+                                        // Override Menu (Bottom End / Right)
+                                        if (BottomBarState.isOverrideMenuExpanded) {
+                                                Box(
+                                                        modifier =
+                                                                Modifier.align(Alignment.BottomEnd)
+                                                                        .padding(end = 16.dp, bottom = 10.dp)
+                                                                        .onGloballyPositioned {
+                                                                                secondaryMenuBounds =
+                                                                                        it.boundsInRoot()
+                                                                        }
+                                                ) {
+                                                        OverrideMenuContent()
                                                 }
                                         }
                                 }
