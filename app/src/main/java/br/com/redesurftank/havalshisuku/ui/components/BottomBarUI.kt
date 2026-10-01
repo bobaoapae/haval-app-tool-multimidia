@@ -199,15 +199,11 @@ data class SystemAppItem(
 
 internal fun resolveDockApps(
         telasPackages: List<String>,
-        sessionRecents: List<String>,
+        sessionRecents: List<String> = emptyList(),
         maxApps: Int = 9
 ): List<String> {
         if (telasPackages.isEmpty()) return emptyList()
-        val distinctTelas = telasPackages.distinct()
-        return distinctTelas.sortedBy { pkg ->
-                val idx = sessionRecents.indexOf(pkg)
-                if (idx >= 0) idx else Int.MAX_VALUE
-        }.take(maxApps)
+        return telasPackages.distinct().take(maxApps)
 }
 
 /**
@@ -1819,8 +1815,8 @@ fun CenteredAppLauncherSection(
 	scope: CoroutineScope,
 	context: Context
 ) {
-	val recents = RecentAppsManager.recentApps
-	val configs = getBottomBarAppConfigs()
+	val configsVersion = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.configsVersion
+	val configs = remember(configsVersion) { getBottomBarAppConfigs() }
 	val isAppMenuExpanded = BottomBarState.isMenuExpanded
 	val activePkg = BottomBarState.currentPackage
 
@@ -1869,26 +1865,32 @@ fun CenteredAppLauncherSection(
 			)
 		}
 
-		// 3. Up to 9 Apps selected in Telas menu, ordered by last used in session
-		val candidateConfigs = remember(recents.toList(), configs) {
+		// 3. Up to 9 Apps selected in Telas menu, strictly preserving Telas order
+		val candidateConfigs = remember(configsVersion) {
 			val telas = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.getAllConfigs()
 			if (telas.isNotEmpty()) telas else configs
 		}
-		val validRecents = remember(recents.toList(), candidateConfigs) {
-			val configuredPackages = candidateConfigs.map { it.packageName }.distinct()
-			resolveDockApps(
-				telasPackages = configuredPackages,
-				sessionRecents = recents.toList(),
-				maxApps = 9
-			).filter { pkg ->
-				val cfg = candidateConfigs.find { it.packageName == pkg }
-				cfg?.substituteIcon != null || DisplayAppLauncher.resolveAppInfo(context, pkg).icon != null
+		val validDockConfigs = remember(candidateConfigs, configsVersion) {
+			val filtered = candidateConfigs.filter { cfg ->
+				cfg.substituteIcon != null || br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.resolveAppInfo(context, cfg.packageName, cfg.customName).icon != null
 			}
+			val validPackages = resolveDockApps(
+				telasPackages = filtered.map { it.packageName },
+				maxApps = 9
+			)
+			validPackages.mapNotNull { pkg -> filtered.firstOrNull { it.packageName == pkg } }
 		}
-		for (pkg in validRecents) {
+		for (config in validDockConfigs) {
+			val pkg = config.packageName
 			val isCurrentApp = pkg == activePkg
-			val config = candidateConfigs.find { it.packageName == pkg }
-			val substituteIcon = getSubstituteIconVector(config?.substituteIcon)
+			val subIcon = config.substituteIcon
+			val substituteIconVector = getSubstituteIconVector(subIcon)
+			val iconTint = config.iconColor.toComposeColor()
+
+			val appInfo = remember(pkg, config.customName, configsVersion) {
+				br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.resolveAppInfo(context, pkg, config.customName)
+			}
+			val displayName = config.customName?.takeIf { it.isNotBlank() } ?: appInfo.label
 
 			val appInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 			val appPressed by appInteraction.collectIsPressedAsState()
@@ -1910,24 +1912,34 @@ fun CenteredAppLauncherSection(
 					) {
 						RecentAppsManager.recordAppLaunch(pkg)
 						scope.launch {
-							DisplayAppLauncher.launchAnyApp(context, pkg)
+							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, pkg)
 						}
 					}
 			) {
-				if (substituteIcon != null) {
+				if (subIcon == "youtube" || subIcon == "youtube_music" || subIcon == "gwm") {
+					Image(
+						painter = painterResource(
+							id = when (subIcon) {
+								"youtube" -> R.drawable.ic_youtube_default
+								"youtube_music" -> R.drawable.ic_youtube_music_default
+								"gwm" -> R.drawable.ic_gwm
+								else -> R.drawable.ic_youtube_default
+							}
+						),
+						contentDescription = displayName,
+						modifier = Modifier.size(38.dp)
+					)
+				} else if (substituteIconVector != null) {
 					Icon(
-						imageVector = substituteIcon,
-						contentDescription = config?.customName ?: pkg,
-						tint = Color.White,
+						imageVector = substituteIconVector,
+						contentDescription = displayName,
+						tint = iconTint,
 						modifier = Modifier.size(38.dp)
 					)
 				} else {
-					val appInfo = remember(pkg) {
-						DisplayAppLauncher.resolveAppInfo(context, pkg, config?.customName)
-					}
 					AsyncImage(
 						model = ImageRequest.Builder(context).data(appInfo.icon).build(),
-						contentDescription = appInfo.label,
+						contentDescription = displayName,
 						modifier = Modifier.size(38.dp)
 					)
 				}
@@ -2877,7 +2889,8 @@ fun getSubstituteIconVector(substituteIcon: String?): ImageVector? {
 fun AppSwitcherSection() {
         val scope = rememberCoroutineScope()
         val context = LocalContext.current
-        val configs = getBottomBarAppConfigs()
+        val configsVersion = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.configsVersion
+        val configs = remember(configsVersion) { getBottomBarAppConfigs() }
 
         // Initialize if empty
         if (br.com.redesurftank.havalshisuku.models.BottomBarState.selectedPackage.isEmpty()) {
@@ -3033,7 +3046,7 @@ fun AppSwitcherSection() {
                                 )
                         } else if (effectiveSelectedPackage.isNotEmpty()) {
                                 val appInfo =
-                                        remember(effectiveSelectedPackage) {
+                                        remember(effectiveSelectedPackage, selectedConfig?.customName, configsVersion) {
                                                 br.com.redesurftank.havalshisuku.managers
                                                         .DisplayAppLauncher.resolveAppInfo(
                                                         context,
@@ -3432,11 +3445,12 @@ fun AddAppGridItem(
 
 @Composable
 fun ClassicAppMenuContent() {
+        val configsVersion = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.configsVersion
         val configsList = remember {
                 mutableStateListOf<DisplayAppConfig>()
                         .apply { addAll(getBottomBarAppConfigs()) }
         }
-        LaunchedEffect(Unit) {
+        LaunchedEffect(configsVersion) {
                 val latestConfigs = getBottomBarAppConfigs()
                 if (configsList.toList() != latestConfigs) {
                         configsList.clear()

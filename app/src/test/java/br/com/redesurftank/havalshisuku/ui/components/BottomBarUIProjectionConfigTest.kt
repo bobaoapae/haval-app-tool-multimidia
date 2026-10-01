@@ -94,7 +94,7 @@ class BottomBarUIProjectionConfigTest {
     }
 
     @Test
-    fun resolveDockApps_ordersBySessionRecentsAndPreservesTelasRemainder() {
+    fun resolveDockApps_preservesTelasOrderIgnoringSessionRecents() {
         val telas = listOf(
             "app.telas.1",
             "app.telas.2",
@@ -107,9 +107,9 @@ class BottomBarUIProjectionConfigTest {
 
         val result = resolveDockApps(telas, sessionRecents, maxApps = 9)
 
-        // app.telas.4 was most recent, then app.telas.2, then 1, 3, 5 follow in Telas order
+        // Dock strictly preserves Telas order (does not consider latest used first)
         assertEquals(
-            listOf("app.telas.4", "app.telas.2", "app.telas.1", "app.telas.3", "app.telas.5"),
+            listOf("app.telas.1", "app.telas.2", "app.telas.3", "app.telas.4", "app.telas.5"),
             result
         )
     }
@@ -122,9 +122,9 @@ class BottomBarUIProjectionConfigTest {
         val result = resolveDockApps(telas, sessionRecents, maxApps = 9)
 
         assertEquals(9, result.size)
-        assertEquals("app.telas.12", result[0])
-        assertEquals("app.telas.5", result[1])
-        assertEquals("app.telas.1", result[2])
+        assertEquals("app.telas.1", result[0])
+        assertEquals("app.telas.2", result[1])
+        assertEquals("app.telas.3", result[2])
     }
 
     @Test

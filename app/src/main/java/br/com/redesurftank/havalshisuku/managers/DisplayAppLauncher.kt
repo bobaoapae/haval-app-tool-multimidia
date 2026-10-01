@@ -23,6 +23,9 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.Parcel
 import android.os.SystemClock
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import android.view.KeyEvent
 import br.com.redesurftank.havalshisuku.BuildConfig
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
@@ -46,6 +49,8 @@ data class ResolvedAppInfo(
 )
 
 object DisplayAppLauncher {
+
+    var configsVersion by mutableIntStateOf(0)
 
     @Volatile
     var dynamicThemeBounds: IntArray? = null
@@ -543,9 +548,22 @@ object DisplayAppLauncher {
             get() = "$packageName:$sourceDisplayId->$targetDisplayId"
     }
 
-    private fun getPrefs() =
-        App.getDeviceProtectedContext()
+    @Volatile
+    private var prefsListenerRegistered = false
+
+    private fun getPrefs(): android.content.SharedPreferences {
+        val prefs = App.getDeviceProtectedContext()
             .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+        if (!prefsListenerRegistered) {
+            prefsListenerRegistered = true
+            prefs.registerOnSharedPreferenceChangeListener { _, key ->
+                if (key == SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key) {
+                    configsVersion++
+                }
+            }
+        }
+        return prefs
+    }
 
     @JvmStatic
     fun ensureDefaultDesktopShortcuts() {
@@ -7569,6 +7587,7 @@ object DisplayAppLauncher {
         getPrefs().edit()
             .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
             .apply()
+        configsVersion++
         publishIconOverrides()
     }
 
@@ -7611,6 +7630,7 @@ object DisplayAppLauncher {
         getPrefs().edit()
             .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
             .apply()
+        configsVersion++
         publishIconOverrides()
     }
 
@@ -7618,6 +7638,7 @@ object DisplayAppLauncher {
         getPrefs().edit()
             .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
             .apply()
+        configsVersion++
         publishIconOverrides()
     }
 
@@ -7630,6 +7651,7 @@ object DisplayAppLauncher {
             getPrefs().edit()
                 .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
                 .apply()
+            configsVersion++
             publishIconOverrides()
         }
     }
@@ -7643,6 +7665,7 @@ object DisplayAppLauncher {
             getPrefs().edit()
                 .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
                 .apply()
+            configsVersion++
             publishIconOverrides()
         }
     }
