@@ -828,7 +828,7 @@ fun HomeButton(
 @Composable
 fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
         val density = LocalDensity.current
-        val hudWidthDp = 250.dp
+        val hudWidthDp = 340.dp
         val hudHeightDp = 76.dp
         val hudWidthPx = with(density) { hudWidthDp.toPx() }
         val marginPx = with(density) { 16.dp.toPx() }
@@ -869,9 +869,9 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                                         .background(
                                                 Brush.horizontalGradient(
                                                         0.0f to Color.Transparent,
-                                                        0.14f to Color(0xF00C1017),
+                                                        0.10f to Color(0xF00C1017),
                                                         0.5f to Color(0xFC0C1017),
-                                                        0.86f to Color(0xF00C1017),
+                                                        0.90f to Color(0xF00C1017),
                                                         1.0f to Color.Transparent
                                                 )
                                         )
@@ -879,7 +879,7 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                                 Column(
                                         modifier = Modifier
                                                 .fillMaxSize()
-                                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                                                .padding(horizontal = 24.dp, vertical = 8.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.SpaceBetween
                                 ) {
@@ -898,8 +898,8 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
 
                                         if (hud.isFan) {
                                                 Row(
-                                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
                                                         verticalAlignment = Alignment.CenterVertically
                                                 ) {
                                                         for (step in 1..7) {
@@ -919,7 +919,7 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                                                         }
                                                 }
                                         } else {
-                                                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
+                                                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp)) {
                                                         Box(
                                                                 modifier = Modifier
                                                                         .fillMaxWidth()
@@ -946,11 +946,11 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                                                         ) {
                                                                 Text(
                                                                         text = hud.minLabel,
-                                                                        style = labelStyle.copy(fontSize = 9.sp, color = Color.White.copy(alpha = 0.6f))
+                                                                        style = labelStyle.copy(fontSize = 10.sp, color = Color.White.copy(alpha = 0.6f))
                                                                 )
                                                                 Text(
                                                                         text = hud.maxLabel,
-                                                                        style = labelStyle.copy(fontSize = 9.sp, color = Color.White.copy(alpha = 0.6f))
+                                                                        style = labelStyle.copy(fontSize = 10.sp, color = Color.White.copy(alpha = 0.6f))
                                                                 )
                                                         }
                                                 }
@@ -1539,6 +1539,7 @@ fun FanButton(
 						var totalDragX = 0f
 						var isDragging = false
 						var accumulatedDragX = 0f
+						var activeSpeed = currentSpeedRef
 
 						do {
 							val event = awaitPointerEvent()
@@ -1551,18 +1552,21 @@ fun FanButton(
 
 							if (!isDragging && abs(totalDragX) > 10.dp.toPx() && abs(totalDragX) > abs(change.position.y - startY)) {
 								isDragging = true
-								postHud(currentSpeedRef, autoDismiss = false)
+								activeSpeed = currentSpeedRef
+								postHud(activeSpeed, autoDismiss = false)
 							}
 
 							if (isDragging) {
 								change.consume()
 								accumulatedDragX += deltaX
-								val stepPx = 18.dp.toPx()
+								val stepPx = 27.dp.toPx()
 								if (abs(accumulatedDragX) >= stepPx) {
-									val deltaSpeed = if (accumulatedDragX > 0) 1 else -1
-									accumulatedDragX -= deltaSpeed * stepPx
-									val newSpeed = (currentSpeedRef + deltaSpeed).coerceIn(0, 7)
-									if (newSpeed != currentSpeedRef) {
+									val numSteps = (abs(accumulatedDragX) / stepPx).toInt()
+									val stepDirection = if (accumulatedDragX > 0) 1 else -1
+									accumulatedDragX -= stepDirection * numSteps * stepPx
+									val newSpeed = (activeSpeed + stepDirection * numSteps).coerceIn(0, 7)
+									if (newSpeed != activeSpeed) {
+										activeSpeed = newSpeed
 										onSpeedChange(newSpeed)
 										postHud(newSpeed, autoDismiss = false)
 									}
@@ -2087,21 +2091,20 @@ private fun BoxScope.BottomBarNewContent(
                         label = "Motorista",
                         temp = driverTemp,
                         isEnabled = isACEnabled,
-                        sliderType = BottomBarState.SliderType.DRIVER_TEMP
-                ) { delta ->
-                        val cur = driverTemp.toFloatOrNull() ?: 22.0f
-                        val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
-                        val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
-                        onDriverTempChange(formatted)
-                        serviceManager.updateData(
-                                CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),
-                                formatted
-                        )
-                        if (!isACEnabled) {
-                                onHvacPowerChange("1")
-                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                        sliderType = BottomBarState.SliderType.DRIVER_TEMP,
+                        onTempChange = { newTemp ->
+                                val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
+                                onDriverTempChange(formatted)
+                                serviceManager.updateData(
+                                        CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),
+                                        formatted
+                                )
+                                if (!isACEnabled) {
+                                        onHvacPowerChange("1")
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                }
                         }
-                }
+                )
 
                 Spacer(modifier = Modifier.width(32.dp))
 
@@ -2169,15 +2172,15 @@ private fun BoxScope.BottomBarNewContent(
                 VolumeControlSection(
                         label = "Volume",
                         volume = volume,
-                        sliderType = BottomBarState.SliderType.VOLUME
-                ) { delta ->
-                        val newVol = (volume + delta).coerceIn(0, 30)
-                        onVolumeChange(newVol)
-                        serviceManager.updateData(
-                                CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
-                                newVol.toString()
-                        )
-                }
+                        sliderType = BottomBarState.SliderType.VOLUME,
+                        onVolumeChange = { newVol ->
+                                onVolumeChange(newVol)
+                                serviceManager.updateData(
+                                        CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
+                                        newVol.toString()
+                                )
+                        }
+                )
 
                 Spacer(modifier = Modifier.width(32.dp))
 
@@ -2201,21 +2204,20 @@ private fun BoxScope.BottomBarNewContent(
                         label = "Passageiro",
                         temp = passTemp,
                         isEnabled = isACEnabled,
-                        sliderType = BottomBarState.SliderType.PASS_TEMP
-                ) { delta ->
-                        val cur = passTemp.toFloatOrNull() ?: 22.0f
-                        val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
-                        val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
-                        onPassTempChange(formatted)
-                        serviceManager.updateData(
-                                CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(),
-                                formatted
-                        )
-                        if (!isACEnabled) {
-                                onHvacPowerChange("1")
-                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                        sliderType = BottomBarState.SliderType.PASS_TEMP,
+                        onTempChange = { newTemp ->
+                                val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
+                                onPassTempChange(formatted)
+                                serviceManager.updateData(
+                                        CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(),
+                                        formatted
+                                )
+                                if (!isACEnabled) {
+                                        onHvacPowerChange("1")
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                }
                         }
-                }
+                )
 
                 Spacer(modifier = Modifier.width(12.dp))
 
@@ -2316,21 +2318,20 @@ private fun BoxScope.BottomBarOldContent(
                                 label = "Motorista",
                                 temp = driverTemp,
                                 isEnabled = isACEnabled,
-                                sliderType = BottomBarState.SliderType.DRIVER_TEMP
-                        ) { delta ->
-                                val cur = driverTemp.toFloatOrNull() ?: 22.0f
-                                val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
-                                val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
-                                onDriverTempChange(formatted)
-                                serviceManager.updateData(
-                                        CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),
-                                        formatted
-                                )
-                                if (!isACEnabled) {
-                                        onHvacPowerChange("1")
-                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                sliderType = BottomBarState.SliderType.DRIVER_TEMP,
+                                onTempChange = { newTemp ->
+                                        val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
+                                        onDriverTempChange(formatted)
+                                        serviceManager.updateData(
+                                                CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),
+                                                formatted
+                                        )
+                                        if (!isACEnabled) {
+                                                onHvacPowerChange("1")
+                                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                        }
                                 }
-                        }
+                        )
                 }
 
                 // 3. Controls Group (Back, Settings) (14%)
@@ -2423,15 +2424,15 @@ private fun BoxScope.BottomBarOldContent(
                         VolumeControlSection(
                                 label = "Volume",
                                 volume = volume,
-                                sliderType = BottomBarState.SliderType.VOLUME
-                        ) { delta ->
-                                val newVol = (volume + delta).coerceIn(0, 30)
-                                onVolumeChange(newVol)
-                                serviceManager.updateData(
-                                        CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
-                                        newVol.toString()
-                                )
-                        }
+                                sliderType = BottomBarState.SliderType.VOLUME,
+                                onVolumeChange = { newVol ->
+                                        onVolumeChange(newVol)
+                                        serviceManager.updateData(
+                                                CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
+                                                newVol.toString()
+                                        )
+                                }
+                        )
                 }
 
                 // 7. AC Passenger (14%)
@@ -2443,21 +2444,20 @@ private fun BoxScope.BottomBarOldContent(
                                 label = "Passageiro",
                                 temp = passTemp,
                                 isEnabled = isACEnabled,
-                                sliderType = BottomBarState.SliderType.PASS_TEMP
-                        ) { delta ->
-                                val cur = passTemp.toFloatOrNull() ?: 22.0f
-                                val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
-                                val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
-                                onPassTempChange(formatted)
-                                serviceManager.updateData(
-                                        CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(),
-                                        formatted
-                                )
-                                if (!isACEnabled) {
-                                        onHvacPowerChange("1")
-                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                sliderType = BottomBarState.SliderType.PASS_TEMP,
+                                onTempChange = { newTemp ->
+                                        val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
+                                        onPassTempChange(formatted)
+                                        serviceManager.updateData(
+                                                CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(),
+                                                formatted
+                                        )
+                                        if (!isACEnabled) {
+                                                onHvacPowerChange("1")
+                                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                        }
                                 }
-                        }
+                        )
                 }
 
                 // 8. Override Section (5%)
@@ -8363,7 +8363,8 @@ fun TempControlSection(
         isEnabled: Boolean,
         sliderType: BottomBarState.SliderType? = null,
         buttonWidth: androidx.compose.ui.unit.Dp = 48.dp,
-        onValueChange: (Float) -> Unit
+        onTempChange: ((Float) -> Unit)? = null,
+        onValueChange: ((Float) -> Unit)? = null
 ) {
         val floatTemp = temp.toFloatOrNull() ?: 22.0f
         val isAbnormal = floatTemp >= 85f || (floatTemp <= -40f && temp != "--") || floatTemp == -1f
@@ -8374,6 +8375,11 @@ fun TempControlSection(
         val scope = rememberCoroutineScope()
         var dismissJob by remember { mutableStateOf<Job?>(null) }
         val currentTempRef by rememberUpdatedState(temp)
+
+        fun notifyChange(newTemp: Float, delta: Float) {
+                onTempChange?.invoke(newTemp)
+                onValueChange?.invoke(delta)
+        }
 
         fun postHud(newTemp: Float, autoDismiss: Boolean = true) {
                 BottomBarState.activeSwipeHud = BottomBarState.SwipeHudData(
@@ -8421,8 +8427,10 @@ fun TempControlSection(
                                 ) {
                                         val cur = currentTempRef.toFloatOrNull() ?: 22.0f
                                         val next = (cur - 0.5f).coerceIn(16.0f, 30.0f)
-                                        onValueChange(-0.5f)
-                                        postHud(next, autoDismiss = true)
+                                        if (next != cur) {
+                                                notifyChange(next, -0.5f)
+                                                postHud(next, autoDismiss = true)
+                                        }
                                 }
                 ) {
                         Canvas(modifier = Modifier.size(18.dp)) {
@@ -8458,6 +8466,7 @@ fun TempControlSection(
                                                         var totalDragX = 0f
                                                         var isDragging = false
                                                         var accumulatedDragX = 0f
+                                                        var activeTemp = currentTempRef.toFloatOrNull() ?: 22.0f
 
                                                         do {
                                                                 val event = awaitPointerEvent()
@@ -8469,21 +8478,25 @@ fun TempControlSection(
 
                                                                 if (!isDragging && kotlin.math.abs(totalDragX) > 10.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(change.position.y - startY)) {
                                                                         isDragging = true
-                                                                        val cur = currentTempRef.toFloatOrNull() ?: 22.0f
-                                                                        postHud(cur, autoDismiss = false)
+                                                                        activeTemp = currentTempRef.toFloatOrNull() ?: 22.0f
+                                                                        postHud(activeTemp, autoDismiss = false)
                                                                 }
 
                                                                 if (isDragging) {
                                                                         change.consume()
                                                                         accumulatedDragX += deltaX
-                                                                        val stepPx = 16.dp.toPx()
+                                                                        val stepPx = 32.dp.toPx()
                                                                         if (kotlin.math.abs(accumulatedDragX) >= stepPx) {
-                                                                                val deltaVal = if (accumulatedDragX > 0) 0.5f else -0.5f
-                                                                                accumulatedDragX -= if (accumulatedDragX > 0) stepPx else -stepPx
-                                                                                val cur = currentTempRef.toFloatOrNull() ?: 22.0f
-                                                                                val next = (cur + deltaVal).coerceIn(16.0f, 30.0f)
-                                                                                if (next != cur) {
-                                                                                        onValueChange(deltaVal)
+                                                                                val numSteps = (kotlin.math.abs(accumulatedDragX) / stepPx).toInt()
+                                                                                val stepDirection = if (accumulatedDragX > 0) 1 else -1
+                                                                                accumulatedDragX -= stepDirection * numSteps * stepPx
+
+                                                                                val deltaTotal = stepDirection * numSteps * 0.5f
+                                                                                val next = (activeTemp + deltaTotal).coerceIn(16.0f, 30.0f)
+                                                                                if (next != activeTemp) {
+                                                                                        val appliedDelta = next - activeTemp
+                                                                                        activeTemp = next
+                                                                                        notifyChange(next, appliedDelta)
                                                                                         postHud(next, autoDismiss = false)
                                                                                 }
                                                                         }
@@ -8548,8 +8561,10 @@ fun TempControlSection(
                                 ) {
                                         val cur = currentTempRef.toFloatOrNull() ?: 22.0f
                                         val next = (cur + 0.5f).coerceIn(16.0f, 30.0f)
-                                        onValueChange(0.5f)
-                                        postHud(next, autoDismiss = true)
+                                        if (next != cur) {
+                                                notifyChange(next, 0.5f)
+                                                postHud(next, autoDismiss = true)
+                                        }
                                 }
                 ) {
                         Canvas(modifier = Modifier.size(18.dp)) {
@@ -8678,6 +8693,7 @@ fun FanControlSection(
                                                         var totalDragX = 0f
                                                         var isDragging = false
                                                         var accumulatedDragX = 0f
+                                                        var activeSpeed = currentSpeedRef
 
                                                         do {
                                                                 val event = awaitPointerEvent()
@@ -8690,20 +8706,23 @@ fun FanControlSection(
 
                                                                 if (!isDragging && abs(totalDragX) > 10.dp.toPx() && abs(totalDragX) > abs(change.position.y - startY)) {
                                                                         isDragging = true
-                                                                        postHud(currentSpeedRef, autoDismiss = false)
+                                                                        activeSpeed = currentSpeedRef
+                                                                        postHud(activeSpeed, autoDismiss = false)
                                                                 }
 
                                                                 if (isDragging) {
                                                                         change.consume()
                                                                         accumulatedDragX += deltaX
-                                                                        val stepPx = 18.dp.toPx()
+                                                                        val stepPx = 27.dp.toPx()
                                                                         if (abs(accumulatedDragX) >= stepPx) {
-                                                                                val deltaSpeed = if (accumulatedDragX > 0) 1 else -1
-                                                                                accumulatedDragX -= deltaSpeed * stepPx
-                                                                                val newSpeed = (currentSpeedRef + deltaSpeed).coerceIn(0, 7)
-                                                                                if (newSpeed != currentSpeedRef) {
-                                                                                        onSpeedChange(newSpeed)
-                                                                                        postHud(newSpeed, autoDismiss = false)
+                                                                                val numSteps = (abs(accumulatedDragX) / stepPx).toInt()
+                                                                                val stepDirection = if (accumulatedDragX > 0) 1 else -1
+                                                                                accumulatedDragX -= stepDirection * numSteps * stepPx
+                                                                                val next = (activeSpeed + stepDirection * numSteps).coerceIn(0, 7)
+                                                                                if (next != activeSpeed) {
+                                                                                        activeSpeed = next
+                                                                                        onSpeedChange(next)
+                                                                                        postHud(next, autoDismiss = false)
                                                                                 }
                                                                         }
                                                                 }
@@ -8789,12 +8808,18 @@ fun VolumeControlSection(
         volume: Int,
         sliderType: BottomBarState.SliderType? = null,
         buttonWidth: androidx.compose.ui.unit.Dp = 48.dp,
-        onValueChange: (Int) -> Unit
+        onVolumeChange: ((Int) -> Unit)? = null,
+        onValueChange: ((Int) -> Unit)? = null
 ) {
         var centerX by remember { mutableFloatStateOf(0f) }
         val scope = rememberCoroutineScope()
         var dismissJob by remember { mutableStateOf<Job?>(null) }
         val currentVolRef by rememberUpdatedState(volume)
+
+        fun notifyChange(newVol: Int, delta: Int) {
+                onVolumeChange?.invoke(newVol)
+                onValueChange?.invoke(delta)
+        }
 
         fun postHud(newVol: Int, autoDismiss: Boolean = true) {
                 BottomBarState.activeSwipeHud = BottomBarState.SwipeHudData(
@@ -8851,7 +8876,7 @@ fun VolumeControlSection(
                                 ) {
                                         val next = (currentVolRef - 1).coerceIn(0, 30)
                                         if (next != currentVolRef) {
-                                                onValueChange(-1)
+                                                notifyChange(next, -1)
                                                 postHud(next, autoDismiss = true)
                                         }
                                 }
@@ -8889,6 +8914,7 @@ fun VolumeControlSection(
                                                         var totalDragX = 0f
                                                         var isDragging = false
                                                         var accumulatedDragX = 0f
+                                                        var activeVol = currentVolRef
 
                                                         do {
                                                                 val event = awaitPointerEvent()
@@ -8901,19 +8927,23 @@ fun VolumeControlSection(
 
                                                                 if (!isDragging && kotlin.math.abs(totalDragX) > 10.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(deltaY)) {
                                                                         isDragging = true
-                                                                        postHud(currentVolRef, autoDismiss = false)
+                                                                        activeVol = currentVolRef
+                                                                        postHud(activeVol, autoDismiss = false)
                                                                 }
 
                                                                 if (isDragging) {
                                                                         change.consume()
                                                                         accumulatedDragX += deltaX
-                                                                        val stepPx = 14.dp.toPx()
+                                                                        val stepPx = 21.dp.toPx()
                                                                         if (kotlin.math.abs(accumulatedDragX) >= stepPx) {
-                                                                                val deltaVol = if (accumulatedDragX > 0) 1 else -1
-                                                                                accumulatedDragX -= if (accumulatedDragX > 0) stepPx else -stepPx
-                                                                                val next = (currentVolRef + deltaVol).coerceIn(0, 30)
-                                                                                if (next != currentVolRef) {
-                                                                                        onValueChange(deltaVol)
+                                                                                val numSteps = (kotlin.math.abs(accumulatedDragX) / stepPx).toInt()
+                                                                                val stepDirection = if (accumulatedDragX > 0) 1 else -1
+                                                                                accumulatedDragX -= stepDirection * numSteps * stepPx
+                                                                                val next = (activeVol + stepDirection * numSteps).coerceIn(0, 30)
+                                                                                if (next != activeVol) {
+                                                                                        val appliedDelta = next - activeVol
+                                                                                        activeVol = next
+                                                                                        notifyChange(next, appliedDelta)
                                                                                         postHud(next, autoDismiss = false)
                                                                                 }
                                                                         }
@@ -8971,7 +9001,7 @@ fun VolumeControlSection(
                                 ) {
                                         val next = (currentVolRef + 1).coerceIn(0, 30)
                                         if (next != currentVolRef) {
-                                                onValueChange(1)
+                                                notifyChange(next, 1)
                                                 postHud(next, autoDismiss = true)
                                         }
                                 }
