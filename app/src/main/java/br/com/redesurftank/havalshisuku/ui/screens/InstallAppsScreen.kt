@@ -2,10 +2,12 @@ package br.com.redesurftank.havalshisuku.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
+import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -60,6 +62,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import rikka.shizuku.Shizuku
 
 /** O viewer 3D, distribuido pelo catalogo como qualquer outro app. */
 const val IMPULSE_HOME_PACKAGE = "com.havalh6.viewer"
@@ -73,10 +76,20 @@ fun InstallAppsTab() {
     var downloadingApp by remember { mutableStateOf<String?>(null) }
     var downloadProgress by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
     val pm = context.packageManager
+    var refreshTrigger by remember { mutableIntStateOf(0) }
     val requestPermissionLauncher =
             rememberLauncherForActivityResult(
                     ActivityResultContracts.StartActivityForResult()
             ) { /* Permission requested */}
+    val deletePackageLauncher =
+            rememberLauncherForActivityResult(
+                    ActivityResultContracts.StartActivityForResult()
+            ) {
+                scope.launch {
+                    delay(400)
+                    refreshTrigger++
+                }
+            }
     var showPermissionDialog by remember { mutableStateOf(false) }
     var installResult by remember { mutableStateOf("") }
     var urlInput by remember { mutableStateOf("") }
@@ -95,6 +108,9 @@ fun InstallAppsTab() {
     var homeWasInstalled by remember { mutableStateOf(runCatching { pm.getPackageInfo(IMPULSE_HOME_PACKAGE, 0) }.isSuccess) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var diagnosticsText by remember { mutableStateOf("") }
+    var appToUninstall by remember { mutableStateOf<String?>(null) }
+    var appNameToUninstall by remember { mutableStateOf<String?>(null) }
+    var isPatchUninstall by remember { mutableStateOf<String?>(null) }
 
     val prefs = remember {
         App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
@@ -127,6 +143,7 @@ fun InstallAppsTab() {
             val homeNow = runCatching { pm.getPackageInfo(IMPULSE_HOME_PACKAGE, 0) }.isSuccess
             if (homeNow && !homeWasInstalled) showHomeSetup = true
             homeWasInstalled = homeNow
+            refreshTrigger++
             delay(4000)
         }
     }
@@ -169,6 +186,8 @@ fun InstallAppsTab() {
     }
 
     fun getInstalledVersion(packageName: String): String? {
+        @Suppress("UNUSED_VARIABLE")
+        val trigger = refreshTrigger
         return try {
             val info = pm.getPackageInfo(packageName, 0)
             info.versionName
@@ -288,9 +307,91 @@ fun InstallAppsTab() {
     }
 
     fun uninstall(packageName: String) {
-        val intent = Intent(Intent.ACTION_DELETE).apply { data = Uri.parse("package:$packageName") }
-        context.startActivity(intent)
+        scope.launch(Dispatchers.IO) {
+            var success = false
+            val hasShizuku = ShizukuUtils.isShizukuAvailable() && runCatching {
+                Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+            }.getOrDefault(false)
+
+            if (hasShizuku) {
+                Log.d(TAG, "Attempting Shizuku uninstall for $packageName")
+                var out = ShizukuUtils.runCommandAndGetOutput(
+                    arrayOf("pm", "uninstall", packageName)
+                )
+                Log.d(TAG, "pm uninstall output: $out")
+                if (out.contains("Success", ignoreCase = true)) {
+                    success = true
+                } else {
+                    out = ShizukuUtils.runCommandAndGetOutput(
+                        arrayOf("pm", "uninstall", "--user", "0", packageName)
+                    )
+                    Log.d(TAG, "pm uninstall --user 0 output: $out")
+                    if (out.contains("Success", ignoreCase = true)) {
+                        success = true
+                    }
+                }
+            }
+
+            if (success) {
+                runCatching {
+                    ShizukuUtils.runCommandAndGetOutput(arrayOf("pkill", "-9", "-f", packageName))
+                }
+                delay(600)
+                withContext(Dispatchers.Main) {
+                    refreshTrigger++
+                }
+            } else {
+                Log.d(TAG, "Falling back to system uninstaller for $packageName")
+                withContext(Dispatchers.Main) {
+                    val intent = Intent(Intent.ACTION_DELETE).apply {
+                        data = Uri.parse("package:$packageName")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    try {
+                        deletePackageLauncher.launch(intent)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to launch deletePackageLauncher with ACTION_DELETE", e)
+                        try {
+                            val altIntent = Intent(Intent.ACTION_UNINSTALL_PACKAGE).apply {
+                                data = Uri.parse("package:$packageName")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                putExtra(Intent.EXTRA_RETURN_RESULT, true)
+                            }
+                            deletePackageLauncher.launch(altIntent)
+                        } catch (e2: Exception) {
+                            Log.e(TAG, "Failed fallback uninstaller", e2)
+                        }
+                    }
+                }
+            }
+        }
     }
+
+    val userInstalledApps = remember(refreshTrigger, apps) {
+        try {
+            val catalogPackages = apps.map { it.packageName }.toSet()
+            val systemFlags = ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP
+            pm.getInstalledApplications(0)
+                .filter { (it.flags and systemFlags) == 0 }
+                .filter { it.packageName != context.packageName && it.packageName != IMPULSE_HOME_PACKAGE }
+                .filter { it.packageName !in catalogPackages }
+                .map { appInfo ->
+                    val vName = try { pm.getPackageInfo(appInfo.packageName, 0).versionName ?: "" } catch (_: Exception) { "" }
+                    val label = try { pm.getApplicationLabel(appInfo).toString() } catch (_: Exception) { appInfo.packageName }
+                    AppInfo(
+                        name = label,
+                        version = vName,
+                        packageName = appInfo.packageName,
+                        link = "",
+                        iconUrl = null
+                    )
+                }
+                .sortedBy { it.name.lowercase() }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+    val allApps = apps + userInstalledApps
 
     LazyVerticalGrid(
             columns = GridCells.Fixed(4),
@@ -299,14 +400,17 @@ fun InstallAppsTab() {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item(span = { GridItemSpan(4) }) {
-            Text(
-                    "INSTALAR APPS",
-                    fontFamily = Michroma,
-                    fontSize = 15.sp,
-                    letterSpacing = 1.8.sp,
-                    color = ImpTokens.TextSecondary,
-                    modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp)
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                        "INSTALAR APPS",
+                        fontFamily = Michroma,
+                        fontSize = 15.sp,
+                        letterSpacing = 1.8.sp,
+                        color = ImpTokens.TextSecondary,
+                        modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp)
+                )
+                SectionHeader("Aplicativos Nativos")
+            }
         }
         // Os quatro destaques da tela, lado a lado: os dois patches de projecao, o Impulse
         // Home e o "abrir ao ligar". A grade tem 4 colunas, entao cada um ocupa 1 e eles caem
@@ -316,8 +420,8 @@ fun InstallAppsTab() {
                     icon = Icons.Default.Shield,
                     iconTint = if (isMounted) ImpTokens.Accent else Color.White,
                     highlighted = isMounted,
-                    title = "Android Auto",
-                    subtitle = "Patch Impulse: encaixa no cluster e nao perde o foco",
+                    title = "Android Auto Patch",
+                    subtitle = "Melhora a projeção do Android Auto no cluster do carro, evitando interrupções e garantindo a melhor visualização do mapa na navegação.",
                     status =
                             when {
                                 isMounted -> "Ativo"
@@ -325,6 +429,7 @@ fun InstallAppsTab() {
                                 else -> "Nao instalado"
                             },
                     statusTint = if (isMounted) ImpTokens.Accent else ImpTokens.TextSecondary,
+                    subtitleBelowTitle = true,
                     extra =
                             if (isPatchInstalled) {
                                 {
@@ -350,40 +455,44 @@ fun InstallAppsTab() {
                         if (AndroidAutoPatchManager.installPatches(context)) isPatchInstalled = true
                     }
                 } else {
-                    if (!isMounted) {
-                        CardButton("Ativar", Color(0xFF4CAF50)) {
-                            if (AndroidAutoPatchManager.applyMounts()) isMounted = true
-                        }
-                    } else {
-                        CardButton("Desativar", Color(0xFFF44336)) {
-                            if (AndroidAutoPatchManager.removeMounts()) isMounted = false
-                        }
-                    }
-                    IconButton(
-                            onClick = {
-                                if (AndroidAutoPatchManager.uninstallPatches()) {
-                                    isPatchInstalled = false
-                                    isMounted = false
-                                }
-                            }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Remover patch",
-                                tint = ImpTokens.TextMuted
-                        )
-                    }
-                    IconButton(
-                            onClick = {
-                                diagnosticsText = AndroidAutoPatchManager.getDiagnostics()
-                                showDiagnostics = true
+                        if (!isMounted) {
+                            CardButton("Ativar", Color(0xFF4CAF50)) {
+                                if (AndroidAutoPatchManager.applyMounts()) isMounted = true
                             }
-                    ) {
-                        Icon(
-                                Icons.Default.BugReport,
-                                contentDescription = "Diagnostico",
-                                tint = ImpTokens.TextMuted
-                        )
+                        } else {
+                            CardButton("Desativar", Color(0xFFF44336)) {
+                                if (AndroidAutoPatchManager.removeMounts()) isMounted = false
+                            }
+                        }
+                        IconButton(
+                                onClick = {
+                                    isPatchUninstall = "aa"
+                                },
+                                modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Desinstalar patch",
+                                    tint = Color(0xFFEF5350)
+                            )
+                        }
+                        IconButton(
+                                onClick = {
+                                    diagnosticsText = AndroidAutoPatchManager.getDiagnostics()
+                                    showDiagnostics = true
+                                },
+                                modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                    Icons.Default.BugReport,
+                                    contentDescription = "Diagnostico",
+                                    tint = ImpTokens.TextMuted
+                            )
+                        }
                     }
                 }
             }
@@ -394,8 +503,8 @@ fun InstallAppsTab() {
                     icon = Icons.Default.PhoneIphone,
                     iconTint = if (isCarPlayMounted) ImpTokens.Accent else Color.White,
                     highlighted = isCarPlayMounted,
-                    title = "Apple CarPlay",
-                    subtitle = "Patch HVAC D3: mantem o video durante o painel de ar",
+                    title = "Apple CarPlay Patch",
+                    subtitle = "Melhora a projeção do CarPlay no cluster do carro, evitando interrupções e garantindo a melhor visualização do mapa na navegação.",
                     status =
                             when {
                                 isCarPlayMounted -> "Ativo"
@@ -404,6 +513,7 @@ fun InstallAppsTab() {
                             },
                     statusTint =
                             if (isCarPlayMounted) ImpTokens.Accent else ImpTokens.TextSecondary,
+                    subtitleBelowTitle = true,
                     extra =
                             if (isCarPlayPatchInstalled) {
                                 {
@@ -430,40 +540,44 @@ fun InstallAppsTab() {
                                 isCarPlayPatchInstalled = true
                     }
                 } else {
-                    if (!isCarPlayMounted) {
-                        CardButton("Ativar", Color(0xFF4CAF50)) {
-                            if (CarPlayPatchManager.applyMounts()) isCarPlayMounted = true
-                        }
-                    } else {
-                        CardButton("Desativar", Color(0xFFF44336)) {
-                            if (CarPlayPatchManager.removeMounts()) isCarPlayMounted = false
-                        }
-                    }
-                    IconButton(
-                            onClick = {
-                                if (CarPlayPatchManager.uninstallPatches()) {
-                                    isCarPlayPatchInstalled = false
-                                    isCarPlayMounted = false
-                                }
-                            }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Remover patch",
-                                tint = ImpTokens.TextMuted
-                        )
-                    }
-                    IconButton(
-                            onClick = {
-                                diagnosticsText = CarPlayPatchManager.getDiagnostics()
-                                showDiagnostics = true
+                        if (!isCarPlayMounted) {
+                            CardButton("Ativar", Color(0xFF4CAF50)) {
+                                if (CarPlayPatchManager.applyMounts()) isCarPlayMounted = true
                             }
-                    ) {
-                        Icon(
-                                Icons.Default.BugReport,
-                                contentDescription = "Diagnostico",
-                                tint = ImpTokens.TextMuted
-                        )
+                        } else {
+                            CardButton("Desativar", Color(0xFFF44336)) {
+                                if (CarPlayPatchManager.removeMounts()) isCarPlayMounted = false
+                            }
+                        }
+                        IconButton(
+                                onClick = {
+                                    isPatchUninstall = "carplay"
+                                },
+                                modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Desinstalar patch",
+                                    tint = Color(0xFFEF5350)
+                            )
+                        }
+                        IconButton(
+                                onClick = {
+                                    diagnosticsText = CarPlayPatchManager.getDiagnostics()
+                                    showDiagnostics = true
+                                },
+                                modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                    Icons.Default.BugReport,
+                                    contentDescription = "Diagnostico",
+                                    tint = ImpTokens.TextMuted
+                            )
+                        }
                     }
                 }
             }
@@ -481,7 +595,7 @@ fun InstallAppsTab() {
                     icon = Icons.Default.DirectionsCar,
                     iconTint = if (homeInstalled != null) ImpTokens.Accent else Color.White,
                     highlighted = homeInstalled != null,
-                    title = "Impulse Home",
+                    title = "Impulse Launcher",
                     subtitle = "Painel 3D do carro, com os widgets e os controles",
                     previewRes = R.drawable.impulse_home_preview,
                     status =
@@ -503,17 +617,33 @@ fun InstallAppsTab() {
                             enabled = homeProgress == null
                     ) { startDownload(homeCatalog) }
                 } else if (homeInstalled != null) {
-                    CardButton("Abrir", ImpTokens.Accent) {
-                        context.packageManager
-                                .getLaunchIntentForPackage(IMPULSE_HOME_PACKAGE)
-                                ?.let { intent ->
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
-                                }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CardButton("Abrir", ImpTokens.Accent) {
+                            context.packageManager
+                                    .getLaunchIntentForPackage(IMPULSE_HOME_PACKAGE)
+                                    ?.let { intent ->
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(intent)
+                                    }
+                        }
+                        CardButton("Ajustar", ImpTokens.TrackOff) { showHomeSetup = true }
+                        IconButton(
+                            onClick = {
+                                appToUninstall = IMPULSE_HOME_PACKAGE
+                                appNameToUninstall = "Impulse Launcher"
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Desinstalar Impulse Launcher",
+                                tint = Color(0xFFEF5350)
+                            )
+                        }
                     }
-                    // As mesmas sugestoes oferecidas na instalacao, para quem pulou na hora ou
-                    // mudou de ideia depois.
-                    CardButton("Ajustar", ImpTokens.TrackOff) { showHomeSetup = true }
                 }
             }
         }
@@ -537,7 +667,7 @@ fun InstallAppsTab() {
                         // do card.
                         Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             StartupSlotRow("Principal", mainPkg, Modifier.weight(1f))
                             StartupSlotRow("Secundaria", secondaryPkg, Modifier.weight(1f))
@@ -547,10 +677,15 @@ fun InstallAppsTab() {
         }
 
         item(span = { GridItemSpan(4) }) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                SectionHeader("Baixar de URL")
                 Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextField(
                             value = urlInput,
@@ -586,13 +721,12 @@ fun InstallAppsTab() {
                             color = ImpTokens.Accent
                     )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                        "Aplicativos disponíveis:",
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Medium
-                )
+            }
+        }
+
+        item(span = { GridItemSpan(4) }) {
+            Box(modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)) {
+                SectionHeader("Outros aplicativos")
             }
         }
 
@@ -605,13 +739,14 @@ fun InstallAppsTab() {
             }
         } else {
             val sortedApps =
-                    apps.sortedWith(
+                    allApps.sortedWith(
                             compareBy(
                                     { app ->
                                         val installedVersion = getInstalledVersion(app.packageName)
                                         val isInstalled = installedVersion != null
                                         val needsUpdate =
                                                 isInstalled &&
+                                                        app.version.isNotEmpty() &&
                                                         compareVersions(
                                                                 installedVersion,
                                                                 app.version
@@ -629,14 +764,14 @@ fun InstallAppsTab() {
             items(sortedApps) { app ->
                 val installedVersion = getInstalledVersion(app.packageName)
                 val isInstalled = installedVersion != null
-                val needsUpdate = isInstalled && compareVersions(installedVersion, app.version) < 0
+                val needsUpdate = isInstalled && app.version.isNotEmpty() && compareVersions(installedVersion, app.version) < 0
                 val progress = downloadProgress[app.packageName] ?: 0f
 
                 Card(
                         modifier =
                                 Modifier.fillMaxWidth()
-                                        .aspectRatio(1.2f)
-                                        .padding(8.dp)
+                                        .height(230.dp)
+                                        .padding(4.dp)
                                         .border(1.dp, ImpTokens.Hairline, RoundedCornerShape(12.dp)),
                         colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
                         shape = RoundedCornerShape(12.dp)
@@ -648,15 +783,25 @@ fun InstallAppsTab() {
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(
-                                    modifier = Modifier.size(80.dp),
+                                    modifier = Modifier.size(68.dp),
                                     contentAlignment = Alignment.Center
                             ) {
                                 Surface(
-                                        modifier = Modifier.fillMaxSize().padding(8.dp),
+                                        modifier = Modifier.fillMaxSize().padding(4.dp),
                                         shape = RoundedCornerShape(12.dp),
                                         color = ImpTokens.TrackOff
                                 ) {
-                                    if (!app.iconUrl.isNullOrEmpty()) {
+                                    val localIcon = remember(app.packageName) {
+                                        if (isInstalled) runCatching { pm.getApplicationIcon(app.packageName) }.getOrNull() else null
+                                    }
+                                    if (localIcon != null) {
+                                        AsyncImage(
+                                                model = localIcon,
+                                                contentDescription = app.name,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Fit
+                                        )
+                                    } else if (!app.iconUrl.isNullOrEmpty()) {
                                         AsyncImage(
                                                 model =
                                                         ImageRequest.Builder(context)
@@ -682,16 +827,19 @@ fun InstallAppsTab() {
                                     }
                                 }
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                     app.name,
-                                    fontSize = 16.sp,
+                                    fontSize = 15.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = Color.White,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                             )
-                            Text("v${app.version}", fontSize = 12.sp, color = ImpTokens.TextSecondary)
+                            val displayVersion = installedVersion ?: app.version
+                            if (displayVersion.isNotEmpty()) {
+                                Text("v$displayVersion", fontSize = 12.sp, color = ImpTokens.TextSecondary, maxLines = 1)
+                            }
                         }
                         if (downloadingApp == app.packageName) {
                             LinearProgressIndicator(
@@ -700,20 +848,52 @@ fun InstallAppsTab() {
                                     color = ImpTokens.Accent
                             )
                         } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                if (!isInstalled || needsUpdate) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (needsUpdate && app.link.isNotEmpty()) {
                                     AppActionButton(
-                                            text = if (!isInstalled) "Instalar" else "Atualizar",
+                                            text = "Atualizar",
+                                            onClick = { startDownload(app) },
+                                            isPrimary = true
+                                    )
+                                }
+                                if (!isInstalled && app.link.isNotEmpty()) {
+                                    AppActionButton(
+                                            text = "Instalar",
                                             onClick = { startDownload(app) },
                                             isPrimary = true
                                     )
                                 }
                                 if (isInstalled) {
-                                    AppActionButton(
-                                            text = "Desinstalar",
-                                            onClick = { uninstall(app.packageName) },
-                                            isPrimary = false
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        AppActionButton(
+                                                text = "Abrir",
+                                                onClick = {
+                                                    context.packageManager
+                                                            .getLaunchIntentForPackage(app.packageName)
+                                                            ?.let { intent ->
+                                                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                                context.startActivity(intent)
+                                                            }
+                                                },
+                                                isPrimary = true,
+                                                modifier = Modifier.weight(1f)
+                                        )
+                                        AppActionButton(
+                                                text = "Desinstalar",
+                                                onClick = {
+                                                    appToUninstall = app.packageName
+                                                    appNameToUninstall = app.name
+                                                },
+                                                isPrimary = false,
+                                                modifier = Modifier.weight(1f)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -761,4 +941,87 @@ fun InstallAppsTab() {
                 diagnosticsText = diagnosticsText
         )
     }
+
+    if (appToUninstall != null || isPatchUninstall != null) {
+        val titleText = if (isPatchUninstall != null) "Desinstalar Patch" else "Desinstalar Aplicativo"
+        val messageText = when {
+            isPatchUninstall == "aa" -> "Deseja remover as modificações do patch do Android Auto?"
+            isPatchUninstall == "carplay" -> "Deseja remover as modificações do patch do Apple CarPlay?"
+            else -> "Deseja realmente desinstalar ${appNameToUninstall ?: "o aplicativo"}?"
+        }
+        AlertDialog(
+            onDismissRequest = {
+                appToUninstall = null
+                appNameToUninstall = null
+                isPatchUninstall = null
+            },
+            containerColor = ImpTokens.Container,
+            title = { Text(titleText, color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text(messageText, color = ImpTokens.TextSecondary, fontSize = 14.sp) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val patch = isPatchUninstall
+                        val pkg = appToUninstall
+                        appToUninstall = null
+                        appNameToUninstall = null
+                        isPatchUninstall = null
+                        when (patch) {
+                            "aa" -> {
+                                scope.launch(Dispatchers.IO) {
+                                    if (AndroidAutoPatchManager.uninstallPatches()) {
+                                        withContext(Dispatchers.Main) {
+                                            isPatchInstalled = false
+                                            isMounted = false
+                                            refreshTrigger++
+                                        }
+                                    }
+                                }
+                            }
+                            "carplay" -> {
+                                scope.launch(Dispatchers.IO) {
+                                    if (CarPlayPatchManager.uninstallPatches()) {
+                                        withContext(Dispatchers.Main) {
+                                            isCarPlayPatchInstalled = false
+                                            isCarPlayMounted = false
+                                            refreshTrigger++
+                                        }
+                                    }
+                                }
+                            }
+                            else -> {
+                                if (pkg != null) uninstall(pkg)
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Desinstalar", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        appToUninstall = null
+                        appNameToUninstall = null
+                        isPatchUninstall = null
+                    }
+                ) {
+                    Text("Cancelar", color = ImpTokens.TextSecondary)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        color = Color.White,
+        fontSize = 17.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp)
+    )
 }

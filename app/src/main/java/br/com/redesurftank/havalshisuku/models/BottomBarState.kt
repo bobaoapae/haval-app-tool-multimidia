@@ -110,6 +110,8 @@ object BottomBarState {
     var autoHideEnabled by mutableStateOf(false)
     var isFridaRunning by mutableStateOf(false)
     var isDeleteModeEnabled by mutableStateOf(false)
+    var isDockEditMode by mutableStateOf(false)
+    var dockAddSlotIndex by mutableStateOf<Int?>(null)
     val restoredApps = mutableStateListOf<String>()
     var hasAppsOnSecondaryDisplays by mutableStateOf(false)
     var fanButtonCenterX by mutableStateOf(0f)

@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
@@ -132,7 +133,7 @@ fun StartupAppsDialog(onDismiss: () -> Unit) {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            listOf(1 to "Tela 1", 3 to "Tela 3 (cluster)").forEach { (id, label) ->
+                            listOf(1 to "Atras do Cluster", 3 to "Na frente do cluster").forEach { (id, label) ->
                                 val selected = secondaryDisplay == id
                                 Box(
                                     selected = selected,
@@ -174,14 +175,16 @@ private fun Box(
                 RoundedCornerShape(8.dp)
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 8.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             label,
             color = if (selected) Color.White else ImpTokens.TextSecondary,
             fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

@@ -1,10 +1,14 @@
 package br.com.redesurftank.havalshisuku.ui.screens
 
 import android.content.Context
+import android.content.Intent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -18,7 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -27,18 +33,16 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.managers.StartupAppManager
 import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
+import br.com.redesurftank.havalshisuku.services.BottomBarService
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
 
 /**
- * Oferecido UMA vez, logo depois de o Impulse Home ser instalado: as três coisas que o deixam
- * utilizável de verdade e que, soltas pelas telas de ajuste, ninguém encontraria.
- *
- * Tudo vem marcado, mas nada é aplicado sem o "Aplicar" — instalar um app não é permissão para
- * mudar como o carro se comporta ao ligar. Quem fechar no "Agora não" não vê de novo; as mesmas
- * opções continuam na aba de Apps e em Configurações.
+ * Oferecido logo depois de o Impulse Launcher ser instalado: opções essenciais de inicialização,
+ * barra inferior persistente e gesto de deslizar para cima.
  */
 @Composable
 fun ImpulseHomeSetupDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
     val prefs = remember {
         App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
     }
@@ -47,20 +51,25 @@ fun ImpulseHomeSetupDialog(onDismiss: () -> Unit) {
     }
 
     var openOnBoot by remember { mutableStateOf(true) }
-    var enableBar by remember { mutableStateOf(!barAlreadyOn) }
-    var swipeOpensHome by remember { mutableStateOf(true) }
+    var enableBarAndSwipe by remember { mutableStateOf(true) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = ImpTokens.Container,
         title = {
-            Text("Impulse Home instalado", color = Color.White, fontWeight = FontWeight.Bold)
+            Text("Impulse Launcher instalado", color = Color.White, fontWeight = FontWeight.Bold)
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                // O gesto ensinado em movimento: a barra sobe e o app entra. Serve de preview do
-                // app e de tutorial ao mesmo tempo.
-                SwipeUpTutorial()
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Demonstração visual dinâmica da Barra Inferior com gesto de arrastar
+                SwipeUpTutorial(
+                    enableBar = if (barAlreadyOn) true else enableBarAndSwipe,
+                    enableSwipe = enableBarAndSwipe
+                )
+
                 Text(
                     "Quer deixar ele à mão? Dá para mudar depois na aba de Apps.",
                     color = ImpTokens.TextSecondary,
@@ -73,21 +82,18 @@ fun ImpulseHomeSetupDialog(onDismiss: () -> Unit) {
                     title = "Abrir ao ligar o carro",
                     detail = "Na tela principal, assim que o carro liga"
                 )
-                if (!barAlreadyOn) {
-                    SetupOption(
-                        checked = enableBar,
-                        onCheckedChange = { enableBar = it },
-                        title = "Ativar a barra inferior",
-                        detail = "A barra do Impulse que fica sempre visível embaixo"
-                    )
-                }
+
                 SetupOption(
-                    checked = swipeOpensHome,
-                    onCheckedChange = { swipeOpensHome = it },
-                    title = "Deslizar a barra para cima abre o Impulse Home",
+                    checked = enableBarAndSwipe,
+                    onCheckedChange = { enableBarAndSwipe = it },
+                    title =
+                        if (barAlreadyOn) "Deslizar a barra para cima abre o app"
+                        else "Ativar barra inferior e gesto para abrir",
                     detail =
-                        if (barAlreadyOn) "Substitui a ação atual da barra"
-                        else "Só funciona com a barra inferior ativada"
+                        if (barAlreadyOn)
+                            "A barra inferior já está ativa. Arraste-a para cima para abrir o Impulse Launcher rapidamente"
+                        else
+                            "Exibe a barra na base da tela e permite arrastá-la para cima para abrir o app"
                 )
             }
         },
@@ -95,13 +101,12 @@ fun ImpulseHomeSetupDialog(onDismiss: () -> Unit) {
             Button(
                 onClick = {
                     if (openOnBoot) StartupAppManager.setMainDisplayPackage(IMPULSE_HOME_PACKAGE)
-                    if (enableBar && !barAlreadyOn) {
-                        prefs.edit {
-                            putBoolean(SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR.key, true)
-                        }
-                    }
-                    if (swipeOpensHome) {
-                        prefs.edit {
+                    val shouldEnableBar = if (barAlreadyOn) true else enableBarAndSwipe
+                    val shouldEnableSwipe = enableBarAndSwipe
+
+                    prefs.edit {
+                        putBoolean(SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR.key, shouldEnableBar)
+                        if (shouldEnableSwipe) {
                             putString(
                                 SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_ACTION.key,
                                 BottomBarState.SwipeUpAction.CUSTOM_APP.key
@@ -110,6 +115,13 @@ fun ImpulseHomeSetupDialog(onDismiss: () -> Unit) {
                                 SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_PACKAGE.key,
                                 IMPULSE_HOME_PACKAGE
                             )
+                        }
+                    }
+                    runCatching {
+                        if (shouldEnableBar) {
+                            context.startService(Intent(context, BottomBarService::class.java))
+                        } else {
+                            context.stopService(Intent(context, BottomBarService::class.java))
                         }
                     }
                     onDismiss()
@@ -129,20 +141,25 @@ private fun SetupOption(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     title: String,
-    detail: String
+    detail: String,
+    enabled: Boolean = true
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+            Modifier.fillMaxWidth()
+                .alpha(if (enabled) 1f else 0.45f)
+                .clickable(enabled = enabled) { onCheckedChange(!checked) },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Checkbox(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = if (enabled) onCheckedChange else null,
+            enabled = enabled,
             colors = CheckboxDefaults.colors(checkedColor = ImpTokens.Accent)
         )
         Column {
-            Text(title, color = Color.White, fontSize = 13.sp)
+            Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             Text(detail, color = ImpTokens.TextSecondary, fontSize = 11.sp)
         }
     }

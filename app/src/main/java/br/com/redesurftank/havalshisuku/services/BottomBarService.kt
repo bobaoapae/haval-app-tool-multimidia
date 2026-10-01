@@ -457,6 +457,7 @@ class BottomBarService : LifecycleService() {
                     BottomBarState.isSettingsMenuExpanded ||
                     BottomBarState.isOverrideMenuExpanded ||
                     BottomBarState.isAcMenuExpanded ||
+                    BottomBarState.dockAddSlotIndex != null ||
                     BottomBarState.activeSliderType != null
 
     private fun isAnyMenuOrHudVisible(): Boolean =
@@ -786,6 +787,8 @@ class BottomBarService : LifecycleService() {
                         BottomBarState.isMenuExpanded,
                         BottomBarState.isSettingsMenuExpanded,
                         BottomBarState.isOverrideMenuExpanded,
+                        BottomBarState.isDockEditMode,
+                        BottomBarState.dockAddSlotIndex != null,
                         BottomBarState.activeSliderType != null
                 )
             }
@@ -805,6 +808,8 @@ class BottomBarService : LifecycleService() {
                                     !BottomBarState.isMenuExpanded &&
                                     !BottomBarState.isSettingsMenuExpanded &&
                                     !BottomBarState.isOverrideMenuExpanded &&
+                                    !BottomBarState.isDockEditMode &&
+                                    BottomBarState.dockAddSlotIndex == null &&
                                     BottomBarState.activeSliderType == null
                     ) {
                         BottomBarState.isVisible = false

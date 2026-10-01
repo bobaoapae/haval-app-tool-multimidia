@@ -31,6 +31,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,11 +43,10 @@ import coil.compose.AsyncImage
 
 /**
  * Card de destaque da aba "Instalar Apps" — um por coluna da grade, para os quatro caberem na
- * mesma linha: os dois patches de projecao, o Impulse Home e o "abrir ao ligar".
+ * mesma linha: os dois patches de projecao, o Impulse Launcher e o "abrir ao ligar".
  *
- * O formato e vertical de proposito: em 1/4 da largura nao cabe o desenho antigo, que era icone,
- * texto e botoes numa linha so. Icone e titulo em cima, estado no meio, acoes embaixo — e as acoes
- * ficam alinhadas entre os cards porque [Column] usa `SpaceBetween` com altura fixa.
+ * Icone/preview e titulo em cima, com o slot extra no meio; botoes de acao embaixo a esquerda
+ * e descricao com versao/status a direita dos botoes (ou descricao abaixo do titulo para projecao).
  */
 @Composable
 fun FeatureCard(
@@ -55,6 +57,7 @@ fun FeatureCard(
     subtitle: String,
     status: String?,
     statusTint: Color = ImpTokens.TextSecondary,
+    subtitleBelowTitle: Boolean = false,
     /** Preview do app, quando existir: vende melhor do que qualquer texto. */
     previewRes: Int? = null,
     extra: (@Composable () -> Unit)? = null,
@@ -63,7 +66,7 @@ fun FeatureCard(
     Card(
         modifier =
             Modifier.fillMaxWidth()
-                .padding(vertical = 8.dp)
+                .padding(vertical = 4.dp)
                 .border(
                     width = 1.dp,
                     color = if (highlighted) ImpTokens.Accent else ImpTokens.Hairline,
@@ -73,18 +76,18 @@ fun FeatureCard(
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().height(236.dp).padding(14.dp),
+            modifier = Modifier.fillMaxWidth().height(244.dp).padding(14.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (previewRes != null) {
                     Image(
                         painter = painterResource(previewRes),
                         contentDescription = null,
-                        contentScale = ContentScale.Crop,
+                        contentScale = ContentScale.FillWidth,
                         modifier =
                             Modifier.fillMaxWidth()
-                                .height(64.dp)
+                                .aspectRatio(640f / 209f)
                                 .clip(RoundedCornerShape(8.dp))
                     )
                 } else {
@@ -96,18 +99,48 @@ fun FeatureCard(
                     }
                 }
                 Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                Text(subtitle, color = ImpTokens.TextSecondary, fontSize = 11.sp, lineHeight = 15.sp)
-                if (status != null) {
-                    Text(status, color = statusTint, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                if (subtitleBelowTitle && subtitle.isNotEmpty()) {
+                    Text(
+                        subtitle,
+                        color = ImpTokens.TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp
+                    )
                 }
                 extra?.invoke()
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                actions()
+                Box(
+                    modifier = Modifier.wrapContentSize(),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    actions()
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    if (!subtitleBelowTitle && subtitle.isNotEmpty()) {
+                        Text(
+                            subtitle,
+                            color = ImpTokens.TextSecondary,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp
+                        )
+                    }
+                    if (status != null) {
+                        Text(
+                            status,
+                            color = statusTint,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
     }
@@ -119,15 +152,18 @@ fun CardButton(
     label: String,
     color: Color,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
     onClick: () -> Unit
 ) {
     Button(
         onClick = onClick,
         enabled = enabled,
+        modifier = modifier,
         colors = ButtonDefaults.buttonColors(containerColor = color),
         shape = RoundedCornerShape(8.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp)
-    ) { Text(label, color = Color.White, fontSize = 13.sp) }
+        contentPadding = contentPadding
+    ) { Text(label, color = Color.White, fontSize = 13.sp, maxLines = 1) }
 }
 
 /** "Auto-montar ao iniciar", compacto o bastante para o card estreito. */
@@ -158,31 +194,45 @@ fun StartupSlotRow(label: String, packageName: String, modifier: Modifier = Modi
     val resolved =
         if (packageName.isEmpty()) null
         else runCatching { DisplayAppLauncher.resolveAppInfo(context, packageName) }.getOrNull()
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Box(
-            modifier = Modifier.size(24.dp).background(ImpTokens.TrackOff, RoundedCornerShape(6.dp)),
-            contentAlignment = Alignment.Center
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            if (resolved?.icon != null) {
-                AsyncImage(
-                    model = resolved.icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-            } else {
-                Text("—", color = ImpTokens.TextMuted, fontSize = 12.sp)
+            Box(
+                modifier = Modifier.size(42.dp).background(ImpTokens.TrackOff, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (resolved?.icon != null) {
+                    AsyncImage(
+                        model = resolved.icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(30.dp)
+                    )
+                } else {
+                    Text("—", color = ImpTokens.TextMuted, fontSize = 16.sp)
+                }
             }
-        }
-        Column {
-            Text(label, color = ImpTokens.TextMuted, fontSize = 9.sp)
             Text(
-                resolved?.label ?: "nenhum",
-                color = if (resolved != null) Color.White else ImpTokens.TextSecondary,
-                fontSize = 11.sp
+                label,
+                color = ImpTokens.TextSecondary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(bottom = 2.dp)
             )
         }
+        Text(
+            resolved?.label ?: "nenhum",
+            color = if (resolved != null) Color.White else ImpTokens.TextSecondary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

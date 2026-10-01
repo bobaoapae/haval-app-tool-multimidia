@@ -6,150 +6,376 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
 
 /**
- * O gesto, em loop: a barra inferior sobe com o dedo e o Impulse Home entra por baixo.
- *
- * Desenhado em Compose de proposito, e nao gravado do emulador. Um GIF gravado envelhece junto com
- * a interface (basta a barra mudar de cor para o tutorial virar mentira), pesa no APK e fica
- * borrado quando esticado no painel de 1920. Isto sao poucos KB de codigo que escalam sozinhos e
- * continuam certos enquanto o GESTO for o mesmo - e o gesto e a unica coisa que o tutorial ensina.
- *
- * O ciclo tem quatro tempos em 2,4 s. A pausa no fim existe para o olho recomecar a ler, mas e
- * curta de proposito: medido em capturas do emulador, uma pausa maior fazia dois tercos dos quadros
- * serem a mesma imagem parada, e o gesto - a unica coisa que o tutorial ensina - virava a excecao.
- *
- * | fracao | o que acontece |
- * |---|---|
- * | 0,00-0,10 | parado, so a barra embaixo; o dedo aparece |
- * | 0,10-0,62 | o dedo sobe, a barra acompanha e some, o app entra por baixo |
- * | 0,62-0,76 | app inteiro na tela, o dedo some |
- * | 0,76-1,00 | pausa antes de recomecar |
+ * Preview dinâmico para o diálogo de configuração do Impulse Launcher:
+ * - Se nenhum estiver marcado: exibe apenas a imagem do app.
+ * - Se a barra inferior estiver marcada (sem gesto): exibe apenas a barra inferior realista na base da tela.
+ * - Se o gesto de arrastar para cima estiver marcado: anima o gesto de deslize a partir da barra
+ *   e faz a imagem do app surgir suavemente (fade in).
  */
 @Composable
-fun SwipeUpTutorial(modifier: Modifier = Modifier) {
-    val cycle = rememberInfiniteTransition(label = "swipe-up")
+fun SwipeUpTutorial(
+    enableBar: Boolean = true,
+    enableSwipe: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "swipeUpTutorial")
     val t by
-            cycle.animateFloat(
-                    initialValue = 0f,
-                    targetValue = 1f,
-                    animationSpec =
-                            infiniteRepeatable(
-                                    animation =
-                                            tween(durationMillis = 2400, easing = LinearEasing),
-                                    repeatMode = RepeatMode.Restart
-                            ),
-                    label = "t"
+        if (enableBar && enableSwipe) {
+            infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = tween(durationMillis = 2800, easing = LinearEasing),
+                        repeatMode = RepeatMode.Restart
+                    ),
+                label = "swipeCycle"
             )
+        } else {
+            remember { mutableFloatStateOf(0f) }
+        }
 
-    // Quanto do gesto ja foi feito (0 = barra embaixo, 1 = app inteiro na tela). Suavizado com
-    // smoothstep para o movimento comecar e terminar macio sem precisar de keyframes.
-    val raw = ((t - 0.10f) / 0.52f).coerceIn(0f, 1f)
-    val progress = raw * raw * (3f - 2f * raw)
+    // Progresso do gesto de swipe up:
+    // 0.00 .. 0.15: dedo surge na barra inferior
+    // 0.15 .. 0.45: dedo desliza para cima
+    // 0.20 .. 0.50: imagem do app surge (fade in)
+    // 0.50 .. 0.78: app totalmente visível
+    // 0.78 .. 1.00: fade out e retorno suave
+    val swipeProgress = ((t - 0.15f) / 0.30f).coerceIn(0f, 1f)
+    val smoothSwipe = swipeProgress * swipeProgress * (3f - 2f * swipeProgress)
+
+    val appAlpha =
+        when {
+            !enableBar && !enableSwipe -> 1f // Nenhum marcado -> mostra apenas a imagem do app
+            !enableSwipe -> 0f // Apenas barra marcada -> app não abre
+            else ->
+                when {
+                    t < 0.20f -> 0f
+                    t in 0.20f..0.50f -> ((t - 0.20f) / 0.30f).coerceIn(0f, 1f)
+                    t in 0.50f..0.78f -> 1f
+                    else -> (1f - (t - 0.78f) / 0.20f).coerceIn(0f, 1f)
+                }
+        }
+
     val fingerAlpha =
-            when {
-                t < 0.08f -> (t / 0.08f).coerceIn(0f, 1f)
-                t > 0.66f -> (1f - (t - 0.66f) / 0.10f).coerceIn(0f, 1f)
-                else -> 1f
-            }
+        when {
+            !enableBar || !enableSwipe -> 0f
+            t < 0.10f -> (t / 0.10f).coerceIn(0f, 1f)
+            t in 0.10f..0.45f -> 1f
+            t in 0.45f..0.60f -> (1f - (t - 0.45f) / 0.15f).coerceIn(0f, 1f)
+            else -> 0f
+        }
 
-    BoxWithConstraints(
-            modifier =
-                    modifier.fillMaxWidth()
-                            .height(132.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(ImpTokens.Ground)
+    Box(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .height(140.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .border(1.dp, ImpTokens.Hairline, RoundedCornerShape(12.dp))
+                .background(Color(0xFF0D0E12))
     ) {
-        val h = maxHeight
-        val barHeight = 18.dp
-        // A tela do app entra de baixo: fora da vista no inicio, encaixada no fim.
-        val appOffset = h * (1f - progress)
-        // A barra sobe junto, mas so ate a metade da altura: ela e a alca do gesto, e uma barra
-        // encostada no topo deixa de ser lida como barra inferior - vira a moldura do quadro.
-        // Passado o curso, ela desaparece, que e o que acontece no carro quando o app assume.
-        val barLift = (h - barHeight) * 0.55f * progress
-        val barAlpha = (1f - ((progress - 0.70f) / 0.30f)).coerceIn(0f, 1f)
+        // 1. Fundo do cockpit / tela da multimídia
+        Box(
+            modifier =
+                Modifier.fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors =
+                                listOf(
+                                    Color(0xFF191D27),
+                                    Color(0xFF0F1218),
+                                    Color(0xFF08090D)
+                                )
+                        )
+                    )
+        )
 
-        Image(
+        // 2. Imagem do app (Impulse Launcher)
+        if (appAlpha > 0f) {
+            Image(
                 painter = painterResource(R.drawable.impulse_home_preview),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier =
-                        Modifier.fillMaxSize().graphicsLayer {
-                            translationY = appOffset.toPx()
-                            alpha = 0.35f + 0.65f * progress
-                        }
-        )
-
-        // Barra inferior do Impulse: um tracinho claro, como no carro.
-        Box(
-                modifier =
-                        Modifier.align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .height(barHeight)
-                                .graphicsLayer {
-                                    translationY = -barLift.toPx()
-                                    alpha = barAlpha
-                                }
-                                .background(Color(0xFF1B1E25))
-        ) {
-            Box(
-                    modifier =
-                            Modifier.align(Alignment.Center)
-                                    .fillMaxWidth(0.34f)
-                                    .height(3.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(ImpTokens.TextSecondary)
+                modifier = Modifier.fillMaxSize().alpha(appAlpha)
             )
         }
 
-        // O dedo: um circulo com um rastro curto atras, subindo com a barra.
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val fa = fingerAlpha * barAlpha
-            if (fa <= 0f) return@Canvas
-            val x = size.width * 0.5f
-            val bottom = size.height - barHeight.toPx() / 2f
-            val y = bottom - barLift.toPx()
-            drawRoundRect(
-                    color = ImpTokens.Accent.copy(alpha = 0.18f * fa),
-                    topLeft = Offset(x - 3.dp.toPx(), y),
-                    size = Size(6.dp.toPx(), barLift.toPx() + 6.dp.toPx()),
-                    cornerRadius = CornerRadius(3.dp.toPx())
+        // 3. Badges de estado superior
+        if (enableBar && enableSwipe) {
+            Row(
+                modifier =
+                    Modifier.align(Alignment.TopCenter)
+                        .padding(top = 8.dp)
+                        .background(Color(0xDD12151B), RoundedCornerShape(16.dp))
+                        .border(1.dp, ImpTokens.Accent.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    Icons.Default.ArrowUpward,
+                    contentDescription = null,
+                    tint = ImpTokens.Accent,
+                    modifier = Modifier.size(13.dp)
+                )
+                Text(
+                    "Deslize a barra para cima para abrir o app",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        } else if (enableBar) {
+            Row(
+                modifier =
+                    Modifier.align(Alignment.TopCenter)
+                        .padding(top = 8.dp)
+                        .background(Color(0xDD12151B), RoundedCornerShape(16.dp))
+                        .border(1.dp, Color(0xFF2C323D), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier =
+                        Modifier.size(6.dp)
+                            .background(Color(0xFF78E08F), RoundedCornerShape(3.dp))
+                )
+                Text(
+                    "Barra inferior ativada na base da tela",
+                    color = ImpTokens.TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
+        // 4. Gesto de arraste animado (dedo + rastro luminoso)
+        if (enableBar && enableSwipe && fingerAlpha > 0f) {
+            val barCenterY = 123f
+            val targetY = 36f
+            val curY = barCenterY - (barCenterY - targetY) * smoothSwipe
+
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val centerX = size.width * 0.5f
+                val startYPx = barCenterY.dp.toPx()
+                val curYPx = curY.dp.toPx()
+                val trailHeight = (startYPx - curYPx).coerceAtLeast(0f)
+
+                // Rastro vertical ascendente
+                if (trailHeight > 4f) {
+                    drawRoundRect(
+                        brush =
+                            Brush.verticalGradient(
+                                colors =
+                                    listOf(
+                                        ImpTokens.Accent.copy(alpha = 0.40f * fingerAlpha),
+                                        ImpTokens.Accent.copy(alpha = 0.05f * fingerAlpha)
+                                    ),
+                                startY = curYPx,
+                                endY = startYPx
+                            ),
+                        topLeft = Offset(centerX - 3.dp.toPx(), curYPx),
+                        size = Size(6.dp.toPx(), trailHeight),
+                        cornerRadius = CornerRadius(3.dp.toPx())
+                    )
+                }
+
+                // Ponto de toque do gesto
+                drawCircle(
+                    color = ImpTokens.Accent.copy(alpha = 0.28f * fingerAlpha),
+                    radius = 16.dp.toPx(),
+                    center = Offset(centerX, curYPx)
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.50f * fingerAlpha),
+                    radius = 9.dp.toPx(),
+                    center = Offset(centerX, curYPx)
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.95f * fingerAlpha),
+                    radius = 4.5.dp.toPx(),
+                    center = Offset(centerX, curYPx)
+                )
+            }
+
+            // Seta sutil acompanhando o movimento
+            Icon(
+                Icons.Default.KeyboardArrowUp,
+                contentDescription = null,
+                tint = ImpTokens.Accent.copy(alpha = fingerAlpha),
+                modifier =
+                    Modifier.align(Alignment.TopCenter)
+                        .graphicsLayer {
+                            translationY = (curY - 24f).dp.toPx()
+                            alpha = fingerAlpha
+                        }
+                        .size(22.dp)
             )
-            drawCircle(
-                    color = Color.White.copy(alpha = 0.22f * fa),
-                    radius = 13.dp.toPx(),
-                    center = Offset(x, y)
-            )
-            drawCircle(
-                    color = Color.White.copy(alpha = 0.85f * fa),
-                    radius = 7.dp.toPx(),
-                    center = Offset(x, y)
-            )
+        }
+
+        // 5. Barra Inferior Realista (sem alça horizontal branca fictícia)
+        if (enableBar) {
+            Box(
+                modifier =
+                    Modifier.align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(34.dp)
+                        .background(Color(0xFF0F1116))
+                        .border(
+                            BorderStroke(1.dp, Color(0xFF262A33)),
+                            RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+                        )
+                        .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Esquerda: Botão de Apps + Temperatura do motorista
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier =
+                                Modifier.size(24.dp)
+                                    .background(Color(0xFF1B202A), RoundedCornerShape(6.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Apps,
+                                contentDescription = null,
+                                tint = ImpTokens.Accent,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                        Text(
+                            "22.0°",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Centro: Controles reais do veículo (sem alça branca)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = null,
+                            tint = Color(0xFFA0A6B2),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Icon(
+                            Icons.Default.DirectionsCar,
+                            contentDescription = null,
+                            tint = Color(0xFFA0A6B2),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Sync,
+                                contentDescription = null,
+                                tint = Color(0xFFA0A6B2),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                "AUTO",
+                                color = Color(0xFF78E08F),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Direita: Temperatura do passageiro + Volume
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "22.0°",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = null,
+                                tint = Color(0xFFA0A6B2),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                "12",
+                                color = Color(0xFFA0A6B2),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

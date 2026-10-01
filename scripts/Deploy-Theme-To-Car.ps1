@@ -44,8 +44,16 @@ param(
 $ErrorActionPreference = "Stop"
 
 $pkg = "br.com.redesurftank.havalshisuku"
-$adb = "C:\Users\vanes\AppData\Local\Android\Sdk\platform-tools\adb.exe"
-if (-not (Test-Path $adb)) { throw "adb not found at $adb" }
+$adbCandidates = @(
+    "C:\Users\vanes\AppData\Local\Android\Sdk\platform-tools\adb.exe",
+    (Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"),
+    "adb"
+)
+$adb = $adbCandidates | Where-Object {
+    if ($_ -eq "adb") { Get-Command adb -ErrorAction SilentlyContinue } else { Test-Path $_ }
+} | Select-Object -First 1
+if (-not $adb) { throw "adb not found. Install platform-tools or put adb on PATH." }
+if ($adb -ne "adb" -and -not (Test-Path $adb)) { throw "adb not found at $adb" }
 
 if (-not $Source) {
     $Source = Join-Path $PSScriptRoot "..\cluster-widgets\Themes\v1.0\$Theme"
