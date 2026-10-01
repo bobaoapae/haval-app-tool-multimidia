@@ -816,6 +816,14 @@ fun BasicSettingsTab() {
                                 ?: ""
                 )
         }
+        var bottomBarVersion by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
+                                BottomBarState.BarVersion.OLD.key
+                        ) ?: BottomBarState.BarVersion.OLD.key
+                )
+        }
         var showSwipeUpAppPicker by remember { mutableStateOf(false) }
         var clusterProjectionOpensDashboard by remember {
                 mutableStateOf(
@@ -2521,6 +2529,79 @@ fun BasicSettingsTab() {
                                                                                                                 Color.Transparent
                                                                                                 )
                                                                         )
+                                                                }
+
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        12.dp
+                                                                                )
+                                                                )
+
+                                                                // Bottom bar version selection
+                                                                Text(
+                                                                        "Versão da barra inferior",
+                                                                        color = Color.White,
+                                                                        fontSize = 16.sp
+                                                                )
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        4.dp
+                                                                                )
+                                                                )
+                                                                Text(
+                                                                        "Escolha entre o layout original ou a nova experiência com doca de aplicativos e menu de climatização Haval H6 3D",
+                                                                        color = Color.Gray,
+                                                                        fontSize = 12.sp
+                                                                )
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        6.dp
+                                                                                )
+                                                                )
+                                                                BottomBarState.BarVersion.entries.forEach { option ->
+                                                                        val selected = bottomBarVersion == option.key
+                                                                        Row(
+                                                                                modifier =
+                                                                                        Modifier.fillMaxWidth()
+                                                                                                .clickable {
+                                                                                                        bottomBarVersion = option.key
+                                                                                                        prefs.edit()
+                                                                                                                .putString(
+                                                                                                                        SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
+                                                                                                                        option.key
+                                                                                                                )
+                                                                                                                .apply()
+                                                                                                        BottomBarState.barVersion = option.key
+                                                                                                }
+                                                                                                .padding(vertical = 6.dp),
+                                                                                verticalAlignment = Alignment.CenterVertically
+                                                                        ) {
+                                                                                RadioButton(
+                                                                                        selected = selected,
+                                                                                        onClick = null,
+                                                                                        colors =
+                                                                                                RadioButtonDefaults.colors(
+                                                                                                        selectedColor = AppColors.Primary,
+                                                                                                        unselectedColor = AppColors.TextSecondary
+                                                                                                )
+                                                                                )
+                                                                                Spacer(modifier = Modifier.width(8.dp))
+                                                                                Column {
+                                                                                        Text(
+                                                                                                text = option.label,
+                                                                                                color = Color.White,
+                                                                                                fontSize = 14.sp
+                                                                                        )
+                                                                                        Text(
+                                                                                                text = option.description,
+                                                                                                color = Color.Gray,
+                                                                                                fontSize = 12.sp
+                                                                                        )
+                                                                                }
+                                                                        }
                                                                 }
 
                                                                 Spacer(

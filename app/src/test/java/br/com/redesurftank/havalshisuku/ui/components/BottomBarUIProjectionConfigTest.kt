@@ -150,6 +150,81 @@ class BottomBarUIProjectionConfigTest {
         org.junit.Assert.assertFalse(shouldHideFromAllApps("br.com.redesurftank.havalshisuku"))
     }
 
+    @Test
+    fun resolveBottomBarSwipeAction_horizontalDominant_returnsNone() {
+        // When horizontal movement exceeds 15px and dominates over vertical, it must be ignored
+        val decision = resolveBottomBarSwipeAction(
+            totalDragX = 35f,
+            totalDragY = -50f, // vertical is large, but horizontal is 35 > 15
+            isHorizontalLocked = false,
+            isChildConsumed = false
+        )
+        // Note: absX=35, absY=50 -> here absX < absY, so not dominated unless absX > absY
+        // If absX > 15 and absX > absY:
+        val decisionHorizontal = resolveBottomBarSwipeAction(
+            totalDragX = 55f,
+            totalDragY = -50f,
+            isHorizontalLocked = false,
+            isChildConsumed = false
+        )
+        assertEquals(BottomBarSwipeDecision.NONE, decisionHorizontal)
+    }
+
+    @Test
+    fun resolveBottomBarSwipeAction_horizontalLocked_returnsNoneEvenWithVerticalDrift() {
+        val decision = resolveBottomBarSwipeAction(
+            totalDragX = 0f,
+            totalDragY = -80f,
+            isHorizontalLocked = true,
+            isChildConsumed = false
+        )
+        assertEquals(BottomBarSwipeDecision.NONE, decision)
+    }
+
+    @Test
+    fun resolveBottomBarSwipeAction_childConsumed_returnsNone() {
+        val decision = resolveBottomBarSwipeAction(
+            totalDragX = 0f,
+            totalDragY = -80f,
+            isHorizontalLocked = false,
+            isChildConsumed = true
+        )
+        assertEquals(BottomBarSwipeDecision.NONE, decision)
+    }
+
+    @Test
+    fun resolveBottomBarSwipeAction_pureSwipeUp_returnsExpand() {
+        val decision = resolveBottomBarSwipeAction(
+            totalDragX = 2f,
+            totalDragY = -50f,
+            isHorizontalLocked = false,
+            isChildConsumed = false
+        )
+        assertEquals(BottomBarSwipeDecision.EXPAND, decision)
+    }
+
+    @Test
+    fun resolveBottomBarSwipeAction_pureSwipeDown_returnsHide() {
+        val decision = resolveBottomBarSwipeAction(
+            totalDragX = 2f,
+            totalDragY = 30f,
+            isHorizontalLocked = false,
+            isChildConsumed = false
+        )
+        assertEquals(BottomBarSwipeDecision.HIDE, decision)
+    }
+
+    @Test
+    fun resolveBottomBarSwipeAction_smallDrag_returnsNone() {
+        val decision = resolveBottomBarSwipeAction(
+            totalDragX = 1f,
+            totalDragY = -20f,
+            isHorizontalLocked = false,
+            isChildConsumed = false
+        )
+        assertEquals(BottomBarSwipeDecision.NONE, decision)
+    }
+
     private fun config(packageName: String, customName: String? = null): DisplayAppConfig {
         return DisplayAppConfig(
             packageName = packageName,

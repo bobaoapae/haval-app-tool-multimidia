@@ -363,6 +363,7 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "bottomBarSwipeUpPackage",
             "Pacote do app aberto ao deslizar a barra para cima"
     ),
+    BOTTOM_BAR_VERSION("bottomBarVersion", "Versão da barra inferior (old/new)"),
     CLUSTER_PROJECTION_OPENS_DASHBOARD(
             "clusterProjectionOpensDashboard",
             "Abrir o Impulse Drive quando a projeção inicia no cluster"

@@ -266,6 +266,42 @@ internal fun resolveBottomBarRowStartPadPx(
         surfaceCutoutPx: Int
 ): Int = (overlayLeftGutterPx.coerceAtLeast(0) - surfaceCutoutPx.coerceAtLeast(0)).coerceAtLeast(0)
 
+enum class BottomBarSwipeDecision {
+        NONE,
+        EXPAND,
+        HIDE
+}
+
+/**
+ * Determines whether a drag gesture should trigger an expand (swipe up) or hide (swipe down)
+ * action on the bottom bar, strictly ignoring vertical actions if the gesture has horizontal intent
+ * or if a child element consumed the event.
+ */
+internal fun resolveBottomBarSwipeAction(
+        totalDragX: Float,
+        totalDragY: Float,
+        isHorizontalLocked: Boolean,
+        isChildConsumed: Boolean,
+        expandThresholdPx: Float = -45f,
+        hideThresholdPx: Float = 20f
+): BottomBarSwipeDecision {
+        if (isHorizontalLocked || isChildConsumed) {
+                return BottomBarSwipeDecision.NONE
+        }
+        val absX = kotlin.math.abs(totalDragX)
+        val absY = kotlin.math.abs(totalDragY)
+        if (absX > 15f && absX > absY) {
+                return BottomBarSwipeDecision.NONE
+        }
+        if (totalDragY < expandThresholdPx) {
+                return BottomBarSwipeDecision.EXPAND
+        }
+        if (totalDragY > hideThresholdPx) {
+                return BottomBarSwipeDecision.HIDE
+        }
+        return BottomBarSwipeDecision.NONE
+}
+
 private fun getBottomBarAppConfigs(): List<DisplayAppConfig> {
         return mergeBottomBarProjectionConfigs(
                 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.getAllConfigs(),
@@ -2010,16 +2046,454 @@ fun CenteredAppLauncherSection(
 }
 
 @Composable
-fun CenteredAppDock(scope: CoroutineScope, context: Context) {
-	CenteredAppLauncherSection(scope = scope, context = context)
+private fun BoxScope.BottomBarNewContent(
+        driverTemp: String,
+        onDriverTempChange: (String) -> Unit,
+        passTemp: String,
+        onPassTempChange: (String) -> Unit,
+        volume: Int,
+        onVolumeChange: (Int) -> Unit,
+        fanSpeed: Int,
+        onFanSpeedChange: (Int) -> Unit,
+        hvacPower: String,
+        onHvacPowerChange: (String) -> Unit,
+        driverSeatVentilation: String,
+        onDriverSeatVentilationChange: (String) -> Unit,
+        passengerSeatVentilation: String,
+        onPassengerSeatVentilationChange: (String) -> Unit,
+        seatVentilationMaxLevel: String,
+        isLeftBarShown: Boolean,
+        serviceManager: ServiceManager,
+        scope: CoroutineScope,
+        barContext: Context
+) {
+        val isACEnabled = hvacPower == "1"
+
+        // 1. Extremidade Esquerda (Setas, Temp Motorista, Ventilação Motorista, Fan < >)
+        Row(
+                modifier = Modifier.align(Alignment.CenterStart),
+                verticalAlignment = Alignment.CenterVertically
+        ) {
+                LeftArrowsSection(
+                        isLeftBarShown = isLeftBarShown,
+                        hasSecondaryApps = BottomBarState.hasAppsOnSecondaryDisplays,
+                        scope = scope,
+                        context = barContext
+                )
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                TempControlSection(
+                        label = "Motorista",
+                        temp = driverTemp,
+                        isEnabled = isACEnabled,
+                        sliderType = BottomBarState.SliderType.DRIVER_TEMP
+                ) { delta ->
+                        val cur = driverTemp.toFloatOrNull() ?: 22.0f
+                        val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
+                        val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
+                        onDriverTempChange(formatted)
+                        serviceManager.updateData(
+                                CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),
+                                formatted
+                        )
+                        if (!isACEnabled) {
+                                onHvacPowerChange("1")
+                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                        }
+                }
+
+                Spacer(modifier = Modifier.width(32.dp))
+
+                CoffeeOsSeatVentilationButton(
+                        isDriver = true,
+                        level = driverSeatVentilation,
+                        maxLevel = seatVentilationMaxLevel,
+                        onLevelChange = { nextLevel ->
+                                onDriverSeatVentilationChange(nextLevel)
+                                updateSeatVentilationLevel(
+                                        serviceManager,
+                                        CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL,
+                                        nextLevel
+                                )
+                        }
+                )
+
+                Spacer(modifier = Modifier.width(32.dp))
+
+                FanControlSection(
+                        speed = fanSpeed,
+                        isPowerOn = isACEnabled,
+                        sliderType = BottomBarState.SliderType.FAN,
+                        onSpeedChange = { newSpeed ->
+                                onFanSpeedChange(newSpeed)
+                                serviceManager.updateData(
+                                        CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
+                                        newSpeed.toString()
+                                )
+                                if (newSpeed == 0 && isACEnabled) {
+                                        onHvacPowerChange("0")
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "0")
+                                } else if (newSpeed > 0 && !isACEnabled) {
+                                        onHvacPowerChange("1")
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                }
+                        },
+                        onFanClick = {
+                                BottomBarState.isAcMenuExpanded = !BottomBarState.isAcMenuExpanded
+                                if (BottomBarState.isAcMenuExpanded) {
+                                        BottomBarState.isMenuExpanded = false
+                                        BottomBarState.isSettingsMenuExpanded = false
+                                        BottomBarState.isOverrideMenuExpanded = false
+                                }
+                        }
+                )
+        }
+
+        // 2. Centro Absoluto: Doca de Apps (Voltar, Launcher, 7 Apps, Config Condução, Home)
+        Box(
+                modifier = Modifier.align(Alignment.Center),
+                contentAlignment = Alignment.Center
+        ) {
+                CenteredAppLauncherSection(
+                        scope = scope,
+                        context = barContext
+                )
+        }
+
+        // 3. Extremidade Direita (Volume, Ventilação Passageiro, Temp Passageiro, Override e Spacer)
+        Row(
+                modifier = Modifier.align(Alignment.CenterEnd),
+                verticalAlignment = Alignment.CenterVertically
+        ) {
+                VolumeControlSection(
+                        label = "Volume",
+                        volume = volume,
+                        sliderType = BottomBarState.SliderType.VOLUME
+                ) { delta ->
+                        val newVol = (volume + delta).coerceIn(0, 30)
+                        onVolumeChange(newVol)
+                        serviceManager.updateData(
+                                CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
+                                newVol.toString()
+                        )
+                }
+
+                Spacer(modifier = Modifier.width(32.dp))
+
+                CoffeeOsSeatVentilationButton(
+                        isDriver = false,
+                        level = passengerSeatVentilation,
+                        maxLevel = seatVentilationMaxLevel,
+                        onLevelChange = { nextLevel ->
+                                onPassengerSeatVentilationChange(nextLevel)
+                                updateSeatVentilationLevel(
+                                        serviceManager,
+                                        CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL,
+                                        nextLevel
+                                )
+                        }
+                )
+
+                Spacer(modifier = Modifier.width(32.dp))
+
+                TempControlSection(
+                        label = "Passageiro",
+                        temp = passTemp,
+                        isEnabled = isACEnabled,
+                        sliderType = BottomBarState.SliderType.PASS_TEMP
+                ) { delta ->
+                        val cur = passTemp.toFloatOrNull() ?: 22.0f
+                        val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
+                        val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
+                        onPassTempChange(formatted)
+                        serviceManager.updateData(
+                                CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(),
+                                formatted
+                        )
+                        if (!isACEnabled) {
+                                onHvacPowerChange("1")
+                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                        }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // Override Section
+                val isOverrideExpanded = BottomBarState.isOverrideMenuExpanded
+                val overrideInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val overridePressed by overrideInteraction.collectIsPressedAsState()
+                val overrideColor by animateColorAsState(
+                        targetValue = if (overridePressed || isOverrideExpanded) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
+                        animationSpec = tween(durationMillis = if (overridePressed) 50 else 300)
+                )
+                Box(
+                        modifier =
+                                Modifier.width(44.dp)
+                                        .fillMaxHeight()
+                                        .pointerInput(Unit) {
+                                                awaitPointerEventScope {
+                                                        while (true) {
+                                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                                var totalDrag = 0f
+                                                                do {
+                                                                        val event = awaitPointerEvent()
+                                                                        val change = event.changes.first()
+                                                                        totalDrag += (change.position - change.previousPosition).getDistance()
+                                                                } while (event.changes.any { it.pressed })
+                                                                if (totalDrag < 10f) {
+                                                                        BottomBarState.isOverrideMenuExpanded = !BottomBarState.isOverrideMenuExpanded
+                                                                        if (BottomBarState.isOverrideMenuExpanded) {
+                                                                                BottomBarState.isMenuExpanded = false
+                                                                                BottomBarState.isSettingsMenuExpanded = false
+                                                                                BottomBarState.isAcMenuExpanded = false
+                                                                        }
+                                                                }
+                                                        }
+                                                }
+                                        },
+                        contentAlignment = Alignment.Center
+                ) {
+                        Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(overrideColor)
+                        ) {
+                                Icon(
+                                        Icons.Default.SwapVert,
+                                        contentDescription = "Override",
+                                        tint = if (isOverrideExpanded) Color(0xFF2196F3) else Color.White.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(24.dp)
+                                )
+                        }
+                }
+
+                Spacer(modifier = Modifier.width(82.dp))
+        }
 }
 
 @Composable
-fun AppSwitcherSection(
-	scope: CoroutineScope,
-	context: Context
+private fun BoxScope.BottomBarOldContent(
+        driverTemp: String,
+        passTemp: String,
+        volume: Int,
+        fanSpeed: Int,
+        hvacPower: String,
+        acSync: String,
+        acAuto: String,
+        acRecirc: String,
+        serviceManager: ServiceManager,
+        scope: CoroutineScope
 ) {
-	CenteredAppLauncherSection(scope = scope, context = context)
+        val isACEnabled = hvacPower == "1"
+
+        Row(
+                modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+                // 1. App Switcher / Launcher Section on the LEFT (11%)
+                Box(
+                        modifier = Modifier.weight(0.11f),
+                        contentAlignment = Alignment.Center
+                ) {
+                        AppSwitcherSection()
+                }
+
+                // 2. Motorista Temp (14%)
+                Box(
+                        modifier = Modifier.weight(0.14f),
+                        contentAlignment = Alignment.Center
+                ) {
+                        OldTempControlSection(
+                                label = "Motorista",
+                                temp = driverTemp,
+                                isEnabled = isACEnabled,
+                                sliderType = BottomBarState.SliderType.DRIVER_TEMP
+                        ) { delta ->
+                                val cur = driverTemp.toFloatOrNull() ?: 22.0f
+                                val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
+                                val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
+                                serviceManager.updateData(
+                                        CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),
+                                        formatted
+                                )
+                                if (!isACEnabled) {
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                }
+                        }
+                }
+
+                // 3. Controls Group (Back, Settings) (14%)
+                Box(
+                        modifier = Modifier.weight(0.14f),
+                        contentAlignment = Alignment.Center
+                ) {
+                        ControlsSection(scope)
+                }
+
+                // 4. AC Fan Speed (14%)
+                Box(
+                        modifier = Modifier.weight(0.14f),
+                        contentAlignment = Alignment.Center
+                ) {
+                        OldFanControlSection(
+                                speed = fanSpeed,
+                                isEnabled = true,
+                                sliderType = BottomBarState.SliderType.FAN
+                        ) { delta ->
+                                val calculatedSpeed = (fanSpeed + delta).coerceIn(0, 7)
+                                serviceManager.updateData(
+                                        CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
+                                        calculatedSpeed.toString()
+                                )
+                                if (calculatedSpeed == 0 && isACEnabled) {
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "0")
+                                } else if (calculatedSpeed > 0 && !isACEnabled) {
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                }
+                        }
+                }
+
+                // 5. AC Recirc/Sync/Auto (14%)
+                Box(
+                        modifier = Modifier.weight(0.14f),
+                        contentAlignment = Alignment.Center
+                ) {
+                        Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                        ) {
+                                ACControlButton(
+                                        icon = if (acRecirc == "1") recycleIn else recycleOut,
+                                        label = "Circular",
+                                        isActive = acRecirc == "1",
+                                        isEnabled = isACEnabled
+                                ) {
+                                        val next = if (acRecirc == "1") "0" else "1"
+                                        val carValue = if (next == "0") "1" else "0"
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), carValue)
+                                }
+                                ACControlButton(
+                                        icon = Icons.Default.Sync,
+                                        label = "Sync",
+                                        isActive = acSync == "1",
+                                        isEnabled = isACEnabled
+                                ) {
+                                        val next = if (acSync == "1") "0" else "1"
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), next)
+                                }
+                                ACControlButton(
+                                        icon = Icons.Default.AutoMode,
+                                        label = "Auto",
+                                        isActive = acAuto == "1",
+                                        isEnabled = isACEnabled
+                                ) {
+                                        val next = if (acAuto == "1") "0" else "1"
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), next)
+                                }
+                        }
+                }
+
+                // 6. Volume (14%)
+                Box(
+                        modifier = Modifier.weight(0.14f),
+                        contentAlignment = Alignment.Center
+                ) {
+                        OldVolumeControlSection(
+                                label = "Volume",
+                                volume = volume,
+                                sliderType = BottomBarState.SliderType.VOLUME
+                        ) { delta ->
+                                val newVol = (volume + delta).coerceIn(0, 30)
+                                serviceManager.updateData(
+                                        CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
+                                        newVol.toString()
+                                )
+                        }
+                }
+
+                // 7. AC Passenger (14%)
+                Box(
+                        modifier = Modifier.weight(0.14f),
+                        contentAlignment = Alignment.Center
+                ) {
+                        OldTempControlSection(
+                                label = "Passageiro",
+                                temp = passTemp,
+                                isEnabled = isACEnabled,
+                                sliderType = BottomBarState.SliderType.PASS_TEMP
+                        ) { delta ->
+                                val cur = passTemp.toFloatOrNull() ?: 22.0f
+                                val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
+                                val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
+                                serviceManager.updateData(
+                                        CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(),
+                                        formatted
+                                )
+                                if (!isACEnabled) {
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                }
+                        }
+                }
+
+                // 8. Override Section (5%)
+                Box(
+                        modifier = Modifier.weight(0.05f),
+                        contentAlignment = Alignment.Center
+                ) {
+                        val isOverrideExpanded = BottomBarState.isOverrideMenuExpanded
+                        val overrideInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        val overridePressed by overrideInteraction.collectIsPressedAsState()
+                        val overrideColor by animateColorAsState(
+                                targetValue = if (overridePressed || isOverrideExpanded) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
+                                animationSpec = tween(durationMillis = if (overridePressed) 50 else 300)
+                        )
+                        Box(
+                                modifier = Modifier
+                                        .fillMaxHeight()
+                                        .pointerInput(Unit) {
+                                                awaitPointerEventScope {
+                                                        while (true) {
+                                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                                var totalDrag = 0f
+                                                                do {
+                                                                        val event = awaitPointerEvent()
+                                                                        val change = event.changes.first()
+                                                                        totalDrag += (change.position - change.previousPosition).getDistance()
+                                                                } while (event.changes.any { it.pressed })
+                                                                if (totalDrag < 30f) {
+                                                                        BottomBarState.isOverrideMenuExpanded = !BottomBarState.isOverrideMenuExpanded
+                                                                        if (BottomBarState.isOverrideMenuExpanded) {
+                                                                                BottomBarState.isMenuExpanded = false
+                                                                                BottomBarState.isSettingsMenuExpanded = false
+                                                                                BottomBarState.isAcMenuExpanded = false
+                                                                        }
+                                                                }
+                                                        }
+                                                }
+                                        },
+                                contentAlignment = Alignment.Center
+                        ) {
+                                Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(overrideColor)
+                                ) {
+                                        Icon(
+                                                Icons.Default.SwapVert,
+                                                contentDescription = "Override",
+                                                tint = if (isOverrideExpanded) Color(0xFF2196F3) else Color.White.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(24.dp)
+                                        )
+                                }
+                        }
+                }
+        }
 }
 
 @Composable
@@ -2236,30 +2710,39 @@ fun BottomBarContent() {
                                                                                         requireUnconsumed =
                                                                                                 false
                                                                                 )
+                                                                        var totalDragX = 0f
                                                                         var totalDragY = 0f
+                                                                        var isHorizontalLocked = false
 
                                                                         do {
                                                                                 val event =
                                                                                         awaitPointerEvent()
                                                                                 val change =
                                                                                         event.changes
-                                                                                                .first()
-                                                                                totalDragY +=
-                                                                                        change.position
-                                                                                                .y -
-                                                                                                change.previousPosition
-                                                                                                        .y
+                                                                                                .firstOrNull() ?: break
+                                                                                val deltaX =
+                                                                                        change.position.x -
+                                                                                                change.previousPosition.x
+                                                                                val deltaY =
+                                                                                        change.position.y -
+                                                                                                change.previousPosition.y
+                                                                                totalDragX += deltaX
+                                                                                totalDragY += deltaY
 
-                                                                                val shouldExpand =
-                                                                                        totalDragY <
-                                                                                                -45f
-                                                                                val shouldHide =
-                                                                                        totalDragY >
-                                                                                                20f
+                                                                                val absX = kotlin.math.abs(totalDragX)
+                                                                                val absY = kotlin.math.abs(totalDragY)
+                                                                                if (absX > 15f && absX > absY) {
+                                                                                        isHorizontalLocked = true
+                                                                                }
 
-                                                                                if (shouldExpand ||
-                                                                                                shouldHide
-                                                                                ) {
+                                                                                val decision = resolveBottomBarSwipeAction(
+                                                                                        totalDragX = totalDragX,
+                                                                                        totalDragY = totalDragY,
+                                                                                        isHorizontalLocked = isHorizontalLocked,
+                                                                                        isChildConsumed = change.isConsumed
+                                                                                )
+
+                                                                                if (decision != BottomBarSwipeDecision.NONE) {
                                                                                         event.changes
                                                                                                 .forEach {
                                                                                                         it.consume()
@@ -2279,7 +2762,7 @@ fun BottomBarContent() {
                                                                                                 .any {
                                                                                                         it.pressed
                                                                                                 })
-                                                                                        if (shouldExpand) {
+                                                                                        if (decision == BottomBarSwipeDecision.EXPAND) {
                                                                                                 performSwipeUpAction(
                                                                                                         barContext
                                                                                                 )
@@ -2314,217 +2797,51 @@ fun BottomBarContent() {
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.CenterEnd
                                 ) {
+                                        val effectiveRowPad = if (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key) rowStartPadAnimated else effectiveStartPad
                                         Box(
                                                 modifier =
                                                         Modifier.fillMaxWidth()
                                                                 .fillMaxHeight()
                                                                 .padding(
-                                                                        start = rowStartPadAnimated,
+                                                                        start = effectiveRowPad,
                                                                         end = 8.dp
                                                                 )
                                         ) {
-                                                val isACEnabled = hvacPower == "1"
-
-                                                // 1. Extremidade Esquerda (Setas, Temp Motorista, Ventilação Motorista, Fan < >)
-                                                Row(
-                                                        modifier = Modifier.align(Alignment.CenterStart),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                        LeftArrowsSection(
-                                                                isLeftBarShown = isLeftBarShown,
-                                                                hasSecondaryApps = BottomBarState.hasAppsOnSecondaryDisplays,
-                                                                scope = scope,
-                                                                context = barContext
-                                                        )
-
-                                                        Spacer(modifier = Modifier.width(12.dp))
-
-                                                        TempControlSection(
-                                                                label = "Motorista",
-                                                                temp = driverTemp,
-                                                                isEnabled = isACEnabled,
-                                                                sliderType = BottomBarState.SliderType.DRIVER_TEMP
-                                                        ) { delta ->
-                                                                val cur = driverTemp.toFloatOrNull() ?: 22.0f
-                                                                val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
-                                                                driverTemp = String.format(java.util.Locale.US, "%.1f", newTemp)
-                                                                serviceManager.updateData(
-                                                                        CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),
-                                                                        driverTemp
-                                                                )
-                                                                if (!isACEnabled) {
-                                                                        hvacPower = "1"
-                                                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
-                                                                }
-                                                        }
-
-                                                        Spacer(modifier = Modifier.width(32.dp))
-
-                                                        CoffeeOsSeatVentilationButton(
-                                                                isDriver = true,
-                                                                level = driverSeatVentilation,
-                                                                maxLevel = seatVentilationMaxLevel,
-                                                                onLevelChange = { nextLevel ->
-                                                                        driverSeatVentilation = nextLevel
-                                                                        updateSeatVentilationLevel(
-                                                                                serviceManager,
-                                                                                CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL,
-                                                                                nextLevel
-                                                                        )
-                                                                }
-                                                        )
-
-                                                        Spacer(modifier = Modifier.width(32.dp))
-
-                                                        FanControlSection(
-                                                                speed = fanSpeed,
-                                                                isPowerOn = isACEnabled,
-                                                                sliderType = BottomBarState.SliderType.FAN,
-                                                                onSpeedChange = { newSpeed ->
-                                                                        fanSpeed = newSpeed
-                                                                        serviceManager.updateData(
-                                                                                CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
-                                                                                newSpeed.toString()
-                                                                        )
-                                                                        if (newSpeed == 0 && isACEnabled) {
-                                                                                hvacPower = "0"
-                                                                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "0")
-                                                                        } else if (newSpeed > 0 && !isACEnabled) {
-                                                                                hvacPower = "1"
-                                                                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
-                                                                        }
-                                                                },
-                                                                onFanClick = {
-                                                                        BottomBarState.isAcMenuExpanded = !BottomBarState.isAcMenuExpanded
-                                                                        if (BottomBarState.isAcMenuExpanded) {
-                                                                                BottomBarState.isMenuExpanded = false
-                                                                                BottomBarState.isSettingsMenuExpanded = false
-                                                                                BottomBarState.isOverrideMenuExpanded = false
-                                                                        }
-                                                                }
-                                                        )
-                                                }
-
-                                                // 2. Centro Absoluto: Doca de Apps (Voltar, Launcher, 7 Apps, Config Condução, Home)
-                                                Box(
-                                                        modifier = Modifier.align(Alignment.Center),
-                                                        contentAlignment = Alignment.Center
-                                                ) {
-                                                        CenteredAppLauncherSection(
-                                                                scope = scope,
-                                                                context = barContext
-                                                        )
-                                                }
-
-                                                // 3. Extremidade Direita (Volume, Ventilação Passageiro, Temp Passageiro, Override e Spacer)
-                                                Row(
-                                                        modifier = Modifier.align(Alignment.CenterEnd),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                        VolumeControlSection(
-                                                                label = "Volume",
+                                                if (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key) {
+                                                        BottomBarNewContent(
+                                                                driverTemp = driverTemp,
+                                                                onDriverTempChange = { driverTemp = it },
+                                                                passTemp = passTemp,
+                                                                onPassTempChange = { passTemp = it },
                                                                 volume = volume,
-                                                                sliderType = BottomBarState.SliderType.VOLUME
-                                                        ) { delta ->
-                                                                val newVol = (volume + delta).coerceIn(0, 30)
-                                                                volume = newVol
-                                                                serviceManager.updateData(
-                                                                        CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
-                                                                        newVol.toString()
-                                                                )
-                                                        }
-
-                                                        Spacer(modifier = Modifier.width(32.dp))
-
-                                                        CoffeeOsSeatVentilationButton(
-                                                                isDriver = false,
-                                                                level = passengerSeatVentilation,
-                                                                maxLevel = seatVentilationMaxLevel,
-                                                                onLevelChange = { nextLevel ->
-                                                                        passengerSeatVentilation = nextLevel
-                                                                        updateSeatVentilationLevel(
-                                                                                serviceManager,
-                                                                                CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL,
-                                                                                nextLevel
-                                                                        )
-                                                                }
+                                                                onVolumeChange = { volume = it },
+                                                                fanSpeed = fanSpeed,
+                                                                onFanSpeedChange = { fanSpeed = it },
+                                                                hvacPower = hvacPower,
+                                                                onHvacPowerChange = { hvacPower = it },
+                                                                driverSeatVentilation = driverSeatVentilation,
+                                                                onDriverSeatVentilationChange = { driverSeatVentilation = it },
+                                                                passengerSeatVentilation = passengerSeatVentilation,
+                                                                onPassengerSeatVentilationChange = { passengerSeatVentilation = it },
+                                                                seatVentilationMaxLevel = seatVentilationMaxLevel,
+                                                                isLeftBarShown = isLeftBarShown,
+                                                                serviceManager = serviceManager,
+                                                                scope = scope,
+                                                                barContext = barContext
                                                         )
-
-                                                        Spacer(modifier = Modifier.width(32.dp))
-
-                                                        TempControlSection(
-                                                                label = "Passageiro",
-                                                                temp = passTemp,
-                                                                isEnabled = isACEnabled,
-                                                                sliderType = BottomBarState.SliderType.PASS_TEMP
-                                                        ) { delta ->
-                                                                val cur = passTemp.toFloatOrNull() ?: 22.0f
-                                                                val newTemp = (cur + delta).coerceIn(16.0f, 30.0f)
-                                                                passTemp = String.format(java.util.Locale.US, "%.1f", newTemp)
-                                                                serviceManager.updateData(
-                                                                        CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(),
-                                                                        passTemp
-                                                                )
-                                                                if (!isACEnabled) {
-                                                                        hvacPower = "1"
-                                                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
-                                                                }
-                                                        }
-
-                                                        Spacer(modifier = Modifier.width(12.dp))
-
-                                                        // Override Section
-                                                        val isOverrideExpanded = BottomBarState.isOverrideMenuExpanded
-                                                        val overrideInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                                                        val overridePressed by overrideInteraction.collectIsPressedAsState()
-                                                        val overrideColor by animateColorAsState(
-                                                                targetValue = if (overridePressed || isOverrideExpanded) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
-                                                                animationSpec = tween(durationMillis = if (overridePressed) 50 else 300)
+                                                } else {
+                                                        BottomBarOldContent(
+                                                                driverTemp = driverTemp,
+                                                                passTemp = passTemp,
+                                                                volume = volume,
+                                                                fanSpeed = fanSpeed,
+                                                                hvacPower = hvacPower,
+                                                                acSync = acSync,
+                                                                acAuto = acAuto,
+                                                                acRecirc = acRecirc,
+                                                                serviceManager = serviceManager,
+                                                                scope = scope
                                                         )
-                                                        Box(
-                                                                modifier =
-                                                                        Modifier.width(44.dp)
-                                                                                .fillMaxHeight()
-                                                                                .pointerInput(Unit) {
-                                                                                        awaitPointerEventScope {
-                                                                                                while (true) {
-                                                                                                        val down = awaitFirstDown(requireUnconsumed = false)
-                                                                                                        var totalDrag = 0f
-                                                                                                        do {
-                                                                                                                val event = awaitPointerEvent()
-                                                                                                                val change = event.changes.first()
-                                                                                                                totalDrag += (change.position - change.previousPosition).getDistance()
-                                                                                                        } while (event.changes.any { it.pressed })
-                                                                                                        if (totalDrag < 10f) {
-                                                                                                                BottomBarState.isOverrideMenuExpanded = !BottomBarState.isOverrideMenuExpanded
-                                                                                                                if (BottomBarState.isOverrideMenuExpanded) {
-                                                                                                                        BottomBarState.isMenuExpanded = false
-                                                                                                                        BottomBarState.isSettingsMenuExpanded = false
-                                                                                                                        BottomBarState.isAcMenuExpanded = false
-                                                                                                                }
-                                                                                                        }
-                                                                                                }
-                                                                                        }
-                                                                                },
-                                                                contentAlignment = Alignment.Center
-                                                        ) {
-                                                                Box(
-                                                                        contentAlignment = Alignment.Center,
-                                                                        modifier = Modifier
-                                                                                .size(36.dp)
-                                                                                .clip(RoundedCornerShape(8.dp))
-                                                                                .background(overrideColor)
-                                                                ) {
-                                                                        Icon(
-                                                                                Icons.Default.SwapVert,
-                                                                                contentDescription = "Override",
-                                                                                tint = if (isOverrideExpanded) Color(0xFF2196F3) else Color.White.copy(alpha = 0.7f),
-                                                                                modifier = Modifier.size(24.dp)
-                                                                        )
-                                                                }
-                                                        }
-
-                                                        Spacer(modifier = Modifier.width(82.dp))
                                                 }
                                         }
                                 }
@@ -2547,26 +2864,33 @@ fun BottomBarContent() {
                                                                                 requireUnconsumed =
                                                                                         false
                                                                         )
+                                                                        var totalDragX = 0f
                                                                         var totalDragY = 0f
+                                                                        var isHorizontalLocked = false
 
                                                                         do {
                                                                                 val event =
                                                                                         awaitPointerEvent()
                                                                                 val change =
                                                                                         event.changes
-                                                                                                .first()
-                                                                                totalDragY +=
-                                                                                        change.position
-                                                                                                .y -
-                                                                                                change.previousPosition
-                                                                                                        .y
+                                                                                                .firstOrNull() ?: break
+                                                                                val deltaX =
+                                                                                        change.position.x -
+                                                                                                change.previousPosition.x
+                                                                                val deltaY =
+                                                                                        change.position.y -
+                                                                                                change.previousPosition.y
+                                                                                totalDragX += deltaX
+                                                                                totalDragY += deltaY
 
-                                                                                // Confirmed upward
-                                                                                // swipe → open the
-                                                                                // full dashboard
-                                                                                if (totalDragY <
-                                                                                                -30f
-                                                                                ) {
+                                                                                val absX = kotlin.math.abs(totalDragX)
+                                                                                val absY = kotlin.math.abs(totalDragY)
+                                                                                if (absX > 15f && absX > absY) {
+                                                                                        isHorizontalLocked = true
+                                                                                }
+
+                                                                                // Confirmed upward swipe → show the bar (unless horizontal gesture was intended)
+                                                                                if (!isHorizontalLocked && !change.isConsumed && totalDragY < -30f) {
                                                                                         event.changes
                                                                                                 .forEach {
                                                                                                         it.consume()
@@ -3111,6 +3435,484 @@ fun AppMenuContent() {
 }
 
 @Composable
+fun AddAppGridItem(
+        pkg: String,
+        context: Context,
+        scope: CoroutineScope,
+        onAdded: () -> Unit
+) {
+        val appInfo =
+                remember(pkg) {
+                        DisplayAppLauncher.resolveAppInfo(
+                                context,
+                                pkg
+                        )
+                }
+
+        Column(
+                modifier =
+                        Modifier.fillMaxWidth()
+                                .clickable {
+                                        scope.launch {
+                                                DisplayAppLauncher.getOrCreateDefaultConfig(context, pkg)
+                                                onAdded()
+                                        }
+                                }
+                                .padding(4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+                Box(
+                        modifier =
+                                Modifier.size(64.dp)
+                                        .background(
+                                                Color.White.copy(alpha = 0.05f),
+                                                RoundedCornerShape(12.dp)
+                                        )
+                                        .border(
+                                                1.dp,
+                                                Color.White.copy(alpha = 0.2f),
+                                                RoundedCornerShape(12.dp)
+                                        ),
+                        contentAlignment = Alignment.Center
+                ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                        Icons.Default.Add,
+                                        contentDescription = null,
+                                        tint = Color.White.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(24.dp)
+                                )
+                                if (appInfo.icon != null) {
+                                        AsyncImage(
+                                                model = appInfo.icon,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(20.dp).alpha(0.4f)
+                                        )
+                                }
+                        }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                        text = "Adicionar atual",
+                        style = labelStyle.copy(fontSize = 11.sp),
+                        maxLines = 1
+                )
+        }
+}
+
+@Composable
+fun ClassicAppMenuContent() {
+        val configsList = remember {
+                mutableStateListOf<DisplayAppConfig>()
+                        .apply { addAll(getBottomBarAppConfigs()) }
+        }
+        LaunchedEffect(Unit) {
+                val latestConfigs = getBottomBarAppConfigs()
+                if (configsList.toList() != latestConfigs) {
+                        configsList.clear()
+                        configsList.addAll(latestConfigs)
+                }
+        }
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+
+        val currentPkg = BottomBarState.currentPackage
+        val isCurrentInConfigs = configsList.any { it.packageName == currentPkg }
+        val showAddButton =
+                !isCurrentInConfigs && currentPkg.isNotEmpty() && currentPkg != context.packageName
+
+        // Track item positions for drag and drop
+        val itemBounds = remember { mutableMapOf<Int, Rect>() }
+        var draggedIndex by remember { mutableStateOf<Int?>(null) }
+        var dragOffset by remember { mutableStateOf(Offset.Zero) }
+        var containerCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+        fun findIndexAtOffset(offset: Offset): Int? {
+                val rootOffset = containerCoordinates?.localToRoot(offset) ?: offset
+                return itemBounds.entries.find { it.value.contains(rootOffset) }?.key
+        }
+
+        Box(
+                modifier =
+                        Modifier.background(
+                                        Color(0xFF13151A).copy(alpha = 0.95f),
+                                        RoundedCornerShape(12.dp)
+                                )
+                                .border(1.dp, Color(0xFF1D2430), RoundedCornerShape(12.dp))
+                                .fillMaxWidth(0.25f)
+                                .padding(16.dp)
+                                .pointerInput(Unit) {
+                                        detectTapGestures {
+                                                BottomBarState.isDeleteModeEnabled = false
+                                        }
+                                }
+        ) {
+                val totalItems = configsList.size + (if (showAddButton) 1 else 0)
+                val columns = 3
+                val rows = (totalItems + columns - 1) / columns
+
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        // Header
+                        Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                        ) {
+                                Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                        Text(
+                                                text =
+                                                        if (BottomBarState.isDeleteModeEnabled)
+                                                                "Organizar"
+                                                        else "Aplicativos",
+                                                color =
+                                                        if (BottomBarState.isDeleteModeEnabled)
+                                                                Color(0xFF4CAF50)
+                                                        else Color.White,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold
+                                        )
+                                        if (BottomBarState.isDeleteModeEnabled) {
+                                                Box(
+                                                        modifier =
+                                                                Modifier.clip(
+                                                                                RoundedCornerShape(
+                                                                                        16.dp
+                                                                                )
+                                                                        )
+                                                                        .background(
+                                                                                Color(0xFF4CAF50)
+                                                                                        .copy(
+                                                                                                alpha =
+                                                                                                        0.15f
+                                                                                        )
+                                                                        )
+                                                                        .border(
+                                                                                1.dp,
+                                                                                Color(0xFF4CAF50)
+                                                                                        .copy(
+                                                                                                alpha =
+                                                                                                        0.5f
+                                                                                        ),
+                                                                                RoundedCornerShape(
+                                                                                        16.dp
+                                                                                )
+                                                                        )
+                                                                        .clickable {
+                                                                                BottomBarState
+                                                                                        .isDeleteModeEnabled =
+                                                                                        false
+                                                                        }
+                                                                        .padding(
+                                                                                horizontal = 12.dp,
+                                                                                vertical = 6.dp
+                                                                        ),
+                                                        contentAlignment = Alignment.Center
+                                                ) {
+                                                        Row(
+                                                                verticalAlignment =
+                                                                        Alignment.CenterVertically,
+                                                                horizontalArrangement =
+                                                                        Arrangement.spacedBy(6.dp)
+                                                        ) {
+                                                                Icon(
+                                                                        imageVector =
+                                                                                Icons.Default.Check,
+                                                                        contentDescription = null,
+                                                                        tint = Color(0xFF4CAF50),
+                                                                        modifier =
+                                                                                Modifier.size(14.dp)
+                                                                )
+                                                                Text(
+                                                                        text = "CONCLUIR",
+                                                                        color = Color(0xFF4CAF50),
+                                                                        fontSize = 11.sp,
+                                                                        fontWeight =
+                                                                                FontWeight
+                                                                                        .ExtraBold,
+                                                                        letterSpacing = 0.5.sp
+                                                                )
+                                                        }
+                                                }
+                                        }
+                                }
+                                val closeInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                                val closePressed by closeInteraction.collectIsPressedAsState()
+                                val closeGlow by animateColorAsState(
+                                        targetValue = if (closePressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
+                                        animationSpec = tween(durationMillis = if (closePressed) 50 else 300)
+                                )
+                                Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(closeGlow)
+                                                .clickable(
+                                                        interactionSource = closeInteraction,
+                                                        indication = null
+                                                ) {
+                                                        BottomBarState.isMenuExpanded = false
+                                                        BottomBarState.isDeleteModeEnabled = false
+                                                }
+                                ) {
+                                        Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Fechar",
+                                                tint = Color.White.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(24.dp)
+                                        )
+                                }
+                        }
+
+                        // App Grid
+                        Column(
+                                verticalArrangement = Arrangement.spacedBy(20.dp),
+                                modifier =
+                                        Modifier.onGloballyPositioned { containerCoordinates = it }
+                                                .pointerInput(BottomBarState.isDeleteModeEnabled) {
+                                                        if (BottomBarState.isDeleteModeEnabled) {
+                                                                detectDragGestures(
+                                                                        onDragStart = { offset ->
+                                                                                val index =
+                                                                                        findIndexAtOffset(
+                                                                                                offset
+                                                                                        )
+                                                                                if (index != null &&
+                                                                                                index <
+                                                                                                        configsList
+                                                                                                                .size
+                                                                                ) {
+                                                                                        draggedIndex =
+                                                                                                index
+                                                                                        dragOffset =
+                                                                                                Offset.Zero
+                                                                                        Log.d(
+                                                                                                "ClassicAppMenuContent",
+                                                                                                "Drag started via container for index $index"
+                                                                                        )
+                                                                                }
+                                                                        },
+                                                                        onDrag = {
+                                                                                change,
+                                                                                dragAmount ->
+                                                                                if (draggedIndex !=
+                                                                                                null
+                                                                                ) {
+                                                                                        try {
+                                                                                                change.consume()
+                                                                                        } catch (_: Exception) {}
+
+                                                                                        dragOffset +=
+                                                                                                dragAmount
+
+                                                                                        val currentItemBounds =
+                                                                                                itemBounds[
+                                                                                                        draggedIndex!!]
+                                                                                        if (currentItemBounds !=
+                                                                                                        null
+                                                                                        ) {
+                                                                                                val currentPos =
+                                                                                                        currentItemBounds
+                                                                                                                .center +
+                                                                                                                dragOffset
+                                                                                                itemBounds
+                                                                                                        .entries
+                                                                                                        .forEach {
+                                                                                                                entry
+                                                                                                                ->
+                                                                                                                val targetIndex =
+                                                                                                                        entry.key
+                                                                                                                val bounds =
+                                                                                                                        entry.value
+
+                                                                                                                val hitZone =
+                                                                                                                        Rect(
+                                                                                                                                left =
+                                                                                                                                        bounds.left +
+                                                                                                                                                bounds.width *
+                                                                                                                                                        0.2f,
+                                                                                                                                top =
+                                                                                                                                        bounds.top +
+                                                                                                                                                bounds.height *
+                                                                                                                                                        0.2f,
+                                                                                                                                right =
+                                                                                                                                        bounds.right -
+                                                                                                                                                bounds.width *
+                                                                                                                                                        0.2f,
+                                                                                                                                bottom =
+                                                                                                                                        bounds.bottom -
+                                                                                                                                                bounds.height *
+                                                                                                                                                        0.2f
+                                                                                                                        )
+
+                                                                                                                if (targetIndex !=
+                                                                                                                                draggedIndex &&
+                                                                                                                                targetIndex <
+                                                                                                                                        configsList
+                                                                                                                                                .size &&
+                                                                                                                                hitZone.contains(
+                                                                                                                                        currentPos
+                                                                                                                                )
+                                                                                                                ) {
+                                                                                                                        val temp =
+                                                                                                                                configsList[
+                                                                                                                                        draggedIndex!!]
+                                                                                                                        configsList[
+                                                                                                                                draggedIndex!!] =
+                                                                                                                                configsList[
+                                                                                                                                        targetIndex]
+                                                                                                                        configsList[
+                                                                                                                                targetIndex] =
+                                                                                                                                temp
+
+                                                                                                                        draggedIndex =
+                                                                                                                                targetIndex
+                                                                                                                        dragOffset =
+                                                                                                                                Offset.Zero
+                                                                                                                        DisplayAppLauncher
+                                                                                                                                .saveAllConfigs(
+                                                                                                                                        configsList
+                                                                                                                                                .toList()
+                                                                                                                                )
+                                                                                                                }
+                                                                                                        }
+                                                                                        }
+                                                                                }
+                                                                        },
+                                                                        onDragEnd = {
+                                                                                draggedIndex = null
+                                                                                dragOffset =
+                                                                                        Offset.Zero
+                                                                        },
+                                                                        onDragCancel = {
+                                                                                draggedIndex = null
+                                                                                dragOffset =
+                                                                                        Offset.Zero
+                                                                        }
+                                                                )
+                                                        }
+                                                }
+                        ) {
+                                for (r in (rows - 1) downTo 0) {
+                                        Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                                for (c in 0 until columns) {
+                                                        val index = r * columns + c
+                                                        if (index < totalItems) {
+                                                                if (showAddButton &&
+                                                                                index ==
+                                                                                        totalItems -
+                                                                                                1
+                                                                ) {
+                                                                        Box(
+                                                                                modifier =
+                                                                                        Modifier.weight(
+                                                                                                1f
+                                                                                        ),
+                                                                                contentAlignment =
+                                                                                        Alignment
+                                                                                                .Center
+                                                                        ) {
+                                                                                AddAppGridItem(
+                                                                                        currentPkg,
+                                                                                        context,
+                                                                                        scope
+                                                                                ) {
+                                                                                        val newConfigs =
+                                                                                                getBottomBarAppConfigs()
+                                                                                        configsList
+                                                                                                .clear()
+                                                                                        configsList
+                                                                                                .addAll(
+                                                                                                        newConfigs
+                                                                                                )
+                                                                                }
+                                                                        }
+                                                                } else {
+                                                                        val config =
+                                                                                configsList[index]
+                                                                        key(config.packageName) {
+                                                                                Box(
+                                                                                        modifier =
+                                                                                                Modifier.weight(
+                                                                                                                1f
+                                                                                                        )
+                                                                                                        .onGloballyPositioned {
+                                                                                                                layoutCoordinates
+                                                                                                                ->
+                                                                                                                itemBounds[
+                                                                                                                        index] =
+                                                                                                                        layoutCoordinates
+                                                                                                                                .boundsInRoot()
+                                                                                                        },
+                                                                                        contentAlignment =
+                                                                                                Alignment
+                                                                                                        .Center
+                                                                                ) {
+                                                                                        AppGridItem(
+                                                                                                pkg =
+                                                                                                        config.packageName,
+                                                                                                substituteIcon =
+                                                                                                        config.substituteIcon,
+                                                                                                context =
+                                                                                                        context,
+                                                                                                scope = scope,
+                                                                                                onDelete = {
+                                                                                                        configsList
+                                                                                                                .removeAt(
+                                                                                                                        index
+                                                                                                                )
+                                                                                                        DisplayAppLauncher
+                                                                                                                .saveAllConfigs(
+                                                                                                                        configsList
+                                                                                                                                .toList()
+                                                                                                                )
+                                                                                                },
+                                                                                                onDragStart = {
+                                                                                                },
+                                                                                                onDrag = {
+                                                                                                        _
+                                                                                                        ->
+                                                                                                },
+                                                                                                onDragEnd = {
+                                                                                                },
+                                                                                                isDragged =
+                                                                                                        draggedIndex ==
+                                                                                                                index,
+                                                                                                dragOffset =
+                                                                                                        if (draggedIndex ==
+                                                                                                                        index
+                                                                                                        )
+                                                                                                                dragOffset
+                                                                                                        else
+                                                                                                                Offset
+                                                                                                                        .Zero,
+                                                                                                onClick = {
+                                                                                                }
+                                                                                        )
+                                                                                }
+                                                                        }
+                                                                }
+                                                        } else {
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.weight(1f)
+                                                                )
+                                                        }
+                                                }
+                                        }
+                                }
+                        }
+                }
+        }
+}
+
+@Composable
 fun CarSettingsSection() {
         val showSettings = BottomBarState.isSettingsMenuExpanded
         Box(
@@ -3388,7 +4190,7 @@ fun BottomBarMenus() {
                                 }
 
                                 // Floating Horizontal Swipe HUD Overlay
-                                if (BottomBarState.activeSwipeHud != null) {
+                                if (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key && BottomBarState.activeSwipeHud != null) {
                                         FloatingSwipeHudOverlay(hud = BottomBarState.activeSwipeHud!!)
                                 }
 
@@ -3402,32 +4204,42 @@ fun BottomBarMenus() {
                                         }
 
                                 Box(modifier = Modifier.fillMaxWidth().padding(start = leftGutter)) {
-                                        // App Menu (Above Centered App Launcher)
-                                        if (br.com.redesurftank.havalshisuku.models.BottomBarState
-                                                        .isMenuExpanded
-                                        ) {
-                                                val density = LocalDensity.current
-                                                val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
-                                                val appMenuWidthDp = 580.dp
-                                                val appStartPad = if (BottomBarState.launcherCenterX > 0f) {
-                                                        val launcherCenterDp = with(density) { BottomBarState.launcherCenterX.toDp() }
-                                                        (launcherCenterDp - appMenuWidthDp / 2).coerceIn(16.dp, (screenWidthDp - appMenuWidthDp - 16.dp).coerceAtLeast(16.dp))
+                                        // App Menu (Above Centered App Launcher in Modern, Left in Classic)
+                                        if (br.com.redesurftank.havalshisuku.models.BottomBarState.isMenuExpanded) {
+                                                if (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key) {
+                                                        val density = LocalDensity.current
+                                                        val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
+                                                        val appMenuWidthDp = 580.dp
+                                                        val appStartPad = if (BottomBarState.launcherCenterX > 0f) {
+                                                                val launcherCenterDp = with(density) { BottomBarState.launcherCenterX.toDp() }
+                                                                (launcherCenterDp - appMenuWidthDp / 2).coerceIn(16.dp, (screenWidthDp - appMenuWidthDp - 16.dp).coerceAtLeast(16.dp))
+                                                        } else {
+                                                                (screenWidthDp - appMenuWidthDp) / 2
+                                                        }
+                                                        Box(
+                                                                modifier =
+                                                                        Modifier.padding(start = appStartPad, bottom = 10.dp)
+                                                                                .align(Alignment.BottomStart)
+                                                                                .onGloballyPositioned {
+                                                                                        appMenuBounds =
+                                                                                                it.boundsInRoot()
+                                                                                }
+                                                        ) { AppMenuContent() }
                                                 } else {
-                                                        (screenWidthDp - appMenuWidthDp) / 2
+                                                        Box(
+                                                                modifier =
+                                                                        Modifier.padding(start = 16.dp, bottom = 10.dp)
+                                                                                .align(Alignment.BottomStart)
+                                                                                .onGloballyPositioned {
+                                                                                        appMenuBounds =
+                                                                                                it.boundsInRoot()
+                                                                                }
+                                                        ) { ClassicAppMenuContent() }
                                                 }
-                                                Box(
-                                                        modifier =
-                                                                Modifier.padding(start = appStartPad, bottom = 10.dp)
-                                                                        .align(Alignment.BottomStart)
-                                                                        .onGloballyPositioned {
-                                                                                appMenuBounds =
-                                                                                        it.boundsInRoot()
-                                                                        }
-                                                ) { AppMenuContent() }
                                         }
 
-                                        // AC Quick Menu (Above Fan Button)
-                                        if (BottomBarState.isAcMenuExpanded) {
+                                        // AC Quick Menu (Above Fan Button) - only in NEW mode
+                                        if (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key && BottomBarState.isAcMenuExpanded) {
                                                 val acMenuWidthDp = 420.dp
                                                 val density = LocalDensity.current
                                                 val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
@@ -7407,6 +8219,137 @@ fun SettingsCategoryRow(
 }
 
 @Composable
+fun OldTempControlSection(
+        label: String,
+        temp: String,
+        isEnabled: Boolean,
+        sliderType: BottomBarState.SliderType? = null,
+        onValueChange: (Float) -> Unit
+) {
+        val floatTemp = temp.toFloatOrNull() ?: -200f
+        val isAbnormal = floatTemp >= 85f || floatTemp <= -40f || floatTemp == -1f || temp == "--"
+        val isTempValid = isEnabled && !isAbnormal
+        val alpha = if (isTempValid) 1f else 0.4f
+        var centerX by remember { mutableFloatStateOf(0f) }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.alpha(alpha)) {
+                SmallButton(Icons.Default.Remove, isTempValid) { onValueChange(-0.5f) }
+                Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                                .width(120.dp)
+                                .onGloballyPositioned { coordinates ->
+                                        centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
+                                }
+                                .clickable(
+                                        enabled = isTempValid && sliderType != null,
+                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                        indication = null
+                                ) {
+                                        if (sliderType != null) {
+                                                BottomBarState.sliderPositionX = centerX
+                                                BottomBarState.activeSliderType = sliderType
+                                        }
+                                }
+                ) {
+                        Text(text = label, style = labelStyle)
+                        val displayTemp = if (!isTempValid) "--" else temp
+                        val tempColor = if (floatTemp > 30f) Color.Red else Color.White
+                        Text(
+                                text =
+                                        buildAnnotatedString {
+                                                withStyle(style = SpanStyle(color = tempColor)) {
+                                                        append(displayTemp)
+                                                }
+                                                if (displayTemp != "--") append("°C")
+                                        },
+                                style = commonTextStyle.copy(fontSize = 18.sp),
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                }
+                SmallButton(Icons.Default.Add, isTempValid) { onValueChange(0.5f) }
+        }
+}
+
+@Composable
+fun OldFanControlSection(
+        speed: Int,
+        isEnabled: Boolean,
+        sliderType: BottomBarState.SliderType? = null,
+        onValueChange: (Int) -> Unit
+) {
+        val alpha = if (isEnabled) 1f else 0.4f
+        var centerX by remember { mutableFloatStateOf(0f) }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.alpha(alpha)) {
+                SmallButton(Icons.Default.Remove, isEnabled) { onValueChange(-1) }
+                Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                                .width(120.dp)
+                                .onGloballyPositioned { coordinates ->
+                                        centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
+                                }
+                                .clickable(
+                                        enabled = isEnabled && sliderType != null,
+                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                        indication = null
+                                ) {
+                                        if (sliderType != null) {
+                                                BottomBarState.sliderPositionX = centerX
+                                                BottomBarState.activeSliderType = sliderType
+                                        }
+                                }
+                ) {
+                        Text(text = "Ventilação", style = labelStyle)
+                        Text(
+                                text = "Nível $speed",
+                                style = commonTextStyle.copy(fontSize = 18.sp),
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                }
+                SmallButton(Icons.Default.Add, isEnabled) { onValueChange(1) }
+        }
+}
+
+@Composable
+fun OldVolumeControlSection(
+        label: String,
+        volume: Int,
+        sliderType: BottomBarState.SliderType? = null,
+        onValueChange: (Int) -> Unit
+) {
+        var centerX by remember { mutableFloatStateOf(0f) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+                SmallButton(Icons.Default.Remove, true) { onValueChange(-1) }
+                Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                                .width(120.dp)
+                                .onGloballyPositioned { coordinates ->
+                                        centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
+                                }
+                                .clickable(
+                                        enabled = sliderType != null,
+                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                        indication = null
+                                ) {
+                                        if (sliderType != null) {
+                                                BottomBarState.sliderPositionX = centerX
+                                                BottomBarState.activeSliderType = sliderType
+                                        }
+                                }
+                ) {
+                        Text(text = label, style = labelStyle)
+                        Text(
+                                text = "$volume",
+                                style = commonTextStyle.copy(fontSize = 18.sp),
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                }
+                SmallButton(Icons.Default.Add, true) { onValueChange(1) }
+        }
+}
+
+@Composable
 fun TempControlSection(
         label: String,
         temp: String,
@@ -8632,6 +9575,56 @@ fun OverrideMenuContent() {
                                                 fontSize = 12.sp
                                         )
                         )
+
+                        // Versão da Barra
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                        text = "Versão da Barra",
+                                        style = labelStyle.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp
+                                        )
+                                )
+                                Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                        BottomBarState.BarVersion.entries.forEach { option ->
+                                                val isSelected = BottomBarState.barVersion == option.key
+                                                Surface(
+                                                        modifier = Modifier
+                                                                .weight(1f)
+                                                                .clickable {
+                                                                        BottomBarState.barVersion = option.key
+                                                                        prefs.edit()
+                                                                                .putString(
+                                                                                        SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
+                                                                                        option.key
+                                                                                )
+                                                                                .apply()
+                                                                },
+                                                        color = if (isSelected) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        border = BorderStroke(
+                                                                1.dp,
+                                                                if (isSelected) Color(0xFF2196F3) else Color.Transparent
+                                                        )
+                                                ) {
+                                                        Box(
+                                                                contentAlignment = Alignment.Center,
+                                                                modifier = Modifier.padding(vertical = 8.dp)
+                                                        ) {
+                                                                Text(
+                                                                        text = option.label,
+                                                                        color = if (isSelected) Color.White else Color.Gray,
+                                                                        fontSize = 12.sp,
+                                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                                )
+                                                        }
+                                                }
+                                        }
+                                }
+                        }
 
                         OverrideControlRow(
                                 "Overscan (Value: ${overscanValues[overscanIndex]})",

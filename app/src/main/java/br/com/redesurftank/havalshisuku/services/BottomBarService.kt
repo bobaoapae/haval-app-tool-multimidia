@@ -494,6 +494,11 @@ class BottomBarService : LifecycleService() {
                         ?: BottomBarState.SwipeUpAction.DASHBOARD.key
         BottomBarState.swipeUpPackage =
                 prefs.getString(SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_PACKAGE.key, null) ?: ""
+        BottomBarState.barVersion =
+                prefs.getString(
+                        SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
+                        BottomBarState.BarVersion.OLD.key
+                ) ?: BottomBarState.BarVersion.OLD.key
 
         BottomBarState.isVisible = true
         usbMediaInfoReader = UsbMediaInfoReader(applicationContext)
@@ -935,13 +940,18 @@ class BottomBarService : LifecycleService() {
                                                 REFERENCE_OVERSCAN
                                         )
 
-                                // Also update autoHideEnabled from prefs
+                                // Also update autoHideEnabled and barVersion from prefs
                                 withContext(Dispatchers.Main) {
                                     BottomBarState.autoHideEnabled =
                                             prefs.getBoolean(
                                                     SharedPreferencesKeys.BOTTOM_BAR_AUTO_HIDE.key,
                                                     false
                                             )
+                                    BottomBarState.barVersion =
+                                            prefs.getString(
+                                                    SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
+                                                    BottomBarState.BarVersion.OLD.key
+                                            ) ?: BottomBarState.BarVersion.OLD.key
                                 }
 
                                 val settings = getSettingsForPackage(currentPackage, storedDefault)

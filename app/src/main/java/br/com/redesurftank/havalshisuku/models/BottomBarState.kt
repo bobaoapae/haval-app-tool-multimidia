@@ -59,6 +59,17 @@ object BottomBarState {
         }
     }
 
+    enum class BarVersion(val key: String, val label: String, val description: String) {
+        OLD("old", "Clássica (v1.0)", "Layout original com atalhos de AC, botões clássicos e menu lateral"),
+        NEW("new", "Moderna (v2.0)", "Novo layout com doca central de até 9 apps, menu de climatização Haval H6 3D e HUDs fluidos");
+
+        companion object {
+            fun fromKey(key: String?): BarVersion = entries.firstOrNull { it.key == key } ?: OLD
+        }
+    }
+
+    var barVersion by mutableStateOf(BarVersion.OLD.key)
+
     data class SwipeHudData(
         val type: SliderType,
         val title: String,
