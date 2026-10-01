@@ -327,7 +327,7 @@ fun FanSpeedIcon(
 @Composable
 fun CoffeeOsFanIcon(
         speed: Int = 7,
-        modifier: Modifier = Modifier.size(24.dp),
+        modifier: Modifier = Modifier.size(22.dp),
         tint: Color = Color.White
 ) {
         Canvas(modifier = modifier) {
@@ -7840,7 +7840,7 @@ fun FanControlSection(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                                 .width(52.dp)
-                                .height(42.dp)
+                                .height(40.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(centerBg)
                                 .pointerInput(Unit) {
@@ -7900,13 +7900,13 @@ fun FanControlSection(
                                 }
                 ) {
                         Row(
-                                verticalAlignment = Alignment.Bottom,
+                                verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(bottom = 8.dp)
+                                modifier = Modifier.fillMaxSize()
                         ) {
                                 CoffeeOsFanIcon(
                                         speed = if (isPowerOn) speed else 0,
-                                        modifier = Modifier.size(24.dp),
+                                        modifier = Modifier.size(22.dp),
                                         tint = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.4f)
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
@@ -7914,11 +7914,11 @@ fun FanControlSection(
                                         text = if (!isPowerOn || speed == 0) "OFF" else "$speed",
                                         style = TextStyle(
                                                 fontFamily = Michroma,
-                                                fontSize = if (!isPowerOn || speed == 0) 8.5.sp else 11.5.sp,
+                                                fontSize = if (!isPowerOn || speed == 0) 8.sp else 11.5.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = if (isAcMenuExpanded) Color(0xFF2196F3) else if (isActive) Color.White else Color.White.copy(alpha = 0.4f)
                                         ),
-                                        modifier = Modifier.padding(bottom = 1.dp)
+                                        modifier = Modifier.offset(y = 5.dp)
                                 )
                         }
                 }
@@ -8051,7 +8051,7 @@ fun VolumeControlSection(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                                 .width(52.dp)
-                                .height(42.dp)
+                                .height(40.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(centerBg)
                                 .pointerInput(Unit) {
@@ -8110,26 +8110,26 @@ fun VolumeControlSection(
                                 }
                 ) {
                         Row(
-                                verticalAlignment = Alignment.Bottom,
+                                verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(bottom = 8.dp)
+                                modifier = Modifier.fillMaxSize()
                         ) {
                                 Icon(
                                         imageVector = if (volume == 0) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
                                         contentDescription = "Volume",
                                         tint = if (isCenterPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.88f),
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(22.dp)
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text(
                                         text = if (volume == 0) "OFF" else volume.toString(),
                                         style = TextStyle(
                                                 fontFamily = Michroma,
-                                                fontSize = if (volume == 0) 8.5.sp else 11.5.sp,
+                                                fontSize = if (volume == 0) 8.sp else 11.5.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = if (isCenterPressed) Color(0xFF2196F3) else Color.White.copy(alpha = 0.90f)
                                         ),
-                                        modifier = Modifier.padding(bottom = 1.dp)
+                                        modifier = Modifier.offset(y = 5.dp)
                                 )
                         }
                 }
