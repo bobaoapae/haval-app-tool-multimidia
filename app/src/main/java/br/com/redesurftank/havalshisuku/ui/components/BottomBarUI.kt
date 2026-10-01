@@ -1014,16 +1014,6 @@ fun AcQuickMenuContent() {
                         serviceManager.getData(CarConstants.CAR_HVAC_ACMAX_ENABLE.getValue()) ?: "0"
                 )
         }
-        var frontDefrost by remember {
-                mutableStateOf(
-                        serviceManager.getData(CarConstants.CAR_HVAC_FRONT_DEFROST_ENABLE.getValue()) ?: "0"
-                )
-        }
-        var rearDefrost by remember {
-                mutableStateOf(
-                        serviceManager.getData(CarConstants.CAR_HVAC_REAR_DEFROST_ENABLE.getValue()) ?: "0"
-                )
-        }
 
         DisposableEffect(Unit) {
                 val listener =
@@ -1045,10 +1035,6 @@ fun AcQuickMenuContent() {
                                                         acRecirc = if (value == "0") "1" else "0"
                                                 CarConstants.CAR_HVAC_ACMAX_ENABLE.getValue() ->
                                                         acMax = value
-                                                CarConstants.CAR_HVAC_FRONT_DEFROST_ENABLE.getValue() ->
-                                                        frontDefrost = value
-                                                CarConstants.CAR_HVAC_REAR_DEFROST_ENABLE.getValue() ->
-                                                        rearDefrost = value
                                         }
                                 }
                         }
@@ -1057,6 +1043,17 @@ fun AcQuickMenuContent() {
         }
 
         val isPowerOn = hvacPower == "1"
+
+        fun ensurePowerOn() {
+                if (!isPowerOn) {
+                        hvacPower = "1"
+                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                        if (fanSpeed == 0) {
+                                fanSpeed = 1
+                                serviceManager.updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), "1")
+                        }
+                }
+        }
 
         Box(
                 modifier = Modifier
@@ -1076,79 +1073,8 @@ fun AcQuickMenuContent() {
                         modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 22.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(11.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                        // Header: Title & AC Power Button
-                        Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                        ) {
-                                Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                        Icon(
-                                                painter = painterResource(R.drawable.ic_hvac_fan),
-                                                contentDescription = null,
-                                                tint = if (isPowerOn) Color(0xFF26D07C) else Color.White.copy(alpha = 0.4f),
-                                                modifier = Modifier.size(20.dp)
-                                        )
-                                        Text(
-                                                text = "AR CONDICIONADO",
-                                                style = TextStyle(
-                                                        fontFamily = Michroma,
-                                                        fontSize = 13.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color.White
-                                                )
-                                        )
-                                }
-
-                                Box(
-                                        modifier = Modifier
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(
-                                                        if (isPowerOn) Color(0xFF26D07C).copy(alpha = 0.20f)
-                                                        else Color.White.copy(alpha = 0.06f)
-                                                )
-                                                .border(
-                                                        1.dp,
-                                                        if (isPowerOn) Color(0xFF26D07C).copy(alpha = 0.5f)
-                                                        else Color.White.copy(alpha = 0.12f),
-                                                        RoundedCornerShape(8.dp)
-                                                )
-                                                .clickable {
-                                                        val nextPower = if (isPowerOn) "0" else "1"
-                                                        serviceManager.updateData(
-                                                                CarConstants.CAR_HVAC_POWER_MODE.getValue(),
-                                                                nextPower
-                                                        )
-                                                }
-                                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                        Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                                Icon(
-                                                        painter = painterResource(R.drawable.ic_hvac_power),
-                                                        contentDescription = "Power",
-                                                        tint = if (isPowerOn) Color(0xFF26D07C) else Color.White.copy(alpha = 0.5f),
-                                                        modifier = Modifier.size(15.dp)
-                                                )
-                                                Text(
-                                                        text = if (isPowerOn) "LIGADO" else "DESLIGADO",
-                                                        style = labelStyle.copy(
-                                                                fontSize = 10.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color = if (isPowerOn) Color(0xFF26D07C) else Color.White.copy(alpha = 0.5f)
-                                                        )
-                                                )
-                                        }
-                                }
-                        }
-
                         // Airflow Modes (4 modes directly from haval-h6-3d)
                         Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1177,7 +1103,8 @@ fun AcQuickMenuContent() {
                                                                 else Color.Transparent,
                                                                 RoundedCornerShape(8.dp)
                                                         )
-                                                        .clickable(enabled = isPowerOn) {
+                                                        .clickable {
+                                                                ensurePowerOn()
                                                                 blowerMode = modeVal
                                                                 serviceManager.updateData(
                                                                         CarConstants.CAR_HVAC_BLOWER_MODE.getValue(),
@@ -1226,9 +1153,10 @@ fun AcQuickMenuContent() {
                                         modifier = Modifier.weight(1f),
                                         painter = painterResource(R.drawable.ic_hvac_recirc),
                                         label = "Circular",
-                                        isActive = acRecirc == "1",
-                                        isEnabled = isPowerOn
+                                        isActive = isPowerOn && acRecirc == "1",
+                                        isEnabled = true
                                 ) {
+                                        ensurePowerOn()
                                         val next = if (acRecirc == "1") "0" else "1"
                                         val carValue = if (next == "0") "1" else "0"
                                         serviceManager.updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), carValue)
@@ -1238,9 +1166,10 @@ fun AcQuickMenuContent() {
                                         modifier = Modifier.weight(1f),
                                         painter = painterResource(R.drawable.ic_hvac_sync),
                                         label = "Sync",
-                                        isActive = acSync == "1",
-                                        isEnabled = isPowerOn
+                                        isActive = isPowerOn && acSync == "1",
+                                        isEnabled = true
                                 ) {
+                                        ensurePowerOn()
                                         val next = if (acSync == "1") "0" else "1"
                                         serviceManager.updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), next)
                                 }
@@ -1249,9 +1178,10 @@ fun AcQuickMenuContent() {
                                         modifier = Modifier.weight(1f),
                                         painter = painterResource(R.drawable.ic_hvac_auto),
                                         label = "Auto",
-                                        isActive = acAuto == "1",
-                                        isEnabled = isPowerOn
+                                        isActive = isPowerOn && acAuto == "1",
+                                        isEnabled = true
                                 ) {
+                                        ensurePowerOn()
                                         val next = if (acAuto == "1") "0" else "1"
                                         serviceManager.updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), next)
                                 }
@@ -1260,38 +1190,12 @@ fun AcQuickMenuContent() {
                                         modifier = Modifier.weight(1f),
                                         painter = painterResource(R.drawable.ic_hvac_ac),
                                         label = "A/C Max",
-                                        isActive = acMax == "1",
-                                        isEnabled = isPowerOn
+                                        isActive = isPowerOn && acMax == "1",
+                                        isEnabled = true
                                 ) {
+                                        ensurePowerOn()
                                         val next = if (acMax == "1") "0" else "1"
                                         serviceManager.updateData(CarConstants.CAR_HVAC_ACMAX_ENABLE.getValue(), next)
-                                }
-                        }
-
-                        Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                                AcQuickMenuItem(
-                                        modifier = Modifier.weight(1f),
-                                        painter = painterResource(R.drawable.ic_hvac_front_defrost),
-                                        label = "Desemb. D.",
-                                        isActive = frontDefrost == "1",
-                                        isEnabled = isPowerOn
-                                ) {
-                                        val next = if (frontDefrost == "1") "0" else "1"
-                                        serviceManager.updateData(CarConstants.CAR_HVAC_FRONT_DEFROST_ENABLE.getValue(), next)
-                                }
-
-                                AcQuickMenuItem(
-                                        modifier = Modifier.weight(1f),
-                                        painter = painterResource(R.drawable.ic_hvac_rear_defrost),
-                                        label = "Desemb. T.",
-                                        isActive = rearDefrost == "1",
-                                        isEnabled = isPowerOn
-                                ) {
-                                        val next = if (rearDefrost == "1") "0" else "1"
-                                        serviceManager.updateData(CarConstants.CAR_HVAC_REAR_DEFROST_ENABLE.getValue(), next)
                                 }
                         }
 
