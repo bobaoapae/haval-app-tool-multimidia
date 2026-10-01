@@ -4204,37 +4204,22 @@ fun BottomBarMenus() {
                                         }
 
                                 Box(modifier = Modifier.fillMaxWidth().padding(start = leftGutter)) {
-                                        // App Menu (Above Centered App Launcher in Modern, Left in Classic)
+                                        // App Menu (Positioned on the left for both Modern and Classic)
                                         if (br.com.redesurftank.havalshisuku.models.BottomBarState.isMenuExpanded) {
-                                                if (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key) {
-                                                        val density = LocalDensity.current
-                                                        val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
-                                                        val appMenuWidthDp = 580.dp
-                                                        val appStartPad = if (BottomBarState.launcherCenterX > 0f) {
-                                                                val launcherCenterDp = with(density) { BottomBarState.launcherCenterX.toDp() }
-                                                                (launcherCenterDp - appMenuWidthDp / 2).coerceIn(16.dp, (screenWidthDp - appMenuWidthDp - 16.dp).coerceAtLeast(16.dp))
+                                                Box(
+                                                        modifier =
+                                                                Modifier.padding(start = 16.dp, bottom = 10.dp)
+                                                                        .align(Alignment.BottomStart)
+                                                                        .onGloballyPositioned {
+                                                                                appMenuBounds =
+                                                                                        it.boundsInRoot()
+                                                                        }
+                                                ) {
+                                                        if (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key) {
+                                                                AppMenuContent()
                                                         } else {
-                                                                (screenWidthDp - appMenuWidthDp) / 2
+                                                                ClassicAppMenuContent()
                                                         }
-                                                        Box(
-                                                                modifier =
-                                                                        Modifier.padding(start = appStartPad, bottom = 10.dp)
-                                                                                .align(Alignment.BottomStart)
-                                                                                .onGloballyPositioned {
-                                                                                        appMenuBounds =
-                                                                                                it.boundsInRoot()
-                                                                                }
-                                                        ) { AppMenuContent() }
-                                                } else {
-                                                        Box(
-                                                                modifier =
-                                                                        Modifier.padding(start = 16.dp, bottom = 10.dp)
-                                                                                .align(Alignment.BottomStart)
-                                                                                .onGloballyPositioned {
-                                                                                        appMenuBounds =
-                                                                                                it.boundsInRoot()
-                                                                                }
-                                                        ) { ClassicAppMenuContent() }
                                                 }
                                         }
 
