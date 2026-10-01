@@ -923,6 +923,9 @@ class BottomBarService : LifecycleService() {
 
                             if (currentPackage != null && currentPackage != lastPackage) {
                                 lastPackage = currentPackage
+                                if (currentPackage != this@BottomBarService.packageName) {
+                                    br.com.redesurftank.havalshisuku.managers.RecentAppsManager.recordAppLaunch(currentPackage)
+                                }
 
                                 // Default overscan is back to REFERENCE_OVERSCAN (60)
                                 val storedDefault =

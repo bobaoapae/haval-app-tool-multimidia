@@ -2,7 +2,9 @@ package br.com.redesurftank.havalshisuku.ui.components
 
 import br.com.redesurftank.havalshisuku.managers.UpdateNoticeManager
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
+import androidx.compose.ui.graphics.painter.Painter
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.animation.*
@@ -55,6 +57,11 @@ import br.com.redesurftank.havalshisuku.managers.*
 import br.com.redesurftank.havalshisuku.models.*
 import br.com.redesurftank.havalshisuku.services.AlbumBackgroundService
 import br.com.redesurftank.havalshisuku.services.BottomBarService
+import android.graphics.drawable.Drawable
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import java.util.Locale
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 import br.com.redesurftank.havalshisuku.utils.*
 import coil.compose.AsyncImage
@@ -132,6 +139,75 @@ internal fun mergeBottomBarProjectionConfigs(
                 }
 
         return savedConfigs + projectionDefaults.filter { savedPackages.add(it.packageName) }
+}
+
+internal val HAVAL_H6_IGNORED_PACKAGES = setOf(
+        "com.beantechs.hvac",
+        "com.beantechs.btphone",
+        "com.beantechs.drivinganalysisservice",
+        "com.beantechs.personalcenter",
+        "com.beantechs.operatorcenter",
+        "com.beantechs.account",
+        "com.beantechs.applist",
+        "com.beantechs.guidance",
+        "com.beantechs.fotaui",
+        "com.beantechs.PKIMaintain",
+        "com.beantechs.adaptertool.client",
+        "com.beantechs.sshost.client",
+        "com.android.car.media",
+        "com.android.car.radio",
+        "com.android.car.settings",
+        "com.beantechs.mediacenter",
+        "com.beantechs.mediacenter.h5.ui",
+        "com.beantechs.mediacenter.h5.core",
+        "com.android.support.car.lenspicker",
+        "com.autolink.enginmode",
+        "com.apical.cj1005",
+        "com.google.android.car.kitchensink",
+        "com.nextdoordeveloper.miperf.miperf",
+        "com.android.systemui",
+        "com.android.keyguard",
+        "com.android.webview",
+        "com.google.android.inputmethod.latin",
+        "com.android.inputmethod.latin",
+        "com.gwm.hvac",
+        "com.gwm.vehicle",
+        "com.gwm.car",
+        "com.android.vending",
+        "app.revanced.android.gms",
+        "com.google.android.gms",
+        "moe.shizuku.privileged.api",
+        "com.ts.androidauto.app",
+        "com.ts.androidauto",
+        "com.ts.androidauto.projectionservice",
+        "com.ts.carplay.app",
+        "com.ts.carplay",
+        "com.google.android.projection.gearhead"
+)
+
+internal fun shouldHideFromAllApps(packageName: String): Boolean {
+        if (packageName.isBlank()) return true
+        return HAVAL_H6_IGNORED_PACKAGES.contains(packageName)
+}
+
+data class SystemAppItem(
+        val packageName: String,
+        val activityName: String,
+        val label: String,
+        val icon: Drawable?
+)
+
+internal fun resolveDockApps(
+        telasPackages: List<String>,
+        sessionRecents: List<String>,
+        maxApps: Int = 9
+): List<String> {
+        if (telasPackages.isEmpty()) return emptyList()
+        val distinctTelas = telasPackages.distinct()
+        return distinctTelas.sortedBy { pkg ->
+                val idx = sessionRecents.indexOf(pkg)
+                if (idx >= 0) idx else Int.MAX_VALUE
+        }.take(maxApps)
 }
 
 /**
@@ -716,8 +792,8 @@ fun HomeButton(
 @Composable
 fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
         val density = LocalDensity.current
-        val hudWidthDp = 240.dp
-        val hudHeightDp = 72.dp
+        val hudWidthDp = 250.dp
+        val hudHeightDp = 76.dp
         val hudWidthPx = with(density) { hudWidthDp.toPx() }
         val marginPx = with(density) { 16.dp.toPx() }
 
@@ -749,100 +825,82 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                         modifier = Modifier.offset(x = clampedStartXDp).width(hudWidthDp),
                         horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                        Surface(
-                                modifier = Modifier.fillMaxWidth().height(hudHeightDp),
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color(0xFF11141A).copy(alpha = 0.98f),
-                                border = BorderStroke(1.dp, Color(0xFF2196F3).copy(alpha = 0.45f)),
-                                shadowElevation = 8.dp
+                        Box(
+                                modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(hudHeightDp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(
+                                                Brush.horizontalGradient(
+                                                        0.0f to Color.Transparent,
+                                                        0.14f to Color(0xF00C1017),
+                                                        0.5f to Color(0xFC0C1017),
+                                                        0.86f to Color(0xF00C1017),
+                                                        1.0f to Color.Transparent
+                                                )
+                                        )
                         ) {
                                 Column(
-                                        modifier =
-                                                Modifier.fillMaxSize()
-                                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                        modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                        Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                                Text(
-                                                        text = hud.title.uppercase(),
-                                                        style =
-                                                                labelStyle.copy(
-                                                                        fontSize = 11.sp,
-                                                                        fontWeight = FontWeight.Bold,
-                                                                        color = Color(0xFF2196F3),
-                                                                        letterSpacing = 0.8.sp
-                                                                ),
-                                                        maxLines = 1,
-                                                        softWrap = false
-                                                )
-                                                Text(
-                                                        text = hud.valueText,
-                                                        style =
-                                                                commonTextStyle.copy(
-                                                                        fontSize = 18.sp,
-                                                                        fontWeight = FontWeight.Bold,
-                                                                        color = Color.White
-                                                                ),
-                                                        maxLines = 1,
-                                                        softWrap = false
-                                                )
-                                        }
+                                        // Centralized big value above bar (no title label)
+                                        Text(
+                                                text = hud.valueText,
+                                                style = TextStyle(
+                                                        fontFamily = Michroma,
+                                                        fontSize = 22.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White
+                                                ),
+                                                textAlign = TextAlign.Center,
+                                                maxLines = 1
+                                        )
 
                                         if (hud.isFan) {
                                                 Row(
-                                                        modifier = Modifier.fillMaxWidth(),
+                                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
                                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                                                         verticalAlignment = Alignment.CenterVertically
                                                 ) {
                                                         for (step in 1..7) {
                                                                 val active = step <= hud.fanSpeed
                                                                 Box(
-                                                                        modifier =
-                                                                                Modifier.weight(1f)
-                                                                                        .height(6.dp)
-                                                                                        .clip(RoundedCornerShape(3.dp))
-                                                                                        .background(
-                                                                                                if (active)
-                                                                                                        Brush.horizontalGradient(
-                                                                                                                listOf(
-                                                                                                                        Color(0xFF1976D2),
-                                                                                                                        Color(0xFF00B0FF)
-                                                                                                                )
-                                                                                                        )
-                                                                                                else
-                                                                                                        SolidColor(Color.White.copy(alpha = 0.12f))
+                                                                        modifier = Modifier
+                                                                                .weight(1f)
+                                                                                .height(7.dp)
+                                                                                .clip(RoundedCornerShape(3.5.dp))
+                                                                                .background(
+                                                                                        if (active) Brush.horizontalGradient(
+                                                                                                listOf(Color(0xFF00B0FF), Color(0xFF26D07C))
                                                                                         )
+                                                                                        else SolidColor(Color.White.copy(alpha = 0.12f))
+                                                                                )
                                                                 )
                                                         }
                                                 }
                                         } else {
-                                                Column(modifier = Modifier.fillMaxWidth()) {
+                                                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
                                                         Box(
-                                                                modifier =
-                                                                        Modifier.fillMaxWidth()
-                                                                                .height(6.dp)
-                                                                                .clip(RoundedCornerShape(3.dp))
-                                                                                .background(Color.White.copy(alpha = 0.12f))
+                                                                modifier = Modifier
+                                                                        .fillMaxWidth()
+                                                                        .height(6.dp)
+                                                                        .clip(RoundedCornerShape(3.dp))
+                                                                        .background(Color.White.copy(alpha = 0.14f))
                                                         ) {
                                                                 Box(
-                                                                        modifier =
-                                                                                Modifier.fillMaxWidth(
-                                                                                                fraction = hud.fraction.coerceIn(0f, 1f)
+                                                                        modifier = Modifier
+                                                                                .fillMaxWidth(fraction = hud.fraction.coerceIn(0f, 1f))
+                                                                                .fillMaxHeight()
+                                                                                .clip(RoundedCornerShape(3.dp))
+                                                                                .background(
+                                                                                        Brush.horizontalGradient(
+                                                                                                listOf(Color(0xFF1976D2), Color(0xFF00B0FF))
                                                                                         )
-                                                                                        .fillMaxHeight()
-                                                                                        .clip(RoundedCornerShape(3.dp))
-                                                                                        .background(
-                                                                                                Brush.horizontalGradient(
-                                                                                                        listOf(
-                                                                                                                Color(0xFF1976D2),
-                                                                                                                Color(0xFF00B0FF)
-                                                                                                        )
-                                                                                                )
-                                                                                        )
+                                                                                )
                                                                 )
                                                         }
                                                         Spacer(modifier = Modifier.height(3.dp))
@@ -852,11 +910,11 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                                                         ) {
                                                                 Text(
                                                                         text = hud.minLabel,
-                                                                        style = labelStyle.copy(fontSize = 9.sp, color = Color.LightGray)
+                                                                        style = labelStyle.copy(fontSize = 9.sp, color = Color.White.copy(alpha = 0.6f))
                                                                 )
                                                                 Text(
                                                                         text = hud.maxLabel,
-                                                                        style = labelStyle.copy(fontSize = 9.sp, color = Color.LightGray)
+                                                                        style = labelStyle.copy(fontSize = 9.sp, color = Color.White.copy(alpha = 0.6f))
                                                                 )
                                                         }
                                                 }
@@ -864,19 +922,18 @@ fun FloatingSwipeHudOverlay(hud: BottomBarState.SwipeHudData) {
                                 }
                         }
 
-                        // Pointer arrow
+                        // Pointer arrow (colored with the solid center of the HUD, no blue border)
                         Box(
                                 modifier = Modifier.offset(x = arrowOffsetDp).size(width = 14.dp, height = 7.dp)
                         ) {
                                 Canvas(modifier = Modifier.fillMaxSize()) {
-                                        val path =
-                                                Path().apply {
-                                                        moveTo(0f, 0f)
-                                                        lineTo(size.width, 0f)
-                                                        lineTo(size.width / 2f, size.height)
-                                                        close()
-                                                }
-                                        drawPath(path, color = Color(0xFF11141A).copy(alpha = 0.98f))
+                                        val path = Path().apply {
+                                                moveTo(0f, 0f)
+                                                lineTo(size.width, 0f)
+                                                lineTo(size.width / 2f, size.height)
+                                                close()
+                                        }
+                                        drawPath(path, color = Color(0xFC0C1017))
                                 }
                         }
                 }
@@ -894,6 +951,11 @@ fun AcQuickMenuContent() {
         var hvacPower by remember {
                 mutableStateOf(
                         serviceManager.getData(CarConstants.CAR_HVAC_POWER_MODE.getValue()) ?: "1"
+                )
+        }
+        var blowerMode by remember {
+                mutableStateOf(
+                        serviceManager.getData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue()) ?: "0"
                 )
         }
         var acSync by remember {
@@ -937,6 +999,8 @@ fun AcQuickMenuContent() {
                                                         fanSpeed = value.toIntOrNull() ?: fanSpeed
                                                 CarConstants.CAR_HVAC_POWER_MODE.getValue() ->
                                                         hvacPower = value
+                                                CarConstants.CAR_HVAC_BLOWER_MODE.getValue() ->
+                                                        blowerMode = value
                                                 CarConstants.CAR_HVAC_SYNC_ENABLE.getValue() ->
                                                         acSync = value
                                                 CarConstants.CAR_HVAC_AUTO_ENABLE.getValue() ->
@@ -958,16 +1022,25 @@ fun AcQuickMenuContent() {
 
         val isPowerOn = hvacPower == "1"
 
-        Surface(
-                modifier = Modifier.width(360.dp).padding(bottom = 8.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF11141A).copy(alpha = 0.98f),
-                border = BorderStroke(1.dp, Color(0xFF1F2530)),
-                shadowElevation = 12.dp
+        Box(
+                modifier = Modifier
+                        .width(420.dp)
+                        .padding(bottom = 8.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(
+                                Brush.horizontalGradient(
+                                        0.0f to Color.Transparent,
+                                        0.08f to Color(0xF20F131A),
+                                        0.92f to Color(0xF20F131A),
+                                        1.0f to Color.Transparent
+                                )
+                        )
         ) {
                 Column(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 22.dp, vertical = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(11.dp)
                 ) {
                         // Header: Title & AC Power Button
                         Row(
@@ -979,68 +1052,215 @@ fun AcQuickMenuContent() {
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                        CoffeeOsFanIcon(
-                                                modifier = Modifier.size(22.dp).padding(1.dp),
-                                                tint = if (isPowerOn) Color(0xFF2196F3) else Color.White.copy(alpha = 0.4f)
+                                        Icon(
+                                                painter = painterResource(R.drawable.ic_hvac_fan),
+                                                contentDescription = null,
+                                                tint = if (isPowerOn) Color(0xFF26D07C) else Color.White.copy(alpha = 0.4f),
+                                                modifier = Modifier.size(20.dp)
                                         )
                                         Text(
-                                                text = "Climatiza\u00e7\u00e3o",
-                                                style =
-                                                        labelStyle.copy(
-                                                                fontSize = 15.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color = Color.White
-                                                        )
+                                                text = "AR CONDICIONADO",
+                                                style = TextStyle(
+                                                        fontFamily = Michroma,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White
+                                                )
                                         )
                                 }
 
                                 Box(
-                                        modifier =
-                                                Modifier.clip(RoundedCornerShape(8.dp))
-                                                        .background(
-                                                                if (isPowerOn) Color(0xFF2196F3).copy(alpha = 0.25f)
-                                                                else Color.White.copy(alpha = 0.08f)
+                                        modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(
+                                                        if (isPowerOn) Color(0xFF26D07C).copy(alpha = 0.20f)
+                                                        else Color.White.copy(alpha = 0.06f)
+                                                )
+                                                .border(
+                                                        1.dp,
+                                                        if (isPowerOn) Color(0xFF26D07C).copy(alpha = 0.5f)
+                                                        else Color.White.copy(alpha = 0.12f),
+                                                        RoundedCornerShape(8.dp)
+                                                )
+                                                .clickable {
+                                                        val nextPower = if (isPowerOn) "0" else "1"
+                                                        serviceManager.updateData(
+                                                                CarConstants.CAR_HVAC_POWER_MODE.getValue(),
+                                                                nextPower
                                                         )
-                                                        .border(
-                                                                1.dp,
-                                                                if (isPowerOn) Color(0xFF2196F3).copy(alpha = 0.5f)
-                                                                else Color.White.copy(alpha = 0.12f),
-                                                                RoundedCornerShape(8.dp)
-                                                        )
-                                                        .clickable {
-                                                                val nextPower = if (isPowerOn) "0" else "1"
-                                                                serviceManager.updateData(
-                                                                        CarConstants.CAR_HVAC_POWER_MODE.getValue(),
-                                                                        nextPower
-                                                                )
-                                                        }
-                                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
                                         Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                                 Icon(
-                                                        imageVector = Icons.Default.PowerSettingsNew,
+                                                        painter = painterResource(R.drawable.ic_hvac_power),
                                                         contentDescription = "Power",
-                                                        tint = if (isPowerOn) Color(0xFF2196F3) else Color.White.copy(alpha = 0.5f),
-                                                        modifier = Modifier.size(16.dp)
+                                                        tint = if (isPowerOn) Color(0xFF26D07C) else Color.White.copy(alpha = 0.5f),
+                                                        modifier = Modifier.size(15.dp)
                                                 )
                                                 Text(
                                                         text = if (isPowerOn) "LIGADO" else "DESLIGADO",
-                                                        style =
-                                                                labelStyle.copy(
-                                                                        fontSize = 10.sp,
-                                                                        fontWeight = FontWeight.Bold,
-                                                                        color = if (isPowerOn) Color(0xFF2196F3) else Color.White.copy(alpha = 0.5f)
-                                                                )
+                                                        style = labelStyle.copy(
+                                                                fontSize = 10.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = if (isPowerOn) Color(0xFF26D07C) else Color.White.copy(alpha = 0.5f)
+                                                        )
                                                 )
                                         }
                                 }
                         }
 
-                        // Fan Speed Stepper
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        // Airflow Modes (4 modes directly from haval-h6-3d)
+                        Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                                val airflowModes = listOf(
+                                        Triple("0", "Rosto", R.drawable.ic_hvac_blower_face),
+                                        Triple("1", "Rosto/Pés", R.drawable.ic_hvac_blower_feet_and_face),
+                                        Triple("2", "Pés", R.drawable.ic_hvac_blower_feet),
+                                        Triple("3", "Pés/Vidro", R.drawable.ic_hvac_blower_feet_and_defrost)
+                                )
+                                for ((modeVal, modeLabel, modeRes) in airflowModes) {
+                                        val isSelected = isPowerOn && blowerMode == modeVal
+                                        Box(
+                                                modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(48.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(
+                                                                if (isSelected) Color(0xFF00B0FF).copy(alpha = 0.22f)
+                                                                else Color.White.copy(alpha = 0.05f)
+                                                        )
+                                                        .border(
+                                                                1.dp,
+                                                                if (isSelected) Color(0xFF00B0FF).copy(alpha = 0.55f)
+                                                                else Color.Transparent,
+                                                                RoundedCornerShape(8.dp)
+                                                        )
+                                                        .clickable(enabled = isPowerOn) {
+                                                                blowerMode = modeVal
+                                                                serviceManager.updateData(
+                                                                        CarConstants.CAR_HVAC_BLOWER_MODE.getValue(),
+                                                                        modeVal
+                                                                )
+                                                        },
+                                                contentAlignment = Alignment.Center
+                                        ) {
+                                                Column(
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        verticalArrangement = Arrangement.Center
+                                                ) {
+                                                        Image(
+                                                                painter = painterResource(modeRes),
+                                                                contentDescription = modeLabel,
+                                                                colorFilter = ColorFilter.tint(
+                                                                        if (isSelected) Color(0xFF00B0FF)
+                                                                        else if (isPowerOn) Color.White.copy(alpha = 0.75f)
+                                                                        else Color.White.copy(alpha = 0.3f)
+                                                                ),
+                                                                modifier = Modifier.size(20.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                                text = modeLabel,
+                                                                style = labelStyle.copy(
+                                                                        fontSize = 9.sp,
+                                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                                        color = if (isSelected) Color(0xFF00B0FF)
+                                                                        else if (isPowerOn) Color.White.copy(alpha = 0.75f)
+                                                                        else Color.White.copy(alpha = 0.3f)
+                                                                ),
+                                                                maxLines = 1
+                                                        )
+                                                }
+                                        }
+                                }
+                        }
+
+                        // AC Control Options Grid (using authentic haval-h6-3d vector drawables)
+                        Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                                AcQuickMenuItem(
+                                        modifier = Modifier.weight(1f),
+                                        painter = painterResource(R.drawable.ic_hvac_recirc),
+                                        label = "Circular",
+                                        isActive = acRecirc == "1",
+                                        isEnabled = isPowerOn
+                                ) {
+                                        val next = if (acRecirc == "1") "0" else "1"
+                                        val carValue = if (next == "0") "1" else "0"
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), carValue)
+                                }
+
+                                AcQuickMenuItem(
+                                        modifier = Modifier.weight(1f),
+                                        painter = painterResource(R.drawable.ic_hvac_sync),
+                                        label = "Sync",
+                                        isActive = acSync == "1",
+                                        isEnabled = isPowerOn
+                                ) {
+                                        val next = if (acSync == "1") "0" else "1"
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), next)
+                                }
+
+                                AcQuickMenuItem(
+                                        modifier = Modifier.weight(1f),
+                                        painter = painterResource(R.drawable.ic_hvac_auto),
+                                        label = "Auto",
+                                        isActive = acAuto == "1",
+                                        isEnabled = isPowerOn
+                                ) {
+                                        val next = if (acAuto == "1") "0" else "1"
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), next)
+                                }
+
+                                AcQuickMenuItem(
+                                        modifier = Modifier.weight(1f),
+                                        painter = painterResource(R.drawable.ic_hvac_ac),
+                                        label = "A/C Max",
+                                        isActive = acMax == "1",
+                                        isEnabled = isPowerOn
+                                ) {
+                                        val next = if (acMax == "1") "0" else "1"
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_ACMAX_ENABLE.getValue(), next)
+                                }
+                        }
+
+                        Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                                AcQuickMenuItem(
+                                        modifier = Modifier.weight(1f),
+                                        painter = painterResource(R.drawable.ic_hvac_front_defrost),
+                                        label = "Desemb. D.",
+                                        isActive = frontDefrost == "1",
+                                        isEnabled = isPowerOn
+                                ) {
+                                        val next = if (frontDefrost == "1") "0" else "1"
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_FRONT_DEFROST_ENABLE.getValue(), next)
+                                }
+
+                                AcQuickMenuItem(
+                                        modifier = Modifier.weight(1f),
+                                        painter = painterResource(R.drawable.ic_hvac_rear_defrost),
+                                        label = "Desemb. T.",
+                                        isActive = rearDefrost == "1",
+                                        isEnabled = isPowerOn
+                                ) {
+                                        val next = if (rearDefrost == "1") "0" else "1"
+                                        serviceManager.updateData(CarConstants.CAR_HVAC_REAR_DEFROST_ENABLE.getValue(), next)
+                                }
+                        }
+
+                        // Fan Control at Bottom (Moved to bottom, matching haval-h6-3d model)
+                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                 Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1048,202 +1268,111 @@ fun AcQuickMenuContent() {
                                 ) {
                                         Text(
                                                 text = "VELOCIDADE DO AR",
-                                                style =
-                                                        labelStyle.copy(
-                                                                fontSize = 10.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color = Color.LightGray
-                                                        )
+                                                style = labelStyle.copy(
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.LightGray
+                                                )
                                         )
                                         Text(
-                                                text = if (!isPowerOn || fanSpeed == 0) "Desligado" else "N\u00edvel $fanSpeed",
-                                                style =
-                                                        labelStyle.copy(
-                                                                fontSize = 11.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color = if (isPowerOn && fanSpeed > 0) Color(0xFF2196F3) else Color.White.copy(alpha = 0.4f)
-                                                        )
+                                                text = if (!isPowerOn || fanSpeed == 0) "OFF" else "Nível $fanSpeed",
+                                                style = TextStyle(
+                                                        fontFamily = Michroma,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isPowerOn && fanSpeed > 0) Color(0xFF26D07C) else Color.White.copy(alpha = 0.4f)
+                                                )
                                         )
                                 }
 
                                 Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                        val isOffSelected = !isPowerOn || fanSpeed == 0
+                                        // Decrement button with small fan icon
                                         Box(
-                                                modifier =
-                                                        Modifier.weight(1.2f)
-                                                                .height(36.dp)
-                                                                .clip(RoundedCornerShape(6.dp))
-                                                                .background(
-                                                                        if (isOffSelected) Color(0xFFE53935).copy(alpha = 0.35f)
-                                                                        else Color.White.copy(alpha = 0.08f)
-                                                                )
-                                                                .border(
-                                                                        1.dp,
-                                                                        if (isOffSelected) Color(0xFFE53935).copy(alpha = 0.6f)
-                                                                        else Color.Transparent,
-                                                                        RoundedCornerShape(6.dp)
-                                                                )
-                                                                .clickable {
-                                                                        serviceManager.updateData(
-                                                                                CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
-                                                                                "0"
-                                                                        )
-                                                                        serviceManager.updateData(
-                                                                                CarConstants.CAR_HVAC_POWER_MODE.getValue(),
-                                                                                "0"
-                                                                        )
-                                                                },
+                                                modifier = Modifier
+                                                        .size(34.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color.White.copy(alpha = 0.08f))
+                                                        .clickable {
+                                                                if (isPowerOn) {
+                                                                        val nextSpeed = (fanSpeed - 1).coerceAtLeast(0)
+                                                                        fanSpeed = nextSpeed
+                                                                        serviceManager.updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), nextSpeed.toString())
+                                                                        if (nextSpeed == 0) {
+                                                                                hvacPower = "0"
+                                                                                serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "0")
+                                                                        }
+                                                                }
+                                                        },
                                                 contentAlignment = Alignment.Center
                                         ) {
-                                                Text(
-                                                        text = "OFF",
-                                                        style =
-                                                                labelStyle.copy(
-                                                                        fontSize = 10.sp,
-                                                                        fontWeight = FontWeight.Bold,
-                                                                        color = if (isOffSelected) Color(0xFFFF5252) else Color.White.copy(alpha = 0.6f)
-                                                                )
+                                                Icon(
+                                                        painter = painterResource(R.drawable.ic_hvac_fan),
+                                                        contentDescription = "Diminuir ventilador",
+                                                        tint = if (isPowerOn && fanSpeed > 0) Color.White.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.3f),
+                                                        modifier = Modifier.size(16.dp)
                                                 )
                                         }
 
-                                        for (step in 1..7) {
-                                                val isSelected = isPowerOn && fanSpeed == step
-                                                Box(
-                                                        modifier =
-                                                                Modifier.weight(1f)
-                                                                        .height(36.dp)
-                                                                        .clip(RoundedCornerShape(6.dp))
+                                        // 7 capsule rounded bars (the haval-h6-3d model)
+                                        Row(
+                                                modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(34.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                                for (step in 1..7) {
+                                                        val active = isPowerOn && step <= fanSpeed
+                                                        Box(
+                                                                modifier = Modifier
+                                                                        .weight(1f)
+                                                                        .height(10.dp)
+                                                                        .clip(RoundedCornerShape(5.dp))
                                                                         .background(
-                                                                                if (isSelected) Color(0xFF2196F3)
-                                                                                else Color.White.copy(alpha = 0.08f)
+                                                                                if (active) Brush.horizontalGradient(
+                                                                                        listOf(Color(0xFF00B0FF), Color(0xFF26D07C))
+                                                                                )
+                                                                                else SolidColor(Color.White.copy(alpha = 0.12f))
                                                                         )
                                                                         .clickable {
                                                                                 if (!isPowerOn) {
-                                                                                        serviceManager.updateData(
-                                                                                                CarConstants.CAR_HVAC_POWER_MODE.getValue(),
-                                                                                                "1"
-                                                                                        )
+                                                                                        hvacPower = "1"
+                                                                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
                                                                                 }
-                                                                                serviceManager.updateData(
-                                                                                        CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
-                                                                                        step.toString()
-                                                                                )
-                                                                        },
-                                                        contentAlignment = Alignment.Center
-                                                ) {
-                                                        Text(
-                                                                text = "$step",
-                                                                style =
-                                                                        labelStyle.copy(
-                                                                                fontSize = 11.sp,
-                                                                                fontWeight = FontWeight.Bold,
-                                                                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f)
-                                                                        )
+                                                                                fanSpeed = step
+                                                                                serviceManager.updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), step.toString())
+                                                                        }
                                                         )
                                                 }
                                         }
-                                }
-                        }
 
-                        Divider(color = Color.White.copy(alpha = 0.08f))
-
-                        // AC Control Options Grid
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(
-                                        text = "MODOS & RECIRCULA\u00c7\u00c3O",
-                                        style =
-                                                labelStyle.copy(
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color.LightGray
+                                        // Increment button with big fan icon
+                                        Box(
+                                                modifier = Modifier
+                                                        .size(34.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color.White.copy(alpha = 0.08f))
+                                                        .clickable {
+                                                                if (!isPowerOn) {
+                                                                        hvacPower = "1"
+                                                                        serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
+                                                                }
+                                                                val nextSpeed = (fanSpeed + 1).coerceAtMost(7)
+                                                                fanSpeed = nextSpeed
+                                                                serviceManager.updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), nextSpeed.toString())
+                                                        },
+                                                contentAlignment = Alignment.Center
+                                        ) {
+                                                Icon(
+                                                        painter = painterResource(R.drawable.ic_hvac_fan),
+                                                        contentDescription = "Aumentar ventilador",
+                                                        tint = Color.White.copy(alpha = 0.9f),
+                                                        modifier = Modifier.size(24.dp)
                                                 )
-                                )
-                                Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                        AcQuickMenuItem(
-                                                modifier = Modifier.weight(1f),
-                                                icon = if (acRecirc == "1") recycleIn else recycleOut,
-                                                label = "Circular",
-                                                isActive = acRecirc == "1",
-                                                isEnabled = isPowerOn
-                                        ) {
-                                                val next = if (acRecirc == "1") "0" else "1"
-                                                val carValue = if (next == "0") "1" else "0"
-                                                serviceManager.updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), carValue)
-                                        }
-
-                                        AcQuickMenuItem(
-                                                modifier = Modifier.weight(1f),
-                                                iconVector = Icons.Default.Sync,
-                                                label = "Sync",
-                                                isActive = acSync == "1",
-                                                isEnabled = isPowerOn
-                                        ) {
-                                                val next = if (acSync == "1") "0" else "1"
-                                                serviceManager.updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), next)
-                                        }
-
-                                        AcQuickMenuItem(
-                                                modifier = Modifier.weight(1f),
-                                                iconVector = Icons.Default.AutoMode,
-                                                label = "Auto",
-                                                isActive = acAuto == "1",
-                                                isEnabled = isPowerOn
-                                        ) {
-                                                val next = if (acAuto == "1") "0" else "1"
-                                                serviceManager.updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), next)
-                                        }
-
-                                        AcQuickMenuItem(
-                                                modifier = Modifier.weight(1f),
-                                                iconVector = Icons.Default.AcUnit,
-                                                label = "A/C Max",
-                                                isActive = acMax == "1",
-                                                isEnabled = isPowerOn
-                                        ) {
-                                                val next = if (acMax == "1") "0" else "1"
-                                                serviceManager.updateData(CarConstants.CAR_HVAC_ACMAX_ENABLE.getValue(), next)
-                                        }
-                                }
-
-                                Text(
-                                        text = "DESEMBA\u00c7ADOR",
-                                        style =
-                                                labelStyle.copy(
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color.LightGray
-                                                )
-                                )
-                                Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                        AcQuickMenuItem(
-                                                modifier = Modifier.weight(1f),
-                                                iconVector = Icons.Default.Shield,
-                                                label = "Desemb. D.",
-                                                isActive = frontDefrost == "1",
-                                                isEnabled = isPowerOn
-                                        ) {
-                                                val next = if (frontDefrost == "1") "0" else "1"
-                                                serviceManager.updateData(CarConstants.CAR_HVAC_FRONT_DEFROST_ENABLE.getValue(), next)
-                                        }
-
-                                        AcQuickMenuItem(
-                                                modifier = Modifier.weight(1f),
-                                                iconVector = Icons.Default.ShieldMoon,
-                                                label = "Desemb. T.",
-                                                isActive = rearDefrost == "1",
-                                                isEnabled = isPowerOn
-                                        ) {
-                                                val next = if (rearDefrost == "1") "0" else "1"
-                                                serviceManager.updateData(CarConstants.CAR_HVAC_REAR_DEFROST_ENABLE.getValue(), next)
                                         }
                                 }
                         }
@@ -1254,7 +1383,7 @@ fun AcQuickMenuContent() {
 @Composable
 private fun AcQuickMenuItem(
         modifier: Modifier = Modifier,
-        icon: String? = null,
+        painter: Painter? = null,
         iconVector: ImageVector? = null,
         label: String,
         isActive: Boolean,
@@ -1262,8 +1391,8 @@ private fun AcQuickMenuItem(
         onClick: () -> Unit
 ) {
         val activeColor = Color(0xFF2196F3)
-        val bgColor = if (isActive && isEnabled) activeColor.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.05f)
-        val borderColor = if (isActive && isEnabled) activeColor else Color.Transparent
+        val bgColor = if (isActive && isEnabled) activeColor.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f)
+        val borderColor = if (isActive && isEnabled) activeColor.copy(alpha = 0.6f) else Color.Transparent
 
         Box(
                 modifier =
@@ -1279,25 +1408,21 @@ private fun AcQuickMenuItem(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                 ) {
-                        if (iconVector != null) {
+                        val iconTint: Color = if (isActive && isEnabled) activeColor else if (isEnabled) Color.White.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.35f)
+                        if (painter != null) {
+                                Icon(
+                                        painter = painter,
+                                        contentDescription = label,
+                                        modifier = Modifier.size(22.dp),
+                                        tint = iconTint
+                                )
+                        } else if (iconVector != null) {
                                 Icon(
                                         imageVector = iconVector,
                                         contentDescription = label,
-                                        tint = if (isActive && isEnabled) activeColor else Color.White.copy(alpha = if (isEnabled) 0.8f else 0.35f),
-                                        modifier = Modifier.size(20.dp)
+                                        modifier = Modifier.size(22.dp),
+                                        tint = iconTint
                                 )
-                        } else if (icon != null) {
-                                val bitmap = remember(icon) { decodeBase64ToBitmap(icon) }
-                                if (bitmap != null) {
-                                        Image(
-                                                bitmap = bitmap,
-                                                contentDescription = label,
-                                                colorFilter = ColorFilter.tint(
-                                                        if (isActive && isEnabled) activeColor else Color.White.copy(alpha = if (isEnabled) 0.8f else 0.35f)
-                                                ),
-                                                modifier = Modifier.size(20.dp)
-                                        )
-                                }
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
@@ -1306,7 +1431,7 @@ private fun AcQuickMenuItem(
                                         labelStyle.copy(
                                                 fontSize = 10.sp,
                                                 fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (isActive && isEnabled) activeColor else Color.White.copy(alpha = if (isEnabled) 0.8f else 0.35f)
+                                                color = if (isActive && isEnabled) activeColor else Color.White.copy(alpha = if (isEnabled) 0.85f else 0.35f)
                                         ),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -1757,7 +1882,7 @@ fun CenteredAppLauncherSection(
 
 	Row(
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(20.dp),
+		horizontalArrangement = Arrangement.spacedBy(16.dp),
 		modifier = Modifier.fillMaxHeight()
 	) {
 		// 1. [ ← ] Back Button - FIRST IN DOCK!
@@ -1800,17 +1925,25 @@ fun CenteredAppLauncherSection(
 			)
 		}
 
-		// 3. Up to 7 Recent Apps (4 to 7)
-		val validRecents = remember(recents.toList(), configs) {
-			val candidates = (recents + RecentAppsManager.DEFAULT_RECENTS).distinct()
-			candidates.filter { pkg ->
-				val cfg = configs.find { it.packageName == pkg }
+		// 3. Up to 9 Apps selected in Telas menu, ordered by last used in session
+		val candidateConfigs = remember(recents.toList(), configs) {
+			val telas = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.getAllConfigs()
+			if (telas.isNotEmpty()) telas else configs
+		}
+		val validRecents = remember(recents.toList(), candidateConfigs) {
+			val configuredPackages = candidateConfigs.map { it.packageName }.distinct()
+			resolveDockApps(
+				telasPackages = configuredPackages,
+				sessionRecents = recents.toList(),
+				maxApps = 9
+			).filter { pkg ->
+				val cfg = candidateConfigs.find { it.packageName == pkg }
 				cfg?.substituteIcon != null || DisplayAppLauncher.resolveAppInfo(context, pkg).icon != null
-			}.take(7)
+			}
 		}
 		for (pkg in validRecents) {
 			val isCurrentApp = pkg == activePkg
-			val config = configs.find { it.packageName == pkg }
+			val config = candidateConfigs.find { it.packageName == pkg }
 			val substituteIcon = getSubstituteIconVector(config?.substituteIcon)
 
 			val appInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -2225,7 +2358,7 @@ fun BottomBarContent() {
                                                                 }
                                                         }
 
-                                                        Spacer(modifier = Modifier.width(50.dp))
+                                                        Spacer(modifier = Modifier.width(32.dp))
 
                                                         CoffeeOsSeatVentilationButton(
                                                                 isDriver = true,
@@ -2241,7 +2374,7 @@ fun BottomBarContent() {
                                                                 }
                                                         )
 
-                                                        Spacer(modifier = Modifier.width(50.dp))
+                                                        Spacer(modifier = Modifier.width(32.dp))
 
                                                         FanControlSection(
                                                                 speed = fanSpeed,
@@ -2301,7 +2434,7 @@ fun BottomBarContent() {
                                                                 )
                                                         }
 
-                                                        Spacer(modifier = Modifier.width(50.dp))
+                                                        Spacer(modifier = Modifier.width(32.dp))
 
                                                         CoffeeOsSeatVentilationButton(
                                                                 isDriver = false,
@@ -2317,7 +2450,7 @@ fun BottomBarContent() {
                                                                 }
                                                         )
 
-                                                        Spacer(modifier = Modifier.width(50.dp))
+                                                        Spacer(modifier = Modifier.width(32.dp))
 
                                                         TempControlSection(
                                                                 label = "Passageiro",
@@ -2742,57 +2875,126 @@ fun AppSwitcherSection() {
 }
 
 @Composable
-fun AppMenuContent() {
-        val configsList = remember {
-                mutableStateListOf<br.com.redesurftank.havalshisuku.models.DisplayAppConfig>()
-                        .apply { addAll(getBottomBarAppConfigs()) }
-        }
-        LaunchedEffect(Unit) {
-                val latestConfigs = getBottomBarAppConfigs()
-                if (configsList.toList() != latestConfigs) {
-                        configsList.clear()
-                        configsList.addAll(latestConfigs)
+fun AllAppsGridItem(
+        app: SystemAppItem,
+        context: Context,
+        scope: CoroutineScope,
+        onClick: () -> Unit
+) {
+        val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val isPressed by interactionSource.collectIsPressedAsState()
+        val bgColor by animateColorAsState(
+                targetValue = if (isPressed) Color(0xFF2196F3).copy(alpha = 0.25f) else Color(0x08FFFFFF),
+                animationSpec = tween(50),
+                label = "appGridBg"
+        )
+
+        Column(
+                modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(bgColor)
+                        .clickable(
+                                interactionSource = interactionSource,
+                                indication = null
+                        ) {
+                                onClick()
+                        }
+                        .padding(vertical = 10.dp, horizontal = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+                Box(
+                        modifier = Modifier
+                                .size(50.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0x14FFFFFF))
+                                .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                ) {
+                        if (app.icon != null) {
+                                AsyncImage(
+                                        model = ImageRequest.Builder(context).data(app.icon).build(),
+                                        contentDescription = app.label,
+                                        modifier = Modifier.size(36.dp)
+                                )
+                        } else {
+                                Icon(
+                                        imageVector = Icons.Default.Apps,
+                                        contentDescription = app.label,
+                                        tint = Color.White.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(28.dp)
+                                )
+                        }
                 }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                        text = app.label,
+                        color = Color(0xFFE0E4EC),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
+                )
         }
+}
+
+@Composable
+fun AppMenuContent() {
         val context = LocalContext.current
         val scope = rememberCoroutineScope()
+        val pm = context.packageManager
 
-        val currentPkg = BottomBarState.currentPackage
-        val isCurrentInConfigs = configsList.any { it.packageName == currentPkg }
-        val showAddButton =
-                !isCurrentInConfigs && currentPkg.isNotEmpty() && currentPkg != context.packageName
+        val systemApps = remember {
+                val intent = Intent(Intent.ACTION_MAIN, null).apply {
+                        addCategory(Intent.CATEGORY_LAUNCHER)
+                }
+                val resolveInfos = try {
+                        pm.queryIntentActivities(intent, 0)
+                } catch (_: Exception) {
+                        emptyList()
+                }
+                val seen = mutableSetOf<String>()
+                val list = mutableListOf<SystemAppItem>()
+                for (info in resolveInfos) {
+                        val ai = info.activityInfo ?: continue
+                        val pkg = ai.packageName ?: continue
+                        if (pkg.isBlank() || shouldHideFromAllApps(pkg) || !seen.add(pkg)) continue
 
-        // Track item positions for drag and drop
-        val itemBounds = remember { mutableMapOf<Int, Rect>() }
-        var draggedIndex by remember { mutableStateOf<Int?>(null) }
-        var dragOffset by remember { mutableStateOf(Offset.Zero) }
-        var containerCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
-
-        fun findIndexAtOffset(offset: Offset): Int? {
-                val rootOffset = containerCoordinates?.localToRoot(offset) ?: offset
-                return itemBounds.entries.find { it.value.contains(rootOffset) }?.key
+                        val label = try {
+                                info.loadLabel(pm).toString().takeIf { it.isNotBlank() } ?: pkg
+                        } catch (_: Exception) {
+                                pkg
+                        }
+                        val icon = try {
+                                info.loadIcon(pm)
+                        } catch (_: Exception) {
+                                null
+                        }
+                        list.add(SystemAppItem(packageName = pkg, activityName = ai.name, label = label, icon = icon))
+                }
+                list.sortBy { it.label.lowercase(Locale.getDefault()) }
+                list
         }
 
         Box(
-                modifier =
-                        Modifier.background(
-                                        Color(0xFF11141A).copy(alpha = 0.98f),
-                                        RoundedCornerShape(14.dp)
-                                )
-                                .border(1.dp, Color(0xFF1F2530), RoundedCornerShape(14.dp))
-                                .fillMaxWidth(0.25f)
-                                .padding(16.dp)
-                                .pointerInput(Unit) {
-                                        detectTapGestures {
-                                                BottomBarState.isDeleteModeEnabled = false
-                                        }
-                                }
+                modifier = Modifier
+                        .background(
+                                Color(0xF211141A),
+                                RoundedCornerShape(16.dp)
+                        )
+                        .border(1.dp, Color(0xFF262C38), RoundedCornerShape(16.dp))
+                        .width(580.dp)
+                        .heightIn(max = 440.dp)
+                        .padding(16.dp)
         ) {
-                val totalItems = configsList.size + (if (showAddButton) 1 else 0)
-                val columns = 3
-                val rows = (totalItems + columns - 1) / columns
-
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
                         // Header
                         Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -2801,97 +3003,50 @@ fun AppMenuContent() {
                         ) {
                                 Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                        Text(
-                                                text =
-                                                        if (BottomBarState.isDeleteModeEnabled)
-                                                                "Organizar"
-                                                        else "Aplicativos",
-                                                style =
-                                                        labelStyle.copy(
-                                                                fontSize = 15.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color =
-                                                                        if (BottomBarState.isDeleteModeEnabled)
-                                                                                Color(0xFF4CAF50)
-                                                                        else Color.White
-                                                        )
+                                        Icon(
+                                                imageVector = Icons.Default.Apps,
+                                                contentDescription = null,
+                                                tint = Color(0xFF2196F3),
+                                                modifier = Modifier.size(20.dp)
                                         )
-                                        if (BottomBarState.isDeleteModeEnabled) {
-                                                Box(
-                                                        modifier =
-                                                                Modifier.clip(
-                                                                                RoundedCornerShape(
-                                                                                        16.dp
-                                                                                )
-                                                                        )
-                                                                        .background(
-                                                                                Color(0xFF4CAF50)
-                                                                                        .copy(
-                                                                                                alpha =
-                                                                                                        0.15f
-                                                                                        )
-                                                                        )
-                                                                        .border(
-                                                                                1.dp,
-                                                                                Color(0xFF4CAF50)
-                                                                                        .copy(
-                                                                                                alpha =
-                                                                                                        0.5f
-                                                                                        ),
-                                                                                RoundedCornerShape(
-                                                                                        16.dp
-                                                                                )
-                                                                        )
-                                                                        .clickable {
-                                                                                BottomBarState
-                                                                                        .isDeleteModeEnabled =
-                                                                                        false
-                                                                        }
-                                                                        .padding(
-                                                                                horizontal = 12.dp,
-                                                                                vertical = 6.dp
-                                                                        ),
-                                                        contentAlignment = Alignment.Center
-                                                ) {
-                                                        Row(
-                                                                verticalAlignment =
-                                                                        Alignment.CenterVertically,
-                                                                horizontalArrangement =
-                                                                        Arrangement.spacedBy(6.dp)
-                                                        ) {
-                                                                Icon(
-                                                                        imageVector =
-                                                                                Icons.Default.Check,
-                                                                        contentDescription = null,
-                                                                        tint = Color(0xFF4CAF50),
-                                                                        modifier =
-                                                                                Modifier.size(14.dp)
-                                                                )
-                                                                Text(
-                                                                        text = "CONCLUIR",
-                                                                        color = Color(0xFF4CAF50),
-                                                                        fontSize = 11.sp,
-                                                                        fontWeight =
-                                                                                FontWeight
-                                                                                        .ExtraBold,
-                                                                        letterSpacing = 0.5.sp
-                                                                )
-                                                        }
-                                                }
+                                        Text(
+                                                text = "Aplicativos",
+                                                style = TextStyle(
+                                                        color = Color.White,
+                                                        fontSize = 15.sp,
+                                                        fontFamily = Michroma,
+                                                        fontWeight = FontWeight.Bold
+                                                )
+                                        )
+                                        Box(
+                                                modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color(0xFF2196F3).copy(alpha = 0.15f))
+                                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                                Text(
+                                                        text = "${systemApps.size}",
+                                                        color = Color(0xFF64B5F6),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                )
                                         }
                                 }
+
+                                // Close Button
                                 val closeInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                                 val closePressed by closeInteraction.collectIsPressedAsState()
                                 val closeGlow by animateColorAsState(
                                         targetValue = if (closePressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
-                                        animationSpec = tween(durationMillis = if (closePressed) 50 else 300)
+                                        animationSpec = tween(50),
+                                        label = "closeGlow"
                                 )
                                 Box(
                                         contentAlignment = Alignment.Center,
                                         modifier = Modifier
-                                                .size(36.dp)
+                                                .size(32.dp)
                                                 .clip(RoundedCornerShape(8.dp))
                                                 .background(closeGlow)
                                                 .clickable(
@@ -2899,339 +3054,59 @@ fun AppMenuContent() {
                                                         indication = null
                                                 ) {
                                                         BottomBarState.isMenuExpanded = false
-                                                        BottomBarState.isDeleteModeEnabled = false
                                                 }
                                 ) {
                                         Icon(
                                                 imageVector = Icons.Default.Close,
                                                 contentDescription = "Fechar",
                                                 tint = Color.White.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(24.dp)
+                                                modifier = Modifier.size(20.dp)
                                         )
                                 }
                         }
 
-                        // App Grid
-                        Column(
-                                verticalArrangement = Arrangement.spacedBy(20.dp),
-                                modifier =
-                                        Modifier.onGloballyPositioned { containerCoordinates = it }
-                                                .pointerInput(BottomBarState.isDeleteModeEnabled) {
-                                                        if (BottomBarState.isDeleteModeEnabled) {
-                                                                detectDragGestures(
-                                                                        onDragStart = { offset ->
-                                                                                val index =
-                                                                                        findIndexAtOffset(
-                                                                                                offset
-                                                                                        )
-                                                                                if (index != null &&
-                                                                                                index <
-                                                                                                        configsList
-                                                                                                                .size
-                                                                                ) {
-                                                                                        draggedIndex =
-                                                                                                index
-                                                                                        dragOffset =
-                                                                                                Offset.Zero
-                                                                                        Log.d(
-                                                                                                "AppMenuContent",
-                                                                                                "Drag started via container for index $index"
-                                                                                        )
-                                                                                }
-                                                                        },
-                                                                        onDrag = {
-                                                                                change,
-                                                                                dragAmount ->
-                                                                                if (draggedIndex !=
-                                                                                                null
-                                                                                ) {
-                                                                                        try {
-                                                                                                // Support multiple Compose versions
-                                                                                                // via reflection if needed,
-                                                                                                // but on container we usually don't
-                                                                                                // need to consume for children
-                                                                                                change.consume()
-                                                                                        } catch (
-                                                                                                e:
-                                                                                                        Exception) {}
+                        HorizontalDivider(color = Color(0xFF1F2530), thickness = 1.dp)
 
-                                                                                        dragOffset +=
-                                                                                                dragAmount
-
-                                                                                        // Check for
-                                                                                        // swaps
-                                                                                        val currentItemBounds =
-                                                                                                itemBounds[
-                                                                                                        draggedIndex!!]
-                                                                                        if (currentItemBounds !=
-                                                                                                        null
-                                                                                        ) {
-                                                                                                val currentPos =
-                                                                                                        currentItemBounds
-                                                                                                                .center +
-                                                                                                                dragOffset
-                                                                                                itemBounds
-                                                                                                        .entries
-                                                                                                        .forEach {
-                                                                                                                entry
-                                                                                                                ->
-                                                                                                                val targetIndex =
-                                                                                                                        entry.key
-                                                                                                                val bounds =
-                                                                                                                        entry.value
-
-                                                                                                                val hitZone =
-                                                                                                                        Rect(
-                                                                                                                                left =
-                                                                                                                                        bounds.left +
-                                                                                                                                                bounds.width *
-                                                                                                                                                        0.2f,
-                                                                                                                                top =
-                                                                                                                                        bounds.top +
-                                                                                                                                                bounds.height *
-                                                                                                                                                        0.2f,
-                                                                                                                                right =
-                                                                                                                                        bounds.right -
-                                                                                                                                                bounds.width *
-                                                                                                                                                        0.2f,
-                                                                                                                                bottom =
-                                                                                                                                        bounds.bottom -
-                                                                                                                                                bounds.height *
-                                                                                                                                                        0.2f
-                                                                                                                        )
-
-                                                                                                                if (targetIndex !=
-                                                                                                                                draggedIndex &&
-                                                                                                                                targetIndex <
-                                                                                                                                        configsList
-                                                                                                                                                .size &&
-                                                                                                                                hitZone.contains(
-                                                                                                                                        currentPos
-                                                                                                                                )
-                                                                                                                ) {
-                                                                                                                        val temp =
-                                                                                                                                configsList[
-                                                                                                                                        draggedIndex!!]
-                                                                                                                        configsList[
-                                                                                                                                draggedIndex!!] =
-                                                                                                                                configsList[
-                                                                                                                                        targetIndex]
-                                                                                                                        configsList[
-                                                                                                                                targetIndex] =
-                                                                                                                                temp
-
-                                                                                                                        draggedIndex =
-                                                                                                                                targetIndex
-                                                                                                                        dragOffset =
-                                                                                                                                Offset.Zero
-                                                                                                                        br.com
-                                                                                                                                .redesurftank
-                                                                                                                                .havalshisuku
-                                                                                                                                .managers
-                                                                                                                                .DisplayAppLauncher
-                                                                                                                                .saveAllConfigs(
-                                                                                                                                        configsList
-                                                                                                                                                .toList()
-                                                                                                                                )
-                                                                                                                }
-                                                                                                        }
-                                                                                        }
-                                                                                }
-                                                                        },
-                                                                        onDragEnd = {
-                                                                                draggedIndex = null
-                                                                                dragOffset =
-                                                                                        Offset.Zero
-                                                                        },
-                                                                        onDragCancel = {
-                                                                                draggedIndex = null
-                                                                                dragOffset =
-                                                                                        Offset.Zero
-                                                                        }
-                                                                )
-                                                        }
-                                                }
-                        ) {
-                                for (r in (rows - 1) downTo 0) {
-                                        Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                                for (c in 0 until columns) {
-                                                        val index = r * columns + c
-                                                        if (index < totalItems) {
-                                                                if (showAddButton &&
-                                                                                index ==
-                                                                                        totalItems -
-                                                                                                1
-                                                                ) {
-                                                                        Box(
-                                                                                modifier =
-                                                                                        Modifier.weight(
-                                                                                                1f
-                                                                                        ),
-                                                                                contentAlignment =
-                                                                                        Alignment
-                                                                                                .Center
-                                                                        ) {
-                                                                                AddAppGridItem(
-                                                                                        currentPkg,
-                                                                                        context,
-                                                                                        scope
-                                                                                ) {
-                                                                                        val newConfigs =
-                                                                                                getBottomBarAppConfigs()
-                                                                                        configsList
-                                                                                                .clear()
-                                                                                        configsList
-                                                                                                .addAll(
-                                                                                                        newConfigs
-                                                                                                )
-                                                                                }
-                                                                        }
-                                                                } else {
-                                                                        val config =
-                                                                                configsList[index]
-                                                                        key(config.packageName) {
-                                                                                Box(
-                                                                                        modifier =
-                                                                                                Modifier.weight(
-                                                                                                                1f
-                                                                                                        )
-                                                                                                        .onGloballyPositioned {
-                                                                                                                layoutCoordinates
-                                                                                                                ->
-                                                                                                                itemBounds[
-                                                                                                                        index] =
-                                                                                                                        layoutCoordinates
-                                                                                                                                .boundsInRoot()
-                                                                                                        },
-                                                                                        contentAlignment =
-                                                                                                Alignment
-                                                                                                        .Center
-                                                                                ) {
-                                                                                        AppGridItem(
-                                                                                                config.packageName,
-                                                                                                config.substituteIcon,
-                                                                                                context,
-                                                                                                scope,
-                                                                                                onDelete = {
-                                                                                                        configsList
-                                                                                                                .removeAt(
-                                                                                                                        index
-                                                                                                                )
-                                                                                                        br.com
-                                                                                                                .redesurftank
-                                                                                                                .havalshisuku
-                                                                                                                .managers
-                                                                                                                .DisplayAppLauncher
-                                                                                                                .saveAllConfigs(
-                                                                                                                        configsList
-                                                                                                                                .toList()
-                                                                                                                )
-                                                                                                },
-                                                                                                onDragStart = {
-                                                                                                },
-                                                                                                onDrag = {
-                                                                                                        _
-                                                                                                        ->
-                                                                                                },
-                                                                                                onDragEnd = {
-                                                                                                },
-                                                                                                isDragged =
-                                                                                                        (draggedIndex ==
-                                                                                                                index),
-                                                                                                dragOffset =
-                                                                                                        if (draggedIndex ==
-                                                                                                                        index
-                                                                                                        )
-                                                                                                                dragOffset
-                                                                                                        else
-                                                                                                                Offset.Zero
-                                                                                        ) {
-                                                                                                BottomBarState
-                                                                                                        .isDeleteModeEnabled =
-                                                                                                        false
-                                                                                        }
-                                                                                }
-                                                                        }
+                        // Grid of apps
+                        if (systemApps.isEmpty()) {
+                                Box(
+                                        modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(180.dp),
+                                        contentAlignment = Alignment.Center
+                                ) {
+                                        Text(
+                                                text = "Nenhum aplicativo encontrado",
+                                                color = Color(0xFF8E95A2),
+                                                fontSize = 13.sp
+                                        )
+                                }
+                        } else {
+                                LazyVerticalGrid(
+                                        columns = GridCells.Fixed(4),
+                                        modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(max = 350.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                        items(systemApps, key = { it.packageName }) { app ->
+                                                AllAppsGridItem(
+                                                        app = app,
+                                                        context = context,
+                                                        scope = scope,
+                                                        onClick = {
+                                                                RecentAppsManager.recordAppLaunch(app.packageName)
+                                                                scope.launch {
+                                                                        DisplayAppLauncher.launchAnyApp(context, app.packageName)
                                                                 }
-                                                        } else {
-                                                                Spacer(
-                                                                        modifier =
-                                                                                Modifier.weight(1f)
-                                                                )
+                                                                BottomBarState.isMenuExpanded = false
                                                         }
-                                                }
+                                                )
                                         }
                                 }
                         }
                 }
-        }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun AddAppGridItem(pkg: String, context: Context, scope: CoroutineScope, onAdded: () -> Unit) {
-        val appInfo =
-                remember(pkg) {
-                        br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.resolveAppInfo(
-                                context,
-                                pkg
-                        )
-                }
-
-        Column(
-                modifier =
-                        Modifier.fillMaxWidth()
-                                .clickable {
-                                        scope.launch {
-                                                br.com.redesurftank.havalshisuku.managers
-                                                        .DisplayAppLauncher
-                                                        .getOrCreateDefaultConfig(context, pkg)
-                                                onAdded()
-                                        }
-                                }
-                                .padding(4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-                Box(
-                        modifier =
-                                Modifier.size(64.dp)
-                                        .background(
-                                                Color.White.copy(alpha = 0.05f),
-                                                RoundedCornerShape(12.dp)
-                                        )
-                                        .border(
-                                                1.dp,
-                                                Color.White.copy(alpha = 0.2f),
-                                                RoundedCornerShape(12.dp)
-                                        ),
-                        contentAlignment = Alignment.Center
-                ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                        Icons.Default.Add,
-                                        contentDescription = null,
-                                        tint = Color.White.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(24.dp)
-                                )
-                                if (appInfo.icon != null) {
-                                        AsyncImage(
-                                                model = appInfo.icon,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(20.dp).alpha(0.4f)
-                                        )
-                                }
-                        }
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                        text = "Adicionar",
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 10.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
         }
 }
 
@@ -3532,17 +3407,17 @@ fun BottomBarMenus() {
                                                         .isMenuExpanded
                                         ) {
                                                 val density = LocalDensity.current
-                                                val screenWidth = BottomBarState.overlayWindowWidthPx
-                                                val appMenuWidthDp = with(density) { (if (screenWidth > 0) screenWidth * 0.25f else 480f).toDp().coerceAtLeast(320.dp) }
+                                                val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
+                                                val appMenuWidthDp = 580.dp
                                                 val appStartPad = if (BottomBarState.launcherCenterX > 0f) {
                                                         val launcherCenterDp = with(density) { BottomBarState.launcherCenterX.toDp() }
-                                                        (launcherCenterDp - appMenuWidthDp / 2).coerceAtLeast(16.dp)
+                                                        (launcherCenterDp - appMenuWidthDp / 2).coerceIn(16.dp, (screenWidthDp - appMenuWidthDp - 16.dp).coerceAtLeast(16.dp))
                                                 } else {
-                                                        300.dp
+                                                        (screenWidthDp - appMenuWidthDp) / 2
                                                 }
                                                 Box(
                                                         modifier =
-                                                                Modifier.padding(start = appStartPad)
+                                                                Modifier.padding(start = appStartPad, bottom = 10.dp)
                                                                         .align(Alignment.BottomStart)
                                                                         .onGloballyPositioned {
                                                                                 appMenuBounds =
@@ -3553,7 +3428,7 @@ fun BottomBarMenus() {
 
                                         // AC Quick Menu (Above Fan Button)
                                         if (BottomBarState.isAcMenuExpanded) {
-                                                val acMenuWidthDp = 360.dp
+                                                val acMenuWidthDp = 420.dp
                                                 val density = LocalDensity.current
                                                 val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
                                                 val acStartPad = if (BottomBarState.fanButtonCenterX > 0f) {
@@ -3564,7 +3439,7 @@ fun BottomBarMenus() {
                                                 }
                                                 Box(
                                                         modifier =
-                                                                Modifier.padding(start = acStartPad)
+                                                                Modifier.padding(start = acStartPad, bottom = 10.dp)
                                                                         .align(Alignment.BottomStart)
                                                                         .onGloballyPositioned {
                                                                                 acMenuBounds =

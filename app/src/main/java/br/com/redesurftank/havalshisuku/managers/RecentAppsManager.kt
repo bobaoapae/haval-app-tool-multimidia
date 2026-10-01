@@ -11,7 +11,7 @@ import org.json.JSONArray
  */
 object RecentAppsManager {
     private const val PREFS_KEY = "bottom_bar_recent_apps"
-    const val MAX_RECENTS = 7
+    const val MAX_RECENTS = 15
 
     val DEFAULT_RECENTS = listOf(
         "com.google.android.apps.maps",
@@ -26,11 +26,9 @@ object RecentAppsManager {
     )
 
     private val ignoredPackages = setOf(
-        "br.com.redesurftank.havalshisuku",
         "android",
         "com.android.systemui",
         "com.android.launcher",
-        "com.android.settings",
         "com.beantechs.launcher",
         "com.beantechs.applist"
     )
