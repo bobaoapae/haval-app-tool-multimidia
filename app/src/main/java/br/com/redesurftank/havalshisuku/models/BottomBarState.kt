@@ -111,6 +111,7 @@ object BottomBarState {
     var isFridaRunning by mutableStateOf(false)
     var isDeleteModeEnabled by mutableStateOf(false)
     var isDockEditMode by mutableStateOf(false)
+    var isProjectionShortcutEnabled by mutableStateOf(true)
     var dockAddSlotIndex by mutableStateOf<Int?>(null)
     val restoredApps = mutableStateListOf<String>()
     var hasAppsOnSecondaryDisplays by mutableStateOf(false)

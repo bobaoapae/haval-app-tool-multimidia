@@ -369,6 +369,10 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "Abrir o Impulse Drive quando a projeção inicia no cluster"
     ),
     BOTTOM_BAR_OVERRIDES("bottomBarOverrides", "Overrides de aplicativos salvos (JSON)"),
+    BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT(
+            "bottomBarShowProjectionShortcut",
+            "Exibir atalho de projeção (CarPlay/AA) no início do Dock"
+    ),
     DASHBOARD_CARD_ORDER("dashboardCardOrder", "Ordem dos cards do dashboard"),
     ENABLE_SPEED_ADJUSTMENT("enableSpeedAdjustment", "Habilitar ajuste de velocidade no painel"),
     SPEED_ADJUSTMENT_OFFSET("speedAdjustmentOffset", "Fator de ajuste de velocidade (%)"),

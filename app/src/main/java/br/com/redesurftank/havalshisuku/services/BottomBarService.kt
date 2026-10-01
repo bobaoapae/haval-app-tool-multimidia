@@ -500,6 +500,11 @@ class BottomBarService : LifecycleService() {
                         SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
                         BottomBarState.BarVersion.OLD.key
                 ) ?: BottomBarState.BarVersion.OLD.key
+        BottomBarState.isProjectionShortcutEnabled =
+                prefs.getBoolean(
+                        SharedPreferencesKeys.BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT.key,
+                        true
+                )
 
         BottomBarState.isVisible = true
         usbMediaInfoReader = UsbMediaInfoReader(applicationContext)
@@ -957,6 +962,11 @@ class BottomBarService : LifecycleService() {
                                                     SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
                                                     BottomBarState.BarVersion.OLD.key
                                             ) ?: BottomBarState.BarVersion.OLD.key
+                                    BottomBarState.isProjectionShortcutEnabled =
+                                            prefs.getBoolean(
+                                                    SharedPreferencesKeys.BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT.key,
+                                                    true
+                                            )
                                 }
 
                                 val settings = getSettingsForPackage(currentPackage, storedDefault)

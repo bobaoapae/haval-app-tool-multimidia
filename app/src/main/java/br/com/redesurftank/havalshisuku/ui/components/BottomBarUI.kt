@@ -1807,6 +1807,39 @@ fun LeftArrowsSection(
 	}
 }
 
+enum class ProjectionType {
+	NONE,
+	CARPLAY,
+	ANDROID_AUTO
+}
+
+@Composable
+private fun rememberActiveProjection(activePkg: String): ProjectionType {
+	val activeClusterPkg = BottomBarState.activeClusterProjectionPackage
+	return remember(activePkg, activeClusterPkg) {
+		val projOnMain = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+			.resolveProjectionPackageOrNull(activePkg)
+		val projOnCluster = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+			.resolveProjectionPackageOrNull(activeClusterPkg)
+		when {
+			projOnMain == BOTTOM_BAR_CARPLAY_PACKAGE ||
+			projOnCluster == BOTTOM_BAR_CARPLAY_PACKAGE ||
+			activePkg.contains("carplay", ignoreCase = true) ||
+			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isCarPlayOnDisplay(0) ||
+			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isCarPlayOnDisplay(3) -> ProjectionType.CARPLAY
+
+			projOnMain == BOTTOM_BAR_ANDROID_AUTO_PACKAGE ||
+			projOnCluster == BOTTOM_BAR_ANDROID_AUTO_PACKAGE ||
+			activePkg.contains("androidauto", ignoreCase = true) ||
+			activePkg.contains("projection.gearhead", ignoreCase = true) ||
+			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAndroidAutoOnDisplay(0) ||
+			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAndroidAutoOnDisplay(3) -> ProjectionType.ANDROID_AUTO
+
+			else -> ProjectionType.NONE
+		}
+	}
+}
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun CenteredAppLauncherSection(
@@ -1839,9 +1872,19 @@ fun CenteredAppLauncherSection(
 	val density = LocalDensity.current
 	val slotStepPx = with(density) { 58.dp.toPx() }
 
+	val prefs = remember { context.getSharedPreferences("haval_prefs", Context.MODE_PRIVATE) }
+	LaunchedEffect(Unit) {
+		BottomBarState.isProjectionShortcutEnabled = prefs.getBoolean(
+			SharedPreferencesKeys.BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT.key,
+			true
+		)
+	}
+	val isProjectionShortcutEnabled = BottomBarState.isProjectionShortcutEnabled
+	val activeProjection = rememberActiveProjection(activePkg)
+
 	Row(
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(14.dp),
+		horizontalArrangement = Arrangement.spacedBy(10.dp),
 		modifier = Modifier.fillMaxHeight()
 	) {
 		// 1. [ ← ] Back Button - FIRST IN DOCK!
@@ -1886,18 +1929,213 @@ fun CenteredAppLauncherSection(
 			)
 		}
 
-		// 3. Up to 8 Apps selected in Telas menu, strictly preserving Telas order
+		// 2.5. Dedicated First Icon: Android Auto / CarPlay / Connectivity Shortcut
+		if (isProjectionShortcutEnabled) {
+			val projInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+			val projPressed by projInteraction.collectIsPressedAsState()
+			val projColor by animateColorAsState(
+				targetValue = if (projPressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
+				animationSpec = tween(durationMillis = if (projPressed) 50 else 300),
+				label = "projColor"
+			)
+
+			val isProjectionOnMain = activeProjection != ProjectionType.NONE &&
+				(activePkg.contains("carplay", ignoreCase = true) ||
+				 activePkg.contains("androidauto", ignoreCase = true) ||
+				 activePkg.contains("projection.gearhead", ignoreCase = true) ||
+				 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.resolveProjectionPackageOrNull(activePkg) != null)
+
+			Box(
+				modifier = Modifier
+					.size(50.dp)
+					.graphicsLayer {
+						rotationZ = if (isDockEditMode) jiggleRotation else 0f
+					},
+				contentAlignment = Alignment.Center
+			) {
+				Box(
+					contentAlignment = Alignment.Center,
+					modifier = Modifier
+						.size(44.dp)
+						.clip(RoundedCornerShape(11.dp))
+						.background(projColor)
+						.combinedClickable(
+							interactionSource = projInteraction,
+							indication = null,
+							onClick = {
+								scope.launch {
+									when (activeProjection) {
+										ProjectionType.CARPLAY -> {
+											br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+												.launchAnyApp(context, BOTTOM_BAR_CARPLAY_PACKAGE)
+										}
+										ProjectionType.ANDROID_AUTO -> {
+											br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+												.launchAnyApp(context, BOTTOM_BAR_ANDROID_AUTO_PACKAGE)
+										}
+										ProjectionType.NONE -> {
+											val pm = context.packageManager
+											val hasCarPlay = try { pm.getPackageInfo(BOTTOM_BAR_CARPLAY_PACKAGE, 0); true } catch (e: Exception) { false }
+											val hasAA = try { pm.getPackageInfo(BOTTOM_BAR_ANDROID_AUTO_PACKAGE, 0); true } catch (e: Exception) { false }
+											when {
+												hasCarPlay -> br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, BOTTOM_BAR_CARPLAY_PACKAGE)
+												hasAA -> br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, BOTTOM_BAR_ANDROID_AUTO_PACKAGE)
+												else -> {
+													try {
+														val intent = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
+															flags = Intent.FLAG_ACTIVITY_NEW_TASK
+														}
+														context.startActivity(intent)
+													} catch (_: Exception) {}
+												}
+											}
+										}
+									}
+								}
+							},
+							onLongClick = {
+								BottomBarState.isDockEditMode = true
+							}
+						)
+				) {
+					when (activeProjection) {
+						ProjectionType.CARPLAY -> {
+							Image(
+								painter = painterResource(id = R.drawable.ic_carplay_default),
+								contentDescription = "Apple CarPlay",
+								modifier = Modifier.size(36.dp)
+							)
+						}
+						ProjectionType.ANDROID_AUTO -> {
+							Image(
+								painter = painterResource(id = R.drawable.ic_android_auto_default),
+								contentDescription = "Android Auto",
+								modifier = Modifier.size(36.dp)
+							)
+						}
+						ProjectionType.NONE -> {
+							Icon(
+								painter = painterResource(id = R.drawable.ic_phone_link),
+								contentDescription = "Conectividade",
+								tint = Color.Unspecified,
+								modifier = Modifier.size(36.dp)
+							)
+						}
+					}
+
+					if (isProjectionOnMain) {
+						Box(
+							modifier = Modifier
+								.align(Alignment.BottomCenter)
+								.padding(bottom = 2.dp)
+								.size(width = 18.dp, height = 2.5.dp)
+								.clip(RoundedCornerShape(1.dp))
+								.background(Color(0xFF2196F3))
+						)
+					}
+				}
+
+				// Badge de remoção no modo de edição (UNCROPPED)
+				if (isDockEditMode) {
+					Box(
+						modifier = Modifier
+							.align(Alignment.TopEnd)
+							.size(24.dp)
+							.clickable {
+								BottomBarState.isProjectionShortcutEnabled = false
+								prefs.edit()
+									.putBoolean(
+										SharedPreferencesKeys.BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT.key,
+										false
+									)
+									.apply()
+							},
+						contentAlignment = Alignment.Center
+					) {
+						Box(
+							modifier = Modifier
+								.size(18.dp)
+								.clip(CircleShape)
+								.background(Color(0xFFE53935)),
+							contentAlignment = Alignment.Center
+						) {
+							Icon(
+								imageVector = Icons.Default.Close,
+								contentDescription = "Desabilitar Atalho de Projeção",
+								tint = Color.White,
+								modifier = Modifier.size(11.dp)
+							)
+						}
+					}
+				}
+			}
+		} else if (isDockEditMode) {
+			// Quando desabilitado, exibe slot com '+' para reabilitar no modo de edição
+			Box(
+				modifier = Modifier.size(50.dp),
+				contentAlignment = Alignment.Center
+			) {
+				Box(
+					contentAlignment = Alignment.Center,
+					modifier = Modifier
+						.size(44.dp)
+						.clip(RoundedCornerShape(11.dp))
+						.border(
+							width = 1.2.dp,
+							color = Color(0xFF2196F3).copy(alpha = 0.5f),
+							shape = RoundedCornerShape(11.dp)
+						)
+						.background(Color(0xFF2196F3).copy(alpha = 0.08f))
+						.clickable {
+							BottomBarState.isProjectionShortcutEnabled = true
+							prefs.edit()
+								.putBoolean(
+									SharedPreferencesKeys.BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT.key,
+									true
+								)
+								.apply()
+						}
+				) {
+					Icon(
+						painter = painterResource(id = R.drawable.ic_phone_link),
+						contentDescription = "Adicionar Atalho de Projeção",
+						tint = Color.White.copy(alpha = 0.5f),
+						modifier = Modifier.size(24.dp)
+					)
+					Box(
+						modifier = Modifier
+							.align(Alignment.TopEnd)
+							.padding(3.dp)
+							.size(12.dp)
+							.clip(CircleShape)
+							.background(Color(0xFF2196F3)),
+						contentAlignment = Alignment.Center
+					) {
+						Icon(
+							imageVector = Icons.Default.Add,
+							contentDescription = null,
+							tint = Color.White,
+							modifier = Modifier.size(8.dp)
+						)
+					}
+				}
+			}
+		}
+
+		// 3. Up to 7/8 Apps selected in Telas menu, strictly preserving Telas order
 		val candidateConfigs = remember(configsVersion) {
 			val telas = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.getAllConfigs()
 			if (telas.isNotEmpty()) telas else configs
 		}
-		val validDockConfigs = remember(candidateConfigs, configsVersion) {
+		val maxRegularApps = if (isProjectionShortcutEnabled) 7 else 8
+		val validDockConfigs = remember(candidateConfigs, configsVersion, isProjectionShortcutEnabled) {
 			val filtered = candidateConfigs.filter { cfg ->
-				cfg.substituteIcon != null || br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.resolveAppInfo(context, cfg.packageName, cfg.customName).icon != null
+				(cfg.substituteIcon != null || br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.resolveAppInfo(context, cfg.packageName, cfg.customName).icon != null) &&
+				(!isProjectionShortcutEnabled || (cfg.packageName != BOTTOM_BAR_CARPLAY_PACKAGE && cfg.packageName != BOTTOM_BAR_ANDROID_AUTO_PACKAGE && !cfg.packageName.contains("carplay", ignoreCase = true) && !cfg.packageName.contains("androidauto", ignoreCase = true)))
 			}
 			val validPackages = resolveDockApps(
 				telasPackages = filtered.map { it.packageName },
-				maxApps = 8
+				maxApps = maxRegularApps
 			)
 			validPackages.mapNotNull { pkg -> filtered.firstOrNull { it.packageName == pkg } }
 		}
@@ -1968,68 +2206,71 @@ fun CenteredAppLauncherSection(
 			}
 
 			Box(
-				contentAlignment = Alignment.Center,
 				modifier = Modifier
-					.size(46.dp)
+					.size(50.dp)
 					.graphicsLayer {
 						rotationZ = if (isDockEditMode && !isBeingDragged) jiggleRotation else 0f
 						translationX = if (isBeingDragged) dragAccumulatedX else 0f
 						scaleX = if (isBeingDragged) 1.1f else 1f
 						scaleY = if (isBeingDragged) 1.1f else 1f
 					}
-					.zIndex(if (isBeingDragged) 10f else 1f)
-					.clip(RoundedCornerShape(11.dp))
-					.background(appColor)
-					.then(gestureModifier)
+					.zIndex(if (isBeingDragged) 10f else 1f),
+				contentAlignment = Alignment.Center
 			) {
-				if (subIcon == "youtube" || subIcon == "youtube_music" || subIcon == "gwm") {
-					Image(
-						painter = painterResource(
-							id = when (subIcon) {
-								"youtube" -> R.drawable.ic_youtube_default
-								"youtube_music" -> R.drawable.ic_youtube_music_default
-								"gwm" -> R.drawable.ic_gwm
-								else -> R.drawable.ic_youtube_default
-							}
-						),
-						contentDescription = displayName,
-						modifier = Modifier.size(38.dp)
-					)
-				} else if (substituteIconVector != null) {
-					Icon(
-						imageVector = substituteIconVector,
-						contentDescription = displayName,
-						tint = iconTint,
-						modifier = Modifier.size(38.dp)
-					)
-				} else {
-					AsyncImage(
-						model = ImageRequest.Builder(context).data(appInfo.icon).build(),
-						contentDescription = displayName,
-						modifier = Modifier.size(38.dp)
-					)
+				Box(
+					contentAlignment = Alignment.Center,
+					modifier = Modifier
+						.size(44.dp)
+						.clip(RoundedCornerShape(11.dp))
+						.background(appColor)
+						.then(gestureModifier)
+				) {
+					if (subIcon == "youtube" || subIcon == "youtube_music" || subIcon == "gwm") {
+						Image(
+							painter = painterResource(
+								id = when (subIcon) {
+									"youtube" -> R.drawable.ic_youtube_default
+									"youtube_music" -> R.drawable.ic_youtube_music_default
+									"gwm" -> R.drawable.ic_gwm
+									else -> R.drawable.ic_youtube_default
+								}
+							),
+							contentDescription = displayName,
+							modifier = Modifier.size(36.dp)
+						)
+					} else if (substituteIconVector != null) {
+						Icon(
+							imageVector = substituteIconVector,
+							contentDescription = displayName,
+							tint = iconTint,
+							modifier = Modifier.size(36.dp)
+						)
+					} else {
+						AsyncImage(
+							model = ImageRequest.Builder(context).data(appInfo.icon).build(),
+							contentDescription = displayName,
+							modifier = Modifier.size(36.dp)
+						)
+					}
+
+					if (isCurrentApp) {
+						Box(
+							modifier = Modifier
+								.align(Alignment.BottomCenter)
+								.padding(bottom = 2.dp)
+								.size(width = 18.dp, height = 2.5.dp)
+								.clip(RoundedCornerShape(1.dp))
+								.background(Color(0xFF2196F3))
+						)
+					}
 				}
 
-				if (isCurrentApp) {
-					Box(
-						modifier = Modifier
-							.align(Alignment.BottomCenter)
-							.padding(bottom = 2.dp)
-							.size(width = 18.dp, height = 2.5.dp)
-							.clip(RoundedCornerShape(1.dp))
-							.background(Color(0xFF2196F3))
-					)
-				}
-
-				// Badge de remoção no modo de edição
+				// Badge de remoção no modo de edição (UNCROPPED)
 				if (isDockEditMode) {
 					Box(
 						modifier = Modifier
 							.align(Alignment.TopEnd)
-							.offset(x = 3.dp, y = (-3).dp)
-							.size(18.dp)
-							.clip(CircleShape)
-							.background(Color(0xFFE53935))
+							.size(24.dp)
 							.clickable {
 								scope.launch {
 									br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.deleteConfig(pkg)
@@ -2038,12 +2279,20 @@ fun CenteredAppLauncherSection(
 							},
 						contentAlignment = Alignment.Center
 					) {
-						Icon(
-							imageVector = Icons.Default.Close,
-							contentDescription = "Remover",
-							tint = Color.White,
-							modifier = Modifier.size(11.dp)
-						)
+						Box(
+							modifier = Modifier
+								.size(18.dp)
+								.clip(CircleShape)
+								.background(Color(0xFFE53935)),
+							contentAlignment = Alignment.Center
+						) {
+							Icon(
+								imageVector = Icons.Default.Close,
+								contentDescription = "Remover",
+								tint = Color.White,
+								modifier = Modifier.size(11.dp)
+							)
+						}
 					}
 				}
 			}
@@ -2051,40 +2300,46 @@ fun CenteredAppLauncherSection(
 
 		// Slots vazios [+] visíveis no modo de edição
 		if (isDockEditMode) {
-			val emptyCount = (8 - validDockConfigs.size).coerceAtLeast(0)
+			val emptyCount = (maxRegularApps - validDockConfigs.size).coerceAtLeast(0)
 			for (i in 0 until emptyCount) {
 				val slotIndex = validDockConfigs.size + i
 				Box(
-					contentAlignment = Alignment.Center,
-					modifier = Modifier
-						.size(46.dp)
-						.clip(RoundedCornerShape(11.dp))
-						.border(
-							width = 1.2.dp,
-							color = Color(0xFF2196F3).copy(alpha = 0.5f),
-							shape = RoundedCornerShape(11.dp)
-						)
-						.background(Color(0xFF2196F3).copy(alpha = 0.08f))
-						.clickable {
-							BottomBarState.dockAddSlotIndex = slotIndex
-						}
+					modifier = Modifier.size(50.dp),
+					contentAlignment = Alignment.Center
 				) {
-					Icon(
-						imageVector = Icons.Default.Add,
-						contentDescription = "Adicionar ao Dock",
-						tint = Color(0xFF64B5F6),
-						modifier = Modifier.size(20.dp)
-					)
+					Box(
+						contentAlignment = Alignment.Center,
+						modifier = Modifier
+							.size(44.dp)
+							.clip(RoundedCornerShape(11.dp))
+							.border(
+								width = 1.2.dp,
+								color = Color(0xFF2196F3).copy(alpha = 0.5f),
+								shape = RoundedCornerShape(11.dp)
+							)
+							.background(Color(0xFF2196F3).copy(alpha = 0.08f))
+							.clickable {
+								BottomBarState.dockAddSlotIndex = slotIndex
+							}
+					) {
+						Icon(
+							imageVector = Icons.Default.Add,
+							contentDescription = "Adicionar ao Dock",
+							tint = Color(0xFF64B5F6),
+							modifier = Modifier.size(20.dp)
+						)
+					}
 				}
 			}
 		}
 
 		// 3.5. Slot Dinâmico para App Ativo que NÃO está fixado no Dock
-		val isDynamicAppVisible = remember(activePkg, validDockConfigs) {
+		val isDynamicAppVisible = remember(activePkg, validDockConfigs, isProjectionShortcutEnabled) {
 			activePkg.isNotBlank() &&
 			!validDockConfigs.any { it.packageName == activePkg } &&
 			!shouldHideFromAllApps(activePkg) &&
-			activePkg != context.packageName
+			activePkg != context.packageName &&
+			(!isProjectionShortcutEnabled || (activePkg != BOTTOM_BAR_CARPLAY_PACKAGE && activePkg != BOTTOM_BAR_ANDROID_AUTO_PACKAGE && !activePkg.contains("carplay", ignoreCase = true) && !activePkg.contains("androidauto", ignoreCase = true)))
 		}
 
 		if (isDynamicAppVisible) {
@@ -2116,72 +2371,74 @@ fun CenteredAppLauncherSection(
 			)
 
 			Box(
-				contentAlignment = Alignment.Center,
-				modifier = Modifier
-					.size(46.dp)
-					.clip(RoundedCornerShape(11.dp))
-					.background(dynamicColor)
-					.combinedClickable(
-						interactionSource = dynamicInteraction,
-						indication = null,
-						onClick = {
-							RecentAppsManager.recordAppLaunch(activePkg)
-							scope.launch {
-								br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, activePkg)
-							}
-						},
-						onLongClick = {
-							BottomBarState.isDockEditMode = true
-						}
-					)
+				modifier = Modifier.size(50.dp),
+				contentAlignment = Alignment.Center
 			) {
-				if (dynamicSubIcon == "youtube" || dynamicSubIcon == "youtube_music" || dynamicSubIcon == "gwm") {
-					Image(
-						painter = painterResource(
-							id = when (dynamicSubIcon) {
-								"youtube" -> R.drawable.ic_youtube_default
-								"youtube_music" -> R.drawable.ic_youtube_music_default
-								"gwm" -> R.drawable.ic_gwm
-								else -> R.drawable.ic_youtube_default
+				Box(
+					contentAlignment = Alignment.Center,
+					modifier = Modifier
+						.size(44.dp)
+						.clip(RoundedCornerShape(11.dp))
+						.background(dynamicColor)
+						.combinedClickable(
+							interactionSource = dynamicInteraction,
+							indication = null,
+							onClick = {
+								RecentAppsManager.recordAppLaunch(activePkg)
+								scope.launch {
+									br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, activePkg)
+								}
+							},
+							onLongClick = {
+								BottomBarState.isDockEditMode = true
 							}
-						),
-						contentDescription = dynamicDisplayName,
-						modifier = Modifier.size(38.dp)
-					)
-				} else if (dynamicSubVector != null) {
-					Icon(
-						imageVector = dynamicSubVector,
-						contentDescription = dynamicDisplayName,
-						tint = dynamicIconTint,
-						modifier = Modifier.size(38.dp)
-					)
-				} else {
-					AsyncImage(
-						model = ImageRequest.Builder(context).data(dynamicAppInfo.icon).build(),
-						contentDescription = dynamicDisplayName,
-						modifier = Modifier.size(38.dp)
+						)
+				) {
+					if (dynamicSubIcon == "youtube" || dynamicSubIcon == "youtube_music" || dynamicSubIcon == "gwm") {
+						Image(
+							painter = painterResource(
+								id = when (dynamicSubIcon) {
+									"youtube" -> R.drawable.ic_youtube_default
+									"youtube_music" -> R.drawable.ic_youtube_music_default
+									"gwm" -> R.drawable.ic_gwm
+									else -> R.drawable.ic_youtube_default
+								}
+							),
+							contentDescription = dynamicDisplayName,
+							modifier = Modifier.size(36.dp)
+						)
+					} else if (dynamicSubVector != null) {
+						Icon(
+							imageVector = dynamicSubVector,
+							contentDescription = dynamicDisplayName,
+							tint = dynamicIconTint,
+							modifier = Modifier.size(36.dp)
+						)
+					} else {
+						AsyncImage(
+							model = ImageRequest.Builder(context).data(dynamicAppInfo.icon).build(),
+							contentDescription = dynamicDisplayName,
+							modifier = Modifier.size(36.dp)
+						)
+					}
+
+					// Barra azul de app ativo
+					Box(
+						modifier = Modifier
+							.align(Alignment.BottomCenter)
+							.padding(bottom = 2.dp)
+							.size(width = 18.dp, height = 2.5.dp)
+							.clip(RoundedCornerShape(1.dp))
+							.background(Color(0xFF2196F3))
 					)
 				}
 
-				// Barra azul de app ativo
-				Box(
-					modifier = Modifier
-						.align(Alignment.BottomCenter)
-						.padding(bottom = 2.dp)
-						.size(width = 18.dp, height = 2.5.dp)
-						.clip(RoundedCornerShape(1.dp))
-						.background(Color(0xFF2196F3))
-				)
-
-				// Badge [ 📌 ] no modo de edição para fixar direto no dock
+				// Badge [ 📌 ] no modo de edição para fixar direto no dock (UNCROPPED)
 				if (isDockEditMode) {
 					Box(
 						modifier = Modifier
 							.align(Alignment.TopEnd)
-							.offset(x = 3.dp, y = (-3).dp)
-							.size(18.dp)
-							.clip(CircleShape)
-							.background(Color(0xFF4CAF50))
+							.size(24.dp)
 							.clickable {
 								scope.launch {
 									br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
@@ -2192,12 +2449,20 @@ fun CenteredAppLauncherSection(
 							},
 						contentAlignment = Alignment.Center
 					) {
-						Icon(
-							imageVector = Icons.Default.PushPin,
-							contentDescription = "Fixar no Dock",
-							tint = Color.White,
-							modifier = Modifier.size(11.dp)
-						)
+						Box(
+							modifier = Modifier
+								.size(18.dp)
+								.clip(CircleShape)
+								.background(Color(0xFF4CAF50)),
+							contentAlignment = Alignment.Center
+						) {
+							Icon(
+								imageVector = Icons.Default.PushPin,
+								contentDescription = "Fixar no Dock",
+								tint = Color.White,
+								modifier = Modifier.size(11.dp)
+							)
+						}
 					}
 				}
 			}
@@ -2498,28 +2763,25 @@ private fun BoxScope.BottomBarOldContent(
 
         Row(
                 modifier = Modifier.fillMaxWidth().fillMaxHeight(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
         ) {
-                // 1. App Switcher / Launcher Section on the LEFT (11%)
-                Box(
-                        modifier = Modifier.weight(0.11f),
-                        contentAlignment = Alignment.Center
-                ) {
+                // 1. App Switcher (11%)
+                Box(modifier = Modifier.weight(0.11f)) {
                         AppSwitcherSection()
                 }
 
-                // 2. Motorista Temp (14%)
+                // 2. AC Driver (14%)
                 Box(
                         modifier = Modifier.weight(0.14f),
                         contentAlignment = Alignment.Center
                 ) {
-                        TempControlSection(
+                        ClassicTempControlSection(
                                 label = "Motorista",
                                 temp = driverTemp,
                                 isEnabled = isACEnabled,
                                 sliderType = BottomBarState.SliderType.DRIVER_TEMP,
-                                onTempChange = { newTemp ->
+                                onValueChange = { delta ->
+                                        val newTemp = (driverTemp.toFloatOrNull() ?: 22.0f) + delta
                                         val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
                                         onDriverTempChange(formatted)
                                         serviceManager.updateData(
@@ -2539,7 +2801,7 @@ private fun BoxScope.BottomBarOldContent(
                         modifier = Modifier.weight(0.14f),
                         contentAlignment = Alignment.Center
                 ) {
-                        ControlsSection(scope)
+                        ClassicControlsSection(scope)
                 }
 
                 // 4. AC Fan Speed (14%)
@@ -2547,30 +2809,23 @@ private fun BoxScope.BottomBarOldContent(
                         modifier = Modifier.weight(0.14f),
                         contentAlignment = Alignment.Center
                 ) {
-                        FanControlSection(
+                        ClassicFanControlSection(
                                 speed = fanSpeed,
-                                isPowerOn = isACEnabled,
+                                isEnabled = true,
                                 sliderType = BottomBarState.SliderType.FAN,
-                                onSpeedChange = { newSpeed ->
-                                        onFanSpeedChange(newSpeed)
+                                onValueChange = { delta ->
+                                        val calculatedSpeed = (fanSpeed + delta).coerceIn(0, 7)
+                                        onFanSpeedChange(calculatedSpeed)
                                         serviceManager.updateData(
                                                 CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
-                                                newSpeed.toString()
+                                                calculatedSpeed.toString()
                                         )
-                                        if (newSpeed == 0 && isACEnabled) {
+                                        if (calculatedSpeed == 0 && isACEnabled) {
                                                 onHvacPowerChange("0")
                                                 serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "0")
-                                        } else if (newSpeed > 0 && !isACEnabled) {
+                                        } else if (calculatedSpeed > 0 && !isACEnabled) {
                                                 onHvacPowerChange("1")
                                                 serviceManager.updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1")
-                                        }
-                                },
-                                onFanClick = {
-                                        BottomBarState.isAcMenuExpanded = !BottomBarState.isAcMenuExpanded
-                                        if (BottomBarState.isAcMenuExpanded) {
-                                                BottomBarState.isMenuExpanded = false
-                                                BottomBarState.isSettingsMenuExpanded = false
-                                                BottomBarState.isOverrideMenuExpanded = false
                                         }
                                 }
                         )
@@ -2621,11 +2876,12 @@ private fun BoxScope.BottomBarOldContent(
                         modifier = Modifier.weight(0.14f),
                         contentAlignment = Alignment.Center
                 ) {
-                        VolumeControlSection(
+                        ClassicVolumeControlSection(
                                 label = "Volume",
                                 volume = volume,
                                 sliderType = BottomBarState.SliderType.VOLUME,
-                                onVolumeChange = { newVol ->
+                                onValueChange = { delta ->
+                                        val newVol = (volume + delta).coerceIn(0, 30)
                                         onVolumeChange(newVol)
                                         serviceManager.updateData(
                                                 CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(),
@@ -2640,12 +2896,13 @@ private fun BoxScope.BottomBarOldContent(
                         modifier = Modifier.weight(0.14f),
                         contentAlignment = Alignment.Center
                 ) {
-                        TempControlSection(
+                        ClassicTempControlSection(
                                 label = "Passageiro",
                                 temp = passTemp,
                                 isEnabled = isACEnabled,
                                 sliderType = BottomBarState.SliderType.PASS_TEMP,
-                                onTempChange = { newTemp ->
+                                onValueChange = { delta ->
+                                        val newTemp = (passTemp.toFloatOrNull() ?: 22.0f) + delta
                                         val formatted = String.format(java.util.Locale.US, "%.1f", newTemp)
                                         onPassTempChange(formatted)
                                         serviceManager.updateData(
@@ -2662,57 +2919,57 @@ private fun BoxScope.BottomBarOldContent(
 
                 // 8. Override Section (5%)
                 Box(
-                        modifier = Modifier.weight(0.05f),
-                        contentAlignment = Alignment.Center
-                ) {
-                        val isOverrideExpanded = BottomBarState.isOverrideMenuExpanded
-                        val overrideInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                        val overridePressed by overrideInteraction.collectIsPressedAsState()
-                        val overrideColor by animateColorAsState(
-                                targetValue = if (overridePressed || isOverrideExpanded) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
-                                animationSpec = tween(durationMillis = if (overridePressed) 50 else 300)
-                        )
-                        Box(
-                                modifier = Modifier
-                                        .fillMaxHeight()
+                        modifier =
+                                Modifier.weight(0.05f)
                                         .pointerInput(Unit) {
                                                 awaitPointerEventScope {
                                                         while (true) {
-                                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                                val down =
+                                                                        awaitFirstDown(
+                                                                                requireUnconsumed =
+                                                                                        false
+                                                                        )
                                                                 var totalDrag = 0f
                                                                 do {
-                                                                        val event = awaitPointerEvent()
-                                                                        val change = event.changes.first()
-                                                                        totalDrag += (change.position - change.previousPosition).getDistance()
-                                                                } while (event.changes.any { it.pressed })
+                                                                        val event =
+                                                                                awaitPointerEvent()
+                                                                        val change =
+                                                                                event.changes
+                                                                                        .first()
+                                                                        totalDrag +=
+                                                                                (change.position -
+                                                                                                change.previousPosition)
+                                                                                        .getDistance()
+                                                                } while (event.changes
+                                                                        .any {
+                                                                                it.pressed
+                                                                        })
                                                                 if (totalDrag < 30f) {
-                                                                        BottomBarState.isOverrideMenuExpanded = !BottomBarState.isOverrideMenuExpanded
-                                                                        if (BottomBarState.isOverrideMenuExpanded) {
-                                                                                BottomBarState.isMenuExpanded = false
-                                                                                BottomBarState.isSettingsMenuExpanded = false
-                                                                                BottomBarState.isAcMenuExpanded = false
+                                                                        BottomBarState
+                                                                                .isOverrideMenuExpanded =
+                                                                                !BottomBarState
+                                                                                        .isOverrideMenuExpanded
+                                                                        if (BottomBarState
+                                                                                        .isOverrideMenuExpanded
+                                                                        ) {
+                                                                                BottomBarState
+                                                                                        .isMenuExpanded =
+                                                                                        false
+                                                                                BottomBarState
+                                                                                        .isSettingsMenuExpanded =
+                                                                                        false
                                                                         }
                                                                 }
                                                         }
                                                 }
                                         },
-                                contentAlignment = Alignment.Center
-                        ) {
-                                Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier
-                                                .size(36.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(overrideColor)
-                                ) {
-                                        Icon(
-                                                Icons.Default.SwapVert,
-                                                contentDescription = "Override",
-                                                tint = if (isOverrideExpanded) Color(0xFF2196F3) else Color.White.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(24.dp)
-                                        )
-                                }
-                        }
+                        contentAlignment = Alignment.Center
+                ) {
+                        Icon(
+                                Icons.Default.SwapVert,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.8f)
+                        )
                 }
         }
 }
@@ -3025,7 +3282,7 @@ fun BottomBarContent() {
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.CenterEnd
                                 ) {
-                                        val effectiveRowPad = if (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key) rowStartPadAnimated else effectiveStartPad
+                                        val effectiveRowPad = if (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key) rowStartPadAnimated else rowStartPad
                                         Box(
                                                 modifier =
                                                         Modifier.fillMaxWidth()
@@ -4545,6 +4802,8 @@ fun BottomBarMenus() {
 
         val dashboardExpanded = BottomBarState.isDashboardExpanded
 
+        val isModern = BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key
+
         // The window hosting these menus is resized from 0x0 to full screen when one opens, and it is
         // anchored to the bottom, so the scrim and the menu would otherwise appear to sweep up from the
         // bottom edge as the window grows. Fade in instead. (Closing stays instant - the window is
@@ -4554,10 +4813,10 @@ fun BottomBarMenus() {
                         BottomBarState.isMenuExpanded ||
                         BottomBarState.isSettingsMenuExpanded ||
                         BottomBarState.isOverrideMenuExpanded ||
-                        BottomBarState.isAcMenuExpanded ||
-                        BottomBarState.dockAddSlotIndex != null ||
+                        (isModern && BottomBarState.isAcMenuExpanded) ||
+                        (isModern && BottomBarState.dockAddSlotIndex != null) ||
                         BottomBarState.activeSliderType != null ||
-                        BottomBarState.activeSwipeHud != null
+                        (isModern && BottomBarState.activeSwipeHud != null)
         val contentAlpha by
                 animateFloatAsState(
                         targetValue = if (anyExpanded) 1f else 0f,
@@ -4570,8 +4829,8 @@ fun BottomBarMenus() {
                         BottomBarState.isMenuExpanded ||
                         BottomBarState.isSettingsMenuExpanded ||
                         BottomBarState.isOverrideMenuExpanded ||
-                        BottomBarState.isAcMenuExpanded ||
-                        BottomBarState.dockAddSlotIndex != null
+                        (isModern && BottomBarState.isAcMenuExpanded) ||
+                        (isModern && BottomBarState.dockAddSlotIndex != null)
 
         Box(
                 modifier =
@@ -4582,7 +4841,7 @@ fun BottomBarMenus() {
                                         else if (isInteractiveMenuOpen) Color.Black.copy(alpha = 0.4f)
                                         else Color.Transparent
                                 )
-                                .pointerInput(appMenuBounds, secondaryMenuBounds, acMenuBounds, dockAddPickerBounds, dashboardExpanded, isInteractiveMenuOpen) {
+                                .pointerInput(appMenuBounds, secondaryMenuBounds, acMenuBounds, dockAddPickerBounds, dashboardExpanded, isInteractiveMenuOpen, isModern) {
                                         if (!dashboardExpanded && isInteractiveMenuOpen) {
                                                 detectTapGestures { offset ->
                                                         val insideAppMenu =
@@ -4599,10 +4858,10 @@ fun BottomBarMenus() {
                                                                                 ?.contains(offset) ==
                                                                                 true
                                                         val insideAcMenu =
-                                                                BottomBarState.isAcMenuExpanded &&
+                                                                isModern && BottomBarState.isAcMenuExpanded &&
                                                                         acMenuBounds?.contains(offset) == true
                                                         val insideDockPicker =
-                                                                BottomBarState.dockAddSlotIndex != null &&
+                                                                isModern && BottomBarState.dockAddSlotIndex != null &&
                                                                         dockAddPickerBounds?.contains(offset) == true
                                                         if (!insideAppMenu && !insideSecondaryMenu && !insideAcMenu && !insideDockPicker) {
                                                                 BottomBarState.isMenuExpanded = false
@@ -4636,8 +4895,8 @@ fun BottomBarMenus() {
                                         VerticalSliderOverlay()
                                 }
 
-                                // Floating Horizontal Swipe HUD Overlay (for both Modern and Classic bars)
-                                if (BottomBarState.activeSwipeHud != null) {
+                                // Floating Horizontal Swipe HUD Overlay (strictly Modern v2)
+                                if (isModern && BottomBarState.activeSwipeHud != null) {
                                         FloatingSwipeHudOverlay(hud = BottomBarState.activeSwipeHud!!)
                                 }
 
@@ -4670,8 +4929,8 @@ fun BottomBarMenus() {
                                                 }
                                         }
 
-                                        // AC Quick Menu (Above Fan Button) - for both Modern and Classic bars
-                                        if (BottomBarState.isAcMenuExpanded) {
+                                        // AC Quick Menu (Above Fan Button) - strictly Modern v2
+                                        if (isModern && BottomBarState.isAcMenuExpanded) {
                                                 val acMenuWidthDp = 420.dp
                                                 val density = LocalDensity.current
                                                 val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
@@ -4727,8 +4986,8 @@ fun BottomBarMenus() {
                                                 }
                                         }
 
-                                        // Mini Dock App Picker (when an empty [+] slot is clicked in edit mode)
-                                        if (BottomBarState.dockAddSlotIndex != null) {
+                                        // Mini Dock App Picker (when an empty [+] slot is clicked in edit mode) - strictly Modern v2
+                                        if (isModern && BottomBarState.dockAddSlotIndex != null) {
                                                 Box(
                                                         modifier =
                                                                 Modifier.padding(bottom = 10.dp)
@@ -8667,7 +8926,58 @@ fun SettingsCategoryRow(
 }
 
 @Composable
-fun OldTempControlSection(
+fun ClassicSmallButton(
+        icon: ImageVector,
+        enabled: Boolean = true,
+        iconSize: androidx.compose.ui.unit.Dp = 20.dp,
+        onClick: () -> Unit
+) {
+        val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val isPressed by interactionSource.collectIsPressedAsState()
+        val glowColor = Color(0xFF2196F3).copy(alpha = 0.35f)
+        val animatedColor by animateColorAsState(
+                targetValue = if (isPressed) glowColor else Color.Transparent,
+                animationSpec = tween(durationMillis = if (isPressed) 50 else 300)
+        )
+
+        Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                        .size(70.dp, 60.dp)
+                        .background(Color.Black.copy(alpha = 0.95f))
+                        .clickable(
+                                enabled = enabled,
+                                interactionSource = interactionSource,
+                                indication = null
+                        ) { onClick() }
+        ) {
+                val alpha = if (enabled) 1f else 0.4f
+                Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                                .fillMaxSize()
+                                .alpha(alpha)
+                ) {
+                        Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(animatedColor)
+                        ) {
+                                Icon(
+                                        icon,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(iconSize)
+                                )
+                        }
+                }
+        }
+}
+
+@Composable
+fun ClassicTempControlSection(
         label: String,
         temp: String,
         isEnabled: Boolean,
@@ -8680,7 +8990,7 @@ fun OldTempControlSection(
         val alpha = if (isTempValid) 1f else 0.4f
         var centerX by remember { mutableFloatStateOf(0f) }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.alpha(alpha)) {
-                SmallButton(Icons.Default.Remove, isTempValid) { onValueChange(-0.5f) }
+                ClassicSmallButton(Icons.Default.Remove, isTempValid) { onValueChange(-0.5f) }
                 Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
@@ -8714,12 +9024,12 @@ fun OldTempControlSection(
                                 modifier = Modifier.padding(horizontal = 4.dp)
                         )
                 }
-                SmallButton(Icons.Default.Add, isTempValid) { onValueChange(0.5f) }
+                ClassicSmallButton(Icons.Default.Add, isTempValid) { onValueChange(0.5f) }
         }
 }
 
 @Composable
-fun OldFanControlSection(
+fun ClassicFanControlSection(
         speed: Int,
         isEnabled: Boolean,
         sliderType: BottomBarState.SliderType? = null,
@@ -8728,7 +9038,7 @@ fun OldFanControlSection(
         val alpha = if (isEnabled) 1f else 0.4f
         var centerX by remember { mutableFloatStateOf(0f) }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.alpha(alpha)) {
-                SmallButton(Icons.Default.Remove, isEnabled) { onValueChange(-1) }
+                ClassicSmallButton(Icons.Default.Remove, isEnabled) { onValueChange(-1) }
                 Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
@@ -8747,19 +9057,18 @@ fun OldFanControlSection(
                                         }
                                 }
                 ) {
-                        Text(text = "Ventilação", style = labelStyle)
+                        Text(text = "Ventilação", style = labelStyle.copy(fontSize = 10.sp))
                         Text(
-                                text = "Nível $speed",
-                                style = commonTextStyle.copy(fontSize = 18.sp),
-                                modifier = Modifier.padding(horizontal = 4.dp)
+                                text = speed.toString(),
+                                style = commonTextStyle.copy(fontSize = 18.sp)
                         )
                 }
-                SmallButton(Icons.Default.Add, isEnabled) { onValueChange(1) }
+                ClassicSmallButton(Icons.Default.Add, isEnabled) { onValueChange(1) }
         }
 }
 
 @Composable
-fun OldVolumeControlSection(
+fun ClassicVolumeControlSection(
         label: String,
         volume: Int,
         sliderType: BottomBarState.SliderType? = null,
@@ -8767,11 +9076,11 @@ fun OldVolumeControlSection(
 ) {
         var centerX by remember { mutableFloatStateOf(0f) }
         Row(verticalAlignment = Alignment.CenterVertically) {
-                SmallButton(Icons.Default.Remove, true) { onValueChange(-1) }
+                ClassicSmallButton(Icons.Default.Remove) { onValueChange(-1) }
                 Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
-                                .width(120.dp)
+                                .width(60.dp)
                                 .onGloballyPositioned { coordinates ->
                                         centerX = coordinates.positionInRoot().x + coordinates.size.width / 2f
                                 }
@@ -8788,12 +9097,97 @@ fun OldVolumeControlSection(
                 ) {
                         Text(text = label, style = labelStyle)
                         Text(
-                                text = "$volume",
-                                style = commonTextStyle.copy(fontSize = 18.sp),
+                                text = volume.toString(),
+                                style = commonTextStyle,
                                 modifier = Modifier.padding(horizontal = 4.dp)
                         )
                 }
-                SmallButton(Icons.Default.Add, true) { onValueChange(1) }
+                ClassicSmallButton(Icons.Default.Add) { onValueChange(1) }
+        }
+}
+
+@Composable
+fun ClassicControlsSection(scope: CoroutineScope) {
+        Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+                val voltarInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val voltarPressed by voltarInteraction.collectIsPressedAsState()
+                val voltarColor by animateColorAsState(
+                        targetValue = if (voltarPressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
+                        animationSpec = tween(durationMillis = if (voltarPressed) 50 else 300)
+                )
+                Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                                .width(80.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(voltarColor)
+                                .clickable(
+                                        interactionSource = voltarInteraction,
+                                        indication = null
+                                ) {
+                                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                                ShizukuUtils.runCommandAndGetOutput(
+                                                        arrayOf("input", "keyevent", "4")
+                                                )
+                                        }
+                                }
+                                .padding(vertical = 6.dp)
+                ) {
+                        Text(
+                                text = "Voltar",
+                                style = labelStyle.copy(fontSize = 10.sp, color = Color.White)
+                        )
+                        Icon(
+                                Icons.AutoMirrored.Filled.Undo,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier.size(24.dp)
+                        )
+                }
+
+                val showSettings = BottomBarState.isSettingsMenuExpanded
+                val conducaoInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val conducaoPressed by conducaoInteraction.collectIsPressedAsState()
+                val conducaoColor by animateColorAsState(
+                        targetValue = if (conducaoPressed) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.Transparent,
+                        animationSpec = tween(durationMillis = if (conducaoPressed) 50 else 300)
+                )
+                Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                                .width(80.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(conducaoColor)
+                                .clickable(
+                                        interactionSource = conducaoInteraction,
+                                        indication = null
+                                ) {
+                                        BottomBarState.isSettingsMenuExpanded = !showSettings
+                                }
+                                .padding(vertical = 6.dp)
+                ) {
+                        Text(
+                                text = "Condução",
+                                style =
+                                        labelStyle.copy(
+                                                fontSize = 10.sp,
+                                                color =
+                                                        if (showSettings) Color(0xFF2196F3)
+                                                        else Color.White
+                                        )
+                        )
+                        Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                                Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = null,
+                                        tint = if (showSettings) Color(0xFF2196F3) else Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                )
+                        }
+                }
         }
 }
 
@@ -10070,17 +10464,16 @@ fun OverrideMenuContent() {
                                         BottomBarState.BarVersion.entries.forEach { option ->
                                                 val isSelected = BottomBarState.barVersion == option.key
                                                 Surface(
-                                                        modifier = Modifier
-                                                                .weight(1f)
-                                                                .clickable {
-                                                                        BottomBarState.barVersion = option.key
-                                                                        prefs.edit()
-                                                                                .putString(
-                                                                                        SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
-                                                                                        option.key
-                                                                                )
-                                                                                .apply()
-                                                                },
+                                                        onClick = {
+                                                                BottomBarState.barVersion = option.key
+                                                                prefs.edit()
+                                                                        .putString(
+                                                                                SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
+                                                                                option.key
+                                                                        )
+                                                                        .apply()
+                                                        },
+                                                        modifier = Modifier.weight(1f),
                                                         color = if (isSelected) Color(0xFF2196F3).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
                                                         shape = RoundedCornerShape(8.dp),
                                                         border = BorderStroke(
