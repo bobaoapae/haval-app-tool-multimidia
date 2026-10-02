@@ -172,6 +172,7 @@ dependencies {
     annotationProcessor(libs.annotation.processor)
     compileOnly(libs.annotation)
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20231013")
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
 }

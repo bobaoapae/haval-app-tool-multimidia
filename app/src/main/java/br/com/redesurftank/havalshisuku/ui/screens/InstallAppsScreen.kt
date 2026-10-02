@@ -46,6 +46,9 @@ import br.com.redesurftank.havalshisuku.models.AppInfo
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.ui.components.*
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
+import br.com.redesurftank.havalshisuku.utils.HomeManifest
+import br.com.redesurftank.havalshisuku.utils.HomeVerifyResult
+import br.com.redesurftank.havalshisuku.utils.ImpulseHomeUpdater
 import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -106,6 +109,11 @@ fun InstallAppsTab() {
     // A instalacao termina FORA daqui: startDownload entrega o APK ao instalador do sistema.
     // Entao a sugestao nao pode pendurar num callback - ela observa o pacote aparecer.
     var homeWasInstalled by remember { mutableStateOf(runCatching { pm.getPackageInfo(IMPULSE_HOME_PACKAGE, 0) }.isSuccess) }
+    // Manifesto assinado do viewer (latest.json). Quando disponivel, vale sobre a entrada do
+    // apps.json, que fica como espelho/fallback.
+    var homeManifest by remember { mutableStateOf<HomeManifest?>(null) }
+    var showHomeSignatureDialog by remember { mutableStateOf(false) }
+    var homeVerifyError by remember { mutableStateOf<String?>(null) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var diagnosticsText by remember { mutableStateOf("") }
     var appToUninstall by remember { mutableStateOf<String?>(null) }
@@ -185,6 +193,10 @@ fun InstallAppsTab() {
         }
     }
 
+    LaunchedEffect(Unit) {
+        homeManifest = withContext(Dispatchers.IO) { ImpulseHomeUpdater.fetchManifest() }
+    }
+
     fun getInstalledVersion(packageName: String): String? {
         @Suppress("UNUSED_VARIABLE")
         val trigger = refreshTrigger
@@ -251,6 +263,58 @@ fun InstallAppsTab() {
             } catch (e: Exception) {
                 Log.e(TAG, "Download failed", e)
             } finally {
+                downloadingApp = null
+            }
+        }
+    }
+
+    /** Instala o viewer a partir do manifesto: so chega ao instalador se hash e assinatura conferirem. */
+    fun startHomeDownload(manifest: HomeManifest) {
+        val installedSigners = ImpulseHomeUpdater.installedSigners(pm, IMPULSE_HOME_PACKAGE)
+        if (installedSigners.isNotEmpty() &&
+                        !ImpulseHomeUpdater.signerMatches(installedSigners, manifest.signerSha256)
+        ) {
+            showHomeSignatureDialog = true
+            return
+        }
+        homeVerifyError = null
+        downloadingApp = IMPULSE_HOME_PACKAGE
+        downloadProgress = downloadProgress.toMutableMap().apply { put(IMPULSE_HOME_PACKAGE, 0f) }
+        scope.launch(Dispatchers.IO) {
+            try {
+                val file = File(context.getExternalFilesDir(null), "$IMPULSE_HOME_PACKAGE.apk")
+                val result =
+                        ImpulseHomeUpdater.downloadAndVerify(pm, manifest, file) { p ->
+                            downloadProgress =
+                                    downloadProgress.toMutableMap().apply {
+                                        put(IMPULSE_HOME_PACKAGE, p)
+                                    }
+                        }
+                if (result is HomeVerifyResult.Failed) {
+                    homeVerifyError = "Download recusado: " + result.reason
+                    return@launch
+                }
+                withContext(Dispatchers.Main) {
+                    if (!pm.canRequestPackageInstalls()) {
+                        showPermissionDialog = true
+                        return@withContext
+                    }
+                    val uri =
+                            FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.provider",
+                                    file
+                            )
+                    context.startActivity(
+                            Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "application/vnd.android.package-archive")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                    )
+                }
+            } finally {
+                downloadProgress = downloadProgress.toMutableMap().apply { remove(IMPULSE_HOME_PACKAGE) }
                 downloadingApp = null
             }
         }
@@ -586,10 +650,25 @@ fun InstallAppsTab() {
         item {
             val homeInstalled = getInstalledVersion(IMPULSE_HOME_PACKAGE)
             val homeCatalog = apps.firstOrNull { it.packageName == IMPULSE_HOME_PACKAGE }
+            @Suppress("UNUSED_VARIABLE") val homeTrigger = refreshTrigger
+            val manifest = homeManifest
+            val installedCode = ImpulseHomeUpdater.installedVersionCode(pm, IMPULSE_HOME_PACKAGE)
             val homeUpdate =
-                    homeInstalled != null &&
-                            homeCatalog != null &&
-                            compareVersions(homeInstalled, homeCatalog.version) < 0
+                    if (manifest != null)
+                            installedCode != null &&
+                                    ImpulseHomeUpdater.isUpdateAvailable(installedCode, manifest)
+                    else
+                            homeInstalled != null &&
+                                    homeCatalog != null &&
+                                    compareVersions(homeInstalled, homeCatalog.version) < 0
+            val homeAvailable = manifest != null || homeCatalog != null
+            val homeBadSigner =
+                    manifest != null &&
+                            homeInstalled != null &&
+                            ImpulseHomeUpdater.installedSigners(pm, IMPULSE_HOME_PACKAGE).let {
+                                it.isNotEmpty() &&
+                                        !ImpulseHomeUpdater.signerMatches(it, manifest.signerSha256)
+                            }
             val homeProgress = downloadProgress[IMPULSE_HOME_PACKAGE]
             FeatureCard(
                     icon = Icons.Default.DirectionsCar,
@@ -602,20 +681,25 @@ fun InstallAppsTab() {
                             when {
                                 homeProgress != null ->
                                         "Baixando " + (homeProgress * 100).toInt() + "%"
+                                homeVerifyError != null -> homeVerifyError!!
+                                homeBadSigner -> "Assinatura invalida"
                                 homeUpdate -> "Atualizacao disponivel"
                                 homeInstalled != null -> "v" + homeInstalled
-                                homeCatalog != null -> "Nao instalado"
+                                homeAvailable -> "Nao instalado"
                                 else -> "Indisponivel no catalogo"
                             },
                     statusTint =
                             if (homeInstalled != null) ImpTokens.Accent else ImpTokens.TextSecondary
             ) {
-                if (homeCatalog != null && (homeInstalled == null || homeUpdate)) {
+                if (homeAvailable && (homeInstalled == null || homeUpdate || homeBadSigner)) {
                     CardButton(
-                            if (homeUpdate) "Atualizar" else "Instalar",
+                            if (homeUpdate || homeBadSigner) "Atualizar" else "Instalar",
                             ImpTokens.Accent,
                             enabled = homeProgress == null
-                    ) { startDownload(homeCatalog) }
+                    ) {
+                        if (manifest != null) startHomeDownload(manifest)
+                        else if (homeCatalog != null) startDownload(homeCatalog)
+                    }
                 } else if (homeInstalled != null) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -909,6 +993,32 @@ fun InstallAppsTab() {
 
     if (showStartupApps) {
         StartupAppsDialog(onDismiss = { showStartupApps = false })
+    }
+
+    if (showHomeSignatureDialog) {
+        AlertDialog(
+                onDismissRequest = { showHomeSignatureDialog = false },
+                title = { Text("Assinatura invalida") },
+                text = {
+                    Text(
+                            "Identificamos uma assinatura invalida no app ja instalado. " +
+                                    "Remova o app e entao instale a partir do nosso link para " +
+                                    "que venha de uma fonte confiavel."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                            onClick = {
+                                showHomeSignatureDialog = false
+                                appToUninstall = IMPULSE_HOME_PACKAGE
+                                appNameToUninstall = "Impulse Launcher"
+                            }
+                    ) { Text("Remover app") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showHomeSignatureDialog = false }) { Text("Cancelar") }
+                }
+        )
     }
 
     if (showPermissionDialog) {
