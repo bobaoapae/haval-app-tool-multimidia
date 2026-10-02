@@ -237,6 +237,7 @@ class BottomBarService : LifecycleService() {
     private val HOLD_SETTLE_MS = 250L
     /** De quanto em quanto tempo conferir se o painel voltou. */
     private val LEFT_NAV_PANE_POLL_MS = 5_000L
+    private val LEFT_NAV_PANE_CHECK_DELAYS_MS = longArrayOf(450L, 900L, 1_500L)
 
 
     /** Esconde a navegacao para todos os apps. */
@@ -320,7 +321,11 @@ class BottomBarService : LifecycleService() {
      * O grep roda NO CARRO: o dump lista todas as janelas, e so as poucas linhas que importam
      * atravessam.
      */
-    private fun isLeftNavPaneVisible(): Boolean = try {
+    private fun isLeftNavPaneVisible(): Boolean =
+            readLeftNavPaneVisible() ?: false // na duvida NAO escreve: escrever as cegas e o que fazia piscar
+
+    /** `true`/`false` as reported by the window manager, `null` when it couldn't be read. */
+    private fun readLeftNavPaneVisible(): Boolean? = try {
         val out = ShizukuUtils.runCommandAndGetOutput(
                 arrayOf(
                         "sh", "-c",
@@ -328,10 +333,43 @@ class BottomBarService : LifecycleService() {
                                 "grep -A 40 'Window{.*NavigationBar}' | grep -m1 'isVisible='"
                 )
         )
-        out.contains("isVisible=true")
+        when {
+            out.contains("isVisible=true") -> true
+            out.contains("isVisible=false") -> false
+            else -> null
+        }
     } catch (t: Throwable) {
         Log.w("BottomBarService", "[NAV_PANE] nao deu pra ler o estado do painel", t)
-        false // na duvida NAO escreve: escrever as cegas e o que fazia piscar
+        null
+    }
+
+    private var leftNavPaneCheckJob: Job? = null
+
+    /**
+     * Read-only: refreshes [BottomBarState.leftNavPaneShown] (v2 bar: wide/compact Enviar-Trazer and
+     * the slide into the freed gutter). Never writes any setting and has no timer.
+     *
+     * The pane follows the foreground app: measured on the car, SystemUI changes the system UI flags
+     * ~0.4 s (hide) to ~0.7 s (show) after our own window-change event. So a check is scheduled on that
+     * event, with a few reads spread over the next ~3 s to land after the pane has settled; a newer
+     * event cancels the older sequence. Known limit: a manual edge swipe that reveals the pane inside
+     * an immersive app does not change the foreground app, so it is only noticed on the next event.
+     */
+    private fun scheduleLeftNavPaneCheck(reason: String) {
+        if (BottomBarState.barVersion != BottomBarState.BarVersion.NEW.key) return
+        leftNavPaneCheckJob?.cancel()
+        leftNavPaneCheckJob =
+                lifecycleScope.launch(Dispatchers.IO) {
+                    for (wait in LEFT_NAV_PANE_CHECK_DELAYS_MS) {
+                        delay(wait)
+                        if (!ServiceManager.getInstance().isMainScreenOn) return@launch
+                        val visible = readLeftNavPaneVisible() ?: continue
+                        if (BottomBarState.leftNavPaneShown != visible) {
+                            Log.w("BottomBarService", "[NAV_PANE] shown=$visible ($reason)")
+                            BottomBarState.leftNavPaneShown = visible
+                        }
+                    }
+                }
     }
 
     /** Apaga e reescreve pra forcar o sistema a reaplicar. Só chamado com o painel JÁ visível. */
@@ -517,6 +555,7 @@ class BottomBarService : LifecycleService() {
 
         showBottomBar()
         startLeftNavPaneWatcher()
+        scheduleLeftNavPaneCheck("start")
         observeMenuState()
         observeDashboardActivityState()
         observeVisibility()
@@ -4194,10 +4233,16 @@ class BottomBarService : LifecycleService() {
                                 // there is nothing of ours to touch there. When Android Auto owns
                                 // display 0, also clear the AA left-rail cutout (see
                                 // resolveBottomBarTouchableLeftPx).
+                                // v2 slides its content into the gutter while the pane is hidden, so that strip
+                                // is ours to touch then.
+                                val paneHiddenOnV2 =
+                                        BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key &&
+                                                !BottomBarState.leftNavPaneShown
                                 val left =
                                         resolveBottomBarTouchableLeftPx(
                                                 overlayLeftGutterPx =
-                                                        BottomBarState.overlayLeftGutterPx,
+                                                        if (paneHiddenOnV2) 0
+                                                        else BottomBarState.overlayLeftGutterPx,
                                                 androidAutoOnMainDisplay =
                                                         isAndroidAutoShownOnMainDisplay(
                                                                 BottomBarState.currentPackage
@@ -4267,6 +4312,7 @@ class BottomBarService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        leftNavPaneCheckJob?.cancel()
         monitoringJob?.cancel()
         autoHideJob?.cancel()
         mediaAccessMonitorJob?.cancel()
@@ -4584,6 +4630,7 @@ class BottomBarService : LifecycleService() {
         @Volatile private var instance: BottomBarService? = null
 
         fun requestBarRestoreAfterExternalFocus(packageName: String?, reason: String) {
+            instance?.scheduleLeftNavPaneCheck(reason)
             instance?.restoreBarAfterExternalFocus(packageName, reason)
         }
 

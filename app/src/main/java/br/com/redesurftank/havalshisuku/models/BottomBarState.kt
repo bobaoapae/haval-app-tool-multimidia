@@ -38,6 +38,12 @@ object BottomBarState {
      */
     var leftNavPaneHidden by mutableStateOf(false)
 
+    /**
+     * Whether the left navigation pane is actually on screen right now (read from the window manager by
+     * BottomBarService). Defaults to true, the safe/compact assumption when it can't be read.
+     */
+    var leftNavPaneShown by mutableStateOf(true)
+
     /** What a swipe up on the bar does. Values are [SwipeUpAction.key]. */
     var swipeUpAction by mutableStateOf(SwipeUpAction.DASHBOARD.key)
 
