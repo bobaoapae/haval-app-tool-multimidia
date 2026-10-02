@@ -8646,16 +8646,67 @@ object DisplayAppLauncher {
             if (fromStacks != null) return fromStacks
 
             // Fallback to dumpsys if am stack list is not helping
-            val output = ShizukuUtils.runCommandAndGetOutput(
-                arrayOf("sh", "-c", "dumpsys activity activities | sed -n '/Display #$displayId/,/Display #/p' | grep -E 'mResumedActivity|mCurrentFocus|mFocusedActivity'")
-            )
-            val regex2 = Regex("""([a-zA-Z0-9._]+)/[.${'$'}a-zA-Z0-9._]+""")
-            val match = regex2.find(output)
-            return match?.groupValues?.get(1)
+            return topPackageFromActivitiesDumpFallback(displayId)
         } catch (e: Exception) {
             Log.e(TAG, "Error getting top package for display $displayId", e)
         }
         return null
+    }
+
+    /**
+     * The `dumpsys activity activities` fallback of [getTopPackageOnDisplay], measured on the car as
+     * the busiest Shizuku command (~158 of ~306 commands/min, 2026-10-02): with nothing on display
+     * 1/3, every projection check fell through to it. Each Shizuku command is retained by
+     * shizuku_server until our process dies (see .ai-context/HANDOFF.md), so the count matters.
+     *
+     * One dump now covers every display (the per-display `sed` range is applied here instead of on
+     * the car), and a dump is reused for [TOP_PACKAGE_DUMPSYS_NEGATIVE_TTL_MS] only while it still
+     * says "nothing on this display", which is what the fresher `am stack list` snapshot just said
+     * too (both read the same ActivityManager state). A cached dump that names a package is never
+     * trusted: that answer is always re-read, as before. [sh] mutations drop the cache.
+     */
+    private fun topPackageFromActivitiesDumpFallback(displayId: Int): String? {
+        val cached = cachedActivitiesTopDump
+        if (cached != null &&
+            SystemClock.elapsedRealtime() - cachedActivitiesTopDumpAtMs < TOP_PACKAGE_DUMPSYS_NEGATIVE_TTL_MS &&
+            topPackageFromActivitiesDumpForTest(cached, displayId) == null
+        ) {
+            return null
+        }
+        val dump = ShizukuUtils.runCommandAndGetOutput(
+            arrayOf("sh", "-c", "dumpsys activity activities | grep -E 'Display #|mResumedActivity|mCurrentFocus|mFocusedActivity'")
+        )
+        // An empty dump is a failed read (a real one always lists `Display #` headers): don't cache it.
+        if (dump.isNotBlank()) {
+            cachedActivitiesTopDump = dump
+            cachedActivitiesTopDumpAtMs = SystemClock.elapsedRealtime()
+        }
+        return topPackageFromActivitiesDumpForTest(dump, displayId)
+    }
+
+    /**
+     * Same selection as the former on-device pipeline
+     * `sed -n '/Display #<id>/,/Display #/p' | grep -E 'mResumedActivity|mCurrentFocus|mFocusedActivity'`
+     * followed by the first `package/activity` match, applied to a dump already filtered to the
+     * `Display #` headers and focus lines. Like sed, the end of a range is only looked for from the
+     * line after its start, and a later header naming [displayId] again opens a new range.
+     */
+    internal fun topPackageFromActivitiesDumpForTest(dump: String, displayId: Int): String? {
+        val startMarker = "Display #$displayId"
+        val focusLine = Regex("mResumedActivity|mCurrentFocus|mFocusedActivity")
+        val selected = StringBuilder()
+        var inRange = false
+        for (line in dump.lines()) {
+            if (!inRange) {
+                if (!line.contains(startMarker)) continue
+                inRange = true
+            } else if (line.contains("Display #")) {
+                inRange = false
+            }
+            if (focusLine.containsMatchIn(line)) selected.append(line).append('\n')
+        }
+        val regex2 = Regex("""([a-zA-Z0-9._]+)/[.${'$'}a-zA-Z0-9._]+""")
+        return regex2.find(selected)?.groupValues?.get(1)
     }
 
     /**
@@ -8750,10 +8801,18 @@ object DisplayAppLauncher {
     @Volatile private var cachedStackListAtMs = 0L
     private val stackListCacheLock = Any()
 
+    /** See [topPackageFromActivitiesDumpFallback]. */
+    private const val TOP_PACKAGE_DUMPSYS_NEGATIVE_TTL_MS = 2_000L
+
+    @Volatile private var cachedActivitiesTopDump: String? = null
+    @Volatile private var cachedActivitiesTopDumpAtMs = 0L
+
     private fun invalidateStackListCache() {
         synchronized(stackListCacheLock) {
             cachedStackList = null
             cachedStackListAtMs = 0L
+            cachedActivitiesTopDump = null
+            cachedActivitiesTopDumpAtMs = 0L
         }
     }
 
