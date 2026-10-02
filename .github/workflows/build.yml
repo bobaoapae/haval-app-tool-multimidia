@@ -76,10 +76,21 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
         run: |
+          EXTRA_GRADLE_ARGS=""
+          if [ -n "$POSTHOG_API_KEY" ]; then
+            EXTRA_GRADLE_ARGS="$EXTRA_GRADLE_ARGS -PposthogApiKey=$POSTHOG_API_KEY"
+          fi
+          if [ -n "$POSTHOG_HOST" ]; then
+            EXTRA_GRADLE_ARGS="$EXTRA_GRADLE_ARGS -PposthogHost=$POSTHOG_HOST"
+          fi
+
           ./gradlew assembleRelease \
             -PappVersionName=${{ steps.version.outputs.new_version }} \
-            -PappVersionCode=${{ steps.version.outputs.new_version_code }}
+            -PappVersionCode=${{ steps.version.outputs.new_version_code }} \
+            $EXTRA_GRADLE_ARGS
 
       - name: Create Release
         run: |
