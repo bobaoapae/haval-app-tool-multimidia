@@ -1171,7 +1171,7 @@ export function createGraphScreen() {
     const MASK_MODE_KEYS = [
         'appDisplayMode', 'app_display_mode',
         'navigationDisplayMode', 'navigation_display_mode',
-        'appInDash', 'carPlayInDash', 'projectionMirrorInDash', 'projectionPreparingD3'
+        'appInDash', 'carPlayInDash', 'projectionMirrorInDash', 'aaClusterInDash', 'projectionPreparingD3'
     ];
     const unsubMaskMode = MASK_MODE_KEYS.map((key) =>
         subscribe(key, () => requestAnimationFrame(ensureChartVisible))

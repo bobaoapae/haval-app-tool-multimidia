@@ -25,7 +25,21 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
         "car.hvac.driver_temperature",
         "car.hvac.cycle_mode",
         "car.hvac.auto_enable",
-        "car.hvac.anion_enable"
+        "car.hvac.anion_enable",
+        // Climate popup in com.havalh6.viewer (docs/climate-card there).
+        "car.hvac.pass_temperature",
+        "car.hvac.blower_mode",
+        "car.hvac.sync_enable",
+        "car.hvac.ac_enable",
+        "car.hvac.front_defrost_enable",
+        "car.hvac.rear_defrost_enable",
+        "car.hvac.aqs_enable",
+        "car.hvac.heating_enable",
+        "car.hvac.setting.comfort_curve",
+        "car.hvac.setting.auto_defrost_enable",
+        "car.hvac.setting.limit_enable",
+        "car.comfort_setting.driver_seat_ventilation_level",
+        "car.comfort_setting.passenger_seat_ventilation_level"
     )
 
     private val readableContractKeys: Set<String> by lazy {
@@ -53,13 +67,27 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
         val safeY = y.coerceIn(0, 719)
         val safeWidth = width.coerceIn(1, 1920 - safeX)
         val safeHeight = height.coerceIn(1, 720 - safeY)
-        Log.d(
+        val next = intArrayOf(safeX, safeY, safeWidth, safeHeight)
+        // Themes call this from render() on every state tick. Same rect must be a
+        // no-op: refreshDisplayBounds used to clear lastAppliedConfigs and kick
+        // resizeApp → APP_GEOMETRY_CHANGED → appInDash push → render → here again,
+        // which buried D3 apps under the native mask and starved Shizuku.
+        val prev = DisplayAppLauncher.dynamicThemeBounds
+        if (prev != null &&
+            prev.size == 4 &&
+            prev[0] == next[0] &&
+            prev[1] == next[1] &&
+            prev[2] == next[2] &&
+            prev[3] == next[3]
+        ) {
+            return
+        }
+        Log.w(
             TAG,
             "setAppDefaultDimensions requested=($x,$y ${width}x$height) " +
                 "applied=($safeX,$safeY ${safeWidth}x$safeHeight)"
         )
-        DisplayAppLauncher.dynamicThemeBounds =
-            intArrayOf(safeX, safeY, safeWidth, safeHeight)
+        DisplayAppLauncher.dynamicThemeBounds = next
         context.refreshDisplayBounds()
     }
 
@@ -393,7 +421,6 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             val keysToMonitor = mutableListOf<String>()
             val pendingInitialVehicleKeys = mutableListOf<Pair<String, String>>()
             var subscriptionsChanged = false
-            val contextApp = App.getContext()
             val serviceManager = ServiceManager.getInstance()
             for (i in 0 until jsonArray.length()) {
                 val rawKey = jsonArray.getString(i)
@@ -419,7 +446,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
                     // would clobber the correct value with an empty string right after load —
                     // this is only registering for future PreferencePushListener pushes.
                 } else if (canonicalKey.startsWith("app.")) {
-                    val virtualVal = VirtualTelemetryManager.getVirtualValue(contextApp, canonicalKey)
+                    val virtualVal = readAppTelemetry(canonicalKey)
                     pushValueToTheme(rawKey, virtualVal)
                 } else {
                     keysToMonitor.add(canonicalKey)
@@ -479,10 +506,27 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             return context.getExtendedTelemetryValue(canonicalKey).orEmpty()
         }
         if (canonicalKey.startsWith("app.")) {
-            return VirtualTelemetryManager.getVirtualValue(App.getContext(), canonicalKey)
+            return readAppTelemetry(canonicalKey)
         }
         val valStr = ServiceManager.getInstance().getData(canonicalKey)
         return valStr ?: ""
+    }
+
+    /**
+     * Theme → native: show or hide the Android Auto CLUSTER map on display 3.
+     * MAIN Android Auto stays on display 0. Does not persist across disconnects.
+     */
+    @JavascriptInterface
+    fun setAaClusterMapEnabled(enabled: Boolean) {
+        Log.w(TAG, "setAaClusterMapEnabled enabled=$enabled")
+        br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController
+            .setClusterMapEnabled(enabled, "theme")
+    }
+
+    private fun readAppTelemetry(canonicalKey: String): String {
+        val cached = ServiceManager.getInstance().peekCachedData(canonicalKey)
+        if (!cached.isNullOrEmpty()) return cached
+        return VirtualTelemetryManager.getVirtualValue(App.getContext(), canonicalKey)
     }
 
     @JavascriptInterface
@@ -543,10 +587,16 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "car.drive_setting.steering_wheel_assist_mode",
             "car.ev_setting.energy_recovery_level",
             "car.ev.setting.pedal_control_enable",
+            "car.ev_setting.power_reserve_config",
+            "car.ev_setting.charge_soc_target_config",
             "car.ev_info.energy_output_percentage",
             "car.ev_info.cur_charge_current",
             "car.ev_info.power_battery_voltage",
             "car.ev_info.Instant_energy_consumption",
+            "car.ev_info.energy_drive_state",
+            "car.ev_info.charging_state",
+            "haval.power.flow",
+            "haval.power.ice",
             "car.hvac.power_mode",
             "car.hvac.fan_speed",
             "car.hvac.driver_temperature",
@@ -560,6 +610,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "app.display.3.active_app_label",
             "app.display.3.active_app_icon",
             "app.launcher.apps",
+            "app.androidauto.session",
             "app.navigation.directions",
             "app.media.state",
             "app.media.title",
@@ -576,6 +627,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "bsdRight",
             "carPlayInDash",
             "projectionMirrorInDash",
+            "aaClusterInDash",
             "projectionPreparingD3",
             "projectionCardOverlayAllowed",
             "warningActive",

@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -23,6 +24,9 @@
     <!-- Contador de dados móveis do carro (NetworkStatsManager): concedidas via Shizuku no boot. -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.READ_NETWORK_USAGE_HISTORY" tools:ignore="ProtectedPermissions" />
+    <!-- Publishes the shared /sdcard/AppIconOverrides/ registry; see docs/ICON_OVERRIDES.md
+         in the h6-3d viewer repo. Android 9 (this MMI) has no scoped storage. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
     <application
         android:name="br.com.redesurftank.App"
@@ -85,6 +89,18 @@
                 <action android:name="br.com.redesurftank.havalshisuku.ACTION_START_SERVICE" />
             </intent-filter>
         </service>
+        <!-- The H6 3D viewer binds here to own the A/C popup: while it holds the lease the OEM
+             climate app is kept disabled. Exported because the viewer is another package; the
+             lease itself is granted only to a caller that proves its identity with a PendingIntent
+             (see ViewerClimateBridgeService), so binding alone grants nothing. -->
+        <service
+            android:name=".services.ViewerClimateBridgeService"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_CLIMATE_BRIDGE" />
+            </intent-filter>
+        </service>
         <service
             android:name=".services.FridaTakeActionService"
             android:enabled="true"
@@ -98,7 +114,7 @@
         <service
             android:name=".services.BottomBarService"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="true" />
 
         <service
             android:name=".ambientlight.AmbientLightService"
@@ -196,6 +212,46 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="br.com.redesurftank.havalshisuku.ACTION_UPDATE_OVERSCAN" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.CarDataWriteReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_UPDATE_CAR_DATA" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.TaskResolveReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_RESOLVE_TASK" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.TaskBoundsReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_SET_TASK_BOUNDS" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.AaClusterCommandReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_AA_CLUSTER" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.VehicleCommandReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_VEHICLE_COMMAND" />
             </intent-filter>
         </receiver>
 

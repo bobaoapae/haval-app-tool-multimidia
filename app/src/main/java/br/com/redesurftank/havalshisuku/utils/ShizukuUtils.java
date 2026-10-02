@@ -1,7 +1,9 @@
 package br.com.redesurftank.havalshisuku.utils;
 
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -9,6 +11,7 @@ import java.io.FileInputStream;
 import java.io.InputStreamReader;
 import java.util.concurrent.CountDownLatch;
 
+import br.com.redesurftank.havalshisuku.BuildConfig;
 import br.com.redesurftank.havalshisuku.models.CommandListener;
 import moe.shizuku.server.IRemoteProcess;
 import moe.shizuku.server.IShizukuService;
@@ -17,20 +20,54 @@ import rikka.shizuku.Shizuku;
 public class ShizukuUtils {
 
     private static final String TAG = "ShizukuUtils";
+    private static final String STATS_TAG = "ShizukuCmdStats";
+    private static final ShizukuCommandStats STATS = new ShizukuCommandStats();
+    /** Largest stdout kept by {@link #runCommandAndGetOutput}; full `dumpsys` reads here are < 1 MB. */
+    static final int MAX_OUTPUT_CHARS = 4 * 1024 * 1024;
 
     public static boolean isShizukuAvailable() {
         return Shizuku.pingBinder();
     }
 
+    /**
+     * Debug-only accounting of every command (see {@link ShizukuCommandStats}). Logs one report
+     * per minute of activity under {@value #STATS_TAG} (WARN level).
+     */
+    private static void recordStats(String[] command, long startMs, boolean failed) {
+        if (!BuildConfig.DEBUG) return;
+        try {
+            long now = SystemClock.elapsedRealtime();
+            String key = ShizukuCommandStats.commandHead(command)
+                    + (Looper.myLooper() == Looper.getMainLooper() ? " [MAIN]" : "") + " @ "
+                    + ShizukuCommandStats.callerOf(new Throwable().getStackTrace(), "br.com.redesurftank.havalshisuku");
+            String report = STATS.record(key, startMs >= 0 ? now - startMs : -1, failed, now);
+            // WARN: the head unit sets persist.log.tag=WARN, so INFO lines never reach logcat.
+            if (report != null) Log.w(STATS_TAG, report);
+        } catch (Throwable ignored) {
+        }
+    }
+
     public static String runCommandAndGetOutput(String[] command) {
+        long startMs = SystemClock.elapsedRealtime();
+        boolean[] failed = {false};
+        try {
+            return runCommandAndGetOutputImpl(command, failed);
+        } finally {
+            recordStats(command, startMs, failed[0]);
+        }
+    }
+
+    private static String runCommandAndGetOutputImpl(String[] command, boolean[] failed) {
         IBinder binder = Shizuku.getBinder();
         if (binder == null) {
             Log.e(TAG, "Shizuku binder is null. Is Shizuku running?");
+            failed[0] = true;
             return "";
         }
         IShizukuService shizukuService = IShizukuService.Stub.asInterface(binder);
         if (shizukuService == null) {
             Log.e(TAG, "Shizuku service is null. Is Shizuku running?");
+            failed[0] = true;
             return "";
         }
         IRemoteProcess process = null;
@@ -42,6 +79,10 @@ public class ShizukuUtils {
                     if (process != null) break;
                 } catch (Exception e) {
                     if (retries == 2) throw e;
+                    // Server gone (OOM restart, see ShizukuCommandStats): sleeping won't bring it back
+                    // within this call, and the caller may be a UI thread. Fail now; the next call
+                    // runs against the new binder once ForegroundService has re-bound it.
+                    if (!Shizuku.pingBinder()) throw e;
                     Thread.sleep(500);
                     IBinder b = Shizuku.getBinder();
                     if (b != null) shizukuService = IShizukuService.Stub.asInterface(b);
@@ -87,7 +128,17 @@ public class ShizukuUtils {
             if (pfdIn != null) {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(pfdIn.getFileDescriptor())))) {
                     String line;
+                    boolean truncated = false;
                     while ((line = reader.readLine()) != null) {
+                        // Keep draining past the cap so the process (and the server's copy thread)
+                        // can finish; only stop keeping it in our heap.
+                        if (output.length() + line.length() >= MAX_OUTPUT_CHARS) {
+                            if (!truncated) {
+                                truncated = true;
+                                Log.w(TAG, "Output over " + MAX_OUTPUT_CHARS + " chars, truncated: " + String.join(" ", command));
+                            }
+                            continue;
+                        }
                         output.append(line).append("\n");
                     }
                 } catch (Exception e) {
@@ -128,6 +179,7 @@ public class ShizukuUtils {
 
         } catch (Exception e) {
             Log.e(TAG, "Error running command: " + String.join(" ", command), e);
+            failed[0] = true;
             return "";
         } finally {
             if (process != null) {
@@ -141,6 +193,7 @@ public class ShizukuUtils {
     }
 
     public static String runCommandAndWaitForString(String[] command, String... targetStrings) {
+        recordStats(command, -1, false);
         IBinder binder = Shizuku.getBinder();
         if (binder == null) {
             Log.e(TAG, "Shizuku binder is null. Is Shizuku running?");
@@ -272,6 +325,7 @@ public class ShizukuUtils {
     }
 
     public static void runCommandOnBackground(String[] command, CommandListener listener) {
+        recordStats(command, -1, false);
         IBinder binder = Shizuku.getBinder();
         if (binder == null) {
             Log.e(TAG, "Shizuku binder is null. Is Shizuku running?");

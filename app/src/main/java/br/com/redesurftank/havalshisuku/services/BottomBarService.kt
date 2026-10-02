@@ -237,6 +237,7 @@ class BottomBarService : LifecycleService() {
     private val HOLD_SETTLE_MS = 250L
     /** De quanto em quanto tempo conferir se o painel voltou. */
     private val LEFT_NAV_PANE_POLL_MS = 5_000L
+    private val LEFT_NAV_PANE_CHECK_DELAYS_MS = longArrayOf(450L, 900L, 1_500L)
 
 
     /** Esconde a navegacao para todos os apps. */
@@ -271,7 +272,7 @@ class BottomBarService : LifecycleService() {
     private fun isClusterProjectionDashboardEnabled(): Boolean =
             br.com.redesurftank.App.getDeviceProtectedContext()
                     .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
-                    .getBoolean(SharedPreferencesKeys.CLUSTER_PROJECTION_OPENS_DASHBOARD.key, true)
+                    .getBoolean(SharedPreferencesKeys.CLUSTER_PROJECTION_OPENS_DASHBOARD.key, false)
 
     private var leftNavPaneRehideJob: Job? = null
 
@@ -320,7 +321,11 @@ class BottomBarService : LifecycleService() {
      * O grep roda NO CARRO: o dump lista todas as janelas, e so as poucas linhas que importam
      * atravessam.
      */
-    private fun isLeftNavPaneVisible(): Boolean = try {
+    private fun isLeftNavPaneVisible(): Boolean =
+            readLeftNavPaneVisible() ?: false // na duvida NAO escreve: escrever as cegas e o que fazia piscar
+
+    /** `true`/`false` as reported by the window manager, `null` when it couldn't be read. */
+    private fun readLeftNavPaneVisible(): Boolean? = try {
         val out = ShizukuUtils.runCommandAndGetOutput(
                 arrayOf(
                         "sh", "-c",
@@ -328,10 +333,43 @@ class BottomBarService : LifecycleService() {
                                 "grep -A 40 'Window{.*NavigationBar}' | grep -m1 'isVisible='"
                 )
         )
-        out.contains("isVisible=true")
+        when {
+            out.contains("isVisible=true") -> true
+            out.contains("isVisible=false") -> false
+            else -> null
+        }
     } catch (t: Throwable) {
         Log.w("BottomBarService", "[NAV_PANE] nao deu pra ler o estado do painel", t)
-        false // na duvida NAO escreve: escrever as cegas e o que fazia piscar
+        null
+    }
+
+    private var leftNavPaneCheckJob: Job? = null
+
+    /**
+     * Read-only: refreshes [BottomBarState.leftNavPaneShown] (v2 bar: wide/compact Enviar-Trazer and
+     * the slide into the freed gutter). Never writes any setting and has no timer.
+     *
+     * The pane follows the foreground app: measured on the car, SystemUI changes the system UI flags
+     * ~0.4 s (hide) to ~0.7 s (show) after our own window-change event. So a check is scheduled on that
+     * event, with a few reads spread over the next ~3 s to land after the pane has settled; a newer
+     * event cancels the older sequence. Known limit: a manual edge swipe that reveals the pane inside
+     * an immersive app does not change the foreground app, so it is only noticed on the next event.
+     */
+    private fun scheduleLeftNavPaneCheck(reason: String) {
+        if (BottomBarState.barVersion != BottomBarState.BarVersion.NEW.key) return
+        leftNavPaneCheckJob?.cancel()
+        leftNavPaneCheckJob =
+                lifecycleScope.launch(Dispatchers.IO) {
+                    for (wait in LEFT_NAV_PANE_CHECK_DELAYS_MS) {
+                        delay(wait)
+                        if (!ServiceManager.getInstance().isMainScreenOn) return@launch
+                        val visible = readLeftNavPaneVisible() ?: continue
+                        if (BottomBarState.leftNavPaneShown != visible) {
+                            Log.w("BottomBarService", "[NAV_PANE] shown=$visible ($reason)")
+                            BottomBarState.leftNavPaneShown = visible
+                        }
+                    }
+                }
     }
 
     /** Apaga e reescreve pra forcar o sistema a reaplicar. Só chamado com o painel JÁ visível. */
@@ -451,12 +489,22 @@ class BottomBarService : LifecycleService() {
         }
     }
 
-    private fun isAnyMenuExpanded(): Boolean =
+    private fun isInteractiveMenuExpanded(): Boolean =
             BottomBarState.isMenuExpanded ||
                     BottomBarState.isDashboardExpanded ||
                     BottomBarState.isSettingsMenuExpanded ||
                     BottomBarState.isOverrideMenuExpanded ||
-                    BottomBarState.activeSliderType != null
+                    BottomBarState.isAcMenuExpanded ||
+                    BottomBarState.dockAddSlotIndex != null ||
+                    BottomBarState.activeSliderType != null ||
+                    (BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key &&
+                            BottomBarState.isDockEditMode &&
+                            !BottomBarState.isProjectionShortcutEnabled)
+
+    private fun isAnyMenuOrHudVisible(): Boolean =
+            isInteractiveMenuExpanded() || BottomBarState.activeSwipeHud != null
+
+    private fun isAnyMenuExpanded(): Boolean = isAnyMenuOrHudVisible()
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
@@ -488,6 +536,16 @@ class BottomBarService : LifecycleService() {
                         ?: BottomBarState.SwipeUpAction.DASHBOARD.key
         BottomBarState.swipeUpPackage =
                 prefs.getString(SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_PACKAGE.key, null) ?: ""
+        BottomBarState.barVersion =
+                prefs.getString(
+                        SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
+                        BottomBarState.BarVersion.OLD.key
+                ) ?: BottomBarState.BarVersion.OLD.key
+        BottomBarState.isProjectionShortcutEnabled =
+                prefs.getBoolean(
+                        SharedPreferencesKeys.BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT.key,
+                        true
+                )
 
         BottomBarState.isVisible = true
         usbMediaInfoReader = UsbMediaInfoReader(applicationContext)
@@ -497,6 +555,7 @@ class BottomBarService : LifecycleService() {
 
         showBottomBar()
         startLeftNavPaneWatcher()
+        scheduleLeftNavPaneCheck("start")
         observeMenuState()
         observeDashboardActivityState()
         observeVisibility()
@@ -775,6 +834,8 @@ class BottomBarService : LifecycleService() {
                         BottomBarState.isMenuExpanded,
                         BottomBarState.isSettingsMenuExpanded,
                         BottomBarState.isOverrideMenuExpanded,
+                        BottomBarState.isDockEditMode,
+                        BottomBarState.dockAddSlotIndex != null,
                         BottomBarState.activeSliderType != null
                 )
             }
@@ -794,6 +855,8 @@ class BottomBarService : LifecycleService() {
                                     !BottomBarState.isMenuExpanded &&
                                     !BottomBarState.isSettingsMenuExpanded &&
                                     !BottomBarState.isOverrideMenuExpanded &&
+                                    !BottomBarState.isDockEditMode &&
+                                    BottomBarState.dockAddSlotIndex == null &&
                                     BottomBarState.activeSliderType == null
                     ) {
                         BottomBarState.isVisible = false
@@ -917,6 +980,9 @@ class BottomBarService : LifecycleService() {
 
                             if (currentPackage != null && currentPackage != lastPackage) {
                                 lastPackage = currentPackage
+                                if (currentPackage != this@BottomBarService.packageName) {
+                                    br.com.redesurftank.havalshisuku.managers.RecentAppsManager.recordAppLaunch(currentPackage)
+                                }
 
                                 // Default overscan is back to REFERENCE_OVERSCAN (60)
                                 val storedDefault =
@@ -926,12 +992,22 @@ class BottomBarService : LifecycleService() {
                                                 REFERENCE_OVERSCAN
                                         )
 
-                                // Also update autoHideEnabled from prefs
+                                // Also update autoHideEnabled and barVersion from prefs
                                 withContext(Dispatchers.Main) {
                                     BottomBarState.autoHideEnabled =
                                             prefs.getBoolean(
                                                     SharedPreferencesKeys.BOTTOM_BAR_AUTO_HIDE.key,
                                                     false
+                                            )
+                                    BottomBarState.barVersion =
+                                            prefs.getString(
+                                                    SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
+                                                    BottomBarState.BarVersion.OLD.key
+                                            ) ?: BottomBarState.BarVersion.OLD.key
+                                    BottomBarState.isProjectionShortcutEnabled =
+                                            prefs.getBoolean(
+                                                    SharedPreferencesKeys.BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT.key,
+                                                    true
                                             )
                                 }
 
@@ -3605,15 +3681,18 @@ class BottomBarService : LifecycleService() {
     private fun observeMenuState() {
         lifecycleScope.launch {
             snapshotFlow {
-                BottomBarState.isMenuExpanded ||
-                        BottomBarState.isSettingsMenuExpanded ||
-                        BottomBarState.isOverrideMenuExpanded ||
-                        BottomBarState.activeSliderType != null
+                isAnyMenuOrHudVisible()
             }
                     .collectLatest { expanded ->
                         updateMenuWindow(expanded)
                         // Force recompute touchable regions when menu state changes
                         composeView?.requestLayout()
+                        menuComposeView?.requestLayout()
+                    }
+        }
+        lifecycleScope.launch {
+            snapshotFlow { BottomBarState.projectionSlotCenterX }
+                    .collectLatest {
                         menuComposeView?.requestLayout()
                     }
         }
@@ -3670,7 +3749,9 @@ class BottomBarService : LifecycleService() {
             BottomBarState.isMenuExpanded = false
             BottomBarState.isSettingsMenuExpanded = false
             BottomBarState.isOverrideMenuExpanded = false
+            BottomBarState.isAcMenuExpanded = false
             BottomBarState.activeSliderType = null
+            BottomBarState.activeSwipeHud = null
             composeView?.requestLayout()
             menuComposeView?.requestLayout()
         }
@@ -3730,7 +3811,9 @@ class BottomBarService : LifecycleService() {
                     BottomBarState.isMenuExpanded = false
                     BottomBarState.isSettingsMenuExpanded = false
                     BottomBarState.isOverrideMenuExpanded = false
+                    BottomBarState.isAcMenuExpanded = false
                     BottomBarState.activeSliderType = null
+                    BottomBarState.activeSwipeHud = null
                     launchDashboardActivity()
                 }
     }
@@ -3747,7 +3830,9 @@ class BottomBarService : LifecycleService() {
             BottomBarState.isMenuExpanded = false
             BottomBarState.isSettingsMenuExpanded = false
             BottomBarState.isOverrideMenuExpanded = false
+            BottomBarState.isAcMenuExpanded = false
             BottomBarState.activeSliderType = null
+            BottomBarState.activeSwipeHud = null
             composeView?.requestLayout()
             menuComposeView?.requestLayout()
             if (targetExpanded) {
@@ -3803,7 +3888,9 @@ class BottomBarService : LifecycleService() {
                     BottomBarState.isMenuExpanded = false
                     BottomBarState.isSettingsMenuExpanded = false
                     BottomBarState.isOverrideMenuExpanded = false
+                    BottomBarState.isAcMenuExpanded = false
                     BottomBarState.activeSliderType = null
+                    BottomBarState.activeSwipeHud = null
                 }
                 // Trigger zone - keep 40dp (20dp on screen) area touchable
                 withContext(Dispatchers.Main) {
@@ -3847,9 +3934,14 @@ class BottomBarService : LifecycleService() {
         mp.y = 0
         mp.gravity = Gravity.BOTTOM or Gravity.RIGHT
 
+        val interactive = isInteractiveMenuExpanded()
         if (show) {
             mp.alpha = 1f
-            mp.flags = mp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            if (interactive) {
+                mp.flags = mp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            } else {
+                mp.flags = mp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            }
         } else {
             // alpha 0 lets the compositor skip the layer entirely, so an always-present full-screen
             // overlay costs nothing while no menu is open.
@@ -4084,14 +4176,41 @@ class BottomBarService : LifecycleService() {
 
                             if (isMenuWindow) {
                                 // Menu window covers the full pinned display
-                                val anyMenuExpanded = isAnyMenuExpanded()
+                                val fullInteractive = BottomBarState.isMenuExpanded ||
+                                        BottomBarState.isDashboardExpanded ||
+                                        BottomBarState.isSettingsMenuExpanded ||
+                                        BottomBarState.isOverrideMenuExpanded ||
+                                        BottomBarState.isAcMenuExpanded ||
+                                        BottomBarState.dockAddSlotIndex != null ||
+                                        BottomBarState.activeSliderType != null
+
+                                val isFloatingProjOnly = BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key &&
+                                        BottomBarState.isDockEditMode &&
+                                        !BottomBarState.isProjectionShortcutEnabled &&
+                                        !fullInteractive
+
                                 Log.d(
                                         "BottomBarService",
-                                        "TouchRegion[MENU] anyMenuExpanded=$anyMenuExpanded"
+                                        "TouchRegion[MENU] fullInteractive=$fullInteractive isFloatingProjOnly=$isFloatingProjOnly"
                                 )
-                                if (anyMenuExpanded) {
+                                if (fullInteractive) {
                                     val screenHeight = displayMetrics.heightPixels
                                     region.union(Rect(0, 0, windowWidth, screenHeight))
+                                } else if (isFloatingProjOnly) {
+                                    val screenHeight = displayMetrics.heightPixels
+                                    val btnHeightPx = (60 * density).toInt()
+                                    val btnWidthPx = (340 * density).toInt()
+                                    val barHeightPx = (60 * density).toInt()
+                                    val centerX = if (BottomBarState.projectionSlotCenterX > 0f) {
+                                        BottomBarState.projectionSlotCenterX.toInt()
+                                    } else {
+                                        (windowWidth / 2)
+                                    }
+                                    val left = (centerX - btnWidthPx / 2).coerceAtLeast(0)
+                                    val right = (centerX + btnWidthPx / 2).coerceAtMost(windowWidth)
+                                    val bottom = screenHeight - barHeightPx
+                                    val top = bottom - btnHeightPx
+                                    region.union(Rect(left, top, right, bottom))
                                 }
                             } else if (BottomBarState.isDashboardExpanded) {
                                 Log.d(
@@ -4114,10 +4233,16 @@ class BottomBarService : LifecycleService() {
                                 // there is nothing of ours to touch there. When Android Auto owns
                                 // display 0, also clear the AA left-rail cutout (see
                                 // resolveBottomBarTouchableLeftPx).
+                                // v2 slides its content into the gutter while the pane is hidden, so that strip
+                                // is ours to touch then.
+                                val paneHiddenOnV2 =
+                                        BottomBarState.barVersion == BottomBarState.BarVersion.NEW.key &&
+                                                !BottomBarState.leftNavPaneShown
                                 val left =
                                         resolveBottomBarTouchableLeftPx(
                                                 overlayLeftGutterPx =
-                                                        BottomBarState.overlayLeftGutterPx,
+                                                        if (paneHiddenOnV2) 0
+                                                        else BottomBarState.overlayLeftGutterPx,
                                                 androidAutoOnMainDisplay =
                                                         isAndroidAutoShownOnMainDisplay(
                                                                 BottomBarState.currentPackage
@@ -4187,6 +4312,7 @@ class BottomBarService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        leftNavPaneCheckJob?.cancel()
         monitoringJob?.cancel()
         autoHideJob?.cancel()
         mediaAccessMonitorJob?.cancel()
@@ -4504,6 +4630,7 @@ class BottomBarService : LifecycleService() {
         @Volatile private var instance: BottomBarService? = null
 
         fun requestBarRestoreAfterExternalFocus(packageName: String?, reason: String) {
+            instance?.scheduleLeftNavPaneCheck(reason)
             instance?.restoreBarAfterExternalFocus(packageName, reason)
         }
 

@@ -23,9 +23,13 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.Parcel
 import android.os.SystemClock
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import android.view.KeyEvent
 import br.com.redesurftank.havalshisuku.BuildConfig
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
+import br.com.redesurftank.havalshisuku.icons.IconOverrideWriter
 import br.com.redesurftank.havalshisuku.managers.ThemeManager
 import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.CarConstants
@@ -45,6 +49,8 @@ data class ResolvedAppInfo(
 )
 
 object DisplayAppLauncher {
+
+    var configsVersion by mutableIntStateOf(0)
 
     @Volatile
     var dynamicThemeBounds: IntArray? = null
@@ -397,6 +403,9 @@ object DisplayAppLauncher {
     @Volatile private var carPlayMainDisplayReconnectSeenAt = 0L
     @Volatile private var lastCarPlayVideoFocusPulseAt = 0L
     @Volatile private var lastCarPlayClusterHandoffAt = 0L
+    private val androidAutoCameraGuard = AndroidAutoCameraGuardPolicy()
+    @Volatile private var lastAndroidAutoClusterGuardGeneration = -1L
+    @Volatile private var lastAndroidAutoWindowFocusGuardGeneration = -1L
     @Volatile private var lastAndroidAutoClusterGuardAt = 0L
     @Volatile private var lastAndroidAutoWindowFocusGuardAt = 0L
     @Volatile private var lastAndroidAutoWindowFocusGuardPackage = ""
@@ -542,9 +551,22 @@ object DisplayAppLauncher {
             get() = "$packageName:$sourceDisplayId->$targetDisplayId"
     }
 
-    private fun getPrefs() =
-        App.getDeviceProtectedContext()
+    @Volatile
+    private var prefsListenerRegistered = false
+
+    private fun getPrefs(): android.content.SharedPreferences {
+        val prefs = App.getDeviceProtectedContext()
             .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+        if (!prefsListenerRegistered) {
+            prefsListenerRegistered = true
+            prefs.registerOnSharedPreferenceChangeListener { _, key ->
+                if (key == SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key) {
+                    configsVersion++
+                }
+            }
+        }
+        return prefs
+    }
 
     @JvmStatic
     fun ensureDefaultDesktopShortcuts() {
@@ -589,8 +611,18 @@ object DisplayAppLauncher {
         val normalized = packageName.lowercase()
         return normalized == ANDROID_AUTO_PACKAGE ||
                 normalized == ANDROID_AUTO_SERVICE_PACKAGE ||
+                normalized == "com.google.android.apps.auto" ||
                 normalized.contains("androidauto") ||
-                normalized.contains("gearhead")
+                normalized.contains("gearhead") ||
+                normalized.contains("apps.auto")
+    }
+
+    /**
+     * Checks if a given package name corresponds to a projection service/app (CarPlay or Android Auto).
+     */
+    fun isProjectionLikePackage(packageName: String?): Boolean {
+        if (packageName.isNullOrBlank()) return false
+        return isCarPlayLikePackage(packageName) || isAndroidAutoLikePackage(packageName)
     }
 
     private fun readNativeRadioPlayState(reason: String): String? {
@@ -1228,6 +1260,27 @@ object DisplayAppLauncher {
         )
     }
 
+    /**
+     * Cached "DCM says projection is active" evidence, for the session poller.
+     *
+     * [readAndroidAutoLinkStatusIfAlreadyBound] returns null until something
+     * binds the Autolink command service, and on WIRELESS Android Auto nothing
+     * does — the bind only happens as a side effect of the media-command paths.
+     * Measured on the car 2026-09-12 with Maps actively guiding: the launcher
+     * saw `linkStatus:3` (ACTIVATED), `dumpsys activity services
+     * com.ts.androidauto` listed no havalshisuku connection at all, and this
+     * class logged `linkStatus=UNKNOWN(null)` next to "DCM reports active
+     * projection" every ~10 s. So the evidence was in hand and unread, and
+     * `app.androidauto.session` stayed `stopped` through a whole navigation.
+     *
+     * Deliberately passive: it reads the timestamp the stale-cleanup sweep
+     * already refreshes rather than binding anything itself, so it cannot
+     * perturb the CLUSTER-before-AAP handshake ordering.
+     */
+    fun hasRecentAndroidAutoDcmProjectionActiveEvidenceForSession(): Boolean {
+        return hasRecentAndroidAutoDcmProjectionActiveEvidence()
+    }
+
     private fun hasRecentAndroidAutoDcmProjectionActiveEvidenceForState(
         lastActiveAtMs: Long,
         nowMs: Long,
@@ -1376,13 +1429,17 @@ object DisplayAppLauncher {
         ensureAndroidAutoLinkCommandBound("${reason}_LINK_COMMAND")
     }
 
-    private fun sendAndroidAutoFocus(displayId: Int, reason: String) {
-        if (shouldBlockAndroidAutoProjectionActivationForNativeRadio("${reason}_NATIVE_RADIO_GUARD")) {
+    private fun sendAndroidAutoFocus(displayId: Int, reason: String, cameraGeneration: Long? = null) {
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
+        val nativeRadioBlocked = shouldBlockAndroidAutoProjectionActivationForNativeRadio("${reason}_NATIVE_RADIO_GUARD")
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
+        if (nativeRadioBlocked) {
             sh("am broadcast -a ts.car.androidauto.view_state --es state foreground --ei displayId $displayId")
             return
         }
         Log.w(TAG, "[$reason] Sending Android Auto video focus for display $displayId")
         sh("am broadcast -a ts.car.androidauto.view_state --es state foreground --ei displayId $displayId")
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         sh("am broadcast -a com.ts.androidauto.action.AndroidAutoService --es \"command\" \"requestVideoFocus\" --ei \"displayId\" $displayId")
     }
 
@@ -2101,7 +2158,7 @@ object DisplayAppLauncher {
         )
     }
 
-    private fun readAndroidAutoLinkStatusIfAlreadyBound(reason: String): Int? {
+    fun readAndroidAutoLinkStatusIfAlreadyBound(reason: String): Int? {
         val binder = androidAutoLinkCommandBinder
         if (binder == null || !binder.isBinderAlive) return null
         return transactAndroidAutoLinkCommandInt(
@@ -2273,8 +2330,10 @@ object DisplayAppLauncher {
         taskInfo: TaskInfo,
         displayId: Int,
         bounds: IntArray,
-        reason: String
+        reason: String,
+        cameraGeneration: Long? = null
     ) {
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         if (displayId == 0) {
             sh("am stack set-windowing-mode ${taskInfo.stackId} 1")
         }
@@ -2287,7 +2346,7 @@ object DisplayAppLauncher {
             )
         }
         Thread.sleep(160)
-        sendAndroidAutoFocus(displayId, reason)
+        if (canContinueAndroidAutoGuard(cameraGeneration)) sendAndroidAutoFocus(displayId, reason, cameraGeneration)
     }
 
     private fun ensureAndroidAutoFullscreenAndFocus(
@@ -2429,21 +2488,29 @@ object DisplayAppLauncher {
         notifyBottomBarUpdate()
     }
 
+    private fun canContinueAndroidAutoGuard(cameraGeneration: Long?): Boolean =
+        cameraGeneration == null || androidAutoCameraGuard.canRun(cameraGeneration)
+
     private suspend fun startAndroidAutoOnDisplay(
         sourceConfig: DisplayAppConfig,
-        reason: String
+        reason: String,
+        cameraGeneration: Long? = null
     ) {
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         val config = getAndroidAutoConfigForDisplay(sourceConfig.displayId, sourceConfig)
         val displayId = config.displayId
         val bounds = getEffectiveBounds(config)
         val previousDisplay = findTaskForPackage(ANDROID_AUTO_PACKAGE)?.displayId
 
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         prepareDisplay3MaskHoleBeforeMove(displayId, bounds, reason)
 
         rememberAndroidAutoDisplayTarget(displayId, reason)
         AndroidAutoPatchManager.ensureMounted()
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         configureAndroidAutoProjection(reason)
 
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         if (displayId != 0) {
             evictOtherAppsFromDisplay(displayId, ANDROID_AUTO_PACKAGE)
             BottomBarState.restoredApps.remove(ANDROID_AUTO_PACKAGE)
@@ -2452,13 +2519,16 @@ object DisplayAppLauncher {
         }
 
         var targetTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, displayId)
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         if (targetTask != null) {
-            resizeAndFocusAndroidAuto(targetTask, displayId, bounds, "${reason}_ALREADY_ON_TARGET")
+            resizeAndFocusAndroidAuto(targetTask, displayId, bounds, "${reason}_ALREADY_ON_TARGET", cameraGeneration)
+            if (!canContinueAndroidAutoGuard(cameraGeneration)) return
             closeAndroidAutoVisualStacks("${reason}_ALREADY_ON_TARGET_CLEAN_DUPLICATES", exceptStackId = targetTask.stackId)
             if (displayId == 3) {
                 recoverAndroidAutoClusterSurfaceIfStale(
                     targetTask,
-                    "${reason}_ALREADY_ON_TARGET_STALE_SURFACE_GUARD"
+                    "${reason}_ALREADY_ON_TARGET_STALE_SURFACE_GUARD",
+                    cameraGeneration
                 )
             }
             notifyAndroidAutoDisplayHandoff(displayId, previousDisplay)
@@ -2466,9 +2536,11 @@ object DisplayAppLauncher {
         }
 
         val currentTask = findTaskForPackage(ANDROID_AUTO_PACKAGE)
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         if (currentTask != null && currentTask.displayId != displayId) {
             saveCurrentBounds(ANDROID_AUTO_PACKAGE, currentTask)
             val tasksInStack = countTasksInStack(currentTask.stackId)
+            if (!canContinueAndroidAutoGuard(cameraGeneration)) return
 
             if (tasksInStack > 1) {
                 Log.w(
@@ -2477,12 +2549,14 @@ object DisplayAppLauncher {
                 )
                 bringOtherTaskInStackToFront(currentTask.stackId, ANDROID_AUTO_PACKAGE, reason)
                 Thread.sleep(220)
+                if (!canContinueAndroidAutoGuard(cameraGeneration)) return
                 startAndroidAutoActivity(displayId, "${reason}_MIXED_STACK_START")
             } else {
                 Log.w(TAG, "[$reason] Moving Android Auto stack ${currentTask.stackId} to display $displayId")
                 val result = sh("am display move-stack ${currentTask.stackId} $displayId")
                 if (result.contains("Exception") || result.contains("Error")) {
                     Log.e(TAG, "[$reason] Android Auto move-stack failed: $result")
+                    if (!canContinueAndroidAutoGuard(cameraGeneration)) return
                     startAndroidAutoActivity(displayId, "${reason}_MOVE_FAILED_START")
                 }
             }
@@ -2493,6 +2567,8 @@ object DisplayAppLauncher {
         Thread.sleep(700)
         targetTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, displayId)
 
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
+        var visualRecoveryStarted = false
         if (targetTask == null) {
             val wrongDisplayTask = findTaskForPackage(ANDROID_AUTO_PACKAGE)
             if (wrongDisplayTask != null && wrongDisplayTask.displayId != displayId) {
@@ -2506,6 +2582,8 @@ object DisplayAppLauncher {
 
             // Last resort for a black/stuck visual Activity. Do not force-stop
             // com.ts.androidauto so the phone-side projection service can recover.
+            if (!canContinueAndroidAutoGuard(cameraGeneration)) return
+            visualRecoveryStarted = true
             sh("am force-stop $ANDROID_AUTO_PACKAGE")
             Thread.sleep(650)
             configureAndroidAutoProjection("${reason}_VISUAL_RESTART")
@@ -2515,21 +2593,29 @@ object DisplayAppLauncher {
         }
 
         if (targetTask != null) {
-            resizeAndFocusAndroidAuto(targetTask, displayId, bounds, "${reason}_POST_START")
+            // Once force-stop has begun, finish recreation instead of leaving the visual app absent.
+            val completionGeneration = if (visualRecoveryStarted) null else cameraGeneration
+            if (!canContinueAndroidAutoGuard(completionGeneration)) return
+            resizeAndFocusAndroidAuto(targetTask, displayId, bounds, "${reason}_POST_START", completionGeneration)
+            if (!canContinueAndroidAutoGuard(completionGeneration)) return
             closeAndroidAutoVisualStacks("${reason}_POST_START_CLEAN_DUPLICATES", exceptStackId = targetTask.stackId)
 
             CoroutineScope(Dispatchers.IO).launch {
                 delay(500)
-                sendAndroidAutoFocus(displayId, "${reason}_POST_START_P1")
+                if (!canContinueAndroidAutoGuard(cameraGeneration)) return@launch
+                sendAndroidAutoFocus(displayId, "${reason}_POST_START_P1", cameraGeneration)
                 delay(900)
-                sendAndroidAutoFocus(displayId, "${reason}_POST_START_P2")
+                if (!canContinueAndroidAutoGuard(cameraGeneration)) return@launch
+                sendAndroidAutoFocus(displayId, "${reason}_POST_START_P2", cameraGeneration)
                 if (displayId == 3) {
                     delay(1_200)
+                    if (!canContinueAndroidAutoGuard(cameraGeneration)) return@launch
                     val refreshedTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 3)
                     if (refreshedTask != null) {
                         recoverAndroidAutoClusterSurfaceIfStale(
                             refreshedTask,
-                            "${reason}_POST_START_STALE_SURFACE_GUARD"
+                            "${reason}_POST_START_STALE_SURFACE_GUARD",
+                            cameraGeneration
                         )
                     }
                 }
@@ -2593,8 +2679,10 @@ object DisplayAppLauncher {
 
     private suspend fun recoverAndroidAutoClusterSurfaceIfStale(
         clusterTask: TaskInfo,
-        reason: String
+        reason: String,
+        cameraGeneration: Long? = null
     ): Boolean {
+        if (cameraGeneration != null && !androidAutoCameraGuard.canRun(cameraGeneration)) return false
         val now = System.currentTimeMillis()
         if (now - lastAndroidAutoSurfaceProbeAt < ANDROID_AUTO_SURFACE_PROBE_COOLDOWN_MS) {
             Log.w(TAG, "[$reason] Skipping Android Auto D3 Surface probe because cooldown is active")
@@ -2603,6 +2691,8 @@ object DisplayAppLauncher {
         lastAndroidAutoSurfaceProbeAt = now
 
         val before = inspectAndroidAutoClusterSurfaceBuffer("${reason}_SURFACE_CHECK")
+        // The shell probe can overlap a camera transition. Re-check before any recovery.
+        if (cameraGeneration != null && !androidAutoCameraGuard.canRun(cameraGeneration)) return false
         if (!isAndroidAutoSurfaceBufferStaleForTest(before)) {
             Log.w(
                 TAG,
@@ -5416,6 +5506,15 @@ object DisplayAppLauncher {
         }
     }
 
+    /** Camera telemetry only invalidates automatic AA guards; it never controls the camera. */
+    fun onAndroidAutoCameraPreviewStatus(value: String) {
+        val before = androidAutoCameraGuard.generation()
+        androidAutoCameraGuard.onPreviewStatus(value)
+        if (before != androidAutoCameraGuard.generation()) {
+            Log.d(TAG, "[AA_CAMERA_GUARD] AVM status=$value invalidated pending window recovery")
+        }
+    }
+
     fun pulseAndroidAutoFocusAfterNativePanelExit(reason: String) {
         if (!ANDROID_AUTO_NATIVE_PANEL_FOCUS_PULSE_ENABLED) {
             Log.w(TAG, "[$reason] Skipping Android Auto post-native-panel focus pulse")
@@ -5488,25 +5587,31 @@ object DisplayAppLauncher {
         primaryDelayMs: Long,
         verifyDelayMs: Long
     ) {
+        val cameraGeneration = androidAutoCameraGuard.generation()
+        if (!androidAutoCameraGuard.canRun(cameraGeneration)) return
         if (!isAndroidAutoClusterPreservationEligible()) return
 
         val now = System.currentTimeMillis()
-        if (now - lastAndroidAutoClusterGuardAt < ANDROID_AUTO_CLUSTER_GUARD_COOLDOWN_MS) {
+        if (lastAndroidAutoClusterGuardGeneration == cameraGeneration &&
+            now - lastAndroidAutoClusterGuardAt < ANDROID_AUTO_CLUSTER_GUARD_COOLDOWN_MS) {
             Log.w(TAG, "[$reason] Skipping Android Auto cluster guard because cooldown is active")
             return
         }
         lastAndroidAutoClusterGuardAt = now
+        lastAndroidAutoClusterGuardGeneration = cameraGeneration
 
         scope.launch {
             delay(primaryDelayMs)
-            restoreOrRefreshAndroidAutoClusterContract("${reason}_AA_CONTRACT_PRIMARY", action)
+            restoreOrRefreshAndroidAutoClusterContract("${reason}_AA_CONTRACT_PRIMARY", action, cameraGeneration)
 
             delay(verifyDelayMs)
-            restoreOrRefreshAndroidAutoClusterContract("${reason}_AA_CONTRACT_VERIFY", action)
+            restoreOrRefreshAndroidAutoClusterContract("${reason}_AA_CONTRACT_VERIFY", action, cameraGeneration)
         }
     }
 
     private fun preserveAndroidAutoClusterContractAfterWindowChange(packageName: String) {
+        val cameraGeneration = androidAutoCameraGuard.generation()
+        if (!androidAutoCameraGuard.canRun(cameraGeneration)) return
         if (!isAndroidAutoClusterPreservationEligible()) return
 
         if (shouldRestoreAndroidAutoClusterAfterProjectionWindowChange(packageName)) {
@@ -5515,7 +5620,8 @@ object DisplayAppLauncher {
                 delay(250L)
                 restoreOrRefreshAndroidAutoClusterContract(
                     "WINDOW_CHANGE_${safePackage}_AA_RETURN_TO_DESIRED_CLUSTER",
-                    ExistingClusterAndroidAutoAction.VERIFY_ONLY
+                    ExistingClusterAndroidAutoAction.VERIFY_ONLY,
+                    cameraGeneration
                 )
             }
             return
@@ -5525,7 +5631,8 @@ object DisplayAppLauncher {
         val action = resolveAndroidAutoWindowFocusGuardAction(packageName, selfPackageName) ?: return
 
         val now = System.currentTimeMillis()
-        if (shouldSkipAndroidAutoWindowFocusGuard(
+        if (lastAndroidAutoWindowFocusGuardGeneration == cameraGeneration &&
+            shouldSkipAndroidAutoWindowFocusGuard(
                 now = now,
                 packageName = packageName,
                 action = action
@@ -5535,6 +5642,7 @@ object DisplayAppLauncher {
             return
         }
         lastAndroidAutoWindowFocusGuardAt = now
+        lastAndroidAutoWindowFocusGuardGeneration = cameraGeneration
         lastAndroidAutoWindowFocusGuardPackage = packageName
         lastAndroidAutoWindowFocusGuardAction = action
 
@@ -5545,26 +5653,30 @@ object DisplayAppLauncher {
             delay(primaryDelayMs)
             restoreOrRefreshAndroidAutoClusterContract(
                 "WINDOW_CHANGE_${safePackage}_AA_CONTRACT_PRIMARY",
-                action
+                action,
+                cameraGeneration
             )
 
             delay(verifyDelayMs)
             restoreOrRefreshAndroidAutoClusterContract(
                 "WINDOW_CHANGE_${safePackage}_AA_CONTRACT_VERIFY",
-                action
+                action,
+                cameraGeneration
             )
 
             if (action == ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY) {
                 delay(ANDROID_AUTO_WINDOW_FOCUS_LATE_VERIFY_DELAY_MS)
                 restoreOrRefreshAndroidAutoClusterContract(
                     "WINDOW_CHANGE_${safePackage}_AA_CONTRACT_LATE_VERIFY",
-                    ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY
+                    ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY,
+                    cameraGeneration
                 )
 
                 delay(ANDROID_AUTO_WINDOW_FOCUS_FINAL_VERIFY_DELAY_MS)
                 restoreOrRefreshAndroidAutoClusterContract(
                     "WINDOW_CHANGE_${safePackage}_AA_CONTRACT_FINAL_VERIFY",
-                    ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY
+                    ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY,
+                    cameraGeneration
                 )
             }
         }
@@ -5631,8 +5743,10 @@ object DisplayAppLauncher {
 
     private suspend fun restoreOrRefreshAndroidAutoClusterContract(
         reason: String,
-        action: ExistingClusterAndroidAutoAction
+        action: ExistingClusterAndroidAutoAction,
+        cameraGeneration: Long
     ) {
+        if (!androidAutoCameraGuard.canRun(cameraGeneration)) return
         val activeProjection = resolveActiveProjectionPackageForDisplay(3)
         if (activeProjection == CARPLAY_PACKAGE) {
             Log.w(TAG, "[$reason] Skipping Android Auto guard because CarPlay is active on cluster 3")
@@ -5640,6 +5754,7 @@ object DisplayAppLauncher {
         }
 
         val clusterTask = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 3)
+        if (!androidAutoCameraGuard.canRun(cameraGeneration)) return
         if (clusterTask != null) {
             Log.w(
                 TAG,
@@ -5650,8 +5765,12 @@ object DisplayAppLauncher {
                 closeAndroidAutoVisualStacks("${reason}_CLEAN_DUPLICATES", exceptStackId = clusterTask.stackId)
                 notifyAndroidAutoDisplayHandoff(3, clusterTask.displayId)
             } else if (action == ExistingClusterAndroidAutoAction.VIDEO_FOCUS_ONLY) {
-                if (!recoverAndroidAutoClusterSurfaceIfStale(clusterTask, "${reason}_STALE_SURFACE_GUARD")) {
-                    sendAndroidAutoFocus(3, reason)
+                if (!recoverAndroidAutoClusterSurfaceIfStale(
+                        clusterTask, "${reason}_STALE_SURFACE_GUARD", cameraGeneration
+                    )) {
+                    if (androidAutoCameraGuard.canRun(cameraGeneration)) {
+                        sendAndroidAutoFocus(3, reason, cameraGeneration)
+                    }
                 }
             }
             return
@@ -5672,9 +5791,11 @@ object DisplayAppLauncher {
             Log.w(TAG, "[$reason] Desired Android Auto target is cluster 3 but no visual task is active; recreating")
         }
 
+        if (!androidAutoCameraGuard.canRun(cameraGeneration)) return
         startAndroidAutoOnDisplay(
             getAndroidAutoConfigForDisplay(3),
-            "${reason}_RESTORE_CLUSTER"
+            "${reason}_RESTORE_CLUSTER",
+            cameraGeneration
         )
     }
 
@@ -7443,6 +7564,76 @@ object DisplayAppLauncher {
         return ResolvedAppInfo(label, icon)
     }
 
+    // --- Icon override registry -----------------------------------------------------------
+    // Publishes this app's per-package icon/label overrides to the shared registry any other
+    // app on the MMI can read (see docs/ICON_OVERRIDES.md in the haval-h6-3d repo). Every write
+    // path below calls this; it is debounced so a rename typed keystroke-by-keystroke in the
+    // editor doesn't re-encode a PNG per keystroke.
+    private var iconOverridePublishJob: kotlinx.coroutines.Job? = null
+
+    fun publishIconOverrides() {
+        iconOverridePublishJob?.cancel()
+        iconOverridePublishJob = scope.launch {
+            delay(500)
+            try {
+                val collapsed = getAllConfigs()
+                    .groupBy { it.packageName }
+                    .map { (_, configs) -> configs.find { it.displayId == 0 } ?: configs.first() }
+                val overrides = collapsed.mapNotNull { config ->
+                    val label = config.customName?.takeIf { it.isNotBlank() }
+                    val slug = config.substituteIcon?.takeIf { it.isNotBlank() }
+                    if (label == null && slug == null) return@mapNotNull null
+                    val colorInt = config.iconColor?.let {
+                        try {
+                            android.graphics.Color.parseColor(it)
+                        } catch (e: IllegalArgumentException) {
+                            null
+                        }
+                    }
+                    IconOverrideWriter.Override(
+                        packageName = config.packageName,
+                        label = label,
+                        iconSlug = slug,
+                        iconColor = colorInt
+                    )
+                }
+                IconOverrideWriter.publish(App.getContext(), overrides, ::renderIconOverride)
+            } catch (t: Throwable) {
+                Log.w(TAG, "cannot publish icon overrides", t)
+            }
+        }
+    }
+
+    /**
+     * Renders the substitute-icon slugs that are plain drawables, matching how
+     * [br.com.redesurftank.havalshisuku.ui.components.BottomBarUI]'s
+     * `AppSwitcherSection` draws them — no tint, since those three are
+     * already-colored brand marks, not the generic Material glyphs. Every other
+     * slug (nav, music, video, settings, haval, game, tv, phone, chat, map_alt)
+     * is a Compose Material `ImageVector` with no drawable resource to rasterise
+     * outside composition, so those overrides publish label-only.
+     */
+    private fun renderIconOverride(override: IconOverrideWriter.Override): android.graphics.Bitmap? {
+        val drawableId = when (override.iconSlug) {
+            "youtube" -> R.drawable.ic_youtube_default
+            "youtube_music" -> R.drawable.ic_youtube_music_default
+            "gwm" -> R.drawable.ic_gwm
+            else -> return null
+        }
+        return try {
+            val drawable = App.getContext().getDrawable(drawableId) ?: return null
+            val size = 192
+            val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bmp)
+            drawable.setBounds(0, 0, size, size)
+            drawable.draw(canvas)
+            bmp
+        } catch (t: Throwable) {
+            Log.w(TAG, "cannot render icon override for ${override.packageName}", t)
+            null
+        }
+    }
+
     fun getAllConfigs(): List<DisplayAppConfig> {
         val json = getPrefs().getString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, null)
             ?: return emptyList()
@@ -7477,6 +7668,8 @@ object DisplayAppLauncher {
         getPrefs().edit()
             .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
             .apply()
+        configsVersion++
+        publishIconOverrides()
     }
 
     /**
@@ -7518,12 +7711,16 @@ object DisplayAppLauncher {
         getPrefs().edit()
             .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
             .apply()
+        configsVersion++
+        publishIconOverrides()
     }
 
     fun saveAllConfigs(configs: List<DisplayAppConfig>) {
         getPrefs().edit()
             .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
             .apply()
+        configsVersion++
+        publishIconOverrides()
     }
 
     fun moveConfigUp(packageName: String) {
@@ -7535,6 +7732,8 @@ object DisplayAppLauncher {
             getPrefs().edit()
                 .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
                 .apply()
+            configsVersion++
+            publishIconOverrides()
         }
     }
 
@@ -7547,6 +7746,8 @@ object DisplayAppLauncher {
             getPrefs().edit()
                 .putString(SharedPreferencesKeys.DISPLAY_APP_CONFIGS.key, gson.toJson(configs))
                 .apply()
+            configsVersion++
+            publishIconOverrides()
         }
     }
 
@@ -7716,8 +7917,15 @@ object DisplayAppLauncher {
 
     /**
      * Resizes an already-running app on its target display. Used for live preview slider updates.
+     *
+     * @param notifyGeometry when false, skip [APP_GEOMETRY_CHANGED]. The cluster projector's
+     *   sync path must pass false: that event used to call sync again and re-enter resizeApp,
+     *   saturating Shizuku and closing the D3 native-mask hole.
      */
-    suspend fun resizeApp(config: DisplayAppConfig) = withContext(Dispatchers.IO) {
+    suspend fun resizeApp(
+        config: DisplayAppConfig,
+        notifyGeometry: Boolean = true
+    ) = withContext(Dispatchers.IO) {
         try {
             val bounds = when {
                 isCarPlayPackage(config.packageName) -> getCarPlayDisplayBounds(config.displayId)
@@ -7731,10 +7939,22 @@ object DisplayAppLauncher {
 
             val stackId = findStackIdForPackage(config.packageName, config.displayId)
             if (stackId != null) {
+                val live = findTaskForPackageOnDisplay(config.packageName, config.displayId)?.bounds
+                if (live != null &&
+                    live.size >= 4 &&
+                    live[0] == x &&
+                    live[1] == y &&
+                    live[2] == right &&
+                    live[3] == bottom
+                ) {
+                    return@withContext
+                }
                 sh("am stack resize $stackId $x $y $right $bottom")
-                ServiceManager.getInstance().dispatchServiceManagerEvent(
-                    br.com.redesurftank.havalshisuku.models.ServiceManagerEventType.APP_GEOMETRY_CHANGED
-                )
+                if (notifyGeometry) {
+                    ServiceManager.getInstance().dispatchServiceManagerEvent(
+                        br.com.redesurftank.havalshisuku.models.ServiceManagerEventType.APP_GEOMETRY_CHANGED
+                    )
+                }
             }
         } catch (e: Exception) {
             if (BuildConfig.DEBUG) {
@@ -8009,6 +8229,21 @@ object DisplayAppLauncher {
         }
         return null
     }
+
+    fun hasAppsOnSecondaryDisplays(): Boolean = runCatching {
+        val stackList = getStackList()
+        val displaysToEvict = setOf(1, 3)
+        for (line in stackList.lines()) {
+            val stackMatch = Regex("""Stack id=(\d+).*displayId=(\d+)""").find(line)
+            if (stackMatch != null) {
+                val dId = stackMatch.groupValues[2].toIntOrNull()
+                if (dId != null && displaysToEvict.contains(dId)) {
+                    return@runCatching true
+                }
+            }
+        }
+        false
+    }.getOrDefault(false)
 
     /**
      * Brings all applications from secondary displays (1 and 3) back to the main display (0).
@@ -8396,34 +8631,104 @@ object DisplayAppLauncher {
         return getTopPackageOnDisplay(displayId) != null
     }
 
+    /**
+     * Client-facing resize for [TaskBoundsReceiver]: typed ints only, no shell from the caller.
+     * Used by the 3D viewer after maximize / YouTube reopen-at-remembered-rect.
+     */
+    fun resizeStackForClient(stackId: Int, left: Int, top: Int, right: Int, bottom: Int) {
+        if (stackId < 0 || right <= left || bottom <= top) return
+        sh("am stack resize $stackId $left $top $right $bottom")
+    }
+
     fun getTopPackageOnDisplay(displayId: Int): String? {
         try {
-            val stackList = getStackList()
-            var currentDisplayId: Int? = null
-            val regex = Regex("""taskId=\d+:\s*([a-zA-Z0-9._]+)/""")
-
-            for (line in stackList.lines()) {
-                val stackMatch = Regex("""displayId=(\d+)""").find(line)
-                if (stackMatch != null) {
-                    currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
-                }
-                if (currentDisplayId == displayId) {
-                    val match = regex.find(line)
-                    if (match != null) {
-                        return match.groupValues[1]
-                    }
-                }
-            }
+            val fromStacks = topPackageFromStackListForTest(getStackList(), displayId)
+            if (fromStacks != null) return fromStacks
 
             // Fallback to dumpsys if am stack list is not helping
-            val output = ShizukuUtils.runCommandAndGetOutput(
-                arrayOf("sh", "-c", "dumpsys activity activities | sed -n '/Display #$displayId/,/Display #/p' | grep -E 'mResumedActivity|mCurrentFocus|mFocusedActivity'")
-            )
-            val regex2 = Regex("""([a-zA-Z0-9._]+)/[.${'$'}a-zA-Z0-9._]+""")
-            val match = regex2.find(output)
-            return match?.groupValues?.get(1)
+            return topPackageFromActivitiesDumpFallback(displayId)
         } catch (e: Exception) {
             Log.e(TAG, "Error getting top package for display $displayId", e)
+        }
+        return null
+    }
+
+    /**
+     * The `dumpsys activity activities` fallback of [getTopPackageOnDisplay], measured on the car as
+     * the busiest Shizuku command (~158 of ~306 commands/min, 2026-10-02): with nothing on display
+     * 1/3, every projection check fell through to it. Each Shizuku command is retained by
+     * shizuku_server until our process dies (see .ai-context/HANDOFF.md), so the count matters.
+     *
+     * One dump now covers every display (the per-display `sed` range is applied here instead of on
+     * the car), and a dump is reused for [TOP_PACKAGE_DUMPSYS_NEGATIVE_TTL_MS] only while it still
+     * says "nothing on this display", which is what the fresher `am stack list` snapshot just said
+     * too (both read the same ActivityManager state). A cached dump that names a package is never
+     * trusted: that answer is always re-read, as before. [sh] mutations drop the cache.
+     */
+    private fun topPackageFromActivitiesDumpFallback(displayId: Int): String? {
+        val cached = cachedActivitiesTopDump
+        if (cached != null &&
+            SystemClock.elapsedRealtime() - cachedActivitiesTopDumpAtMs < TOP_PACKAGE_DUMPSYS_NEGATIVE_TTL_MS &&
+            topPackageFromActivitiesDumpForTest(cached, displayId) == null
+        ) {
+            return null
+        }
+        val dump = ShizukuUtils.runCommandAndGetOutput(
+            arrayOf("sh", "-c", "dumpsys activity activities | grep -E 'Display #|mResumedActivity|mCurrentFocus|mFocusedActivity'")
+        )
+        // An empty dump is a failed read (a real one always lists `Display #` headers): don't cache it.
+        if (dump.isNotBlank()) {
+            cachedActivitiesTopDump = dump
+            cachedActivitiesTopDumpAtMs = SystemClock.elapsedRealtime()
+        }
+        return topPackageFromActivitiesDumpForTest(dump, displayId)
+    }
+
+    /**
+     * Same selection as the former on-device pipeline
+     * `sed -n '/Display #<id>/,/Display #/p' | grep -E 'mResumedActivity|mCurrentFocus|mFocusedActivity'`
+     * followed by the first `package/activity` match, applied to a dump already filtered to the
+     * `Display #` headers and focus lines. Like sed, the end of a range is only looked for from the
+     * line after its start, and a later header naming [displayId] again opens a new range.
+     */
+    internal fun topPackageFromActivitiesDumpForTest(dump: String, displayId: Int): String? {
+        val startMarker = "Display #$displayId"
+        val focusLine = Regex("mResumedActivity|mCurrentFocus|mFocusedActivity")
+        val selected = StringBuilder()
+        var inRange = false
+        for (line in dump.lines()) {
+            if (!inRange) {
+                if (!line.contains(startMarker)) continue
+                inRange = true
+            } else if (line.contains("Display #")) {
+                inRange = false
+            }
+            if (focusLine.containsMatchIn(line)) selected.append(line).append('\n')
+        }
+        val regex2 = Regex("""([a-zA-Z0-9._]+)/[.${'$'}a-zA-Z0-9._]+""")
+        return regex2.find(selected)?.groupValues?.get(1)
+    }
+
+    /**
+     * Parse [am stack list] for the first task package on [displayId].
+     * Only stack-header `displayId=` counts — configuration lines also embed
+     * displayId and must be ignored.
+     */
+    internal fun topPackageFromStackListForTest(stackList: String, displayId: Int): String? {
+        var currentDisplayId: Int? = null
+        val regex = Regex("""taskId=\d+:\s*([a-zA-Z0-9._]+)/""")
+        for (line in stackList.lines()) {
+            val stackMatch = Regex("""Stack id=\d+.*displayId=(\d+)""").find(line)
+            if (stackMatch != null) {
+                currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
+                continue
+            }
+            if (currentDisplayId == displayId) {
+                val match = regex.find(line)
+                if (match != null) {
+                    return match.groupValues[1]
+                }
+            }
         }
         return null
     }
@@ -8496,10 +8801,18 @@ object DisplayAppLauncher {
     @Volatile private var cachedStackListAtMs = 0L
     private val stackListCacheLock = Any()
 
+    /** See [topPackageFromActivitiesDumpFallback]. */
+    private const val TOP_PACKAGE_DUMPSYS_NEGATIVE_TTL_MS = 2_000L
+
+    @Volatile private var cachedActivitiesTopDump: String? = null
+    @Volatile private var cachedActivitiesTopDumpAtMs = 0L
+
     private fun invalidateStackListCache() {
         synchronized(stackListCacheLock) {
             cachedStackList = null
             cachedStackListAtMs = 0L
+            cachedActivitiesTopDump = null
+            cachedActivitiesTopDumpAtMs = 0L
         }
     }
 
@@ -8721,6 +9034,35 @@ object DisplayAppLauncher {
         return null
     }
 
+    fun isFreeformWindowingModeForTest(raw: String?): Boolean {
+        val token = raw.orEmpty().trim().trimEnd('}').lowercase()
+        return token == "freeform" || token == "5"
+    }
+
+    fun hasVisibleFreeformWindowOnDisplayFromStackList(stackList: String, displayId: Int): Boolean {
+        var currentDisplayId: Int? = null
+        var currentWindowingMode: String? = null
+        for (line in stackList.lineSequence()) {
+            val stackMatch = Regex("""Stack id=\d+.*displayId=(\d+)""").find(line)
+            if (stackMatch != null) {
+                currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
+                currentWindowingMode = null
+            }
+            val wmMatch = Regex("""mWindowingMode=(\S+)""").find(line)
+            if (wmMatch != null && currentWindowingMode == null) {
+                currentWindowingMode = wmMatch.groupValues[1]
+            }
+            if (currentDisplayId == displayId &&
+                isFreeformWindowingModeForTest(currentWindowingMode) &&
+                Regex("""taskId=\d+:""").containsMatchIn(line) &&
+                line.contains("visible=true")
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
     private fun findStackIdForPackage(packageName: String, displayId: Int): Int? {
         return findStackInfoForPackage(packageName, displayId)?.stackId
     }
@@ -8837,6 +9179,13 @@ object DisplayAppLauncher {
      * fullscreen mode works fine after move-stack.
      */
     fun onAppWindowChanged(packageName: String) {
+        androidAutoCameraGuard.onWindowChanged(
+            when {
+                isNativeCameraDisplayZeroPanelPackage(packageName) -> true
+                isProjectionMirrorPackage(packageName) || isPassiveCarPlayWindowFocusPackage(packageName) -> null
+                else -> false
+            }
+        )
         BottomBarService.requestBarRestoreAfterExternalFocus(
             packageName,
             "D0_WINDOW_CHANGED"

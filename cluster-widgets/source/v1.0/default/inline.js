@@ -213,4 +213,6 @@ cssFiles.forEach(function(cssFile) {
 console.log('🎉 Build completo! Arquivos gerados:');
 console.log('  📄 dist/app.html (unificado)');
 console.log('  📄 res/raw/app.html (Android)');
-console.log('  📄 Themes/v1.0/Default/app.html');
+// Named index.html because that is what Default's theme.xml declares as <mainFile>.
+// Emitting a second copy under another name only creates a stale twin that nothing loads.
+console.log('  📄 Themes/v1.0/Default/index.html');

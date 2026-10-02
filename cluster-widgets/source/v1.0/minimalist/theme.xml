@@ -1,7 +1,7 @@
 <theme>
     <name>Minimalist</name>
     <description>Clean, square edges, flat menu, and minimalist typography.</description>
-    <version>1.0.1</version>
+    <version>1.0.2</version>
     <minBridgeVersion>1.0.0</minBridgeVersion>
     <contractVersion>v1.0</contractVersion>
     <thumbnail>thumbnail.png</thumbnail>
@@ -95,6 +95,14 @@
             <type>boolean</type>
             <default>true</default>
             <stateVariable>showRegenIcon</stateVariable>
+            <group>Exibição</group>
+        </configuration>
+        <configuration>
+            <id>show_traction_icon</id>
+            <label>Exibir Indicador de Tração</label>
+            <type>boolean</type>
+            <default>true</default>
+            <stateVariable>showTractionIcon</stateVariable>
             <group>Exibição</group>
         </configuration>
         <configuration>

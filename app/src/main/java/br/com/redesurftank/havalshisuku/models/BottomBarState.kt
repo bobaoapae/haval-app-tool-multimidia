@@ -38,6 +38,12 @@ object BottomBarState {
      */
     var leftNavPaneHidden by mutableStateOf(false)
 
+    /**
+     * Whether the left navigation pane is actually on screen right now (read from the window manager by
+     * BottomBarService). Defaults to true, the safe/compact assumption when it can't be read.
+     */
+    var leftNavPaneShown by mutableStateOf(true)
+
     /** What a swipe up on the bar does. Values are [SwipeUpAction.key]. */
     var swipeUpAction by mutableStateOf(SwipeUpAction.DASHBOARD.key)
 
@@ -58,6 +64,31 @@ object BottomBarState {
             const val APP_LAUNCHER_PACKAGE = "com.beantechs.applist"
         }
     }
+
+    enum class BarVersion(val key: String, val label: String, val description: String) {
+        OLD("old", "Clássica (v1.0)", "Layout original com atalhos de AC, botões clássicos e menu lateral"),
+        NEW("new", "Moderna (v2.0)", "Novo layout com doca central de até 9 apps, menu de climatização Haval H6 3D e HUDs fluidos");
+
+        companion object {
+            fun fromKey(key: String?): BarVersion = entries.firstOrNull { it.key == key } ?: OLD
+        }
+    }
+
+    var barVersion by mutableStateOf(BarVersion.OLD.key)
+
+    data class SwipeHudData(
+        val type: SliderType,
+        val title: String,
+        val valueText: String,
+        val fraction: Float,
+        val targetCenterX: Float,
+        val minLabel: String,
+        val maxLabel: String,
+        val isFan: Boolean = false,
+        val fanSpeed: Int = 0
+    )
+    var activeSwipeHud by mutableStateOf<SwipeHudData?>(null)
+    var isAcMenuExpanded by mutableStateOf(false)
 
     var activeSliderType by mutableStateOf<SliderType?>(null)
     var sliderPositionX by mutableStateOf(0f)
@@ -85,7 +116,15 @@ object BottomBarState {
     var autoHideEnabled by mutableStateOf(false)
     var isFridaRunning by mutableStateOf(false)
     var isDeleteModeEnabled by mutableStateOf(false)
+    var isDockEditMode by mutableStateOf(false)
+    var isProjectionShortcutEnabled by mutableStateOf(true)
+    var dockAddSlotIndex by mutableStateOf<Int?>(null)
     val restoredApps = mutableStateListOf<String>()
+    var hasAppsOnSecondaryDisplays by mutableStateOf(false)
+    var fanButtonCenterX by mutableStateOf(0f)
+    var conducaoCenterX by mutableStateOf(0f)
+    var launcherCenterX by mutableStateOf(0f)
+    var projectionSlotCenterX by mutableStateOf(0f)
 
     // Overlay flutuante de CPU/RAM (opt-in). Espelhos observáveis das prefs — UI e service atualizam.
     var resourceOverlayEnabled by mutableStateOf(false)

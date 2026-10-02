@@ -1,4 +1,22 @@
-# v2.5 — AAP `DISPLAY_TYPE_CLUSTER` (planned)
+# v2.6 — CLUSTER as a **second** stream (current) vs this file's original idea
+
+**Current work (2026-09-11):** keep MAIN `AapActivity` on D0 and advertise a
+second CLUSTER VideoSink (id 21) + InputSource (id 22). Script:
+[`patch_android_auto_service_cluster.py`](patch_android_auto_service_cluster.py).
+Dump comparison: [`DUMPS_V2_6_CLUSTER.md`](DUMPS_V2_6_CLUSTER.md). Handoff:
+`docs/handoff/HANDOFF-AA-CLUSTER-TBT.md`.
+
+**This file's original plan (below) is a different product:** lie that the
+**same** MAIN display is `DISPLAY_TYPE_CLUSTER` when AA is moved to D3 (no
+second encoder). Do not mix the two. v2.4 X-crop remains the App-APK path for
+"send AA itself to the cluster".
+
+CLUSTER video is not done until measured on the car. Do not Frida. Do not
+force-stop `projectionservice`.
+
+---
+
+# Original notes — lie MAIN is CLUSTER when AA is on D3 (not the 2026-09-11 path)
 
 ## Goal
 

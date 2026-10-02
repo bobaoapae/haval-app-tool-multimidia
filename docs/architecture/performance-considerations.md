@@ -1,6 +1,26 @@
 # Performance Considerations
 
-Atualizado em: 2026-06-15
+Atualizado em: 2026-10-02
+
+## Atualizacao 2026-10-02 - Heap do shizuku_server cresce a cada comando shell
+
+- **Causa (confirmada)**: no Shizuku 13.6.0 (ultima versao publicada; codigo igual no upstream desde
+  2021, `Shizuku-API/server-shared/.../RemoteProcessHolder.java`), cada `newProcess` cria um
+  `RemoteProcessHolder` que chama `linkToDeath` no binder do cliente (nosso app) e **nunca** faz
+  `unlinkToDeath`. O `DeathRecipient` segura o holder (Process, streams, PFDs) ate o nosso processo
+  morrer. Resultado: o heap Java do servidor (limite 96MB) cresce proporcional ao numero de
+  comandos e so e liberado quando o nosso app reinicia. Evidencia no carro: ao reinstalar o app, o
+  heap do servidor caiu 78,7MB -> 6,1MB e 38 -> 8MB **sem** o servidor reiniciar (mesmo pid).
+  Bytecode conferido no APK instalado (`rikka.shizuku.Fl.<init>` faz `linkToDeath`; nenhum unlink).
+- **Consequencia**: OOM no servidor a cada ~41 min -> `ForegroundService.onBinderDead` reinicia o
+  servico (cluster pisca, comandos falham por instantes).
+- **Regra**: todo comando via `ShizukuUtils`/`newProcess` custa memoria do servidor ate o app morrer
+  (~9KB/comando medido pelo RSS da regiao `dalvik-main`). Nao criar polling de shell; preferir
+  cache, eventos ou leitura direta (ex.: sysfs com `File.readText`).
+- **Medicao**: build debug loga a cada minuto `ShizukuCmdStats` (WARN; a central usa
+  `persist.log.tag=WARN`) com comandos/min por origem e `[MAIN]` para chamadas na thread principal.
+  `adb logcat -s ShizukuCmdStats:W`.
+- Detalhes, numeros antes/depois e proximos passos: `.ai-context/CHANGELOG-AI.md` (2026-10-02).
 
 ## Atualizacao 2026-08-07 - MainMenu atrasado por carga WebView/GPU no Sport
 

@@ -1,6 +1,7 @@
 import { getState, setState, subscribe } from '../state.js';
 import { div, span, img } from '../../../../shared/utils/createElement.js';
 import { logger } from '../../../../shared/utils/logger.js';
+import { createTbtCard } from '../../../../shared/tbt/tbtCard.js';
 import { createOdometerInfo } from './display/odometer/odometerInfo.js';
 import { createSpeedometerScreen } from './speedometer/speedometer.js';
 
@@ -375,6 +376,11 @@ export function createDashboardInfo() {
     container.appendChild(alertIndicatorsContainer);
     container.appendChild(tripAnalysisIndicator);
 
+    // Turn-by-turn card, shared with minimalist (shared/tbt/tbtCard.js).
+    const tbtCard = createTbtCard();
+    container.appendChild(tbtCard.element);
+    tbtCard.update(getState('navigationDirections'));
+
     // Subscriptions
     const updateBarSegments = (tracks, percent) => {
         tracks.forEach((track, i) => {
@@ -424,6 +430,7 @@ export function createDashboardInfo() {
     };
 
     const subscriptions = [
+        subscribe('navigationDirections', directions => tbtCard.update(directions)),
         subscribe('clockTime', val => clock.textContent = val),
         subscribe('gearState', val => {
             gear.textContent = val;

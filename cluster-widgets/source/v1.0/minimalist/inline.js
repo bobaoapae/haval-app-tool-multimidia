@@ -172,6 +172,12 @@ try {
     fs.copyFileSync(thumbSrc, thumbDest);
     console.log(`✅ Copiado thumbnail.png para Themes: ${thumbDest}`);
   }
+  var bgSrc = path.join(__dirname, 'src', 'assets', 'car-bg.png');
+  var bgDest = path.join(themesDir, 'car-bg.png');
+  if (fs.existsSync(bgSrc)) {
+    fs.copyFileSync(bgSrc, bgDest);
+    console.log(`✅ Copiado car-bg.png para Themes: ${bgDest}`);
+  }
 } catch (err) {
   console.error(`❌ Erro ao copiar para Themes: ${err.message}`);
 }

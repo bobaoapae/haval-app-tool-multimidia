@@ -236,8 +236,60 @@ object AndroidAutoPatchManager {
             return false
         }
 
-        Log.w(TAG, "Applying Android Auto visual mount only; service APK auto/manual UI mount is disabled")
-        return applyAppMount()
+        Log.w(TAG, "Applying Android Auto App mount; Service CLUSTER mount if a Service APK is staged")
+        val appOk = applyAppMount()
+        val serviceOk = if (isServicePatchInstalled()) {
+            applyServiceMountWithoutForceStop()
+        } else {
+            true
+        }
+        return appOk && serviceOk
+    }
+
+    fun isServiceClusterPatchMounted(): Boolean {
+        if (!isServicePatchInstalled()) return false
+        val vendorServiceMd5 = sh("md5sum '$VENDOR_SERVICE_PATH' 2>/dev/null | awk '{print \$1}'").trim()
+        val patchServiceMd5 = installedPatchMd5(SERVICE_APK)
+        return vendorServiceMd5.isNotEmpty() && vendorServiceMd5 == patchServiceMd5
+    }
+
+    /**
+     * Bind-mount the patched Service APK. Does **not** force-stop
+     * projectionservice — that drops USB accessory mode. Load on next AA start.
+     */
+    fun applyServiceMountWithoutForceStop(): Boolean {
+        if (!isServicePatchInstalled()) {
+            Log.e(TAG, "Cannot apply Android Auto Service mount: Service patch not installed")
+            return false
+        }
+        return try {
+            Log.i(TAG, "Applying Android Auto Service bind mount (no projectionservice force-stop)")
+            sh("mkdir -p '$PATCH_DIR/empty_oat'")
+            sh("chmod 755 '$PATCH_DIR/empty_oat'")
+            sh("chmod 644 '$PATCH_DIR/$SERVICE_APK'")
+            sh("chcon u:object_r:vendor_app_file:s0 '$PATCH_DIR/$SERVICE_APK'")
+
+            sh("umount -l '$VENDOR_SERVICE_PATH' 2>/dev/null || true")
+            sh("[ -d '$VENDOR_SERVICE_OAT' ] && umount -l '$VENDOR_SERVICE_OAT' 2>/dev/null || true")
+
+            val mountResult = sh("mount --bind '$PATCH_DIR/$SERVICE_APK' '$VENDOR_SERVICE_PATH'")
+            if (mountResult.contains("error", ignoreCase = true) || mountResult.contains("failed", ignoreCase = true)) {
+                Log.e(TAG, "Failed to mount Android Auto Service APK: $mountResult")
+            }
+            sh("[ -d '$VENDOR_SERVICE_OAT' ] && mount --bind '$PATCH_DIR/empty_oat' '$VENDOR_SERVICE_OAT' || true")
+            sh("rm -f /data/dalvik-cache/arm64/*AndroidAutoService* 2>/dev/null || true")
+
+            val success = isServiceClusterPatchMounted()
+            if (success) {
+                Log.w(TAG, "Android Auto Service CLUSTER patch mounted; takes effect on next AA session")
+            } else {
+                Log.e(TAG, "Android Auto Service mount verification failed")
+            }
+            success
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to apply Android Auto Service mount", e)
+            false
+        }
     }
 
     fun removeMounts(): Boolean {
@@ -248,7 +300,8 @@ object AndroidAutoPatchManager {
             sh("[ -d '$VENDOR_SERVICE_OAT' ] && umount -l '$VENDOR_SERVICE_OAT' 2>/dev/null || true")
             sh("[ -d '$VENDOR_APP_OAT' ] && umount -l '$VENDOR_APP_OAT' 2>/dev/null || true")
 
-            forceStopAndroidAutoPackages()
+            // Do not force-stop projectionservice: that drops USB accessory mode.
+            sh("am force-stop $APP_PACKAGE || true")
             
             return true
         } catch (e: Exception) {

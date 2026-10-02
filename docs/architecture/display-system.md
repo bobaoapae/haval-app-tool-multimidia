@@ -1,13 +1,13 @@
 # Display System
 
-Atualizado em: 2026-06-16
+Atualizado em: 2026-09-24
 
 ## O Que Foi Identificado
 
 O app usa displays Android secundários para renderizar camadas e apps:
 
 - Display 0: central principal, 1920x720.
-- Display 1: HDMI 1920x720 usado por `InstrumentProjector` como camada legada de refresh/HUD.
+- Display 1: HDMI 1920x720 usado por `InstrumentProjector` como camada de wallpaper / refresh HUD.
 - Display 2: HDMI 1280x720. Na central testada em 2026-06-01, não é o HUD físico.
 - Display 3: cluster principal, HDMI 1920x720, usado por `InstrumentProjector2` e por apps/projeções.
 - Display 4096: HUD físico, built-in 480x240, `uniqueId=local:5`, `FLAG_PRIVATE`.
@@ -16,6 +16,9 @@ O app usa displays Android secundários para renderizar camadas e apps:
 alvo existe. Se um display ainda não existe, registra listener. Na central testada em 2026-06-01,
 `DisplayManager.getDisplays()` expôs apenas 0, 1, 2 e 3; o HUD 4096 é privado e não ficou disponível
 para `Presentation`.
+
+Criação ordenada: HUD (D1) antes das máscaras (D3). Wallpaper D1 e insets nativos D3 compartilham
+`ClusterBackgroundSync` — ver `docs/architecture/projector-flow.md`.
 
 O shell/ActivityManager conseguiu iniciar Activities no HUD privado com `am start --display 4096`.
 Isso deve ser tratado como caminho manual/experimental, não como fluxo automático do app, porque uma
@@ -27,6 +30,7 @@ Activity fullscreen pode cobrir/substituir visualmente a projeção nativa do HU
 - `BaseProjector.kt`
 - `InstrumentProjector.kt`
 - `InstrumentProjector2.kt`
+- `ClusterBackgroundSync.kt`
 - `DisplayAppLauncher.kt`
 - `HudNavigationActivity.kt`
 
@@ -35,6 +39,8 @@ Activity fullscreen pode cobrir/substituir visualmente a projeção nativa do HU
 - O cluster usa fullscreen lógico de 1920x720 em fluxos críticos.
 - Apps em display 3 podem exigir bounds customizados, exceto CarPlay que deve ficar fullscreen físico.
 - A WebView do cluster é transparente e pode coexistir com apps nativos.
+- Native masks do D3 só sobem quando a theme WebView está live **e** (se still wallpaper for esperado)
+  o D1 já pintou o wallpaper atual — senão os insets framing nada voltam.
 - Quando uma janela externa no D0 ganha foco enquanto a bottom bar/dashboard estava ativo, o
   `BottomBarService` deve restaurar pelo menos a barra inferior e colapsar o dashboard fullscreen
   sem roubar foco da janela nativa. Isso cobre janelas como AC/HVAC, que podem esconder o dashboard

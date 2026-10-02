@@ -93,6 +93,138 @@ class BottomBarUIProjectionConfigTest {
         assertEquals(0, resolveBottomBarRowStartPadPx(0, surfaceCutoutPx = 100))
     }
 
+    @Test
+    fun resolveDockApps_preservesTelasOrderIgnoringSessionRecents() {
+        val telas = listOf(
+            "app.telas.1",
+            "app.telas.2",
+            "app.telas.3",
+            "app.telas.4",
+            "app.telas.5"
+        )
+        // Session recents has app.telas.4 first, then non-telas app, then app.telas.2
+        val sessionRecents = listOf("app.telas.4", "app.unrelated", "app.telas.2")
+
+        val result = resolveDockApps(telas, sessionRecents, maxApps = 9)
+
+        // Dock strictly preserves Telas order (does not consider latest used first)
+        assertEquals(
+            listOf("app.telas.1", "app.telas.2", "app.telas.3", "app.telas.4", "app.telas.5"),
+            result
+        )
+    }
+
+    @Test
+    fun resolveDockApps_limitsToNineApps() {
+        val telas = (1..15).map { "app.telas.$it" }
+        val sessionRecents = listOf("app.telas.12", "app.telas.5")
+
+        val result = resolveDockApps(telas, sessionRecents, maxApps = 9)
+
+        assertEquals(9, result.size)
+        assertEquals("app.telas.1", result[0])
+        assertEquals("app.telas.2", result[1])
+        assertEquals("app.telas.3", result[2])
+    }
+
+    @Test
+    fun resolveDockApps_emptyTelasReturnsEmpty() {
+        val result = resolveDockApps(emptyList(), listOf("app.any"), maxApps = 9)
+        assertEquals(emptyList<String>(), result)
+    }
+
+    @Test
+    fun shouldHideFromAllApps_filtersHavalH6IgnoredPackages() {
+        org.junit.Assert.assertTrue(shouldHideFromAllApps("com.beantechs.hvac"))
+        org.junit.Assert.assertTrue(shouldHideFromAllApps("com.beantechs.drivinganalysisservice"))
+        org.junit.Assert.assertTrue(shouldHideFromAllApps("com.android.systemui"))
+        org.junit.Assert.assertTrue(shouldHideFromAllApps("com.android.car.media"))
+        org.junit.Assert.assertTrue(shouldHideFromAllApps("com.ts.androidauto.app"))
+        org.junit.Assert.assertTrue(shouldHideFromAllApps(""))
+
+        // Allows standard launchable and custom apps
+        org.junit.Assert.assertFalse(shouldHideFromAllApps("com.android.chrome"))
+        org.junit.Assert.assertFalse(shouldHideFromAllApps("com.google.android.apps.maps"))
+        org.junit.Assert.assertFalse(shouldHideFromAllApps("com.spotify.music"))
+        org.junit.Assert.assertFalse(shouldHideFromAllApps("com.waze"))
+        org.junit.Assert.assertFalse(shouldHideFromAllApps("br.com.redesurftank.havalshisuku"))
+    }
+
+    @Test
+    fun resolveBottomBarSwipeAction_horizontalDominant_returnsNone() {
+        // When horizontal movement exceeds 15px and dominates over vertical, it must be ignored
+        val decision = resolveBottomBarSwipeAction(
+            totalDragX = 35f,
+            totalDragY = -50f, // vertical is large, but horizontal is 35 > 15
+            isHorizontalLocked = false,
+            isChildConsumed = false
+        )
+        // Note: absX=35, absY=50 -> here absX < absY, so not dominated unless absX > absY
+        // If absX > 15 and absX > absY:
+        val decisionHorizontal = resolveBottomBarSwipeAction(
+            totalDragX = 55f,
+            totalDragY = -50f,
+            isHorizontalLocked = false,
+            isChildConsumed = false
+        )
+        assertEquals(BottomBarSwipeDecision.NONE, decisionHorizontal)
+    }
+
+    @Test
+    fun resolveBottomBarSwipeAction_horizontalLocked_returnsNoneEvenWithVerticalDrift() {
+        val decision = resolveBottomBarSwipeAction(
+            totalDragX = 0f,
+            totalDragY = -80f,
+            isHorizontalLocked = true,
+            isChildConsumed = false
+        )
+        assertEquals(BottomBarSwipeDecision.NONE, decision)
+    }
+
+    @Test
+    fun resolveBottomBarSwipeAction_childConsumed_returnsNone() {
+        val decision = resolveBottomBarSwipeAction(
+            totalDragX = 0f,
+            totalDragY = -80f,
+            isHorizontalLocked = false,
+            isChildConsumed = true
+        )
+        assertEquals(BottomBarSwipeDecision.NONE, decision)
+    }
+
+    @Test
+    fun resolveBottomBarSwipeAction_pureSwipeUp_returnsExpand() {
+        val decision = resolveBottomBarSwipeAction(
+            totalDragX = 2f,
+            totalDragY = -50f,
+            isHorizontalLocked = false,
+            isChildConsumed = false
+        )
+        assertEquals(BottomBarSwipeDecision.EXPAND, decision)
+    }
+
+    @Test
+    fun resolveBottomBarSwipeAction_pureSwipeDown_returnsHide() {
+        val decision = resolveBottomBarSwipeAction(
+            totalDragX = 2f,
+            totalDragY = 30f,
+            isHorizontalLocked = false,
+            isChildConsumed = false
+        )
+        assertEquals(BottomBarSwipeDecision.HIDE, decision)
+    }
+
+    @Test
+    fun resolveBottomBarSwipeAction_smallDrag_returnsNone() {
+        val decision = resolveBottomBarSwipeAction(
+            totalDragX = 1f,
+            totalDragY = -20f,
+            isHorizontalLocked = false,
+            isChildConsumed = false
+        )
+        assertEquals(BottomBarSwipeDecision.NONE, decision)
+    }
+
     private fun config(packageName: String, customName: String? = null): DisplayAppConfig {
         return DisplayAppConfig(
             packageName = packageName,

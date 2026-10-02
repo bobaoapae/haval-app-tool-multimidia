@@ -29,6 +29,9 @@ var stateManager = new StateManager({
     regenMode: 'Normal',
     lastRegenValue: 0,
     onepedal: false,
+    // HEV energy reserve (power_reserve_config): '1' Inteligente, '2' Prioritário
+    hevReserve: '1',
+    hevSocTarget: 50,
 
     // Graph values
     currentGraph: 'evConsumption',

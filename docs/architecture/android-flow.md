@@ -19,8 +19,8 @@ Atualizado em: 2026-06-30
 - O monitor CPU/RAM e avancado, desligado por padrao, le `/proc` em `Dispatchers.IO` a cada `2,5s`
   e usa uma janela `NOT_FOCUSABLE|NOT_TOUCHABLE`; o job e a janela sao removidos no `onDestroy`.
 - No MainMenu, `ENTER_LONG` sobre modo de forca alterna o submodo apenas quando o veiculo reporta
-  HEV. `InstrumentProjector2` publica `HEV Inteligente` ou `HEV Prioridade XX%` e o tema mostra o
-  submodo em fonte secundaria.
+  HEV. O host publica `evMode` cru (`HEV`/`EV`/`EVP`) mais `hevReserve`/`hevSocTarget` brutos;
+  os temas compoem `Inteligente` / `Prioridade XX%` no menu (nao embutir compostos em `evMode`).
 - A guarda de reentrada nativa ignora somente `0 -> 1/3` espontaneo, sem
   `LEFT/RIGHT/HOME/BACK` recente. Saidas intencionais do A/C e transicoes `1 -> 3` continuam
   aceitas e cobertas por teste.

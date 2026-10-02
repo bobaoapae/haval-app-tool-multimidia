@@ -18,10 +18,18 @@ export const KEYS = {
     STEER_ASSIST_MODE: "car.drive_setting.steering_wheel_assist_mode",
     REGEN_LEVEL: "car.ev_setting.energy_recovery_level",
     PEDAL_CONTROL_ENABLE: "car.ev.setting.pedal_control_enable",
+    // HEV energy-reserve submode (only meaningful when power_model_config == 0 / HEV).
+    // 1 = Inteligente, 2 = Prioritário. SOC target (20–80) applies in Prioritário.
+    POWER_RESERVE_CONFIG: "car.ev_setting.power_reserve_config",
+    CHARGE_SOC_TARGET_CONFIG: "car.ev_setting.charge_soc_target_config",
     ENERGY_OUTPUT_PERCENTAGE: "car.ev_info.energy_output_percentage",
     CHARGE_CURRENT: "car.ev_info.cur_charge_current",
     BATTERY_VOLTAGE: "car.ev_info.power_battery_voltage",
     INSTANT_ENERGY_CONSUMPTION: "car.ev_info.Instant_energy_consumption",
+    ENERGY_DRIVE_STATE: "car.ev_info.energy_drive_state",
+    CHARGING_STATE: "car.ev_info.charging_state",
+    POWER_FLOW: "haval.power.flow",
+    POWER_ICE: "haval.power.ice",
     REMAIN_FUEL_PERCENTAGE: "car.basic.remain_fuel_percentage",
     BATTERY_POWER_PERCENTAGE: "car.ev_info.cur_battery_power_percentage",
     FUEL_MODE_REMAIN_ODOMETER: "car.ev_info.fuel_mode_remain_odometer",
@@ -46,7 +54,8 @@ export const KEYS = {
 
     APP_LAUNCHER_APPS: "app.launcher.apps",
     APP_NAVIGATION_DIRECTIONS: "app.navigation.directions",
-
+    APP_ANDROID_AUTO_SESSION: "app.androidauto.session",
+    
     // Media & Telephony
     APP_MEDIA_STATE: "app.media.state",
     APP_MEDIA_TITLE: "app.media.title",
@@ -108,6 +117,10 @@ export const VALUE_LABELS = {
     [KEYS.PEDAL_CONTROL_ENABLE]: {
         "0": "OFF",
         "1": "ON"
+    },
+    [KEYS.POWER_RESERVE_CONFIG]: {
+        "1": "Inteligente",
+        "2": "Prioritário"
     }
 };
 
@@ -118,7 +131,8 @@ export const CYCLE_VALUES = {
     [KEYS.DRIVE_MODE]: ["0", "2", "1"], // Normal -> Eco -> Sport
     [KEYS.STEER_ASSIST_MODE]: ["2", "0", "1"], // Conforto -> Normal -> Esportiva
     [KEYS.REGEN_LEVEL]: ["2", "0", "1"], // Baixo -> Normal -> Alto
-    [KEYS.PEDAL_CONTROL_ENABLE]: ["0", "1"]
+    [KEYS.PEDAL_CONTROL_ENABLE]: ["0", "1"],
+    [KEYS.POWER_RESERVE_CONFIG]: ["1", "2"] // Inteligente <-> Prioritário
 };
 
 /**
@@ -147,8 +161,28 @@ export const FRIENDLY_KEY_TO_CAN_KEY = {
     drivingMode: KEYS.DRIVE_MODE,
     steerMode: KEYS.STEER_ASSIST_MODE,
     regenMode: KEYS.REGEN_LEVEL,
-    gearState: KEYS.GEAR_STATUS
+    gearState: KEYS.GEAR_STATUS,
+    // Raw CAN — themes compose "HEV Inteligente" / "HEV Prioridade XX%" themselves.
+    // Deliberately excludes hevSocTarget (numeric) and onepedal (boolean).
+    hevReserve: KEYS.POWER_RESERVE_CONFIG
 };
+
+/**
+ * HEV menu/dashboard sublabel when power mode is HEV.
+ * @param {string} hevReserve raw '1' | '2' (or labeled Inteligente/Prioritário)
+ * @param {number|string} hevSocTarget SOC % for Prioritário (20–80)
+ * @returns {string} '' | 'Inteligente' | 'Prioridade XX%'
+ */
+export function formatHevReserveSublabel(hevReserve, hevSocTarget) {
+    const reserve = String(hevReserve == null ? '1' : hevReserve).trim();
+    const isPrioritario =
+        reserve === '2' || reserve.toLowerCase() === 'prioritário' || reserve.toLowerCase() === 'prioritario';
+    if (isPrioritario) {
+        const pct = Math.min(80, Math.max(20, parseInt(hevSocTarget, 10) || 50));
+        return `Prioridade ${pct}%`;
+    }
+    return 'Inteligente';
+}
 
 /**
  * Translates a raw CAN value arriving under a friendly theme-state key name

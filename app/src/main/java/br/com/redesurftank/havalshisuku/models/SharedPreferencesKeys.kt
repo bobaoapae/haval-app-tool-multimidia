@@ -363,16 +363,38 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "bottomBarSwipeUpPackage",
             "Pacote do app aberto ao deslizar a barra para cima"
     ),
+    BOTTOM_BAR_VERSION("bottomBarVersion", "Versão da barra inferior (old/new)"),
     CLUSTER_PROJECTION_OPENS_DASHBOARD(
             "clusterProjectionOpensDashboard",
             "Abrir o Impulse Drive quando a projeção inicia no cluster"
     ),
     BOTTOM_BAR_OVERRIDES("bottomBarOverrides", "Overrides de aplicativos salvos (JSON)"),
+    BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT(
+            "bottomBarShowProjectionShortcut",
+            "Exibir atalho de projeção (CarPlay/AA) no início do Dock"
+    ),
     DASHBOARD_CARD_ORDER("dashboardCardOrder", "Ordem dos cards do dashboard"),
     ENABLE_SPEED_ADJUSTMENT("enableSpeedAdjustment", "Habilitar ajuste de velocidade no painel"),
     SPEED_ADJUSTMENT_OFFSET("speedAdjustmentOffset", "Fator de ajuste de velocidade (%)"),
     TRIP_CONSISTENCY_CLUSTER_ACTIVE("tripConsistencyClusterActive", "Indicador discreto de análise de viagem ativa no cluster"),
     TRIP_CONSISTENCY_CLUSTER_SCORE("tripConsistencyClusterScore", "Score de consistência em tempo real no cluster"),
+    // Qualquer app pode ser escolhido para abrir na tela principal ao ligar; vazio = nenhum.
+    // Substitui o antigo booleano autoStartViewerOnBoot, migrado por StartupAppManager.
+    STARTUP_APP_MAIN_DISPLAY(
+            "startupAppMainDisplay",
+            "App que abre na tela principal ao ligar o carro"
+    ),
+    VIEWER_CLIMATE_HANDOFF(
+            "viewerClimateHandoff",
+            "Usar os controles de ar-condicionado do Haval H6 3D no lugar do popup do carro"
+    ),
+    // Marcador interno (nao e um ajuste do usuario): "desativamos o app de A/C do carro e ainda
+    // nao devolvemos". Persistido porque `pm disable-user` sobrevive a reboot -- ver
+    // HvacSuppressionPolicy.
+    HVAC_SUPPRESSED_BY_APP(
+            "hvacSuppressedByApp",
+            "Estado interno da suspensao do app de ar-condicionado do carro"
+    ),
     AA_PATCH_AUTO_MOUNT("aaPatchAutoMount", "Habilitar montagem automática dos patches do Android Auto ao iniciar"),
     CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),
     AMBIENT_LIGHT_BLE_ENABLED("ambientLightBleEnabled", "Ativar Ambient Light BLE"),
@@ -457,5 +479,26 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     DATATRACK_DISABLED_BY_APP("datatrackDisabledByApp", "Controle interno: DataTrack desabilitado por este app"),
     MOBILE_DATA_TRAFFIC_ACCUM_BYTES("mobileDataTrafficAccumBytes", "Acumulado de bytes móveis no ciclo (fallback TrafficStats)"),
     MOBILE_DATA_TRAFFIC_LAST_READING("mobileDataTrafficLastReading", "Última leitura do TrafficStats móvel (controle interno)"),
-    MOBILE_DATA_TRAFFIC_CYCLE_TAG("mobileDataTrafficCycleTag", "Ciclo atual do acumulador de bytes (controle interno)")
+    MOBILE_DATA_TRAFFIC_CYCLE_TAG("mobileDataTrafficCycleTag", "Ciclo atual do acumulador de bytes (controle interno)"),
+    // ===== Dados anônimos de frota (PostHog) =====
+    ANONYMOUS_TELEMETRY_OPTED_OUT(
+            "anonymousTelemetryOptedOut",
+            "Opt-out dos pings anônimos de frota (PostHog)"
+    ),
+    ANONYMOUS_TELEMETRY_LAST_SENT_AT(
+            "anonymousTelemetryLastSentAt",
+            "Timestamp do último ping anônimo enviado com sucesso"
+    ),
+    ANONYMOUS_TELEMETRY_LAST_THEME(
+            "anonymousTelemetryLastTheme",
+            "Último tema reportado no ping anônimo"
+    ),
+    ANONYMOUS_TELEMETRY_POWER_ON_COUNT(
+            "anonymousTelemetryPowerOnCount",
+            "Contador local de power-ons reportados no ping anônimo"
+    ),
+    ANONYMOUS_TELEMETRY_FALLBACK_ID(
+            "anonymousTelemetryFallbackId",
+            "Identificador local usado apenas quando o ANDROID_ID não está disponível"
+    )
 }

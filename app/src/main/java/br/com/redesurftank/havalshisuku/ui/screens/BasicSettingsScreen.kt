@@ -43,6 +43,9 @@ import br.com.redesurftank.havalshisuku.ui.components.GroupedSettingsLayout
 import br.com.redesurftank.havalshisuku.ui.components.SettingsGroups
 import br.com.redesurftank.havalshisuku.ui.components.TwoColumnSettingsLayout
 import br.com.redesurftank.havalshisuku.managers.HotRouterManager
+import br.com.redesurftank.havalshisuku.managers.HvacPanelSuppressor
+import br.com.redesurftank.havalshisuku.managers.ViewerPresence
+import br.com.redesurftank.havalshisuku.managers.ViewerPresencePolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -813,12 +816,20 @@ fun BasicSettingsTab() {
                                 ?: ""
                 )
         }
+        var bottomBarVersion by remember {
+                mutableStateOf(
+                        prefs.getString(
+                                SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
+                                BottomBarState.BarVersion.OLD.key
+                        ) ?: BottomBarState.BarVersion.OLD.key
+                )
+        }
         var showSwipeUpAppPicker by remember { mutableStateOf(false) }
         var clusterProjectionOpensDashboard by remember {
                 mutableStateOf(
                         prefs.getBoolean(
                                 SharedPreferencesKeys.CLUSTER_PROJECTION_OPENS_DASHBOARD.key,
-                                true
+                                false
                         )
                 )
         }
@@ -925,6 +936,14 @@ fun BasicSettingsTab() {
         var enableHotRouter by remember {
                 mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_HOT_ROUTER.key, false))
         }
+        var viewerClimateHandoff by remember {
+                mutableStateOf(
+                        prefs.getBoolean(
+                                SharedPreferencesKeys.VIEWER_CLIMATE_HANDOFF.key,
+                                false
+                        )
+                )
+        }
         // ===== Controle de dados móveis do carro (master + regras) =====
         val mdm = br.com.redesurftank.havalshisuku.managers.MobileDataManager
         var mobileControlEnabled by remember { mutableStateOf(mdm.isControlEnabled()) }
@@ -958,7 +977,73 @@ fun BasicSettingsTab() {
                 }
         }
 
+        // Opcoes que so existem para servir o Haval H6 3D. O Impulse sai antes dele, entao elas
+        // aparecem apenas quando o app esta no carro -- e somem de novo se ele for desinstalado,
+        // sem reiniciar o Impulse (ViewerPresence ouve os broadcasts de pacote).
+        var viewerStatus by remember { mutableStateOf(ViewerPresence.status()) }
+        DisposableEffect(Unit) {
+                val unsubscribe = ViewerPresence.addListener { viewerStatus = it }
+                onDispose { unsubscribe() }
+        }
+
         val settingsList = mutableListOf<SettingItem>()
+
+        if (viewerStatus.supports(ViewerPresencePolicy.API_PRESENT_ONLY)) {
+                // Controles de A/C pelo viewer: enquanto ele estiver ligado ao Impulse, o app de
+                // climatizacao do carro fica desativado e o popup passa a ser o do Haval H6 3D.
+                // So aparece para um viewer que declara saber responder (nivel 2).
+                if (viewerStatus.supports(ViewerPresencePolicy.API_CLIMATE_HANDOFF)) {
+                        settingsList.add(
+                                SettingItem(
+                                        title = "Ar-condicionado pelo Haval H6 3D",
+                                        group = SettingsGroups.CLIMATE,
+                                        description =
+                                                SharedPreferencesKeys.VIEWER_CLIMATE_HANDOFF
+                                                        .description +
+                                                        ". Os botoes fisicos continuam funcionando " +
+                                                        "normalmente; some so o popup do carro. O " +
+                                                        "app do carro volta sozinho se o viewer " +
+                                                        "fechar, travar ou for desinstalado.",
+                                        checked = viewerClimateHandoff,
+                                        onCheckedChange = {
+                                                viewerClimateHandoff = it
+                                                // setFeatureEnabled grava a pref E avisa quem ja
+                                                // esta ligado: o viewer pede a licenca UMA vez, ao
+                                                // conectar, entao gravar a pref aqui e so chamar
+                                                // reconcile nao fazia nada (medido no carro
+                                                // 2026-09-23 -- o toggle ligado e o app de A/C do
+                                                // carro seguia ativo). Desligar devolve o app na
+                                                // hora, sem esperar o viewer desconectar.
+                                                HvacPanelSuppressor.setFeatureEnabled(it)
+                                        }
+                                )
+                        )
+                }
+        } else {
+                // Uma linha fica visivel de proposito: esconder o grupo inteiro sem deixar rastro e
+                // o que gera "sumiu a opcao do Haval 3D".
+                settingsList.add(
+                        SettingItem(
+                                title = "Haval H6 3D",
+                                group = SettingsGroups.FEATURES,
+                                description =
+                                        if (viewerStatus.installedButDisabled)
+                                                "O app esta instalado, mas desativado neste " +
+                                                        "usuario. Reative-o para voltar a ver as " +
+                                                        "opcoes do Haval H6 3D aqui."
+                                        else
+                                                "Nao instalado. As opcoes que dependem do app " +
+                                                        "(abrir no boot, controles de ar-" +
+                                                        "condicionado) aparecem aqui assim que " +
+                                                        "ele for instalado -- veja a aba " +
+                                                        "\"Instalar Apps\".",
+                                checked = false,
+                                onCheckedChange = {},
+                                enabled = false,
+                                hideSwitch = true
+                        )
+                )
+        }
 
         // HotRouter: roteia o hotspot pela WLAN externa (Starlink) com fallback pro 4G.
         settingsList.add(
@@ -2444,6 +2529,79 @@ fun BasicSettingsTab() {
                                                                                                                 Color.Transparent
                                                                                                 )
                                                                         )
+                                                                }
+
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        12.dp
+                                                                                )
+                                                                )
+
+                                                                // Bottom bar version selection
+                                                                Text(
+                                                                        "Versão da barra inferior",
+                                                                        color = Color.White,
+                                                                        fontSize = 16.sp
+                                                                )
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        4.dp
+                                                                                )
+                                                                )
+                                                                Text(
+                                                                        "Escolha entre o layout original ou a nova experiência com doca de aplicativos e menu de climatização Haval H6 3D",
+                                                                        color = Color.Gray,
+                                                                        fontSize = 12.sp
+                                                                )
+                                                                Spacer(
+                                                                        modifier =
+                                                                                Modifier.height(
+                                                                                        6.dp
+                                                                                )
+                                                                )
+                                                                BottomBarState.BarVersion.entries.forEach { option ->
+                                                                        val selected = bottomBarVersion == option.key
+                                                                        Row(
+                                                                                modifier =
+                                                                                        Modifier.fillMaxWidth()
+                                                                                                .clickable {
+                                                                                                        bottomBarVersion = option.key
+                                                                                                        prefs.edit()
+                                                                                                                .putString(
+                                                                                                                        SharedPreferencesKeys.BOTTOM_BAR_VERSION.key,
+                                                                                                                        option.key
+                                                                                                                )
+                                                                                                                .apply()
+                                                                                                        BottomBarState.barVersion = option.key
+                                                                                                }
+                                                                                                .padding(vertical = 6.dp),
+                                                                                verticalAlignment = Alignment.CenterVertically
+                                                                        ) {
+                                                                                RadioButton(
+                                                                                        selected = selected,
+                                                                                        onClick = null,
+                                                                                        colors =
+                                                                                                RadioButtonDefaults.colors(
+                                                                                                        selectedColor = AppColors.Primary,
+                                                                                                        unselectedColor = AppColors.TextSecondary
+                                                                                                )
+                                                                                )
+                                                                                Spacer(modifier = Modifier.width(8.dp))
+                                                                                Column {
+                                                                                        Text(
+                                                                                                text = option.label,
+                                                                                                color = Color.White,
+                                                                                                fontSize = 14.sp
+                                                                                        )
+                                                                                        Text(
+                                                                                                text = option.description,
+                                                                                                color = Color.Gray,
+                                                                                                fontSize = 12.sp
+                                                                                        )
+                                                                                }
+                                                                        }
                                                                 }
 
                                                                 Spacer(
