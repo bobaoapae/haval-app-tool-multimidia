@@ -116,14 +116,160 @@ object ImpulseHomeUpdater {
             emptySet()
         }
 
-    private fun archiveSigners(pm: PackageManager, apk: File): Set<String> =
-        try {
-            val info =
-                pm.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
-            signersOf(info?.signingInfo)
+    fun archiveSigners(pm: PackageManager, apk: File): Set<String> {
+        val pmSigners = try {
+            @Suppress("DEPRECATION")
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
+            } else {
+                PackageManager.GET_SIGNATURES
+            }
+            val info = pm.getPackageArchiveInfo(apk.absolutePath, flags)
+            val fromSigningInfo = signersOf(info?.signingInfo)
+            if (fromSigningInfo.isNotEmpty()) fromSigningInfo
+            else {
+                @Suppress("DEPRECATION")
+                val sigs = info?.signatures
+                if (!sigs.isNullOrEmpty()) {
+                    sigs.map { sha256Hex(it.toByteArray()) }.toSet()
+                } else emptySet()
+            }
         } catch (e: Exception) {
             emptySet()
         }
+
+        if (pmSigners.isNotEmpty()) return pmSigners
+
+        return parseApkSigningBlockSigners(apk)
+    }
+
+    /**
+     * Extrai os fingerprints SHA-256 dos certificados do APK Signing Block (v2/v3).
+     * Essencial no Android 9 (API 28), onde getPackageArchiveInfo tem incompatibilidade com
+     * APKs assinados exclusivamente com o esquema v3 / rotation lineage.
+     */
+    fun parseApkSigningBlockSigners(apk: File): Set<String> {
+        return try {
+            java.io.RandomAccessFile(apk, "r").use { raf ->
+                val len = raf.length()
+                if (len < 22) return emptySet()
+
+                val maxSearch = minOf(len, 65557L).toInt()
+                val searchBuf = ByteArray(maxSearch)
+                raf.seek(len - maxSearch)
+                raf.readFully(searchBuf)
+
+                var eocdOffsetInBuf = -1
+                for (i in (maxSearch - 22) downTo 0) {
+                    if (searchBuf[i] == 0x50.toByte() &&
+                        searchBuf[i + 1] == 0x4b.toByte() &&
+                        searchBuf[i + 2] == 0x05.toByte() &&
+                        searchBuf[i + 3] == 0x06.toByte()
+                    ) {
+                        eocdOffsetInBuf = i
+                        break
+                    }
+                }
+                if (eocdOffsetInBuf == -1) return emptySet()
+
+                val eocdOffset = len - maxSearch + eocdOffsetInBuf
+                raf.seek(eocdOffset + 16)
+                val cdOffsetBuf = ByteArray(4)
+                raf.readFully(cdOffsetBuf)
+                val cdOffset = java.nio.ByteBuffer.wrap(cdOffsetBuf)
+                    .order(java.nio.ByteOrder.LITTLE_ENDIAN).int.toLong() and 0xFFFFFFFFL
+
+                if (cdOffset < 24) return emptySet()
+
+                raf.seek(cdOffset - 16)
+                val magic = ByteArray(16)
+                raf.readFully(magic)
+                if (String(magic, Charsets.US_ASCII) != "APK Sig Block 42") return emptySet()
+
+                raf.seek(cdOffset - 24)
+                val blockSizeBuf = ByteArray(8)
+                raf.readFully(blockSizeBuf)
+                val blockSize = java.nio.ByteBuffer.wrap(blockSizeBuf)
+                    .order(java.nio.ByteOrder.LITTLE_ENDIAN).long
+                val blockStart = cdOffset - 8 - blockSize
+                if (blockStart < 0) return emptySet()
+
+                val results = mutableSetOf<String>()
+                var pos = blockStart + 8
+                val blockEnd = cdOffset - 24
+                while (pos < blockEnd) {
+                    raf.seek(pos)
+                    val pairHeader = ByteArray(12)
+                    raf.readFully(pairHeader)
+                    val bb = java.nio.ByteBuffer.wrap(pairHeader).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    val pairLen = bb.long
+                    val id = bb.int.toLong() and 0xFFFFFFFFL
+
+                    // ID 0x7109871a (v2) ou 0xf05368c0 (v3)
+                    if (id == 0x7109871aL || id == 0xf05368c0L) {
+                        val pairData = ByteArray((pairLen - 4).toInt())
+                        raf.seek(pos + 12)
+                        raf.readFully(pairData)
+                        extractCertSignersFromSchemeBlock(pairData, results)
+                    }
+                    pos += 8 + pairLen
+                }
+                results
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse APK signing block", e)
+            emptySet()
+        }
+    }
+
+    private fun extractCertSignersFromSchemeBlock(data: ByteArray, results: MutableSet<String>) {
+        try {
+            val buf = java.nio.ByteBuffer.wrap(data).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            if (buf.remaining() < 4) return
+            val signersLen = buf.int
+            if (signersLen <= 0 || signersLen > buf.remaining()) return
+
+            while (buf.remaining() >= 4) {
+                val signerLen = buf.int
+                if (signerLen <= 0 || signerLen > buf.remaining()) break
+                val signerEnd = buf.position() + signerLen
+
+                val signedDataLen = buf.int
+                if (signedDataLen <= 0 || signedDataLen > buf.remaining()) {
+                    buf.position(signerEnd)
+                    continue
+                }
+
+                val digestsLen = buf.int
+                if (digestsLen < 0 || digestsLen > buf.remaining()) {
+                    buf.position(signerEnd)
+                    continue
+                }
+                buf.position(buf.position() + digestsLen)
+
+                if (buf.remaining() < 4) {
+                    buf.position(signerEnd)
+                    continue
+                }
+                val certsLen = buf.int
+                val certsEnd = buf.position() + certsLen
+                if (certsLen <= 0 || certsEnd > signerEnd) {
+                    buf.position(signerEnd)
+                    continue
+                }
+
+                while (buf.position() < certsEnd && buf.remaining() >= 4) {
+                    val certLen = buf.int
+                    if (certLen <= 0 || certLen > buf.remaining()) break
+                    val certBytes = ByteArray(certLen)
+                    buf.get(certBytes)
+                    results.add(sha256Hex(certBytes))
+                }
+
+                buf.position(signerEnd)
+            }
+        } catch (_: Exception) {}
+    }
 
     private fun signersOf(si: android.content.pm.SigningInfo?): Set<String> {
         if (si == null) return emptySet()

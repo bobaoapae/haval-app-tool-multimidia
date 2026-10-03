@@ -63,4 +63,13 @@ class ImpulseHomeUpdaterTest {
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
             ImpulseHomeUpdater.sha256Hex("abc".toByteArray())
         )
+
+    @Test
+    fun parsesApkSigningBlockSignersWhenFileExists() {
+        val file = java.io.File("../impulse-home.apk")
+        if (file.exists()) {
+            val signers = ImpulseHomeUpdater.parseApkSigningBlockSigners(file)
+            assertTrue("Expected signer $signer in $signers", signers.contains(signer))
+        }
+    }
 }
