@@ -210,7 +210,7 @@ object ImpulseHomeUpdater {
                         val pairData = ByteArray((pairLen - 4).toInt())
                         raf.seek(pos + 12)
                         raf.readFully(pairData)
-                        extractCertSignersFromSchemeBlock(pairData, results)
+                        extractCertSignersFromSchemeBlock(pairData, id == 0xf05368c0L, results)
                     }
                     pos += 8 + pairLen
                 }
@@ -222,53 +222,189 @@ object ImpulseHomeUpdater {
         }
     }
 
-    private fun extractCertSignersFromSchemeBlock(data: ByteArray, results: MutableSet<String>) {
+    private fun extractCertSignersFromSchemeBlock(
+        data: ByteArray,
+        isV3: Boolean,
+        results: MutableSet<String>
+    ) {
         try {
             val buf = java.nio.ByteBuffer.wrap(data).order(java.nio.ByteOrder.LITTLE_ENDIAN)
             if (buf.remaining() < 4) return
             val signersLen = buf.int
             if (signersLen <= 0 || signersLen > buf.remaining()) return
+            val certFactory = java.security.cert.CertificateFactory.getInstance("X.509")
 
             while (buf.remaining() >= 4) {
                 val signerLen = buf.int
                 if (signerLen <= 0 || signerLen > buf.remaining()) break
                 val signerEnd = buf.position() + signerLen
 
-                val signedDataLen = buf.int
-                if (signedDataLen <= 0 || signedDataLen > buf.remaining()) {
-                    buf.position(signerEnd)
-                    continue
-                }
-
-                val digestsLen = buf.int
-                if (digestsLen < 0 || digestsLen > buf.remaining()) {
-                    buf.position(signerEnd)
-                    continue
-                }
-                buf.position(buf.position() + digestsLen)
-
                 if (buf.remaining() < 4) {
                     buf.position(signerEnd)
                     continue
                 }
-                val certsLen = buf.int
-                val certsEnd = buf.position() + certsLen
-                if (certsLen <= 0 || certsEnd > signerEnd) {
+                val signedDataLen = buf.int
+                if (signedDataLen <= 0 || signedDataLen > buf.remaining() || buf.position() + signedDataLen > signerEnd) {
+                    buf.position(signerEnd)
+                    continue
+                }
+                val signedDataBytes = ByteArray(signedDataLen)
+                buf.get(signedDataBytes)
+
+                // Em v3, existem minSdkVersion e maxSdkVersion (8 bytes) antes de signatures
+                if (isV3) {
+                    if (buf.remaining() < 8) {
+                        buf.position(signerEnd)
+                        continue
+                    }
+                    buf.getInt() // minSdkVersion
+                    buf.getInt() // maxSdkVersion
+                }
+
+                // Bloco de signatures
+                if (buf.remaining() < 4) {
+                    buf.position(signerEnd)
+                    continue
+                }
+                val signaturesLen = buf.int
+                if (signaturesLen <= 0 || signaturesLen > buf.remaining() || buf.position() + signaturesLen > signerEnd) {
+                    buf.position(signerEnd)
+                    continue
+                }
+                val signaturesEnd = buf.position() + signaturesLen
+                val signaturesList = mutableListOf<Pair<Int, ByteArray>>()
+                while (buf.position() < signaturesEnd && buf.remaining() >= 8) {
+                    val sigLen = buf.int
+                    if (sigLen < 8 || sigLen > buf.remaining()) break
+                    val sigEnd = buf.position() + sigLen
+                    val sigAlgo = buf.int
+                    val sigBytesLen = buf.int
+                    if (sigBytesLen <= 0 || sigBytesLen > buf.remaining() || buf.position() + sigBytesLen > sigEnd) {
+                        buf.position(sigEnd)
+                        continue
+                    }
+                    val sigBytes = ByteArray(sigBytesLen)
+                    buf.get(sigBytes)
+                    signaturesList.add(Pair(sigAlgo, sigBytes))
+                    buf.position(sigEnd)
+                }
+
+                // Public key
+                if (buf.remaining() < 4) {
+                    buf.position(signerEnd)
+                    continue
+                }
+                val publicKeyLen = buf.int
+                if (publicKeyLen <= 0 || publicKeyLen > buf.remaining() || buf.position() + publicKeyLen > signerEnd) {
+                    buf.position(signerEnd)
+                    continue
+                }
+                val publicKeyBytes = ByteArray(publicKeyLen)
+                buf.get(publicKeyBytes)
+
+                // Extrai certificados de dentro de signedData
+                val sBuf = java.nio.ByteBuffer.wrap(signedDataBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                if (sBuf.remaining() < 4) {
+                    buf.position(signerEnd)
+                    continue
+                }
+                val digestsLen = sBuf.int
+                if (digestsLen < 0 || digestsLen > sBuf.remaining()) {
+                    buf.position(signerEnd)
+                    continue
+                }
+                sBuf.position(sBuf.position() + digestsLen)
+
+                if (sBuf.remaining() < 4) {
+                    buf.position(signerEnd)
+                    continue
+                }
+                val certsLen = sBuf.int
+                val certsEnd = sBuf.position() + certsLen
+                if (certsLen <= 0 || certsEnd > sBuf.capacity()) {
                     buf.position(signerEnd)
                     continue
                 }
 
-                while (buf.position() < certsEnd && buf.remaining() >= 4) {
-                    val certLen = buf.int
-                    if (certLen <= 0 || certLen > buf.remaining()) break
+                val certs = mutableListOf<Pair<ByteArray, java.security.cert.X509Certificate>>()
+                while (sBuf.position() < certsEnd && sBuf.remaining() >= 4) {
+                    val certLen = sBuf.int
+                    if (certLen <= 0 || certLen > sBuf.remaining()) break
                     val certBytes = ByteArray(certLen)
-                    buf.get(certBytes)
-                    results.add(sha256Hex(certBytes))
+                    sBuf.get(certBytes)
+                    try {
+                        val cert = certFactory.generateCertificate(java.io.ByteArrayInputStream(certBytes)) as? java.security.cert.X509Certificate
+                        if (cert != null) {
+                            certs.add(Pair(certBytes, cert))
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                if (certs.isEmpty()) {
+                    buf.position(signerEnd)
+                    continue
+                }
+
+                // Validação criptográfica da assinatura:
+                // O certificado leaf (certs[0]) deve ter chave pública igual a publicKeyBytes
+                val leafCert = certs[0].second
+                val certPublicKeyBytes = leafCert.publicKey.encoded
+                if (!java.util.Arrays.equals(certPublicKeyBytes, publicKeyBytes)) {
+                    buf.position(signerEnd)
+                    continue
+                }
+
+                // Verifica se ao menos uma assinatura válida assina signedDataBytes com a chave pública
+                var verified = false
+                for ((algoId, sigBytes) in signaturesList) {
+                    if (verifySignature(algoId, leafCert.publicKey, signedDataBytes, sigBytes)) {
+                        verified = true
+                        break
+                    }
+                }
+
+                if (verified) {
+                    for ((certBytes, _) in certs) {
+                        results.add(sha256Hex(certBytes))
+                    }
                 }
 
                 buf.position(signerEnd)
             }
         } catch (_: Exception) {}
+    }
+
+    private fun verifySignature(
+        algoId: Int,
+        publicKey: java.security.PublicKey,
+        data: ByteArray,
+        signature: ByteArray
+    ): Boolean {
+        val (jcaAlgo, paramSpec) = when (algoId) {
+            0x0101 -> "SHA256withRSA/PSS" to java.security.spec.PSSParameterSpec(
+                "SHA-256", "MGF1", java.security.spec.MGF1ParameterSpec.SHA256, 32, 1
+            )
+            0x0102 -> "SHA512withRSA/PSS" to java.security.spec.PSSParameterSpec(
+                "SHA-512", "MGF1", java.security.spec.MGF1ParameterSpec.SHA512, 64, 1
+            )
+            0x0103, 0x0421 -> "SHA256withRSA" to null
+            0x0104 -> "SHA512withRSA" to null
+            0x0201, 0x0423 -> "SHA256withECDSA" to null
+            0x0202 -> "SHA512withECDSA" to null
+            0x0301, 0x0425 -> "SHA256withDSA" to null
+            else -> return false
+        }
+        return try {
+            val sig = java.security.Signature.getInstance(jcaAlgo)
+            sig.initVerify(publicKey)
+            if (paramSpec != null) {
+                sig.setParameter(paramSpec)
+            }
+            sig.update(data)
+            sig.verify(signature)
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun signersOf(si: android.content.pm.SigningInfo?): Set<String> {

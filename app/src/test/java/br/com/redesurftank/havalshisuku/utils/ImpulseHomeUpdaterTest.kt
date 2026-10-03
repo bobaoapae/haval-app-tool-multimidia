@@ -72,4 +72,58 @@ class ImpulseHomeUpdaterTest {
             assertTrue("Expected signer $signer in $signers", signers.contains(signer))
         }
     }
+
+    @Test
+    fun rejectsTamperedApkSigningBlockSignatureWhenFileExists() {
+        val file = java.io.File("../impulse-home.apk")
+        if (file.exists()) {
+            val tempFile = java.io.File.createTempFile("tampered_apk", ".apk")
+            try {
+                file.copyTo(tempFile, overwrite = true)
+                java.io.RandomAccessFile(tempFile, "rw").use { raf ->
+                    val len = raf.length()
+                    val searchBuf = ByteArray(minOf(len, 65557L).toInt())
+                    raf.seek(len - searchBuf.size)
+                    raf.readFully(searchBuf)
+
+                    // Localiza EOCD e CD offset
+                    var eocdOffsetInBuf = -1
+                    for (i in (searchBuf.size - 22) downTo 0) {
+                        if (searchBuf[i] == 0x50.toByte() &&
+                            searchBuf[i + 1] == 0x4b.toByte() &&
+                            searchBuf[i + 2] == 0x05.toByte() &&
+                            searchBuf[i + 3] == 0x06.toByte()
+                        ) {
+                            eocdOffsetInBuf = i
+                            break
+                        }
+                    }
+                    val eocdOffset = len - searchBuf.size + eocdOffsetInBuf
+                    raf.seek(eocdOffset + 16)
+                    val cdOffsetBuf = ByteArray(4)
+                    raf.readFully(cdOffsetBuf)
+                    val cdOffset = java.nio.ByteBuffer.wrap(cdOffsetBuf)
+                        .order(java.nio.ByteOrder.LITTLE_ENDIAN).int.toLong() and 0xFFFFFFFFL
+
+                    raf.seek(cdOffset - 24)
+                    val blockSizeBuf = ByteArray(8)
+                    raf.readFully(blockSizeBuf)
+                    val blockSize = java.nio.ByteBuffer.wrap(blockSizeBuf)
+                        .order(java.nio.ByteOrder.LITTLE_ENDIAN).long
+                    val blockStart = cdOffset - 8 - blockSize
+
+                    // Corrompe bytes dentro do payload do scheme v3 (no signedData)
+                    val corruptPos = blockStart + 100
+                    raf.seek(corruptPos)
+                    val b = raf.readByte()
+                    raf.seek(corruptPos)
+                    raf.writeByte(b.toInt() xor 0xFF)
+                }
+                val signers = ImpulseHomeUpdater.parseApkSigningBlockSigners(tempFile)
+                assertFalse("Tampered signature should not be accepted", signers.contains(signer))
+            } finally {
+                tempFile.delete()
+            }
+        }
+    }
 }
