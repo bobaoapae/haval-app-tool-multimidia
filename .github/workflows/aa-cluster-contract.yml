@@ -1,0 +1,22 @@
+name: AA cluster contract preflight tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/aa-patches/patch_android_auto_service_cluster.py'
+      - 'scripts/aa-patches/tests/**'
+      - '.github/workflows/aa-cluster-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  preflight-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run read-only preflight regression tests
+        run: python3 -m unittest discover -s scripts/aa-patches/tests -v
