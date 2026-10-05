@@ -46,6 +46,7 @@ import br.com.redesurftank.havalshisuku.models.AppInfo
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.ui.components.*
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
+import br.com.redesurftank.havalshisuku.utils.AutoPanelUpdater
 import br.com.redesurftank.havalshisuku.utils.HomeManifest
 import br.com.redesurftank.havalshisuku.utils.HomeVerifyResult
 import br.com.redesurftank.havalshisuku.utils.ImpulseHomeUpdater
@@ -114,6 +115,10 @@ fun InstallAppsTab() {
     var homeManifest by remember { mutableStateOf<HomeManifest?>(null) }
     var showHomeSignatureDialog by remember { mutableStateOf(false) }
     var homeVerifyError by remember { mutableStateOf<String?>(null) }
+    // AutoPanel Shizuku: release mais recente (API do GitHub) + erro de verificacao proprio.
+    var autoPanelManifest by remember { mutableStateOf<HomeManifest?>(null) }
+    var autoPanelFetchDone by remember { mutableStateOf(false) }
+    var autoPanelError by remember { mutableStateOf<String?>(null) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var diagnosticsText by remember { mutableStateOf("") }
     var appToUninstall by remember { mutableStateOf<String?>(null) }
@@ -195,6 +200,11 @@ fun InstallAppsTab() {
 
     LaunchedEffect(Unit) {
         homeManifest = withContext(Dispatchers.IO) { ImpulseHomeUpdater.fetchManifest() }
+    }
+
+    LaunchedEffect(Unit) {
+        autoPanelManifest = withContext(Dispatchers.IO) { AutoPanelUpdater.fetchLatest() }
+        autoPanelFetchDone = true
     }
 
     fun getInstalledVersion(packageName: String): String? {
@@ -320,6 +330,64 @@ fun InstallAppsTab() {
         }
     }
 
+    /**
+     * Instala o AutoPanel Shizuku a partir da release do GitHub: so chega ao instalador se tamanho,
+     * hash e assinatura (fixa no codigo) conferirem. Reusa ImpulseHomeUpdater.downloadAndVerify.
+     */
+    fun startAutoPanelDownload(manifest: HomeManifest) {
+        val installedSigners = ImpulseHomeUpdater.installedSigners(pm, AutoPanelUpdater.PACKAGE)
+        if (installedSigners.isNotEmpty() &&
+                        !ImpulseHomeUpdater.signerMatches(installedSigners, manifest.signerSha256)
+        ) {
+            autoPanelError =
+                    "Assinatura do app instalado difere da oficial. Desinstale o AutoPanel e instale de novo por aqui."
+            return
+        }
+        autoPanelError = null
+        downloadingApp = AutoPanelUpdater.PACKAGE
+        downloadProgress =
+                downloadProgress.toMutableMap().apply { put(AutoPanelUpdater.PACKAGE, 0f) }
+        scope.launch(Dispatchers.IO) {
+            try {
+                val file = File(context.getExternalFilesDir(null), "${AutoPanelUpdater.PACKAGE}.apk")
+                val result =
+                        ImpulseHomeUpdater.downloadAndVerify(pm, manifest, file) { p ->
+                            downloadProgress =
+                                    downloadProgress.toMutableMap().apply {
+                                        put(AutoPanelUpdater.PACKAGE, p)
+                                    }
+                        }
+                if (result is HomeVerifyResult.Failed) {
+                    autoPanelError = "Download recusado: " + result.reason
+                    return@launch
+                }
+                withContext(Dispatchers.Main) {
+                    if (!pm.canRequestPackageInstalls()) {
+                        showPermissionDialog = true
+                        return@withContext
+                    }
+                    val uri =
+                            FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.provider",
+                                    file
+                            )
+                    context.startActivity(
+                            Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "application/vnd.android.package-archive")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                    )
+                }
+            } finally {
+                downloadProgress =
+                        downloadProgress.toMutableMap().apply { remove(AutoPanelUpdater.PACKAGE) }
+                downloadingApp = null
+            }
+        }
+    }
+
     fun startDownloadFromUrl(urlString: String) {
         downloadingUrl = true
         urlProgress = 0f
@@ -437,7 +505,7 @@ fun InstallAppsTab() {
             val systemFlags = ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP
             pm.getInstalledApplications(0)
                 .filter { (it.flags and systemFlags) == 0 }
-                .filter { it.packageName != context.packageName && it.packageName != IMPULSE_HOME_PACKAGE }
+                .filter { it.packageName != context.packageName && it.packageName != IMPULSE_HOME_PACKAGE && it.packageName != AutoPanelUpdater.PACKAGE }
                 .filter { it.packageName !in catalogPackages }
                 .map { appInfo ->
                     val vName = try { pm.getPackageInfo(appInfo.packageName, 0).versionName ?: "" } catch (_: Exception) { "" }
@@ -724,6 +792,74 @@ fun InstallAppsTab() {
                             Icon(
                                 Icons.Default.Delete,
                                 contentDescription = "Desinstalar Impulse Launcher",
+                                tint = Color(0xFFEF5350)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            val apInstalled = getInstalledVersion(AutoPanelUpdater.PACKAGE)
+            @Suppress("UNUSED_VARIABLE") val apTrigger = refreshTrigger
+            val apManifest = autoPanelManifest
+            val apUpdate = apManifest != null && AutoPanelUpdater.isUpdateAvailable(apInstalled, apManifest)
+            val apProgress = downloadProgress[AutoPanelUpdater.PACKAGE]
+            val apBothBars =
+                    apInstalled != null &&
+                            prefs.getBoolean(SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR.key, false)
+            FeatureCard(
+                    icon = Icons.Default.Dock,
+                    iconTint = if (apInstalled != null) ImpTokens.Accent else Color.White,
+                    highlighted = apInstalled != null,
+                    title = "AutoPanel Shizuku",
+                    subtitle = "Barra de navegacao inferior customizada via Shizuku",
+                    status =
+                            when {
+                                apProgress != null ->
+                                        "Baixando " + (apProgress * 100).toInt() + "%"
+                                autoPanelError != null -> autoPanelError!!
+                                apUpdate -> "Atualizacao disponivel"
+                                apInstalled != null && apBothBars ->
+                                        "v" + apInstalled + " - Barra do Impulse tambem ativa"
+                                apInstalled != null -> "v" + apInstalled
+                                apManifest != null -> "Nao instalado"
+                                !autoPanelFetchDone -> "Verificando..."
+                                else -> "Indisponivel"
+                            },
+                    statusTint =
+                            if (apInstalled != null) ImpTokens.Accent else ImpTokens.TextSecondary
+            ) {
+                if (apManifest != null && (apInstalled == null || apUpdate)) {
+                    CardButton(
+                            if (apUpdate) "Atualizar" else "Instalar",
+                            ImpTokens.Accent,
+                            enabled = apProgress == null
+                    ) { startAutoPanelDownload(apManifest) }
+                } else if (apInstalled != null) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CardButton("Abrir", ImpTokens.Accent) {
+                            context.packageManager
+                                    .getLaunchIntentForPackage(AutoPanelUpdater.PACKAGE)
+                                    ?.let { intent ->
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(intent)
+                                    }
+                        }
+                        IconButton(
+                            onClick = {
+                                appToUninstall = AutoPanelUpdater.PACKAGE
+                                appNameToUninstall = "AutoPanel Shizuku"
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Desinstalar AutoPanel Shizuku",
                                 tint = Color(0xFFEF5350)
                             )
                         }
