@@ -3895,7 +3895,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         // D1 has not yet painted that wallpaper. ClusterBackgroundSync skips the hold when D1 is
         // detached, an app covers D1, or no still wallpaper is expected.
         if (ClusterBackgroundSync.shouldHoldNativeMasks(preferences, isAnyAppOnDisplay1)) {
-            Log.d(TAG, "updateNativeMaskViews: waiting for D1 wallpaper; keeping masks down")
+            Log.w(TAG, "updateNativeMaskViews: waiting for D1 wallpaper; keeping masks down")
+            ClusterPersistentEventLogger.log(
+                    "native_masks_hold",
+                    mapOf(
+                            "reason" to "waiting_for_d1",
+                            "d1Attached" to ClusterBackgroundSync.isD1Attached(),
+                            "appOnDisplay1" to isAnyAppOnDisplay1,
+                            "identity" to ClusterBackgroundSync.identityFromPrefs(preferences)
+                    )
+            )
             nativeMaskContainer?.isVisible = false
             setDisplayedGlobalMask(null)
             return
