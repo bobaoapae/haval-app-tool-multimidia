@@ -7,6 +7,7 @@ const stylesheets = [
     'src/apex-menus.css',
     'src/vector-display.css',
     'src/apex-projection.css',
+    '../shared/runtime/clusterVisibility.css',
 ];
 
 const images = [

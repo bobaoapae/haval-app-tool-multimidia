@@ -61,3 +61,13 @@ quando não há still esperado (desligado, WEB_URL, THEME sem wallpaper).
 ## A Confirmar
 
 - Todos os caminhos que chamam `ProjectorManager.refresh()`.
+
+## Virtual cluster preference changes (HAV-26)
+
+`ProjectorManager` now observes `enableVirtualCluster` and reconciles on the main Looper,
+without refreshing the independent D1 Presentation. Disabled D3 windows are dismissed and
+remain absent at boot/display reconnect; enabling recreates the saved theme. The native root
+and masks also guard the preference before dismissal. All readers use the compatible
+missing-key default `true`; Telas no longer resets the selected theme when disabling.
+See [virtual-cluster-toggle.md](virtual-cluster-toggle.md) for lifecycle/compatibility details
+and the required physical acceptance checklist.

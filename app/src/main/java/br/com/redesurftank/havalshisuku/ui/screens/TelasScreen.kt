@@ -47,6 +47,7 @@ import androidx.core.content.edit
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.BuildConfig
 import br.com.redesurftank.havalshisuku.R
+import br.com.redesurftank.havalshisuku.utils.VirtualClusterPreferences
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.managers.ThemeManager
@@ -331,47 +332,6 @@ fun CompactThemeCard(
 
 
 
-/**
- * Everything that has to be put back to stock when the virtual panel is switched off.
- *
- * ACTIVE_CUSTOM_THEME is the sole source of truth for what HTML the cluster loads
- * (see InstrumentProjector2.getActiveCustomThemeName()), and custom themes are
- * authored assuming the mask is painted. Leaving one selected with the panel off
- * can leave the menu unusable, so fall back to the embedded Default theme.
- *
- * Default's own colour settings go back to stock too: with the panel off the menu
- * is drawn over the car's native cluster, and a customised palette clashes with it.
- * The stock values are whatever assets/Default/theme.xml declares, so this stays
- * correct as configurations are added or their defaults change.
- *
- * Values are written explicitly rather than removed: PreferencePushListener pushes
- * `sharedPreferences.all[key]` to the theme, and a removed key would push an empty
- * string instead of the colour the theme expects.
- */
-private fun resetToStockDefaultTheme(context: Context, prefs: SharedPreferences) {
-    val defaultTheme = ThemeManager.getInstance(context).getEmbeddedDefaultTheme()
-    // A colour setting is either a literal swatch or the drive-mode override that
-    // repaints them — leaving the latter on would re-tint the dials anyway.
-    val colorConfigs =
-            defaultTheme.configurations.filter {
-                it.type.equals("color", ignoreCase = true) ||
-                        it.stateVariable == "driveModeColors"
-            }
-
-    prefs.edit {
-        putString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "")
-        putString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Default")
-        colorConfigs.forEach { config ->
-            // Must match the key ThemeSettingsDialog scopes its saves with.
-            putString(
-                    "theme_config_${defaultTheme.folderName}_${config.stateVariable}",
-                    config.defaultValue
-            )
-        }
-        putLong(SharedPreferencesKeys.THEME_RELOAD_NONCE.key, System.currentTimeMillis())
-    }
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TelasTab() {
@@ -404,13 +364,13 @@ fun TelasTab() {
         )
     }
     var enableMask by remember {
-        mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key, false))
+        mutableStateOf(VirtualClusterPreferences.isEnabled(prefs))
     }
     var enableCustomMenu by remember {
         mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_MENU.key, false))
     }
     var allClusterFunctionsEnabled by remember {
-        mutableStateOf(enableProjector || enableCustomIntegration || enableCustomMenu)
+        mutableStateOf(enableProjector || enableCustomIntegration || enableCustomMenu || enableMask)
     }
     var clusterFuelDisplayUnit by remember {
         mutableStateOf(
@@ -581,6 +541,10 @@ fun TelasTab() {
                                 enableProjector = it
                                 enableCustomIntegration = it
                                 enableCustomMenu = it
+                                if (!it) {
+                                    enableOdometerAndRevision = false
+                                    enableMask = false
+                                }
 
                                 prefs.edit {
                                     putBoolean(
@@ -594,31 +558,14 @@ fun TelasTab() {
                                             it
                                     )
                                     putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_MENU.key, it)
-                                }
-
-                                if (!it) {
-                                    enableOdometerAndRevision = false
-                                    prefs.edit {
+                                    if (!it) {
+                                        // Persist the off state atomically before listeners run.
+                                        // Preserve the selected theme and its settings for re-enable.
                                         putBoolean(
-                                                SharedPreferencesKeys
-                                                        .ENABLE_INSTRUMENT_ODOMETER_AND_REVISION
-                                                        .key,
+                                                SharedPreferencesKeys.ENABLE_INSTRUMENT_ODOMETER_AND_REVISION.key,
                                                 false
                                         )
-                                    }
-                                    // Same invariant as the Painel Virtual switch: whenever
-                                    // the virtual cluster goes off, the theme goes back to
-                                    // stock Default. Otherwise re-enabling the cluster
-                                    // functions later would restore the projector with a
-                                    // custom theme still selected and the mask off.
-                                    enableMask = false
-                                    selectedTheme = "Default"
-                                    resetToStockDefaultTheme(context, prefs)
-                                    prefs.edit {
-                                        putBoolean(
-                                                SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key,
-                                                false
-                                        )
+                                        putBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key, false)
                                     }
                                 }
 
@@ -679,8 +626,6 @@ fun TelasTab() {
                                     showVirtualClusterWarningDialog = true
                                 } else {
                                     enableMask = false
-                                    selectedTheme = "Default"
-                                    resetToStockDefaultTheme(context, prefs)
                                     prefs.edit {
                                         putBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key, false)
                                     }

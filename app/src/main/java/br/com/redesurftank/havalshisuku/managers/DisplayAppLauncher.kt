@@ -10,6 +10,7 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.models.DisplayAppConfig
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
+import br.com.redesurftank.havalshisuku.utils.VirtualClusterPreferences
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
@@ -7770,7 +7771,7 @@ object DisplayAppLauncher {
         }
 
         val prefs = getPrefs()
-        val virtualClusterEnabled = prefs.getBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key, true)
+        val virtualClusterEnabled = VirtualClusterPreferences.isEnabled(prefs)
 
         var x = config.x
         var y = config.y
