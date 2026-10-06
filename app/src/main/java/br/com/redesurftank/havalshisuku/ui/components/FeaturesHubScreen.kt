@@ -42,6 +42,7 @@ import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightSettingsScreen
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
 
 @Composable
 fun FeaturesHubScreen() {
@@ -73,7 +74,7 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        Text("Recursos", color = AppColors.TextPrimary, fontFamily = Michroma, fontSize = 22.sp, letterSpacing = 0.5.sp)
+        Text("Recursos", color = AppColors.TextPrimary, fontFamily = Michroma, fontSize = ImpulseTextSizes.Title, letterSpacing = 0.5.sp)
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             FeatureCard(
@@ -97,7 +98,7 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
                 )
             } else {
                 FeatureCard(
-                    title = "Vallet",
+                    title = "Manobrista",
                     description = "Área reservada para controles e regras de uso em modo manobrista.",
                     status = "Em breve",
                     icon = Icons.Default.AdminPanelSettings,
@@ -111,7 +112,7 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
         if (ambientLightEnabled) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 FeatureCard(
-                    title = "Vallet",
+                    title = "Manobrista",
                     description = "Área reservada para controles e regras de uso em modo manobrista.",
                     status = "Em breve",
                     icon = Icons.Default.AdminPanelSettings,
@@ -154,8 +155,8 @@ private fun FeatureCard(
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(title, color = AppColors.TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Text(description, color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Label)
+                Text(title, color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.Title, fontWeight = FontWeight.Bold)
+                Text(description, color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Body, fontWeight = ImpulseTextWeights.Body)
             }
         }
     }

@@ -45,6 +45,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.components.impButtonColors
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
 
 private enum class ProblemReportAction {
     SUBMIT,
@@ -249,7 +251,7 @@ fun ProblemReportTab() {
                                 text = "Reportar problema",
                                 color = AppColors.TextPrimary,
                                 fontFamily = Michroma,
-                                fontSize = ImpulseTextSizes.Label
+                                fontSize = ImpulseTextSizes.Title
                         )
                         Text(
                                 text = "Inclua no relato a data, hora e minutos aproximados do incidente.",
@@ -298,7 +300,7 @@ fun ProblemReportTab() {
 
                 Text(
                         text =
-                                "Exemplo: 14/06/2026 às 13:32, usando CarPlay no D3 com Waze aberto. O display saiu de Mapa para Normal por cerca de 5 segundos e depois voltou sozinho. Antes disso, toquei no botão direito do volante para acessar o AC.",
+                                "Ex.: 14/06 às 13:32. CarPlay no D3; Waze aberto. Após tocar no volante, o mapa sumiu por 5 s.",
                         color = AppColors.TextPrimary,
                         fontSize = ImpulseTextSizes.BodyCompact
                 )
@@ -309,16 +311,12 @@ fun ProblemReportTab() {
                         },
                         enabled = canCreateIssue && !isCreating && !isCheckingLatestPreview,
                         colors =
-                                ButtonDefaults.buttonColors(
-                                        containerColor = AppColors.Primary,
-                                        disabledContainerColor = AppColors.ButtonSecondary
-                                ),
+                                impButtonColors(AppColors.Primary),
                         shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius),
                         modifier = Modifier.fillMaxWidth().height(52.dp)
                 ) {
                     if (isCreating) {
                         CircularProgressIndicator(
-                                color = Color.White,
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(20.dp)
                         )
@@ -334,8 +332,7 @@ fun ProblemReportTab() {
                     Text(
                             if (isCheckingLatestPreview) "Verificando versão..."
                             else if (isCurrentVersionOutdated == true) "Enviar relatório mesmo assim"
-                            else "Enviar relatório",
-                            color = Color.White
+                            else "Enviar relatório"
                     )
                 }
 
@@ -579,7 +576,7 @@ private fun ProblemReportVersionStatus(
                 shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius),
                 modifier = Modifier.height(38.dp)
         ) {
-            Text("Verificar novamente", color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.BodyCompact)
+            Text("Verificar novamente", color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label)
         }
     }
 }

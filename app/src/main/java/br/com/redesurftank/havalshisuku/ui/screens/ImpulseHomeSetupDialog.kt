@@ -27,7 +27,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -125,7 +124,8 @@ fun ImpulseHomeSetupDialog(canOpen: Boolean, onDismiss: () -> Unit) {
                 Text(
                     "Altere depois em Apps.",
                     color = ImpTokens.TextSecondary,
-                    fontSize = ImpulseTextSizes.BodyCompact
+                    fontSize = ImpulseTextSizes.Body,
+                    fontWeight = ImpulseTextWeights.Body
                 )
 
                 SetupOption(
@@ -182,7 +182,6 @@ private fun SetupOption(
     Row(
         modifier =
             Modifier.fillMaxWidth()
-                .alpha(if (enabled) 1f else 0.45f)
                 .clickable(enabled = enabled) { onCheckedChange(!checked) },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -194,9 +193,9 @@ private fun SetupOption(
             colors = CheckboxDefaults.colors(checkedColor = ImpTokens.Accent)
         )
         Column {
-            Text(title, color = ImpTokens.TextPrimary, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label)
+            Text(title, color = if (enabled) ImpTokens.TextPrimary else ImpTokens.TextDisabled, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label)
             if (detail.isNotEmpty()) {
-                Text(detail, color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
+                Text(detail, color = if (enabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled, fontSize = ImpulseTextSizes.Body, fontWeight = ImpulseTextWeights.Body)
             }
         }
     }

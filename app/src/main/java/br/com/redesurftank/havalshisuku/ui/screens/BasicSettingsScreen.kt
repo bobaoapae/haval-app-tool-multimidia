@@ -1098,7 +1098,7 @@ fun BasicSettingsTab() {
                         title = "Controle de dados móveis",
                         group = SettingsGroups.FEATURES,
                         description =
-                                "Liga o gerenciamento do 4G da multimídia. Desligado, o app não altera o estado definido pelo carro; se ele próprio havia bloqueado, libera uma vez.",
+                                "Gerencia o 4G. Ao desligar, libera bloqueios feitos pelo Impulse.",
                         checked = mobileControlEnabled,
                         onCheckedChange = {
                                 mobileControlEnabled = it
@@ -1306,7 +1306,7 @@ fun BasicSettingsTab() {
                                 title = "Fechar janela ao trancar o carro",
                                 group = SettingsGroups.SHUTDOWN,
                                 description =
-                                        "Fecha os vidros quando o carro é trancado. Só age com o carro PARADO e DESLIGADO — o carro tranca sozinho ao atingir velocidade, e trancar com alguém dentro não pode fechar vidro na cara de ninguém.",
+                                        "Fecha ao trancar, somente com o carro parado e desligado.",
                                 checked = closeWindowOnLock,
                                 onCheckedChange = {
                                         closeWindowOnLock = it
@@ -1323,7 +1323,7 @@ fun BasicSettingsTab() {
                                 title = "Fechar teto solar ao trancar o carro",
                                 group = SettingsGroups.SHUTDOWN,
                                 description =
-                                        "Fecha o teto quando o carro é trancado, com as mesmas condições de segurança: parado e desligado.",
+                                        "Fecha ao trancar, somente com o carro parado e desligado.",
                                 checked = closeSunroofOnLock,
                                 onCheckedChange = {
                                         closeSunroofOnLock = it
@@ -1621,10 +1621,7 @@ fun BasicSettingsTab() {
                                                 .description,
                                 group = SettingsGroups.COMFORT,
                                 description =
-                                        "Com a opção acima ligada, a cortina abre uma vez por " +
-                                                "entrada na faixa de horário. Numa faixa larga, " +
-                                                "isso acaba sendo uma vez só. Ligue aqui para ela " +
-                                                "abrir toda vez que o carro ligar.",
+                                        "Abre a cortina em toda partida, não só uma vez por faixa de horário.",
                                 enabled = enableOpenSunroofCurtainOnStart,
                                 checked = openCurtainEveryIgnition,
                                 onCheckedChange = { checked ->
@@ -2738,7 +2735,7 @@ fun BasicSettingsTab() {
                         SettingItem(
                                 title = "Mover navegação para o cluster ao iniciar",
                                 description =
-                                        "Enviar Android Auto ou CarPlay automaticamente para o cluster ao iniciar (só se AA/CarPlay estiver selecionado como app inicial na tela Telas)",
+                                        "Envia Android Auto ou CarPlay ao cluster. Selecione antes em Telas.",
                                 checked = autoMoveProjectionToCluster,
                                 onCheckedChange = { checked ->
                                         autoMoveProjectionToCluster = checked

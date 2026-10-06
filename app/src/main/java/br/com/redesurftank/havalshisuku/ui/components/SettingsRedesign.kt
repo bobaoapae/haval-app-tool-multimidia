@@ -51,6 +51,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +64,7 @@ import br.com.redesurftank.havalshisuku.ui.theme.IbmPlexSans
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 import kotlinx.coroutines.launch
 import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
 
 /**
  * Redesign da tela de Configurações — Rodada 15 (handoff de design).
@@ -92,6 +94,19 @@ object ImpTokens {
     val Attention = Color(0xFFFBBF24)
     val Danger = Color(0xFFEF4444)
     val IndexActiveTint = Color(0x244A9EFF) // rgba(74,158,255,.14)
+
+    /**
+     * Cor de texto/ícone sobre [container]: a de maior contraste entre [OnAccent] e [TextPrimary].
+     * Sobre o Accent (#4A9EFF) dá OnAccent (7,2:1); o branco daria 2,75:1.
+     */
+    fun contentOn(container: Color): Color {
+        fun ratio(a: Color, b: Color): Float {
+            val la = a.luminance() + 0.05f
+            val lb = b.luminance() + 0.05f
+            return if (la > lb) la / lb else lb / la
+        }
+        return if (ratio(OnAccent, container) >= ratio(TextPrimary, container)) OnAccent else TextPrimary
+    }
 }
 
 /** Ordem e nomes canônicos dos 7 grupos por domínio. */
@@ -214,9 +229,9 @@ private fun GroupIndexRail(
             .padding(end = 20.dp, top = 4.dp)
     ) {
         Text(
-            text = "CONFIGURAÇÕES",
+            text = "Configurações",
             fontFamily = Michroma,
-            fontSize = 20.sp,
+            fontSize = ImpulseTextSizes.Section,
             color = ImpTokens.TextPrimary,
             letterSpacing = 0.5.sp,
             maxLines = 1,
@@ -336,8 +351,8 @@ private fun GroupBlock(header: String, items: List<SettingItem>) {
         Text(
             text = header,
             fontFamily = IbmPlexSans,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = ImpulseTextSizes.Label,
+            fontWeight = ImpulseTextWeights.Label,
+            fontSize = ImpulseTextSizes.Section,
             letterSpacing = 0.5.sp,
             color = ImpTokens.TextSecondary,
             modifier = Modifier.padding(start = 4.dp, bottom = 14.dp)
@@ -391,8 +406,8 @@ private fun SettingsRow(item: SettingItem) {
                 Text(
                     text = item.title,
                     fontFamily = IbmPlexSans,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = ImpulseTextSizes.Body,
+                    fontWeight = ImpulseTextWeights.Label,
+                    fontSize = ImpulseTextSizes.Section,
                     color = if (item.enabled) ImpTokens.TextPrimary else ImpTokens.TextDisabled,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -402,8 +417,8 @@ private fun SettingsRow(item: SettingItem) {
                     Text(
                         text = item.description,
                         fontFamily = IbmPlexSans,
-                        fontWeight = FontWeight.Normal,
-                        fontSize = ImpulseTextSizes.Label,
+                        fontWeight = ImpulseTextWeights.Body,
+                        fontSize = ImpulseTextSizes.Body,
                         color = if (item.enabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
                         lineHeight = 1.35.em,
                         maxLines = 3,

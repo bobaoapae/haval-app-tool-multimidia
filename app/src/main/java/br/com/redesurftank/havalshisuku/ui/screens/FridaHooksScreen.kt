@@ -33,6 +33,7 @@ import coil.compose.AsyncImage
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.components.impButtonColors
 
 @Composable
 fun FridaHooksTab() {
@@ -60,11 +61,11 @@ fun FridaHooksTab() {
         ) {
                 item {
                         Text(
-                                "FRIDA HOOKS",
+                                "Frida hooks",
                                 fontFamily = Michroma,
-                                fontSize = ImpulseTextSizes.Label,
-                                letterSpacing = 1.8.sp,
-                                color = ImpTokens.TextSecondary,
+                                fontSize = ImpulseTextSizes.Title,
+                                letterSpacing = 0.5.sp,
+                                color = ImpTokens.TextPrimary,
                                 modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
                         )
                 }
@@ -122,9 +123,7 @@ fun FridaHooksTab() {
                                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                                         shape = RoundedCornerShape(12.dp),
                                         colors =
-                                                ButtonDefaults.buttonColors(
-                                                        containerColor = ImpTokens.Accent
-                                                )
+                                                impButtonColors(ImpTokens.Accent)
                                 ) { Text("Injetar Código Manual", color = ImpTokens.OnAccent, fontWeight = FontWeight.SemiBold) }
                         }
                 }

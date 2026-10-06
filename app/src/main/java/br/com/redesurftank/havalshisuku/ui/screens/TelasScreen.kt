@@ -76,6 +76,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
+import br.com.redesurftank.havalshisuku.ui.components.impButtonColors
 
 /** Busca inicial da aba Web — abre o diálogo já com resultados úteis para o cluster. */
 private const val DEFAULT_WEB_QUERY = "gradient background"
@@ -294,12 +296,12 @@ fun CompactThemeCard(
                             Icon(
                                 imageVector = Icons.Default.Update,
                                 contentDescription = null,
-                                tint = Color.White,
+                                tint = ImpTokens.OnAccent,
                                 modifier = Modifier.size(12.dp)
                             )
                             Text(
                                 text = "Atualizar",
-                                color = Color.White,
+                                color = ImpTokens.OnAccent,
                                 fontSize = ImpulseTextSizes.BodyCompact,
                                 fontWeight = FontWeight.Bold
                             )
@@ -597,8 +599,7 @@ fun TelasTab() {
         }
 
         // VIRTUAL CLUSTER CARD
-        val virtualClusterAlpha = if (allClusterFunctionsEnabled) 1f else 0.4f
-        StyledCard(modifier = Modifier.padding(horizontal = 8.dp).alpha(virtualClusterAlpha)) {
+        StyledCard(modifier = Modifier.padding(horizontal = 8.dp)) {
             Column(
                     modifier = Modifier.padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -610,13 +611,13 @@ fun TelasTab() {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                                 "Painel Virtual",
-                                color = Color.White,
+                                color = if (allClusterFunctionsEnabled) Color.White else ImpTokens.TextDisabled,
                                 fontSize = ImpulseTextSizes.Body,
                                 fontWeight = FontWeight.Bold
                         )
                         Text(
                                 "Extende as funções do cluster para renderizar um painel customizado com suporte a temas.",
-                                color = ImpTokens.TextSecondary,
+                                color = if (allClusterFunctionsEnabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
                                 fontSize = ImpulseTextSizes.Label
                         )
                     }
@@ -653,7 +654,7 @@ fun TelasTab() {
                         ) {
                             Text(
                                     "Tema do Painel (Toque para selecionar)",
-                                    color = ImpTokens.TextSecondary,
+                                    color = if (allClusterFunctionsEnabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
                                     fontSize = ImpulseTextSizes.BodyCompact
                             )
                             if (isFetchingThemes) {
@@ -938,7 +939,7 @@ fun TelasTab() {
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    // ── LEFT CARD (40%): Background do Cluster Card (aligned with Exibir Odômetro below) ──
+                    // ── LEFT CARD (40%): Fundo do cluster Card (aligned with Exibir Odômetro below) ──
                     Column(
                         modifier = Modifier
                             .weight(0.40f)
@@ -954,14 +955,14 @@ fun TelasTab() {
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    "Background do Cluster",
-                                    color = Color.White,
+                                    "Fundo do cluster",
+                                    color = if (allClusterFunctionsEnabled) Color.White else ImpTokens.TextDisabled,
                                     fontSize = ImpulseTextSizes.Label,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
                                     if (enableCustomBg) "Papel de parede do painel" else "Padrão do sistema",
-                                    color = ImpTokens.TextSecondary,
+                                    color = if (allClusterFunctionsEnabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
                                     fontSize = ImpulseTextSizes.BodyCompact
                                 )
                             }
@@ -1106,7 +1107,7 @@ fun TelasTab() {
                                         )
                                         Text(
                                             "TROCAR",
-                                            color = Color.White,
+                                            color = if (allClusterFunctionsEnabled) Color.White else ImpTokens.TextDisabled,
                                             fontSize = ImpulseTextSizes.BodyCompact,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -1128,13 +1129,13 @@ fun TelasTab() {
                         Column {
                             Text(
                                 "Exibição do cluster",
-                                color = Color.White,
+                                color = if (allClusterFunctionsEnabled) Color.White else ImpTokens.TextDisabled,
                                 fontSize = ImpulseTextSizes.Label,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
                                 "Como o consumo aparece no painel",
-                                color = ImpTokens.TextSecondary,
+                                color = if (allClusterFunctionsEnabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
                                 fontSize = ImpulseTextSizes.BodyCompact
                             )
                         }
@@ -1144,7 +1145,7 @@ fun TelasTab() {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
                                 "Unidade de Consumo",
-                                color = ImpTokens.TextSecondary,
+                                color = if (allClusterFunctionsEnabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
                                 fontSize = ImpulseTextSizes.BodyCompact
                             )
                             Row(
@@ -1171,7 +1172,7 @@ fun TelasTab() {
                                     ) {
                                         Text(
                                             label,
-                                            color = Color.White,
+                                            color = if (allClusterFunctionsEnabled) Color.White else ImpTokens.TextDisabled,
                                             fontSize = ImpulseTextSizes.BodyCompact,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -1216,13 +1217,13 @@ fun TelasTab() {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                         "Ocultar velocímetro nos mapas",
-                                        color = Color.White,
+                                        color = if (allClusterFunctionsEnabled) Color.White else ImpTokens.TextDisabled,
                                         fontSize = ImpulseTextSizes.Label,
                                         fontWeight = FontWeight.Bold
                                 )
                                 Text(
                                         "Aplica-se aos modos de mapa dos temas Sport",
-                                        color = ImpTokens.TextSecondary,
+                                        color = if (allClusterFunctionsEnabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
                                         fontSize = ImpulseTextSizes.BodyCompact
                                 )
                             }
@@ -1264,13 +1265,13 @@ fun TelasTab() {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                         "Viagem e pneus no Analógico V2",
-                                        color = Color.White,
+                                        color = if (allClusterFunctionsEnabled) Color.White else ImpTokens.TextDisabled,
                                         fontSize = ImpulseTextSizes.Label,
                                         fontWeight = FontWeight.Bold
                                 )
                                 Text(
                                         "Ativa consumo, tempo, distância e TPMS no tema Sport",
-                                        color = ImpTokens.TextSecondary,
+                                        color = if (allClusterFunctionsEnabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
                                         fontSize = ImpulseTextSizes.BodyCompact
                                 )
                             }
@@ -1328,13 +1329,13 @@ fun TelasTab() {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                             "Exibir Odômetro e Aviso de Revisão",
-                                            color = Color.White,
+                                            color = if (allClusterFunctionsEnabled) Color.White else ImpTokens.TextDisabled,
                                             fontSize = ImpulseTextSizes.Label,
                                             fontWeight = FontWeight.Bold
                                     )
                                     Text(
                                             "Exibir total do veículo e acompanhamento de próxima revisão no painel",
-                                            color = ImpTokens.TextSecondary,
+                                            color = if (allClusterFunctionsEnabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
                                             fontSize = ImpulseTextSizes.BodyCompact
                                     )
                                 }
@@ -1386,17 +1387,13 @@ fun TelasTab() {
                                             showRegisterDialog = true
                                         },
                                         enabled = isCard2Enabled,
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = ImpTokens.Accent,
-                                            disabledContainerColor = ImpTokens.TrackOff
-                                        ),
+                                        colors = impButtonColors(ImpTokens.Accent),
                                         shape = RoundedCornerShape(6.dp),
                                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
                                         modifier = Modifier.height(38.dp).fillMaxWidth()
                                     ) {
                                         Text(
                                             if (revisionHistory.isEmpty()) "Registrar compra ou revisão" else "Registrar revisão",
-                                            color = if (isCard2Enabled) Color.White else textDisabledColor,
                                             fontSize = ImpulseTextSizes.BodyCompact,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -1458,7 +1455,7 @@ fun TelasTab() {
                             ) {
                                 Text(
                                     "Histórico de Revisões (${revisionHistory.size})",
-                                    color = Color.White,
+                                    color = if (allClusterFunctionsEnabled) Color.White else ImpTokens.TextDisabled,
                                     fontSize = ImpulseTextSizes.Label,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.weight(1f)
@@ -1479,7 +1476,7 @@ fun TelasTab() {
                                     if (revisionHistory.isEmpty()) {
                                         Text(
                                             "Nenhuma revisão registrada",
-                                            color = ImpTokens.TextMuted,
+                                            color = if (allClusterFunctionsEnabled) ImpTokens.TextMuted else ImpTokens.TextDisabled,
                                             fontSize = ImpulseTextSizes.BodyCompact,
                                             modifier = Modifier.padding(vertical = 4.dp)
                                         )
@@ -1521,7 +1518,7 @@ fun TelasTab() {
                                                     } else {
                                                         "Data de Compra"
                                                     },
-                                                    color = Color.White,
+                                                    color = if (allClusterFunctionsEnabled) Color.White else ImpTokens.TextDisabled,
                                                     fontSize = ImpulseTextSizes.Label,
                                                     fontWeight = FontWeight.Bold
                                                 )
@@ -1531,7 +1528,7 @@ fun TelasTab() {
                                                 // Column 3: Date on the RIGHT - increased font size
                                                 Text(
                                                     text = dateFormatter.format(entry.date),
-                                                    color = ImpTokens.TextSecondary,
+                                                    color = if (allClusterFunctionsEnabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
                                                     fontSize = ImpulseTextSizes.Label,
                                                     fontWeight = FontWeight.Medium
                                                 )
@@ -1547,15 +1544,14 @@ fun TelasTab() {
         }
 
         // APP COORDINATORS SECTION
-        val coordinatorsAlpha = if (allClusterFunctionsEnabled) 1f else 0.4f
-        StyledCard(modifier = Modifier.padding(horizontal = 8.dp).alpha(coordinatorsAlpha)) {
+        StyledCard(modifier = Modifier.padding(horizontal = 8.dp)) {
             Column(
                     modifier = Modifier.padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
                         "Configuração de Telas Secundárias",
-                        color = Color.White,
+                        color = if (allClusterFunctionsEnabled) Color.White else ImpTokens.TextDisabled,
                         fontSize = ImpulseTextSizes.Body,
                         fontWeight = FontWeight.Bold
                 )
@@ -1568,15 +1564,14 @@ fun TelasTab() {
                             showConfigDialog = true
                         },
                         enabled = allClusterFunctionsEnabled,
-                        colors = ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent),
+                        colors = impButtonColors(ImpTokens.Accent),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.White)
+                    Icon(Icons.Default.Add, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(
                             "Adicionar Atalho de Tela",
-                            color = Color.White,
                             fontWeight = FontWeight.Bold
                     )
                 }
@@ -1875,7 +1870,7 @@ fun TelasTab() {
                                                                             )
                                                                                     config.customName
                                                                             else resolved.label,
-                                                                    color = Color.White,
+                                                                    color = if (allClusterFunctionsEnabled) Color.White else ImpTokens.TextDisabled,
                                                                     fontSize = ImpulseTextSizes.Label,
                                                                     fontWeight = FontWeight.Bold,
                                                                     maxLines = 1,
@@ -1884,7 +1879,7 @@ fun TelasTab() {
                                                             Text(
                                                                     text =
                                                                             "Display: ${config.displayId}",
-                                                                    color = ImpTokens.TextSecondary,
+                                                                    color = if (allClusterFunctionsEnabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
                                                                     fontSize = ImpulseTextSizes.BodyCompact
                                                             )
                                                         }
@@ -2032,7 +2027,7 @@ fun TelasTab() {
                                                     Text(
                                                             text =
                                                                     "Pos: ${config.x},${config.y} | Dim: ${config.width}x${config.height}",
-                                                            color = ImpTokens.TextSecondary,
+                                                            color = if (allClusterFunctionsEnabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
                                                             fontSize = ImpulseTextSizes.BodyCompact,
                                                             maxLines = 1,
                                                             overflow = TextOverflow.Ellipsis
@@ -2247,7 +2242,7 @@ fun TelasTab() {
                                 }
                             },
                             colors =
-                                    ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent),
+                                    impButtonColors(ImpTokens.Accent),
                             enabled =
                                     tempKm.isNotBlank() &&
                                             tempKm.toIntOrNull() != null &&
@@ -2326,7 +2321,7 @@ fun TelasTab() {
                                 }
                                 showVirtualClusterWarningDialog = false
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent)
+                            colors = impButtonColors(ImpTokens.Accent)
                     ) {
                         Text("Aceitar", fontWeight = FontWeight.Bold)
                     }
@@ -2625,7 +2620,7 @@ fun ClusterBackgroundSettingsDialog(
                     }
                 } else {
                     Text(
-                        "Ajustes: Background do Cluster",
+                        "Fundo do cluster",
                         color = Color.White,
                         fontSize = ImpulseTextSizes.Body,
                         fontWeight = FontWeight.Bold
@@ -2641,7 +2636,7 @@ fun ClusterBackgroundSettingsDialog(
                         listOf(
                             "THEME" to "Tema",
                             SolidBackgroundSpec.TYPE to "Cor",
-                            "PRESET" to "Presets",
+                            "PRESET" to "Locais",
                             "IMAGE_URL" to "Web",
                             "FILE" to "Biblioteca"
                         ).forEach { (type, label) ->
@@ -2649,9 +2644,8 @@ fun ClusterBackgroundSettingsDialog(
                             val isApplied = customBgType == type
                             Button(
                                 onClick = { selectedTab = type },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isBrowsing) Color(0xFF4A9EFF) else Color(0xFF2C3139),
-                                    contentColor = Color.White
+                                colors = impButtonColors(
+                                    if (isBrowsing) ImpTokens.Accent else Color(0xFF2C3139)
                                 ),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.weight(1f)
@@ -2664,11 +2658,11 @@ fun ClusterBackgroundSettingsDialog(
                                         Icon(
                                             imageVector = Icons.Default.CheckCircle,
                                             contentDescription = "Em uso",
-                                            tint = if (isBrowsing) Color.White else Color(0xFF4A9EFF),
+                                            tint = if (isBrowsing) ImpTokens.OnAccent else ImpTokens.Accent,
                                             modifier = Modifier.size(12.dp)
                                         )
                                     }
-                                    Text(label, fontSize = ImpulseTextSizes.BodyCompact)
+                                    Text(label, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label)
                                 }
                             }
                         }
@@ -2717,27 +2711,29 @@ fun ClusterBackgroundSettingsDialog(
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Text(
-                                                        "Tema ativo sem imagem de fundo",
+                                                        "Tema sem fundo",
                                                         color = ImpTokens.TextSecondary,
                                                         fontSize = ImpulseTextSizes.BodyCompact,
                                                         textAlign = TextAlign.Center
                                                     )
                                                 }
                                             }
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .background(Color.Black.copy(alpha = 0.55f))
-                                                    .align(Alignment.BottomCenter)
-                                                    .padding(vertical = 4.dp)
-                                            ) {
-                                                Text(
-                                                    text = if (hasThemeBg) themeBackgroundLabel else "Sem background no tema",
-                                                    color = Color.White,
-                                                    fontSize = ImpulseTextSizes.BodyCompact,
-                                                    textAlign = TextAlign.Center,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
+                                            if (hasThemeBg) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .background(ImpTokens.Container)
+                                                        .align(Alignment.BottomCenter)
+                                                        .padding(vertical = 4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = themeBackgroundLabel,
+                                                        color = ImpTokens.TextPrimary,
+                                                        fontSize = ImpulseTextSizes.BodyCompact,
+                                                        textAlign = TextAlign.Center,
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -2799,13 +2795,13 @@ fun ClusterBackgroundSettingsDialog(
                                                     Box(
                                                         modifier = Modifier
                                                             .fillMaxWidth()
-                                                            .background(Color.Black.copy(alpha = 0.5f))
+                                                            .background(ImpTokens.Container)
                                                             .align(Alignment.BottomCenter)
                                                             .padding(vertical = 2.dp)
                                                     ) {
                                                         Text(
                                                             text = fileName.substringBeforeLast("."),
-                                                            color = Color.White,
+                                                            color = ImpTokens.TextPrimary,
                                                             fontSize = ImpulseTextSizes.BodyCompact,
                                                             textAlign = TextAlign.Center,
                                                             modifier = Modifier.fillMaxWidth()
@@ -3027,7 +3023,7 @@ fun ClusterBackgroundSettingsDialog(
                                                             Box(
                                                                 modifier = Modifier
                                                                     .fillMaxWidth()
-                                                                    .background(Color.Black.copy(alpha = 0.65f))
+                                                                    .background(ImpTokens.Container)
                                                                     .align(Alignment.BottomCenter)
                                                                     .padding(horizontal = 4.dp, vertical = 2.dp)
                                                             ) {
@@ -3038,7 +3034,7 @@ fun ClusterBackgroundSettingsDialog(
                                                                 ) {
                                                                     Text(
                                                                         text = image.title.ifBlank { image.provider.label },
-                                                                        color = Color.White,
+                                                                        color = ImpTokens.TextPrimary,
                                                                         fontSize = ImpulseTextSizes.BodyCompact,
                                                                         fontWeight = FontWeight.Medium,
                                                                         maxLines = 1,
@@ -3047,7 +3043,7 @@ fun ClusterBackgroundSettingsDialog(
                                                                     )
                                                                     Text(
                                                                         text = image.resolutionLabel,
-                                                                        color = Color(0xFF4A9EFF),
+                                                                        color = ImpTokens.TextSecondary,
                                                                         fontSize = ImpulseTextSizes.BodyCompact,
                                                                         maxLines = 1
                                                                     )
@@ -3174,7 +3170,7 @@ fun ClusterBackgroundSettingsDialog(
                                                         Box(
                                                             modifier = Modifier
                                                                 .fillMaxWidth()
-                                                                .background(Color.Black.copy(alpha = 0.65f))
+                                                                .background(ImpTokens.Container)
                                                                 .align(Alignment.BottomCenter)
                                                                 .padding(horizontal = 4.dp, vertical = 2.dp)
                                                         ) {
@@ -3185,7 +3181,7 @@ fun ClusterBackgroundSettingsDialog(
                                                             ) {
                                                                 Text(
                                                                     text = item.title,
-                                                                    color = Color.White,
+                                                                    color = ImpTokens.TextPrimary,
                                                                     fontSize = ImpulseTextSizes.BodyCompact,
                                                                     maxLines = 1,
                                                                     overflow = TextOverflow.Ellipsis,
@@ -3203,7 +3199,7 @@ fun ClusterBackgroundSettingsDialog(
                                                                     )
                                                                     Text(
                                                                         text = item.providerLabel ?: "Celular",
-                                                                        color = Color(0xFF4A9EFF),
+                                                                        color = ImpTokens.TextSecondary,
                                                                         fontSize = ImpulseTextSizes.BodyCompact,
                                                                         maxLines = 1
                                                                     )
@@ -3236,10 +3232,7 @@ fun ClusterBackgroundSettingsDialog(
                                 }
                                 onDismiss()
                             },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF4A9EFF),
-                                contentColor = Color.White
-                            ),
+                            colors = impButtonColors(Color(0xFF4A9EFF)),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.weight(1f)
                         ) {
@@ -3621,19 +3614,19 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                         1 ->
                                 DisplayInfo(
                                         1,
-                                        "Display 1: Cluster de instumentos, atrás do ADAS e outras informações"
+                                        "Display 1: Cluster atrás do ADAS"
                                 )
                         4 -> DisplayInfo(4, "HUD")
                         else ->
                                 DisplayInfo(
                                         3,
-                                        "Display 3: Cluster de instumentos, por cima do ADAS e outras informações"
+                                        "Display 3: Cluster sobre o ADAS"
                                 )
                     }
                 }
                         ?: DisplayInfo(
                                 3,
-                                "Display 3: Cluster de instumentos, por cima do ADAS e outras informações"
+                                "Display 3: Cluster sobre o ADAS"
                         )
         )
     }
@@ -3684,11 +3677,11 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
         listOf(
                 DisplayInfo(
                         1,
-                        "Display 1: Cluster de instumentos, atrás do ADAS e outras informações"
+                        "Display 1: Cluster atrás do ADAS"
                 ),
                 DisplayInfo(
                         3,
-                        "Display 3: Cluster de instumentos, por cima do ADAS e outras informações"
+                        "Display 3: Cluster sobre o ADAS"
                 ),
                 DisplayInfo(4, "HUD")
         )
@@ -3851,7 +3844,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Text(
-                        "Override de Dimensões",
+                        "Ajustar dimensões",
                         color = Color.White,
                         fontSize = ImpulseTextSizes.Label,
                         modifier = Modifier.weight(1f)
@@ -3932,7 +3925,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
 
         // Substitute Icon Selection
         Column(modifier = Modifier.fillMaxWidth()) {
-            Text("Ícone Substituto", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
+            Text("Ícone Substituto", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label)
             Spacer(Modifier.height(4.dp))
             LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -3941,20 +3934,25 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                 item {
                     Box(
                             modifier =
-                                    Modifier.size(44.dp)
+                                    Modifier.height(44.dp)
+                                            .widthIn(min = 88.dp)
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(
                                                     if (selectedSubIcon == null) ImpTokens.Accent
                                                     else ImpTokens.TrackOff
                                             )
                                             .clickable { selectedSubIcon = null }
-                                            .padding(4.dp),
+                                            .padding(horizontal = 12.dp, vertical = 4.dp),
                             contentAlignment = Alignment.Center
                     ) {
                         Text(
                                 "Padrão",
-                                color = Color.White,
-                                fontSize = ImpulseTextSizes.BodyCompact,
+                                color =
+                                        if (selectedSubIcon == null) ImpTokens.OnAccent
+                                        else ImpTokens.TextPrimary,
+                                fontSize = ImpulseTextSizes.Label,
+                                fontWeight = ImpulseTextWeights.Label,
+                                maxLines = 1,
                                 textAlign = TextAlign.Center
                         )
                     }
@@ -4087,10 +4085,10 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
         Button(
                 onClick = { currentConfig()?.let { onSave(it) } },
                 enabled = selectedApp != null,
-                colors = ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent),
+                colors = impButtonColors(ImpTokens.Accent),
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp)
-        ) { Text("Salvar", color = Color.White, fontSize = ImpulseTextSizes.Label, fontWeight = FontWeight.Bold) }
+        ) { Text("Salvar", fontSize = ImpulseTextSizes.Label, fontWeight = FontWeight.Bold) }
     }
 
     if (showAppPicker) {
@@ -4263,12 +4261,11 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                                 }
                             },
                             colors =
-                                    ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent),
+                                    impButtonColors(ImpTokens.Accent),
                             shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
                                 proceedText,
-                                color = Color.White,
                                 fontSize = ImpulseTextSizes.BodyCompact,
                                 fontWeight = FontWeight.Bold
                         )
@@ -4345,7 +4342,7 @@ fun AppEditorSection(initialConfig: DisplayAppConfig?, onSave: (DisplayAppConfig
                                 customName = tempName
                                 showRenameDialog = false
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent)
+                            colors = impButtonColors(ImpTokens.Accent)
                     ) { Text("OK", fontWeight = FontWeight.Bold) }
                 },
                 dismissButton = {
@@ -4708,10 +4705,8 @@ fun AppPickerDialog(
                                     modifier = Modifier.weight(1f),
                                     enabled = manualPkg.isNotBlank() && manualLabel.isNotBlank(),
                                     colors =
-                                            ButtonDefaults.buttonColors(
-                                                    containerColor = ImpTokens.Accent
-                                            )
-                            ) { Text("Adicionar", color = Color.White) }
+                                            impButtonColors(ImpTokens.Accent)
+                            ) { Text("Adicionar") }
                         }
                     }
                 } else {
@@ -4883,7 +4878,7 @@ private fun ThemeMultiConfigControl(
             ) {
                 Text(
                     text = option,
-                    color = if (isSelected) Color.White else ImpTokens.TextSecondary,
+                    color = if (isSelected) ImpTokens.OnAccent else ImpTokens.TextSecondary,
                     fontSize = ImpulseTextSizes.BodyCompact,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                 )
@@ -5196,10 +5191,10 @@ private fun CustomColorPickerDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = { onColorSelected(currentHex) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF)),
+                        colors = impButtonColors(Color(0xFF4A9EFF)),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("Aplicar", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("Aplicar", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -5274,7 +5269,7 @@ fun ThemeSettingsDialog(
                             ) {
                                 Text(
                                     text = group,
-                                    color = if (isSelected) Color.White else ImpTokens.TextSecondary,
+                                    color = if (isSelected) ImpTokens.OnAccent else ImpTokens.TextSecondary,
                                     fontSize = ImpulseTextSizes.BodyCompact,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 )

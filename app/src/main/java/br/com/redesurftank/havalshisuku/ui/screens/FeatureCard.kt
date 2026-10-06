@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
+import br.com.redesurftank.havalshisuku.ui.components.impButtonColors
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
 import coil.compose.AsyncImage
 import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
 
@@ -100,12 +102,13 @@ fun FeatureCard(
                         Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(22.dp))
                     }
                 }
-                Text(title, color = Color.White, fontSize = ImpulseTextSizes.Label, fontWeight = FontWeight.Bold)
+                Text(title, color = ImpTokens.TextPrimary, fontSize = ImpulseTextSizes.Section, fontWeight = FontWeight.Bold)
                 if (subtitleBelowTitle && subtitle.isNotEmpty()) {
                     Text(
                         subtitle,
                         color = ImpTokens.TextSecondary,
-                        fontSize = ImpulseTextSizes.BodyCompact,
+                        fontSize = ImpulseTextSizes.Body,
+                        fontWeight = ImpulseTextWeights.Body,
                         lineHeight = 1.35.em
                     )
                 }
@@ -130,7 +133,8 @@ fun FeatureCard(
                         Text(
                             subtitle,
                             color = ImpTokens.TextSecondary,
-                            fontSize = ImpulseTextSizes.BodyCompact,
+                            fontSize = ImpulseTextSizes.Body,
+                            fontWeight = ImpulseTextWeights.Body,
                             lineHeight = 1.35.em
                         )
                     }
@@ -138,7 +142,7 @@ fun FeatureCard(
                         Text(
                             status,
                             color = statusTint,
-                            fontSize = ImpulseTextSizes.BodyCompact,
+                            fontSize = ImpulseTextSizes.Label,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -162,10 +166,10 @@ fun CardButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,
-        colors = ButtonDefaults.buttonColors(containerColor = color),
+        colors = impButtonColors(color),
         shape = RoundedCornerShape(8.dp),
         contentPadding = contentPadding
-    ) { Text(label, color = Color.White, fontSize = ImpulseTextSizes.BodyCompact, maxLines = 1) }
+    ) { Text(label, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label, maxLines = 1) }
 }
 
 /** "Auto-montar ao iniciar", compacto o bastante para o card estreito. */
@@ -182,7 +186,7 @@ fun AutoMountRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
                     checkedTrackColor = ImpTokens.Accent
                 )
         )
-        Text("Auto-montar", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
+        Text("Auto-montar", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label)
     }
 }
 
@@ -221,8 +225,8 @@ fun StartupSlotRow(label: String, packageName: String, modifier: Modifier = Modi
             Text(
                 label,
                 color = ImpTokens.TextSecondary,
-                fontSize = ImpulseTextSizes.BodyCompact,
-                fontWeight = FontWeight.Medium,
+                fontSize = ImpulseTextSizes.Label,
+                fontWeight = ImpulseTextWeights.Label,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(bottom = 2.dp)
@@ -230,9 +234,9 @@ fun StartupSlotRow(label: String, packageName: String, modifier: Modifier = Modi
         }
         Text(
             resolved?.label ?: "nenhum",
-            color = if (resolved != null) Color.White else ImpTokens.TextSecondary,
-            fontSize = ImpulseTextSizes.BodyCompact,
-            fontWeight = FontWeight.SemiBold,
+            color = if (resolved != null) ImpTokens.TextPrimary else ImpTokens.TextSecondary,
+            fontSize = ImpulseTextSizes.Label,
+            fontWeight = ImpulseTextWeights.Label,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

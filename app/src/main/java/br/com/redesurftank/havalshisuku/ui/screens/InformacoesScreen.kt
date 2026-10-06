@@ -60,6 +60,7 @@ import br.com.redesurftank.havalshisuku.utils.ApkUpdateInstaller
 import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import kotlinx.coroutines.*
 import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.components.impButtonColors
 
 
 
@@ -255,7 +256,7 @@ fun InformacoesTab() {
                                 Text(
                                         "Status do Sistema",
                                         fontFamily = Michroma,
-                                        fontSize = ImpulseTextSizes.Label,
+                                        fontSize = ImpulseTextSizes.Section,
                                         color = Color.White
                                 )
 
@@ -386,9 +387,7 @@ fun InformacoesTab() {
                                                 },
                                                 modifier = Modifier.height(48.dp),
                                                 colors =
-                                                        ButtonDefaults.buttonColors(
-                                                                containerColor = AppColors.Primary
-                                                        ),
+                                                        impButtonColors(AppColors.Primary),
                                                 shape =
                                                         RoundedCornerShape(
                                                                 AppDimensions.ButtonCornerRadius
@@ -425,9 +424,7 @@ fun InformacoesTab() {
                                                 },
                                                 modifier = Modifier.height(48.dp),
                                                 colors =
-                                                        ButtonDefaults.buttonColors(
-                                                                containerColor = AppColors.Primary
-                                                        ),
+                                                        impButtonColors(AppColors.Primary),
                                                 shape =
                                                         RoundedCornerShape(
                                                                 AppDimensions.ButtonCornerRadius
@@ -440,8 +437,7 @@ fun InformacoesTab() {
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
-                                                        "Abrir Configurações do Android",
-                                                        color = Color.White
+                                                        "Abrir Configurações do Android"
                                                 )
                                         }
                                 }
@@ -858,7 +854,7 @@ fun InformacoesTab() {
                                 Text(
                                         "Permitir coletar dados anônimos",
                                         fontFamily = Michroma,
-                                        fontSize = ImpulseTextSizes.Label,
+                                        fontSize = ImpulseTextSizes.Section,
                                         color =
                                                 if (anonymousTelemetryConfigured) Color.White
                                                 else ImpTokens.TextSecondary,
@@ -954,7 +950,7 @@ fun InformacoesTab() {
                                 Text(
                                         "Contribua para o Desenvolvimento",
                                         fontFamily = Michroma,
-                                        fontSize = ImpulseTextSizes.Label,
+                                        fontSize = ImpulseTextSizes.Section,
                                         color = Color.White,
                                         textAlign = TextAlign.Center
                                 )
