@@ -172,7 +172,7 @@ private fun TripScoreHeader(
                     Spacer(Modifier.width(12.dp))
                 }
                 Text(
-                    "Score de Consistência da Viagem",
+                    "Consistência da viagem",
                     color = AppColors.TextPrimary,
                     fontSize = 34.sp,
                     fontWeight = FontWeight.Bold
@@ -199,13 +199,13 @@ private fun IdleTripScoreView(
         Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Text("Nenhuma viagem em análise", color = AppColors.TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
             Text(
-                "Inicie uma viagem para acompanhar o score em tempo real. O cluster exibirá apenas um indicador discreto enquanto a análise estiver ativa.",
+                "Inicie uma viagem para acompanhar a avaliação em tempo real. O cluster exibirá apenas um indicador discreto enquanto a análise estiver ativa.",
                 color = AppColors.TextSecondary,
                 fontSize = ImpulseTextSizes.Label
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PrimaryButton(onClick = onStart, text = "Iniciar análise de viagem")
-                SecondaryButton(onClick = onShowRules, text = "Entender score")
+                SecondaryButton(onClick = onShowRules, text = "Entender a avaliação")
                 if (reports.isNotEmpty()) {
                     SecondaryButton(onClick = { onOpenReport(reports.first()) }, text = "Ver último relatório")
                 }
@@ -242,7 +242,7 @@ private fun ActiveTripView(
                 }
                 if (!scoreReady || session.telemetryWarning) {
                     Text(
-                        "Aguardando telemetria para iniciar o score.",
+                        "Aguardando telemetria para iniciar a avaliação.",
                         color = Color(0xFFFFC857),
                         fontSize = ImpulseTextSizes.Label
                     )
@@ -412,7 +412,7 @@ private fun ScoreRulesView(onBack: () -> Unit) {
                     Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF00D8FF), modifier = Modifier.size(32.dp))
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("Como funciona o score", color = AppColors.TextPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        Text("Como funciona a avaliação", color = AppColors.TextPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                         Text("Baseado nos dados lidos pelo Impulse.", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Label)
                     }
                 }
@@ -425,11 +425,11 @@ private fun ScoreRulesView(onBack: () -> Unit) {
                     "Velocidade, hodômetro e estado do veículo.",
                     "Consumo instantâneo de combustível e energia, quando disponíveis.",
                     "Nível/corrente de regeneração para detectar eventos relevantes.",
-                    "Sem GPS: o score não usa rota, localização ou mapas."
+                    "Sem GPS: a avaliação não usa rota, localização ou mapas."
                 )
             )
             ScoreRuleSection(
-                title = "Pesos do score",
+                title = "Pesos da avaliação",
                 lines = listOf(
                     "Variação de velocidade: 25%.",
                     "Aceleração controlada: 20%.",
@@ -442,7 +442,7 @@ private fun ScoreRulesView(onBack: () -> Unit) {
             ScoreRuleSection(
                 title = "Classificações",
                 lines = listOf(
-                    "Viagem suave: score alto, poucas variações bruscas e condução previsível.",
+                    "Viagem suave: nota alta, poucas variações bruscas e condução previsível.",
                     "Viagem esportiva: várias acelerações/frenagens fortes ou muitas variações de velocidade.",
                     "Trânsito pesado: baixa velocidade média, velocidade máxima baixa e padrão de anda-e-para."
                 )
@@ -610,9 +610,11 @@ private fun TripMetricPill(icon: ImageVector, label: String, value: String, comp
     }
 }
 
-private fun formatDistance(value: Double?): String = value?.let { String.format(Locale.US, "%.1f km", it) } ?: "-- km"
+private val PT_BR: Locale = Locale.forLanguageTag("pt-BR")
 
-private fun formatKmh(value: Double?): String = value?.let { String.format(Locale.US, "%.0f km/h", it) } ?: "-- km/h"
+private fun formatDistance(value: Double?): String = value?.let { String.format(PT_BR, "%.1f km", it) } ?: "-- km"
+
+private fun formatKmh(value: Double?): String = value?.let { String.format(PT_BR, "%.0f km/h", it) } ?: "-- km/h"
 
 private fun formatDuration(seconds: Long): String {
     val hours = seconds / 3600

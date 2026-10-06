@@ -12,7 +12,7 @@ enum class TripConsistencyStatus {
 enum class TripConsistencyClassification(val label: String, val summary: String) {
     SMOOTH("Viagem suave", "Conducao estavel e previsivel, com poucas variacoes bruscas."),
     SPORTY("Viagem esportiva", "Trajeto com perfil mais dinamico, marcado por aceleracoes e frenagens intensas."),
-    HEAVY_TRAFFIC("Transito pesado", "Trajeto com muitas paradas e baixa velocidade media, indicando transito intenso.")
+    HEAVY_TRAFFIC("Trânsito pesado", "Trajeto com muitas paradas e baixa velocidade media, indicando trânsito intenso.")
 }
 
 enum class TripConsistencyEventType {
