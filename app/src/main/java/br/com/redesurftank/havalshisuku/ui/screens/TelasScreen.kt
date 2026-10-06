@@ -2870,7 +2870,7 @@ fun ClusterBackgroundSettingsDialog(
                                     Text(
                                         libraryMessage
                                             ?: "Toque para pré-visualizar no cluster · ♥ salva na Biblioteca para usar sem internet.",
-                                        color = if (libraryMessage != null) Color(0xFF4A9EFF) else Color(0xFF718096),
+                                        color = if (libraryMessage != null) Color(0xFF4A9EFF) else ImpTokens.TextDisabled,
                                         fontSize = ImpulseTextSizes.BodyCompact,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -4883,7 +4883,7 @@ private fun ThemeMultiConfigControl(
             ) {
                 Text(
                     text = option,
-                    color = if (isSelected) Color.White else Color(0xFFB0B8C4),
+                    color = if (isSelected) Color.White else ImpTokens.TextSecondary,
                     fontSize = ImpulseTextSizes.BodyCompact,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                 )
@@ -5274,7 +5274,7 @@ fun ThemeSettingsDialog(
                             ) {
                                 Text(
                                     text = group,
-                                    color = if (isSelected) Color.White else Color(0xFFB0B8C4),
+                                    color = if (isSelected) Color.White else ImpTokens.TextSecondary,
                                     fontSize = ImpulseTextSizes.BodyCompact,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 )

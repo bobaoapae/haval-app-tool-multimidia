@@ -152,7 +152,7 @@ fun SettingCard(
             Text(
                 text = description,
                 fontSize = ImpulseTextSizes.BodyCompact,
-                color = if (enabled) AppColors.TextSecondary else Color(0xFF606060),
+                color = if (enabled) AppColors.TextSecondary else ImpTokens.TextDisabled,
                 lineHeight = 1.35.em,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis

@@ -33,6 +33,7 @@ import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import br.com.redesurftank.havalshisuku.managers.StartupAppManager
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
 
 /**
  * "Abrir ao ligar": escolhe qual app abre em qual tela quando o carro liga. Até dois — um na tela
@@ -92,7 +93,7 @@ fun StartupAppsDialog(onDismiss: () -> Unit) {
                     "Escolha até dois apps: um para a tela principal e um para a secundária. " +
                         "Android Auto e CarPlay já abrem sozinhos quando o telefone conecta.",
                     color = ImpTokens.TextSecondary,
-                    fontSize = 12.sp
+                    fontSize = ImpulseTextSizes.BodyCompact
                 )
 
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -181,7 +182,7 @@ private fun Box(
         Text(
             label,
             color = if (selected) Color.White else ImpTokens.TextSecondary,
-            fontSize = 12.sp,
+            fontSize = ImpulseTextSizes.BodyCompact,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis

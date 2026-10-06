@@ -32,6 +32,7 @@ import br.com.redesurftank.havalshisuku.utils.FridaUtils
 import coil.compose.AsyncImage
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
 
 @Composable
 fun FridaHooksTab() {
@@ -61,7 +62,7 @@ fun FridaHooksTab() {
                         Text(
                                 "FRIDA HOOKS",
                                 fontFamily = Michroma,
-                                fontSize = 15.sp,
+                                fontSize = ImpulseTextSizes.Label,
                                 letterSpacing = 1.8.sp,
                                 color = ImpTokens.TextSecondary,
                                 modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)

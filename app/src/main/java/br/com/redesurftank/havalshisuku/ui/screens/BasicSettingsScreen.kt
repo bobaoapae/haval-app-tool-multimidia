@@ -1542,7 +1542,7 @@ fun BasicSettingsTab() {
                                                                                                         0xFF4A9EFF
                                                                                                 ),
                                                                                         fontSize =
-                                                                                                16.sp,
+                                                                                                ImpulseTextSizes.Label,
                                                                                         modifier =
                                                                                                 Modifier.background(
                                                                                                                 Color(
@@ -1817,7 +1817,7 @@ fun BasicSettingsTab() {
                                                                                                 color =
                                                                                                         Color.White,
                                                                                                 fontSize =
-                                                                                                        14.sp
+                                                                                                        ImpulseTextSizes.Label
                                                                                         )
                                                                                         Spacer(
                                                                                                 modifier =
@@ -1832,7 +1832,7 @@ fun BasicSettingsTab() {
                                                                                                                 0xFF4A9EFF
                                                                                                         ),
                                                                                                 fontSize =
-                                                                                                        18.sp,
+                                                                                                        ImpulseTextSizes.Body,
                                                                                                 fontWeight =
                                                                                                         FontWeight
                                                                                                                 .Medium
@@ -1879,7 +1879,7 @@ fun BasicSettingsTab() {
                                                                                                 color =
                                                                                                         Color.White,
                                                                                                 fontSize =
-                                                                                                        14.sp
+                                                                                                        ImpulseTextSizes.Label
                                                                                         )
                                                                                         Spacer(
                                                                                                 modifier =
@@ -1894,7 +1894,7 @@ fun BasicSettingsTab() {
                                                                                                                 0xFF4A9EFF
                                                                                                         ),
                                                                                                 fontSize =
-                                                                                                        18.sp,
+                                                                                                        ImpulseTextSizes.Body,
                                                                                                 fontWeight =
                                                                                                         FontWeight
                                                                                                                 .Medium
@@ -1929,7 +1929,7 @@ fun BasicSettingsTab() {
                                                                                                         0xFF4A9EFF
                                                                                                 ),
                                                                                         fontSize =
-                                                                                                16.sp,
+                                                                                                ImpulseTextSizes.Label,
                                                                                         modifier =
                                                                                                 Modifier.background(
                                                                                                                 Color(
@@ -2359,14 +2359,14 @@ fun BasicSettingsTab() {
                                                                                         color =
                                                                                                 Color.White,
                                                                                         fontSize =
-                                                                                                16.sp
+                                                                                                ImpulseTextSizes.Label
                                                                                 )
                                                                                 Text(
                                                                                         "Esconde após 30s de inatividade",
                                                                                         color =
-                                                                                                Color.Gray,
+                                                                                                ImpTokens.TextMuted,
                                                                                         fontSize =
-                                                                                                12.sp
+                                                                                                ImpulseTextSizes.BodyCompact
                                                                                 )
                                                                         }
                                                                         Switch(
@@ -2462,14 +2462,14 @@ fun BasicSettingsTab() {
                                                                                         color =
                                                                                                 Color.White,
                                                                                         fontSize =
-                                                                                                16.sp
+                                                                                                ImpulseTextSizes.Label
                                                                                 )
                                                                                 Text(
                                                                                         "O painel fica oculto e libera os 128px da esquerda para a barra. Deslize da borda esquerda para trazê-lo de volta; ele se esconde de novo após 5s.\n\nAtenção: o botão home nativo fica nesse painel, então ele sai junto. Para usá-lo, deslize o painel de volta — ou configure o deslizar para cima da barra como \"Ir para a Home Haval\".",
                                                                                         color =
-                                                                                                Color.Gray,
+                                                                                                ImpTokens.TextMuted,
                                                                                         fontSize =
-                                                                                                12.sp
+                                                                                                ImpulseTextSizes.BodyCompact
                                                                                 )
                                                                         }
                                                                         Switch(
@@ -2679,7 +2679,7 @@ fun BasicSettingsTab() {
                                                                                                         color =
                                                                                                                 Color.White,
                                                                                                         fontSize =
-                                                                                                                14.sp
+                                                                                                                ImpulseTextSizes.Label
                                                                                                 )
                                                                                                 if (option ==
                                                                                                                 BottomBarState
@@ -2698,7 +2698,7 @@ fun BasicSettingsTab() {
                                                                                                                         AppColors
                                                                                                                                 .Primary,
                                                                                                                 fontSize =
-                                                                                                                        12.sp
+                                                                                                                        ImpulseTextSizes.BodyCompact
                                                                                                         )
                                                                                                 }
                                                                                         }
@@ -2784,14 +2784,14 @@ fun BasicSettingsTab() {
                                                                         color =
                                                                                 Color.White,
                                                                         fontSize =
-                                                                                16.sp
+                                                                                ImpulseTextSizes.Label
                                                                 )
                                                                 Text(
                                                                         "Ao iniciar Android Auto ou CarPlay no cluster",
                                                                         color =
-                                                                                Color.Gray,
+                                                                                ImpTokens.TextMuted,
                                                                         fontSize =
-                                                                                12.sp
+                                                                                ImpulseTextSizes.BodyCompact
                                                                 )
                                                         }
                                                         Switch(
@@ -3424,7 +3424,7 @@ fun BasicSettingsTab() {
                                                                                                 color =
                                                                                                         Color.White,
                                                                                                 fontSize =
-                                                                                                        14.sp
+                                                                                                        ImpulseTextSizes.Label
                                                                                         )
                                                                                         Spacer(
                                                                                                 modifier =
@@ -3439,7 +3439,7 @@ fun BasicSettingsTab() {
                                                                                                                 0xFF4A9EFF
                                                                                                         ),
                                                                                                 fontSize =
-                                                                                                        18.sp,
+                                                                                                        ImpulseTextSizes.Body,
                                                                                                 fontWeight =
                                                                                                         FontWeight
                                                                                                                 .Medium
@@ -3489,7 +3489,7 @@ fun BasicSettingsTab() {
                                                                                                 color =
                                                                                                         Color.White,
                                                                                                 fontSize =
-                                                                                                        14.sp
+                                                                                                        ImpulseTextSizes.Label
                                                                                         )
                                                                                         Spacer(
                                                                                                 modifier =
@@ -3504,7 +3504,7 @@ fun BasicSettingsTab() {
                                                                                                                 0xFF4A9EFF
                                                                                                         ),
                                                                                                 fontSize =
-                                                                                                        18.sp,
+                                                                                                        ImpulseTextSizes.Body,
                                                                                                 fontWeight =
                                                                                                         FontWeight
                                                                                                                 .Medium
