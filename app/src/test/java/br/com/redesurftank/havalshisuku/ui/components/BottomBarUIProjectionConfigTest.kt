@@ -7,6 +7,25 @@ import org.junit.Test
 class BottomBarUIProjectionConfigTest {
 
     @Test
+    fun resolveProjectionShortcutAction_idleOpensConnectivityEvenIfProjectionPackagesExist() {
+        assertEquals(
+            ProjectionShortcutAction.OPEN_CONNECTIVITY,
+            resolveProjectionShortcutAction(ProjectionType.NONE)
+        )
+        assertEquals(
+            ProjectionShortcutAction.OPEN_CARPLAY,
+            resolveProjectionShortcutAction(ProjectionType.CARPLAY)
+        )
+        assertEquals(
+            ProjectionShortcutAction.OPEN_ANDROID_AUTO,
+            resolveProjectionShortcutAction(ProjectionType.ANDROID_AUTO)
+        )
+        assertEquals("com.beantechs.settings", PHONE_CONNECT_PACKAGE)
+        assertEquals("com.beantechs.settings.ui.activity.MainActivity", PHONE_CONNECT_ACTIVITY)
+        assertEquals(0, PHONE_CONNECT_POSITION)
+    }
+
+    @Test
     fun mergeBottomBarProjectionConfigs_appendsMissingProjectionDefaults() {
         val savedConfigs =
             listOf(
