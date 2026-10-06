@@ -2973,7 +2973,7 @@ fun BasicSettingsTab() {
                                 title = "Ativar Ambient Light BLE",
                                 group = SettingsGroups.FEATURES,
                                 description =
-                                        "Exibe o recurso opcional para LEDs externos instalados pelo usuario",
+                                        "Exibe o recurso opcional para LEDs externos instalados pelo usuário",
                                 checked = ambientLightBleEnabled,
                                 onCheckedChange = {
                                         ambientLightBleEnabled = it

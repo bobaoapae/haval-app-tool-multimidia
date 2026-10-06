@@ -506,7 +506,7 @@ fun InstallAppsTab() {
                             when {
                                 isMounted -> "Ativo"
                                 isPatchInstalled -> "Instalado"
-                                else -> "Nao instalado"
+                                else -> "Não instalado"
                             },
                     statusTint = if (isMounted) ImpTokens.Accent else ImpTokens.TextSecondary,
                     subtitleBelowTitle = true,
@@ -569,7 +569,7 @@ fun InstallAppsTab() {
                         ) {
                             Icon(
                                     Icons.Default.BugReport,
-                                    contentDescription = "Diagnostico",
+                                    contentDescription = "Diagnóstico",
                                     tint = ImpTokens.TextMuted
                             )
                         }
@@ -589,7 +589,7 @@ fun InstallAppsTab() {
                             when {
                                 isCarPlayMounted -> "Ativo"
                                 isCarPlayPatchInstalled -> "Instalado"
-                                else -> "Nao instalado"
+                                else -> "Não instalado"
                             },
                     statusTint =
                             if (isCarPlayMounted) ImpTokens.Accent else ImpTokens.TextSecondary,
@@ -654,7 +654,7 @@ fun InstallAppsTab() {
                         ) {
                             Icon(
                                     Icons.Default.BugReport,
-                                    contentDescription = "Diagnostico",
+                                    contentDescription = "Diagnóstico",
                                     tint = ImpTokens.TextMuted
                             )
                         }
@@ -698,11 +698,11 @@ fun InstallAppsTab() {
                                 homeProgress != null ->
                                         "Baixando " + (homeProgress * 100).toInt() + "%"
                                 homeVerifyError != null -> homeVerifyError!!
-                                homeBadSigner -> "Assinatura invalida"
-                                homeUpdate -> "Atualizacao disponivel"
+                                homeBadSigner -> "Assinatura inválida"
+                                homeUpdate -> "Atualização disponível"
                                 homeInstalled != null -> "v" + homeInstalled
-                                homeAvailable -> "Nao instalado"
-                                else -> "Indisponivel no catalogo"
+                                homeAvailable -> "Não instalado"
+                                else -> "Indisponível no catálogo"
                             },
                     statusTint =
                             if (homeInstalled != null) ImpTokens.Accent else ImpTokens.TextSecondary
@@ -773,7 +773,7 @@ fun InstallAppsTab() {
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             StartupSlotRow("Principal", mainPkg, Modifier.weight(1f))
-                            StartupSlotRow("Secundaria", secondaryPkg, Modifier.weight(1f))
+                            StartupSlotRow("Secundária", secondaryPkg, Modifier.weight(1f))
                         }
                     }
             ) { CardButton("Alterar", ImpTokens.Accent) { showStartupApps = true } }
@@ -1018,12 +1018,12 @@ fun InstallAppsTab() {
     if (showHomeSignatureDialog) {
         AlertDialog(
                 onDismissRequest = { showHomeSignatureDialog = false },
-                title = { Text("Assinatura invalida") },
+                title = { Text("Assinatura inválida") },
                 text = {
                     Text(
-                            "Identificamos uma assinatura invalida no app ja instalado. " +
-                                    "Remova o app e entao instale a partir do nosso link para " +
-                                    "que venha de uma fonte confiavel."
+                            "Identificamos uma assinatura inválida no app já instalado. " +
+                                    "Remova o app e então instale a partir do nosso link para " +
+                                    "que venha de uma fonte confiável."
                     )
                 },
                 confirmButton = {

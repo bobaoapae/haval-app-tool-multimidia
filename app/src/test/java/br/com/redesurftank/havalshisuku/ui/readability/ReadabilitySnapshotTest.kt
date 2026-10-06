@@ -125,7 +125,7 @@ class ReadabilitySnapshotTest {
                 icon = Icons.Default.PhoneIphone, iconTint = Color.White, highlighted = false,
                 title = "Apple CarPlay Patch",
                 subtitle = "Melhora a projeção do CarPlay no cluster.",
-                status = "Nao instalado", subtitleBelowTitle = true
+                status = "Não instalado", subtitleBelowTitle = true
             ) { CardButton("Instalar", ImpTokens.Accent) {} } }
             Box(Modifier.weight(1f)) { FeatureCard(
                 icon = Icons.Default.DirectionsCar, iconTint = Color.White, highlighted = false,
