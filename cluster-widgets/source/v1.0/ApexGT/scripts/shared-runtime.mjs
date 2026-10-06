@@ -12,9 +12,11 @@ import path from 'node:path';
 // legadas (evPowerKw etc.) que o pacote do Apex GT não admite; só a calibração de velocidade entra.
 const SOURCES = [
     { file: '../shared/car/carDerivations.js', only: ['getAdjustedSpeed'] },
+    { file: '../shared/runtime/clusterVisibility.js', only: ['applyClusterVisibility'] },
 ];
 const EXPORTS = [
     'getAdjustedSpeed',
+    'applyClusterVisibility',
 ];
 
 function stripModuleSyntax(source) {

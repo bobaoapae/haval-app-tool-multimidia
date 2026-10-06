@@ -2389,25 +2389,7 @@ canvas.graph-chart {
   height: 100% !important;
 }
 
-/* Cluster Disabled Mode */
-.cluster-disabled .dashboard-speed-container,
-.cluster-disabled .dashboard-top-center,
-.cluster-disabled .dashboard-bottom-gauges,
-.cluster-disabled .dashboard-fuel-container,
-.cluster-disabled .dashboard-battery-container,
-.cluster-disabled .dashboard-bottom-ev-mode,
-.cluster-disabled .mask-circle.left,
-.cluster-disabled .mask-circle-border.left,
-.cluster-disabled .no-app-mask-l,
-.cluster-disabled .no-app-mask-v,
-.cluster-disabled .no-app-mask-h,
-.cluster-disabled .partial-app-mask,
-.cluster-disabled .mask-bottom-bar,
-.cluster-disabled .mask-top-bar {
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
+/* Whole-page cluster visibility is shared in runtime/clusterVisibility.css. */
 
 /* Warning Mode & Card 0 Mode */
 .warn-is-active .dashboard-menu-container,
@@ -4641,12 +4623,7 @@ body.display-mapa .mask-panel.right {
   font-weight: bolder;
 }
 
-.cluster-disabled .dashboard-ev-power-card {
-  display: none !important;
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
+
 
 .display-mapa .ev-power-label {
   width: 100%;

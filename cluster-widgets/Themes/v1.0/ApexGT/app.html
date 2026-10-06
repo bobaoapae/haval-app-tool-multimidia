@@ -348,6 +348,23 @@ body{-webkit-font-smoothing:antialiased}
 }
 
 </style>
+    <style>
+/* Painel Virtual controls the entire WebView page, including body backgrounds
+ * and fixed/portalled chrome outside the theme root. Opacity on the document
+ * suppresses descendants even when their own visibility/opacity is explicit,
+ * without changing layout measurements or introducing a fade/timer. */
+html.cluster-disabled {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* A body background can propagate to the document canvas in Chromium/WebView. */
+html.cluster-disabled,
+html.cluster-disabled body {
+    background: transparent !important;
+}
+
+</style>
 </head>
 <body>
     <main id="apex-gt" aria-label="Apex GT, painel de instrumentos">
@@ -2016,7 +2033,11 @@ function getAdjustedSpeed(rawSpeed, enableAdjustment = false, offsetPercent = 0.
 
     return String(Math.floor(finalSpeed));
 }
-window.ApexShared = { getAdjustedSpeed: getAdjustedSpeed };
+// ---- source/v1.0/shared/runtime/clusterVisibility.js (applyClusterVisibility) ----
+function applyClusterVisibility(enabled) {
+    document.documentElement.classList.toggle('cluster-disabled', enabled === false);
+}
+window.ApexShared = { getAdjustedSpeed: getAdjustedSpeed, applyClusterVisibility: applyClusterVisibility };
 })();
 
 </script>
@@ -2358,6 +2379,12 @@ window.ApexShared = { getAdjustedSpeed: getAdjustedSpeed };
 
     function update(key, value, allowAliases) {
         if (disposed) return;
+        // Host visibility is page-wide and independent of telemetry/projection.
+        // Do not subscribe or read a vehicle snapshot for this control signal.
+        if (key === "clusterEnabled") {
+            window.ApexShared.applyClusterVisibility(value);
+            return;
+        }
         if (display) display.update(key, value, allowAliases);
         if (menus) {
             if (menus.keys.indexOf(key) !== -1) receivedKeys[key] = true;

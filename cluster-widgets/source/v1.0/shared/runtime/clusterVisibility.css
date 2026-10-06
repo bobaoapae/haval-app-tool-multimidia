@@ -1,0 +1,14 @@
+/* Painel Virtual controls the entire WebView page, including body backgrounds
+ * and fixed/portalled chrome outside the theme root. Opacity on the document
+ * suppresses descendants even when their own visibility/opacity is explicit,
+ * without changing layout measurements or introducing a fade/timer. */
+html.cluster-disabled {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* A body background can propagate to the document canvas in Chromium/WebView. */
+html.cluster-disabled,
+html.cluster-disabled body {
+    background: transparent !important;
+}

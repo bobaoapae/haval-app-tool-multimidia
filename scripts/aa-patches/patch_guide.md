@@ -129,12 +129,17 @@ The combined v1 + v2 flow:
   display)
 - Background while user uses another app → v1 keeps the surface alive
 - `am display move-stack` or `am stack resize` to a different display →
-  Android delivers `onConfigurationChanged` (v2.1 manifest enables this) →
-  v2.1 override re-calls `setDisplayParams` → v2.0 prologue picks up the
-  new window bounds → v2.2 epilogue re-crops to the new height → v2.4
-  epilogue re-decides X-crop based on the new `displayId` → layout
-  reflows in place, no recreate, no black bars, no rail visible on
-  cluster, no projection drop.
+  Android delivers `onConfigurationChanged` only when the window size
+  actually changes (v2.1 manifest enables this) → v2.1 override re-calls
+  `setDisplayParams` → v2.0 prologue picks up the new window bounds →
+  v2.2 epilogue re-crops to the new height → v2.4 epilogue re-decides
+  X-crop based on the new `displayId` → layout reflows in place, no
+  recreate, no black bars, no rail visible on cluster, no projection drop.
+- A same-size return (cluster `1920×720` back to display 0 `1920×720`)
+  does **not** deliver `onConfigurationChanged`, so the cluster X-crop
+  stays on and the left rail stays hidden. `DisplayAppLauncher` forces
+  that callback by resizing the stack 1px shorter and then restoring the
+  real bounds.
 - Async AAP mode handler fires → v2.1 passthrough redirects through
   `setDisplayParams` → applies v2.0 + v2.2 + v2.4 again with the live
   window bounds instead of the stale hardcoded mode config.

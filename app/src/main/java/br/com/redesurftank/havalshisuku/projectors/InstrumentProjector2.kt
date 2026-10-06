@@ -23,6 +23,7 @@ import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.isVisible
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.R
+import br.com.redesurftank.havalshisuku.utils.VirtualClusterPreferences
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController
 import br.com.redesurftank.havalshisuku.managers.ClusterBackgroundSync
@@ -354,6 +355,24 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 ) {
                     ensureUi {
 
+                        if (!VirtualClusterPreferences.isEnabled(preferences)) {
+                            // Cover the frame before ProjectorManager dismisses the Presentation,
+                            // and drop any native insets even if the app-hole geometry is unchanged.
+                            applyProjectorViewVisibility(
+                                    false,
+                                    false
+                            )
+                            updateNativeMaskViews()
+                            lastAppInDashJsKey = null
+                            evaluateJsIfReady(webView, "control('clusterEnabled', false)")
+                            return@ensureUi
+                        }
+
+                        if (key == SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key) {
+                            // A rapid off/on may be coalesced before the manager dismisses us.
+                            updateNativeMaskViews()
+                        }
+
                         if (key == SharedPreferencesKeys.ENABLE_INSTRUMENT_ODOMETER_AND_REVISION.key
                         ) {
                             val enabled = preferences.getBoolean(key, true)
@@ -463,7 +482,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             }
 
     private fun shouldShowProjector(): Boolean {
-        return preferences.getBoolean(
+        return VirtualClusterPreferences.isEnabled(preferences) && preferences.getBoolean(
                 SharedPreferencesKeys.ENABLE_INSTRUMENT_PROJECTOR.key,
                 false
         ) &&
@@ -697,7 +716,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         isWarningActive,
                         projectionActive
                 )
-        val hidden = bypassActive || nativeCardPassThrough
+        val hidden = !VirtualClusterPreferences.isEnabled(preferences) ||
+                bypassActive || nativeCardPassThrough
         val alpha = if (hidden) 0f else 1f
         root.alpha = alpha
         root.isVisible = visible && !hidden
@@ -2874,8 +2894,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             projectionPreparingD3: Boolean = isProjectionPreparingD3(),
             forceNativeMaskRefresh: Boolean = false
     ) {
-        val clusterEnabled =
-                preferences.getBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key, true)
+        val clusterEnabled = VirtualClusterPreferences.isEnabled(preferences)
+        if (!clusterEnabled) {
+            applyProjectorViewVisibility(false, false)
+            updateNativeMaskViews()
+            lastAppInDashJsKey = null
+            evaluateJsIfReady(webView, "control('clusterEnabled', false)")
+            return
+        }
         val projectorVisible =
                 shouldShowProjector() && ServiceManager.getInstance().isMainScreenOn
         var isLeftCovered = false
@@ -3850,6 +3876,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     fun updateNativeMaskViews() {
+        if (!VirtualClusterPreferences.isEnabled(preferences)) {
+            nativeMaskContainer?.isVisible = false
+            setDisplayedGlobalMask(null)
+            return
+        }
+
         if (!isThemeLiveOnDisplay3()) {
             // Re-runs on its own: onPageFinished calls back into this method once the theme
             // is up, so the masks appear together with the content they belong to.
@@ -3863,7 +3895,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         // D1 has not yet painted that wallpaper. ClusterBackgroundSync skips the hold when D1 is
         // detached, an app covers D1, or no still wallpaper is expected.
         if (ClusterBackgroundSync.shouldHoldNativeMasks(preferences, isAnyAppOnDisplay1)) {
-            Log.d(TAG, "updateNativeMaskViews: waiting for D1 wallpaper; keeping masks down")
+            Log.w(TAG, "updateNativeMaskViews: waiting for D1 wallpaper; keeping masks down")
+            ClusterPersistentEventLogger.log(
+                    "native_masks_hold",
+                    mapOf(
+                            "reason" to "waiting_for_d1",
+                            "d1Attached" to ClusterBackgroundSync.isD1Attached(),
+                            "appOnDisplay1" to isAnyAppOnDisplay1,
+                            "identity" to ClusterBackgroundSync.identityFromPrefs(preferences)
+                    )
+            )
             nativeMaskContainer?.isVisible = false
             setDisplayedGlobalMask(null)
             return
