@@ -46,7 +46,7 @@ internal object ReadabilityHarness {
 /** Moldura 1920x720 igual ao AppNavigation: rail de 260dp (vazio) + area de conteudo com padding 16dp e IBM Plex Sans. */
 @Composable
 internal fun CarFrame(content: @Composable () -> Unit) {
-    HavalShisukuTheme(darkTheme = true, dynamicColor = false) {
+    HavalShisukuTheme(darkTheme = true, dynamicColor = false, readableText = true) {
         Row(Modifier.size(1920.dp, 720.dp).background(ImpTokens.Ground)) {
             Spacer(Modifier.width(260.dp).fillMaxHeight().background(Color(0xFF0D0E12)))
             Box(

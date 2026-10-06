@@ -57,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import br.com.redesurftank.havalshisuku.ui.theme.DarkImpulseTextColors
 import br.com.redesurftank.havalshisuku.ui.theme.IbmPlexSans
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 import kotlinx.coroutines.launch
@@ -78,9 +79,12 @@ object ImpTokens {
     val OnAccent = Color(0xFF0A0A0C)
     val ExpandTint = Color(0x0F4A9EFF)     // rgba(74,158,255,.06)
     val Hairline = Color(0x0DFFFFFF)       // rgba(255,255,255,.05)
-    val TextPrimary = Color(0xFFF5F5F5)
-    val TextSecondary = Color(0xFF8A93A3)
-    val TextMuted = Color(0xFF4B5563)
+    // Aliases da paleta semântica de texto (ui/theme/Color.kt). `TextMuted` agora é o terciário
+    // legível (9,0:1); item DESATIVADO usa `TextDisabled`. Nunca usar alpha para hierarquia de texto.
+    val TextPrimary = DarkImpulseTextColors.primary
+    val TextSecondary = DarkImpulseTextColors.secondary
+    val TextMuted = DarkImpulseTextColors.tertiary
+    val TextDisabled = DarkImpulseTextColors.disabled
     val TrackOff = Color(0xFF262A33)
     val ThumbOff = Color(0xFF6B7280)
     val Attention = Color(0xFFFBBF24)

@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import br.com.redesurftank.havalshisuku.ui.theme.DarkImpulseTextColors
 
 // Data class compartilhado para settings
 data class SettingItem(
@@ -47,14 +48,15 @@ object AppColors {
     val CardBackground = Color(0xFF13151A)
     val BorderColor = Color(0xFF1D2430)
     val Primary = Color(0xFF4A9EFF)
-    val TextPrimary = Color.White
-    val TextSecondary = Color(0xFFB0B8C4)
-    val TextDisabled = Color(0xFF808080)
+    // Aliases da paleta semântica de texto (ui/theme/Color.kt) — ver contrastes lá.
+    val TextPrimary = DarkImpulseTextColors.primary
+    val TextSecondary = DarkImpulseTextColors.secondary
+    val TextDisabled = DarkImpulseTextColors.disabled
     val SurfaceVariant = Color(0xFF2A2F37)
     val ButtonSecondary = Color(0xFF3A3F47)
     val MenuSelectedIcon = Color(0xFF4A9EFF)
-    val MenuUnselectedIcon = Color(0xFF8A93A6)
-    val MenuUnselectedText = Color(0xFFB0B8C4)
+    val MenuUnselectedIcon = DarkImpulseTextColors.tertiary
+    val MenuUnselectedText = DarkImpulseTextColors.secondary
 }
 
 // Dimensões padrão
