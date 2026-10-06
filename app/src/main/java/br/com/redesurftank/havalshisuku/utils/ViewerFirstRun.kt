@@ -14,6 +14,7 @@ import android.util.Log
  */
 object ViewerFirstRun {
     private const val TAG = "ViewerFirstRun"
+    const val EXIT_MARKER = "__EC:"
     const val OVERLAY = "android.permission.SYSTEM_ALERT_WINDOW"
     const val NOTIFICATION_LISTENER = "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
     const val ACCESSIBILITY = "android.permission.BIND_ACCESSIBILITY_SERVICE"
@@ -27,36 +28,57 @@ object ViewerFirstRun {
     /** Secure-setting value after [component] is included. Null when nothing should be written. */
     fun withComponent(current: String?, component: String?): String? {
         if (component.isNullOrBlank()) return null
-        val existing =
-                normalize(current)
-                        ?.split(":")
-                        ?.map { it.trim() }
-                        ?.filter { it.isNotEmpty() }
-                        .orEmpty()
+        val existing = settingEntries(current)
         if (existing.any { sameComponent(it, component) }) return null
         return (existing + component).joinToString(":")
     }
 
+    /** True when every component already enabled is still present in [updated]. */
+    fun keepsExisting(current: String?, updated: String): Boolean {
+        val next = settingEntries(updated)
+        return settingEntries(current).all { old -> next.any { sameComponent(it, old) } }
+    }
+
+    /**
+     * Splits a shell command that prints [EXIT_MARKER] and its exit code on the last line.
+     * Missing marker means the command did not finish in a way we can trust.
+     */
+    fun splitCommandResult(raw: String): Pair<String, Boolean> {
+        val idx = raw.lastIndexOf(EXIT_MARKER)
+        if (idx < 0) return raw.trim() to false
+        val code = raw.substring(idx + EXIT_MARKER.length).trim().lineSequence().firstOrNull()?.toIntOrNull()
+        return raw.substring(0, idx).trim() to (code == 0)
+    }
+
     fun grantCommands(packageName: String, permissions: List<String>, allowOverlay: Boolean): List<Array<String>> {
-        val commands = permissions.map { arrayOf("pm", "grant", packageName, it) }.toMutableList()
+        val commands = permissions.map { tracked("pm", "grant", packageName, it) }.toMutableList()
         if (allowOverlay) {
-            commands.add(arrayOf("appops", "set", packageName, "SYSTEM_ALERT_WINDOW", "allow"))
+            commands.add(tracked("appops", "set", packageName, "SYSTEM_ALERT_WINDOW", "allow"))
         }
         return commands
     }
 
+    /** Runs [args] and prints [EXIT_MARKER] plus the exit code, so a failed command is visible in stdout. */
+    fun tracked(vararg args: String): Array<String> {
+        val script = args.joinToString(" ") { SilentApkInstall.shellQuote(it) }
+        return arrayOf("sh", "-c", "$script; ec=\$?; echo $EXIT_MARKER\$ec; exit \$ec")
+    }
+
     fun putSecureCommand(key: String, value: String): Array<String> =
-            arrayOf("sh", "-c", "settings put secure $key ${SilentApkInstall.shellQuote(value)}")
+            tracked("settings", "put", "secure", key, value)
+
+    fun settingsGetCommand(key: String): Array<String> = tracked("settings", "get", "secure", key)
 
     fun notificationCommand(component: String, listeners: String): Array<String> {
         val quotedComponent = SilentApkInstall.shellQuote(component)
         val quotedListeners = SilentApkInstall.shellQuote(listeners)
-        return arrayOf(
-                "sh",
-                "-c",
-                "settings put secure enabled_notification_listeners $quotedListeners; " +
-                        "cmd notification allow_listener $quotedComponent 0 >/dev/null 2>&1 || true"
-        )
+        // The listener allow-list is best-effort. The exit code stays that of `settings put`,
+        // so a failed write is not hidden by `|| true`.
+        val script =
+                "settings put secure enabled_notification_listeners $quotedListeners; ec=\$?; " +
+                        "cmd notification allow_listener $quotedComponent 0 >/dev/null 2>&1 || true; " +
+                        "echo $EXIT_MARKER\$ec; exit \$ec"
+        return arrayOf("sh", "-c", script)
     }
 
     /**
@@ -77,14 +99,17 @@ object ViewerFirstRun {
                 }
         val requested = info.requestedPermissions?.toList().orEmpty()
         val services = info.services?.map { it.name.orEmpty() to it.permission.orEmpty() }.orEmpty()
-        return prepare(
-                packageName,
-                requested,
-                services,
-                isDangerous = { permission -> isDangerous(pm, permission) },
-                shizukuReady = { ShizukuUtils.isShizukuAvailable() },
-                run = { ShizukuUtils.runCommandAndGetOutput(it) }
-        )
+        val ok =
+                prepare(
+                        packageName,
+                        requested,
+                        services,
+                        isDangerous = { permission -> isDangerous(pm, permission) },
+                        shizukuReady = { ShizukuUtils.isShizukuAvailable() },
+                        run = { ShizukuUtils.runCommandAndGetOutput(it) }
+                )
+        Log.w(TAG, if (ok) "Launcher grants applied for $packageName" else "Launcher grants incomplete for $packageName")
+        return ok
     }
 
     fun prepare(
@@ -95,31 +120,63 @@ object ViewerFirstRun {
             shizukuReady: () -> Boolean,
             run: (Array<String>) -> String,
     ): Boolean {
-        if (!shizukuReady()) {
-            Log.w(TAG, "Shizuku unavailable; launcher grants skipped")
-            return false
-        }
+        if (!shizukuReady()) return false
+        var ok = true
         val runtime = requested.filter { it != OVERLAY && isDangerous(it) }
-        grantCommands(packageName, runtime, requested.contains(OVERLAY)).forEach { run(it) }
+        grantCommands(packageName, runtime, requested.contains(OVERLAY)).forEach { command ->
+            if (!splitCommandResult(run(command)).second) ok = false
+        }
 
         val listener =
                 services.firstOrNull { it.second == NOTIFICATION_LISTENER }?.let { component(packageName, it.first) }
         val accessibility =
                 services.firstOrNull { it.second == ACCESSIBILITY }?.let { component(packageName, it.first) }
 
-        withComponent(run(arrayOf("settings", "get", "secure", "enabled_notification_listeners")), listener)
-                ?.let { run(notificationCommand(listener!!, it)) }
-        val a11y =
-                withComponent(
-                        run(arrayOf("settings", "get", "secure", "enabled_accessibility_services")),
-                        accessibility
+        if (!enableListedService(
+                        "enabled_notification_listeners",
+                        listener,
+                        run,
+                        write = { value -> notificationCommand(listener.orEmpty(), value) }
                 )
-        if (a11y != null) {
-            run(putSecureCommand("enabled_accessibility_services", a11y))
-            run(arrayOf("settings", "put", "secure", "accessibility_enabled", "1"))
+        ) {
+            ok = false
         }
-        Log.w(TAG, "Launcher grants applied for $packageName")
-        return true
+        if (!enableListedService(
+                        "enabled_accessibility_services",
+                        accessibility,
+                        run,
+                        write = { value -> putSecureCommand("enabled_accessibility_services", value) },
+                        afterListed = { splitCommandResult(run(tracked("settings", "put", "secure", "accessibility_enabled", "1"))).second }
+                )
+        ) {
+            ok = false
+        }
+        return ok
+    }
+
+    /**
+     * Reads a colon-separated secure setting and appends [component] only when that read succeeded
+     * and the previous entries are still in the new value. A failed read does not write.
+     * [afterListed] still runs when the component was already present, so a half-finished
+     * accessibility toggle is retried next time.
+     */
+    private fun enableListedService(
+            settingKey: String,
+            component: String?,
+            run: (Array<String>) -> String,
+            write: (String) -> Array<String>,
+            afterListed: () -> Boolean = { true },
+    ): Boolean {
+        if (component.isNullOrBlank()) return true
+        val (current, readOk) = splitCommandResult(run(settingsGetCommand(settingKey)))
+        if (!readOk) return false
+        val updated = withComponent(current, component)
+        if (updated != null) {
+            if (!keepsExisting(current, updated)) return false
+            val (_, wrote) = splitCommandResult(run(write(updated)))
+            if (!wrote) return false
+        }
+        return afterListed()
     }
 
     private fun isDangerous(pm: PackageManager, permission: String): Boolean {
@@ -137,6 +194,9 @@ object ViewerFirstRun {
         val cls = if (className.startsWith(".")) packageName + className else className
         return "$packageName/$cls"
     }
+
+    private fun settingEntries(value: String?): List<String> =
+            normalize(value)?.split(":")?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
 
     private fun normalize(value: String?): String? {
         val trimmed = value?.trim().orEmpty()
