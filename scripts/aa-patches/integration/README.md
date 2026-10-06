@@ -148,6 +148,9 @@ Sources: [TextureView listener contract](https://developer.android.com/reference
 [Android 9 TextureView implementation](https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/android-9.0.0_r1/core/java/android/view/TextureView.java),
 and [SurfaceView/TextureView composition](https://source.android.com/docs/core/graphics/arch-tv).
 
+The [authorized validation plan](TEST-PLAN.md) records the remaining approvals,
+ordinary checks, lab-only fault tests and required evidence.
+
 ## Remaining gates
 
 1. Public SHA-256 fingerprints for the intended installed Impulse signer(s)
