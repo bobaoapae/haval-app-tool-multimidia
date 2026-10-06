@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -250,9 +251,9 @@ private fun ActiveTripView(
         }
 
         StyledCard(modifier = Modifier.weight(1f)) {
-            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Prévia em tempo real", color = AppColors.TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                MetricsGrid(session.metrics, scoreReady = scoreReady)
+                MetricsGrid(session.metrics, scoreReady = scoreReady, compact = true)
                 OutlinedTextField(
                     value = note,
                     onValueChange = onNoteChange,
@@ -260,7 +261,7 @@ private fun ActiveTripView(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2
                 )
-                PrimaryButton(onClick = onFinish, text = "Encerrar viagem e gerar relatório", modifier = Modifier.fillMaxWidth())
+                PrimaryButton(onClick = onFinish, text = "Encerrar viagem e gerar relatório", modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
             }
         }
     }
