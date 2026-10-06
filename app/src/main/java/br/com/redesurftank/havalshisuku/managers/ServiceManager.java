@@ -2,6 +2,8 @@ package br.com.redesurftank.havalshisuku.managers;
 
 import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothManager;
+import android.net.wifi.WifiManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -43,22 +45,29 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
+import java.util.Set;
 
 import br.com.redesurftank.App;
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger;
 import br.com.redesurftank.havalshisuku.listeners.IDataChanged;
 import br.com.redesurftank.havalshisuku.listeners.IServiceManagerEvent;
 import br.com.redesurftank.havalshisuku.models.CarConstants;
 import br.com.redesurftank.havalshisuku.models.CarInfo;
+import br.com.redesurftank.havalshisuku.models.ClusterKey;
+import br.com.redesurftank.havalshisuku.models.PowerFlow;
+import br.com.redesurftank.havalshisuku.models.MainUiManager;
 import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
+import br.com.redesurftank.havalshisuku.models.SteeringWheelClimateCommandType;
 import br.com.redesurftank.havalshisuku.models.SteeringWheelCustomActionType;
-import br.com.redesurftank.havalshisuku.models.MainUiManager;
 import br.com.redesurftank.havalshisuku.models.screens.Screen;
+import br.com.redesurftank.havalshisuku.services.BottomBarService;
 import br.com.redesurftank.havalshisuku.utils.FridaUtils;
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils;
 import rikka.shizuku.Shizuku;
@@ -67,11 +76,26 @@ import rikka.shizuku.ShizukuBinderWrapper;
 @SuppressLint("PrivateApi")
 public class ServiceManager {
     private static final String TAG = "ServiceManager";
+    /** Public request to re-broadcast every cached car value. See the receiver in init. */
+    public static final String ACTION_REQUEST_SNAPSHOT = "com.haval.vehicle.REQUEST_SNAPSHOT";
     public static final CarConstants[] DEFAULT_KEYS = {
             CarConstants.CAR_BASIC_ACCUMULATED_DIRVETIME,
             CarConstants.CAR_BASIC_GEAR_STATUS,
             CarConstants.CAR_BASIC_DOOR_STATUS,
             CarConstants.CAR_BASIC_DOOR_LOCK_STATUS,
+            CarConstants.CAR_BASIC_FRONT_FOG_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_HAZARD_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_HEAD_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_HIGH_BEAM_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_LEFT_TURN_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_LEFT_TURN_INDICATOR_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_LOW_BEAM_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_LOW_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_REAR_FOG_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_RIGHT_TURN_LIGHT_STATUS,
+            CarConstants.CAR_BASIC_RIGHT_TURN_INDICATOR_LIGHT_STATUS,
+            CarConstants.CAR_DRIVE_SETTING_OUTSIDE_LAMPS_STATE,
+            CarConstants.CAR_BASIC_HAND_BRAKE_STATUS,
             CarConstants.CAR_BASIC_DRIVING_READY_STATE,
             CarConstants.CAR_BASIC_INSIDE_TEMP,
             CarConstants.CAR_BASIC_MAINTENANCE_WARNING,
@@ -82,12 +106,34 @@ public class ServiceManager {
             CarConstants.CAR_BASIC_TOTAL_ODOMETER,
             CarConstants.CAR_BASIC_VEHICLE_SPEED,
             CarConstants.CAR_BASIC_WINDOW_STATUS,
+            // Glass roof state, consumed by the H6 3D viewer (com.havalh6.viewer)
+            // over the public telemetry broadcast. Read-only: nothing in
+            // OnDataChanged branches on either key.
+            CarConstants.CAR_BASIC_SUNROOF_STATUS,
+            CarConstants.CAR_BASIC_SUNSHADE_STATUS,
+            // Position/DRL hunt: no published key tracks the front position lamp
+            // (verified lit across three vehicle states with every *_light_status
+            // at 0). These are the last unsubscribed light candidates.
+            CarConstants.CAR_CONFIGURE_AUTO_HEADLIGHT,
+            CarConstants.CAR_CONFIGURE_LIGHT_AUTO_SWITCH_SYSTEM,
+            CarConstants.CAR_CONFIGURE_COMB_FRONT_LIGHT_SRC,
+            CarConstants.CAR_CONFIGURE_PARKING_LIGHT,
+            // Regen level — the only plausible proxy for brake lamps, since no
+            // brake-pedal key exists anywhere in CarConstants.
+            CarConstants.CAR_EV_INFO_ENERGY_RECOVERY_INFO,
+            // Brake lamps: AutoHold keeps brake pressure applied at a standstill,
+            // which is exactly the case a deceleration-derived brake cannot see.
+            // EPB state distinguishes "parked" from "held".
+            CarConstants.CAR_INTELLIGENT_DRIVING_INFO_AUTO_HOLD_STATE,
+            CarConstants.CAR_BASIC_EPB_STATE,
             CarConstants.CAR_DMS_WORK_STATE,
             CarConstants.CAR_EV_SETTING_AVAS_CONFIG,
             CarConstants.CAR_EV_SETTING_AVAS_ENABLE,
             CarConstants.CAR_EV_INFO_CUR_BATTERY_POWER_PERCENTAGE,
             CarConstants.CAR_EV_INFO_ENERGY_OUTPUT_PERCENTAGE,
             CarConstants.CAR_EV_INFO_POWER_BATTERY_VOLTAGE,
+            CarConstants.CAR_BASIC_BATTERY_VOLTAGE,
+            CarConstants.CAR_BASIC_BATTERY_POWER_LEVEL,
             CarConstants.CAR_FRS_SETTING_DISTRACTION_DETECTION_ENABLE,
             CarConstants.CAR_HVAC_ANION_ENABLE,
             CarConstants.CAR_HVAC_BLOWER_MODE,
@@ -99,9 +145,27 @@ public class ServiceManager {
             CarConstants.CAR_HVAC_POWER_MODE,
             CarConstants.CAR_HVAC_SYNC_ENABLE,
             CarConstants.CAR_HVAC_AUTO_ENABLE,
+            CarConstants.CAR_HVAC_PANEL_DISPLAY_NOTIFY,
+            CarConstants.CAR_HVAC_SETTING_COMFORT_CURVE,
+            // Climate popup in com.havalh6.viewer: the rest of what the OEM HVAC
+            // app reads, so the popup can show (and confirm) every control.
+            CarConstants.CAR_HVAC_AC_ENABLE,
+            CarConstants.CAR_HVAC_ACMAX_ENABLE,
+            CarConstants.CAR_HVAC_REAR_DEFROST_ENABLE,
+            CarConstants.CAR_HVAC_AQS_ENABLE,
+            CarConstants.CAR_HVAC_HEATING_ENABLE,
+            CarConstants.CAR_HVAC_PM2_5_VALUE,
+            CarConstants.CAR_HVAC_SETTING_AUTO_DEFROST_ENABLE,
+            CarConstants.CAR_HVAC_SETTING_LIMIT_ENABLE,
+            CarConstants.CAR_HVAC_FRONT_TEMPERATURE_RANGE,
+            CarConstants.CAR_HVAC_FAN_SPEED_RANGE,
             CarConstants.CAR_IPK_SETTING_BRIGHTNESS_CONFIG,
             CarConstants.SYS_AVM_AUTO_PREVIEW_ENABLE,
             CarConstants.SYS_AVM_PREVIEW_STATUS,
+            CarConstants.SYS_BASIC_AUDIO_SOURCE_APP,
+            CarConstants.SYS_RADIO_CUR_CHANNEL_INFO,
+            CarConstants.SYS_RADIO_PLAY_STATE,
+            CarConstants.SYS_RADIO_RDS_CUR_CHANNEL_INFO,
             CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME,
             CarConstants.SYS_SETTINGS_DISPLAY_BACKLIGHT_STATE,
             CarConstants.SYS_SETTINGS_DISPLAY_BRIGHTNESS_LEVEL,
@@ -116,6 +180,76 @@ public class ServiceManager {
             CarConstants.CAR_EV_INFO_CYCLE_FUEL_CONSUME_INFO,
             CarConstants.CAR_CONFIGURE_PEDAL_CONTROL_ENABLE,
             CarConstants.CAR_BASIC_INSTANT_FUEL_CONSUMPTION,
+            CarConstants.CAR_BASIC_AVG_FUEL_CONSUMPTION,
+            CarConstants.CAR_BASIC_ACCUMULATED_ODOMETER,
+            CarConstants.CAR_BASIC_AVG_VEHICLE_SPEED_SINCE_RESET,
+            CarConstants.CAR_EV_INFO_CUR_CHARGE_CURRENT,
+            CarConstants.CAR_EV_INFO_POWER_BATTERY_VOLTAGE,
+            CarConstants.CAR_BASIC_REMAIN_FUEL_PERCENTAGE,
+            CarConstants.CAR_EV_INFO_FUEL_MODE_REMAIN_ODOMETER,
+            CarConstants.CAR_EV_INFO_ELECTRIC_MODE_REMAIN_ODOMETER,
+            CarConstants.CAR_BASIC_COOLANT_TEMP_WARNING,
+            CarConstants.CAR_BASIC_ENGINE_OIL_LOW_PRESSURE_WARNING,
+            CarConstants.CAR_BASIC_FATIGUE_WARNING,
+            CarConstants.CAR_BASIC_MAINTENANCE_WARNING,
+            CarConstants.CAR_BASIC_OIL_LOW_WARNING,
+            CarConstants.CAR_BASIC_SEAT_BELT_WARNING,
+            CarConstants.CAR_BASIC_TIREPRESS_WARNING,
+            CarConstants.CAR_BASIC_TIRETEMP_WARNING,
+            CarConstants.CAR_BASIC_TPMS_WARNING,
+            // The *_WARNING keys above are flags ({0,0,0,0}), not readings, which is why nothing
+            // could show a tyre pressure: the key that carries the actual data was never
+            // subscribed, so it was never dispatched. Measured on the car 2026-09-09, parked:
+            //
+            //   car.basic.tpms_status = {2.48922,25.0,2.48922,24.0,2.2559,24.0,2.48922,24.0}
+            //   car.basic.tpms_units  = 1
+            //
+            // i.e. 8 values = 4 wheels x (pressure in bar, temperature in C); the temperatures
+            // sat on ambient (outside_temp 23.0) as a parked car's should. Wheel order is assumed
+            // to follow tirepress_warning's, but has NOT been confirmed against the physical
+            // corners. NOMINAL_TIRE_PRESSURE reads 0 and looks useless; it stays subscribed so a
+            // non-zero value would surface rather than being written off a second time.
+            CarConstants.CAR_BASIC_TPMS_STATUS,
+            CarConstants.CAR_BASIC_TPMS_UNITS,
+            CarConstants.CAR_CONFIGURE_NOMINAL_TIRE_PRESSURE,
+            CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQLEFT,
+            CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQRIGHT,
+            CarConstants.CAR_IPK_INFO_DOW_WARNING_REQLEFT,
+            CarConstants.CAR_IPK_INFO_DOW_WARNING_REQRIGHT,
+            CarConstants.CAR_IPK_INFO_FCTA_WARNING,
+            CarConstants.CAR_IPK_INFO_FCW_WARNING,
+            CarConstants.CAR_IPK_INFO_WARNING_TTS_NOTIFY,
+            CarConstants.CAR_IPK_LIGHT_DOOR_WARNING,
+            CarConstants.CAR_IPK_LIGHT_ENGINE_OIL_LOW_PRESSURE_WARNING,
+            CarConstants.CAR_IPK_LIGHT_SEAT_BELT_WARNING_INDICATOR,
+            CarConstants.CAR_IPK_LIGHT_TPMS_WARNING,
+            CarConstants.CAR_BASIC_ENGINE_SPEED,
+            CarConstants.CAR_EV_INFO_INSTANT_ENERGY_CONSUMPTION,
+            CarConstants.CAR_EV_INFO_ENERGY_DRIVE_STATE,
+            CarConstants.CAR_EV_INFO_CHARGING_STATE,
+            CarConstants.CAR_IPK_LIGHT_FUEL_LOW,
+            CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT,
+            CarConstants.CAR_MAP_TSR_NAV_SPEED_LIMIT_SIGN_STATUS,
+            // Campos do dashboard que precisam atualizar EM TEMPO REAL (sem essas chaves observadas,
+            // o onDataChanged nunca dispara pra elas e o valor so re-le ao fechar/reabrir o dash).
+            CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG,
+            CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG,
+            CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL,
+            CarConstants.CAR_COMFORT_SETTING_PASSENGER_SEAT_VENTILATION_LEVEL,
+            CarConstants.CAR_COMFORT_SETTING_SEAT_VENTILATION_MAX_LEVEL,
+            CarConstants.CAR_EV_INFO_CAR_EV_INFO_SOC_OF_BATTERY,
+            CarConstants.CAR_EV_INFO_BATTERY_POWER_PERCENTAGE,
+            CarConstants.CAR_BASIC_REMAIN_ODOMETER,
+            CarConstants.CAR_BASIC_CUR_JOURNEY_AVG_FUEL_CONSUME,
+            CarConstants.CAR_EV_INFO_AVG_ENERGY_CONSUME_INFO_SINCE_STARTUP,
+            CarConstants.CAR_EV_INFO_POWER_BATTERY_CURRENT,
+            // Fluxo / POWER widget in com.havalh6.viewer (BeanEnergyAssistant
+            // energy flow). Without these the viewer gets V×I + SOC but motors
+            // and lanes stay on Parado — energy_drive_state never arrives.
+            CarConstants.CAR_EV_INFO_ENERGY_DRIVE_STATE,
+            CarConstants.CAR_EV_INFO_CYCLE_ENERGY_CONSUME_INFO,
+            CarConstants.CAR_EV_INFO_CHARGING_STATE,
+            CarConstants.CAR_CONFIGURE_EV_DRIVE_ARCHITECTURE
     };
 
     private static final CarConstants[] KEYS_TO_SAVE = {
@@ -164,27 +298,107 @@ public class ServiceManager {
             CarConstants.CAR_INTELLIGENT_DRIVING_SETTING_SRAS_RCW_STATE,
             CarConstants.CAR_INTELLIGENT_DRIVING_SETTING_SRAS_RSA_RSB_STATE,
             CarConstants.CAR_INTELLIGENT_DRIVING_SETTING_SRAS_RSA_RSB_WARNING_STATE,
+            CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG,
+            CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG,
     };
     private static ServiceManager instance;
+
+    private final Set<String> dynamicallyRegisteredKeys = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final List<IDataChanged> dataChangedListeners;
     private final List<IServiceManagerEvent> serviceManagerEventListeners;
     private final Map<String, String> dataCache;
+    private final PowerFlowTracker powerFlowTracker;
     private SharedPreferences sharedPreferences;
     private Boolean closeWindowDueToeSpeed = false;
     private Boolean closeSunroofDueToeSpeed = false;
     private HandlerThread handlerThread;
     private Handler backgroundHandler;
+    // ===== Dados móveis do carro (controle: master + regras) =====
+    private volatile Runnable mobileDataAutoblockRunnable;
+    private static final long MOBILE_DATA_CHECK_MS = 15 * 1000L; // 15s: pega consumo/WiFi/projeção
+    private android.net.ConnectivityManager.NetworkCallback mobileDataWifiCallback;
+    private BroadcastReceiver mobileDataTetherReceiver;
+    // Monitor periódico do % do HEV Prioritário: reaplica o valor salvo mesmo se algum evento
+    // (power-on/entrar no modo/carro resetar) tiver sido perdido — ex.: app subiu tarde no boot.
+    private static final long HEV_SOC_MONITOR_INTERVAL_MS = 30000L;
+    private volatile Runnable hevSocMonitorRunnable;
     private IListener.Stub listener;
     private IInputListener.Stub inputListener;
     private IClusterCallback.Stub clusterCallback;
     private boolean servicesInitialized = false;
+    private boolean hasRunStartupCurtainAutomation = false;
+    // Armado no init, consumido por quem chegar primeiro (evento de driving_ready, leitura tardia
+    // ou fallback). compareAndSet garante disparo único mesmo com a thread do binder concorrendo.
+    private final java.util.concurrent.atomic.AtomicBoolean curtainAutomationArmed = new java.util.concurrent.atomic.AtomicBoolean(false);
+    // Cortina automática por horário — guarda "uma vez por ENTRADA na janela". Reseta ao SAIR
+    // da janela (respeita ajuste manual e permite disparar de novo na próxima entrada).
+    private boolean curtainOpenActedThisWindow = false;
+    /**
+     * Quando o carro desligou, para não gastar o gatilho no próprio instante do desligamento.
+     *
+     * É só um respiro curto. A tentação é usar um valor grande para "filtrar oscilação", e seria
+     * errado: num teste real o dono desligou, trancou, destrancou e religou em doze segundos. Uma
+     * partida de verdade pode ser assim de rápida, e um filtro largo engoliria justamente ela.
+     */
+    private long curtainPoweredOffAtMs = 0L;
+    private static final long CURTAIN_IGNITION_MIN_OFF_MS = 5_000L;
+    private boolean curtainCloseActedThisWindow = false;
+    // Reavaliação event-driven: em vez de pollar (CPU à toa), reagenda p/ o PRÓXIMO boundary de
+    // janela — dorme quando longe; teto de 15min só por segurança (mudança de relógio). Um
+    // listener de prefs reagenda na hora quando a config muda.
+    private static final long CURTAIN_RESCHEDULE_CAP_MS = 15 * 60_000L;
+    private android.content.SharedPreferences.OnSharedPreferenceChangeListener curtainPrefsListener;
+    private final Runnable curtainScheduleRunnable = () -> {
+        evaluateCurtainSchedule("TIMER");
+        rescheduleCurtainEvaluation();
+    };
     private boolean isFridaInitialized = false;
     private final List<Runnable> pendingTasks = new ArrayList<>();
     private static long timeBootReceived;
     private long timeStartInitialization;
     private long timeInitialized;
+    // Estado real processado do carro (power-off vs power-on). Usado pelos receivers de BT/hotspot
+    // em vez do cache de driving_ready (que fica defasado no boot e fazia o BT ser re-desligado).
+    private volatile boolean carPoweredOff = false;
+    // Estado atual do hotspot (Wi-Fi AP), alimentado pelo receiver WIFI_AP_STATE_CHANGED e
+    // semeado no init via getWifiApState(); usado pra saber se o hotspot estava ligado ao recolher/desligar.
+    private volatile boolean wifiTetherEnabled = false;
+    // No init a leitura de outside_temp ainda volta null por alguns segundos (fetchData roda logo
+    // depois do servicesInitialized). Como a temperatura é condição obrigatória p/ abrir a cortina,
+    // sem retry ela simplesmente nunca abriria. 6 tentativas x 5s = 30s cobre o boot deste OEM.
+    private static final long CURTAIN_TEMP_RETRY_MS = 5000L;
+    private static final int CURTAIN_TEMP_MAX_ATTEMPTS = 6;
+    // Comandar a cortina aos ~25-45s do boot não funciona: o módulo do teto ainda não executa o
+    // comando (visto em 20/08 20:10 e 21/08 06:28 — set_100 com levelBefore=0 e a cortina fechada).
+    // Espera driving_ready + settle antes de mandar. Tudo é event-driven/timer: nenhum polling,
+    // nada roda durante a janela de boot.
+    private static final long CURTAIN_SETTLE_AFTER_READY_MS = 20000L;
+    // Cobre o caso "app subiu com o carro já ligado": a transição de driving_ready não vem mais,
+    // então uma única leitura ao vivo (bem depois do boot) resolve. O cache não serve: é defasado.
+    private static final long CURTAIN_READY_CHECK_DELAY_MS = 30000L;
+    // Rede de segurança: se nem evento nem leitura confirmarem, tenta assim mesmo.
+    private static final long CURTAIN_ARM_FALLBACK_MS = 120000L;
+    private static final long RADIO_RESTORE_RETRY_MS = 4000L;
+    // 8 tentativas x 4s ≈ 28s: o tether (hotspot) pode demorar a subir no boot deste OEM.
+    // O loop para assim que o rádio liga, então tentativas extras são de graça p/ o BT (rápido).
+    private static final int RADIO_RESTORE_MAX_ATTEMPTS = 8;
+    private static final long STARTUP_REPORT_RECONCILE_DELAY_MS = 6000L;
     private CarInfo carInfo;
-    private IIntelligentVehicleControlService controlService;
+    private volatile IIntelligentVehicleControlService controlService;
+    // ===== Canal de controle resiliente =====
+    // Sem isto, se o processo de controle do carro morre (reinicio do app OEM / OOM do
+    // system_server), o app simplesmente PARA de falar com o carro - nada reconecta. Isto adiciona:
+    // linkToDeath -> reconexao automatica; watchdog de 10s que faz ping e recupera se morto; e
+    // recuperacao via re-registro de listener/chaves. PURAMENTE ADITIVO: o caminho normal de init
+    // nao muda. Flag pra reversao de 1 linha.
+    private static final boolean CONTROL_CHANNEL_RESILIENCE_ENABLED = true;
+    private static final long CONTROL_CHANNEL_WATCHDOG_MS = 10000L;
+    private volatile boolean recoveringControlChannel = false;
+    private final ControlChannelRecoveryGate controlChannelRecoveryGate = new ControlChannelRecoveryGate();
+    private volatile int controlChannelRecoveryCount = 0;
+    private volatile IBinder.DeathRecipient controlDeathRecipient;
+    private volatile IBinder controlDeathBinder;
+    private volatile Runnable controlChannelWatchdogRunnable;
     private IVehicle vehicle;
     private IDvr dvr;
     private boolean delayNextAVM = false;
@@ -197,15 +411,236 @@ public class ServiceManager {
     private boolean isClusterHeartbeatRunning = false;
     private int clusterHeartBeatCount = 0;
     private int clusterCardView = 0;
+    // False until the car's first msgId=133 is accepted. Until then clusterCardView is still its
+    // initial 0, which means "we have not synced", not "the map is showing" — the sync policy
+    // needs to tell those apart or it swallows the car's opening report.
+    private volatile boolean hasSyncedNativeClusterCard = false;
+    private long lastClusterInputAtMs = 0L;
+    private int lastClusterInputKeyCode = -1;
+    private String lastClusterInputKeyName = "";
+    private static final long CLUSTER_INPUT_DEDUP_WINDOW_MS = 220L;
+    private int lastHandledClusterInputKeyCode = -1;
+    private long lastHandledClusterInputAtMs = 0L;
+    // Cluster callback liveness. The car's ClusterService keeps callbacks registered by
+    // previous instances of this process; when it hits a dead one it throws
+    // DeadObjectException while dispatching (seen in its own logs), after which card
+    // reports can stop arriving even though the cluster still navigates normally. There
+    // is no signal for this on our side other than the reports going quiet, so we detect
+    // staleness and re-register.
+    private volatile long lastClusterCardReportAtMs = 0L;
+    private long lastClusterCallbackRefreshAtMs = 0L;
+    // Measured on-car: re-registering restores delivery within ~35ms, every time, and
+    // the callback itself is not slow (fan-out timing showed no overruns). The
+    // registration simply stops being dispatched to after a while; the cause is not yet
+    // understood. Recover reactively and rarely — a proactive re-register loop was tried
+    // and only added churn without fixing the navigation defect it was mistaken for.
+    private static final long CLUSTER_CALLBACK_STALE_MS = 8000L;
+    private static final long CLUSTER_CALLBACK_REFRESH_COOLDOWN_MS = 15000L;
+    private static final long STEERING_WHEEL_PROJECTION_TOGGLE_DEDUP_WINDOW_MS = 800L;
+    private static final long STEERING_WHEEL_DASHBOARD_TOGGLE_DEDUP_WINDOW_MS = 800L;
+    private static final long STEERING_WHEEL_CLIMATE_COMMAND_DEDUP_WINDOW_MS = 800L;
+    // ===== Modo Concessionária: sequência de saída pelo volante =====
+    // Com o modo ativo o ícone do launcher some, então esta é a ÚNICA porta de volta pela tela do
+    // carro: 3 toques CURTOS no botão 1, com até 8s entre eles. Roda MESMO com
+    // ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS desligado (que é justamente o estado do modo). Fora do
+    // modo é inerte — não interfere no uso normal do botão.
+    // ===== Saída do Modo Concessionária pelas SETAS: esquerda, direita, esquerda, direita =====
+    // Escolhido no lugar do volante porque não depende de NADA que o modo desliga: as setas são
+    // do carro, sempre funcionam, e não deixam vestígio de app instalado. A contagem avança na
+    // TROCA de lado, não por tempo — então tanto faz dar um toque ou travar a alavanca, e a seta
+    // piscando não conta várias vezes.
+    private static final String[] STEALTH_EXIT_TURN_SEQUENCE = {"L", "R", "L", "R"};
+    private static final long STEALTH_EXIT_TURN_WINDOW_MS = 20000L; // folga entre um lado e outro
+    private int stealthExitTurnIndex = 0;
+    private String stealthExitLastTurnSide = null;
+    private long stealthExitLastTurnAtMs = 0L;
+
+    private static final int STEALTH_EXIT_BUTTON_1_KEY = 517;      // botão 1, toque curto
+    private static final int STEALTH_EXIT_PRESSES = 3;
+    private static final long STEALTH_EXIT_WINDOW_MS = 8000L;      // janela máxima ENTRE toques
+    // O input service deste head unit reporta o toque como evento de RELEASE (ver
+    // ClusterCardNavigationPolicy.shouldHandleInputAction). Não filtramos por action — se o
+    // firmware mandar DOWN+UP, este debounce colapsa o par em um toque só. Ele também é a defesa
+    // contra auto-repeat: repetição de firmware chega bem mais rápido que 300ms.
+    private static final long STEALTH_EXIT_DEBOUNCE_MS = 300L;
+    private int stealthExitPressCount = 0;
+    private long stealthExitLastPressAtMs = 0L;
+    private int lastDashboardToggleButton = -1;
+    private long lastDashboardToggleAtMs = 0L;
+    private static final int[] INPUT_LISTENER_KEY_CODES = new int[] {
+            -1
+    };
+    private int lastProjectionDisplayToggleButton = -1;
+    private long lastProjectionDisplayToggleAtMs = 0L;
+    private int lastClimateCommandButton = -1;
+    private long lastClimateCommandAtMs = 0L;
     private final Map<String, String> previousAcState = new HashMap<>();
     private boolean isMaxAcActive = false;
     private Runnable maxAcTimeoutRunnable;
+
+    /**
+     * Dispatch a ServiceManager event without holding the caller's thread.
+     *
+     * Used from the cluster service's binder callback: the listener fan-out is
+     * synchronous and can touch the projector/WebView, so running it inline would keep
+     * com.autolink.clusterservice blocked on us for the duration.
+     */
+    private void dispatchClusterEventOffBinderThread(ServiceManagerEventType event, Object... args) {
+        Handler handler = backgroundHandler;
+        if (handler == null) {
+            dispatchServiceManagerEvent(event, args);
+            return;
+        }
+        handler.post(() -> {
+            long startedAt = SystemClock.uptimeMillis();
+            dispatchServiceManagerEvent(event, args);
+            long elapsedMs = SystemClock.uptimeMillis() - startedAt;
+            if (elapsedMs > 50L) {
+                Log.w(TAG, "Cluster event fan-out slow: " + event + " took " + elapsedMs + "ms");
+            }
+        });
+    }
+
+    /**
+     * Re-register the cluster callback when the car has stopped reporting card changes.
+     *
+     * Called on cluster wheel input: if the user is navigating but no msgId=133 has
+     * arrived recently, our registration is very likely no longer being dispatched to,
+     * and re-registering is the only way to recover short of a head-unit reboot.
+     * Rate-limited so normal use (where reports do arrive) never triggers it.
+     */
+    private void refreshClusterCallbackIfStale() {
+        long now = SystemClock.uptimeMillis();
+        if (lastClusterCardReportAtMs != 0L
+                && now - lastClusterCardReportAtMs < CLUSTER_CALLBACK_STALE_MS) {
+            return;
+        }
+        if (lastClusterCallbackRefreshAtMs != 0L
+                && now - lastClusterCallbackRefreshAtMs < CLUSTER_CALLBACK_REFRESH_COOLDOWN_MS) {
+            return;
+        }
+        final IClusterService service = clusterService;
+        final IClusterCallback.Stub callback = clusterCallback;
+        if (service == null || callback == null) return;
+        lastClusterCallbackRefreshAtMs = now;
+        final long staleMs = lastClusterCardReportAtMs == 0L ? -1L : now - lastClusterCardReportAtMs;
+        backgroundHandler.post(() -> {
+            try {
+                service.unregisterCallback(callback);
+            } catch (Exception ignored) {
+                // Already gone on the car side; re-registering below is what matters.
+            }
+            try {
+                service.registerCallback(callback);
+                Log.w(TAG, "Re-registered cluster callback after stale reporting (staleMs=" + staleMs + ")");
+                logPersistentClusterEvent(
+                        "cluster_callback_refreshed",
+                        "staleMs=" + staleMs + " card=" + clusterCardView
+                );
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to re-register cluster callback", e);
+            }
+        });
+    }
+
+    /**
+     * Drop our cluster callback registration on shutdown. Without this the car's
+     * ClusterService keeps a reference to this process's callback after we die, and
+     * dispatching to it throws DeadObjectException on the car side.
+     */
+    /**
+     * Drop our key-event listener on shutdown, for the same reason as the cluster
+     * callback: the input service keeps its binder reference after we die, so the next
+     * process adds a second listener rather than replacing the first.
+     */
+    public void releaseInputListener() {
+        final IInputService service = inputService;
+        final IInputListener listener = inputListener;
+        if (service == null || listener == null) return;
+        try {
+            service.unregisterKeyEventListener(INPUT_LISTENER_KEY_CODES, listener);
+            Log.w(TAG, "Input listener unregistered on shutdown");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to unregister input listener on shutdown", e);
+        }
+    }
+
+    public void releaseClusterCallback() {
+        final IClusterService service = clusterService;
+        final IClusterCallback.Stub callback = clusterCallback;
+        if (service == null || callback == null) return;
+        try {
+            service.unregisterCallback(callback);
+            Log.w(TAG, "Cluster callback unregistered on shutdown");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to unregister cluster callback on shutdown", e);
+        }
+    }
+
+    private void logPersistentClusterEvent(String event, String detail) {
+        ClusterPersistentEventLogger.logText(event, detail);
+    }
+
+    private void logPersistentClusterEvent(String event, Map<String, ?> details) {
+        ClusterPersistentEventLogger.log(event, details);
+    }
+
+    private Map<String, Object> persistentEventDetails(Object... values) {
+        Map<String, Object> details = new HashMap<>();
+        for (int i = 0; i + 1 < values.length; i += 2) {
+            Object key = values[i];
+            if (key != null) {
+                details.put(String.valueOf(key), values[i + 1]);
+            }
+        }
+        return details;
+    }
+
+    // Counter-pulse for `bean.pui.scene_notify`:
+    // the native Its_IntelligentVehicleControlService raises this signal to value 8
+    // (SCENE_BACKCAMERA) when AVM/backup camera activates, which makes the CarPlay
+    // host's VideoModel suspend the cluster decoder (priority 7 wins over CarPlay's
+    // priority 1) and the cluster goes black even though the camera itself never
+    // physically occupies display 3. The camera is shown on display 0 by a separate
+    // channel (sys.avm.preview_status), so re-asserting scene_notify=0 keeps the
+    // cluster's CarPlay video alive without affecting the camera feed on display 0.
+    // We only counter-pulse while CarPlay is alive on cluster 3 and only react to
+    // signals that didn't originate from our own write.
+    private static final String BEAN_PUI_SCENE_BACKCAMERA = "8";
+    private static final String BEAN_PUI_SCENE_NEUTRAL = "0";
+    private static final long SCENE_NOTIFY_COUNTER_PULSE_DELAY_MS = 70;
+    private volatile boolean isSelfWritingSceneNotify = false;
+
+    private static final String HVAC_PACKAGE_NAME = HvacPanelSuppressor.HVAC_PACKAGE;
+    private static final long HVAC_RESUME_DELAY_MS = 300;
+    private boolean isHvacSuspended = false;
+    private Runnable resumeHvacRunnable;
+    private final Set<String> hvacKeysToSuspend = new HashSet<>(Arrays.asList(
+            CarConstants.CAR_HVAC_ANION_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_BLOWER_MODE.getValue(),
+            CarConstants.CAR_HVAC_CYCLE_MODE.getValue(),
+            CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),
+            CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
+            CarConstants.CAR_HVAC_FRONT_DEFROST_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(),
+            CarConstants.CAR_HVAC_POWER_MODE.getValue(),
+            CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_SETTING_COMFORT_CURVE.getValue(),
+            CarConstants.CAR_HVAC_AC_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_REAR_DEFROST_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_AQS_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_HEATING_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_SETTING_AUTO_DEFROST_ENABLE.getValue(),
+            CarConstants.CAR_HVAC_SETTING_LIMIT_ENABLE.getValue()
+    ));
 
 
     private ServiceManager() {
         dataChangedListeners = new ArrayList<>();
         dataCache = new HashMap<>();
         serviceManagerEventListeners = new ArrayList<>();
+        powerFlowTracker = new PowerFlowTracker();
     }
 
     public static synchronized ServiceManager getInstance() {
@@ -215,126 +650,277 @@ public class ServiceManager {
         return instance;
     }
 
-    public synchronized boolean initializeServices(Context context) {
+    public synchronized boolean initializeServicesSimulated(Context context) {
+        timeStartInitialization = SystemClock.uptimeMillis();
+        Log.w(TAG, "Initializing services (Simulator Mode)");
+        sharedPreferences = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
+        handlerThread = new HandlerThread("ServiceManagerHandlerThread");
+        handlerThread.start();
+        backgroundHandler = new Handler(handlerThread.getLooper());
+
+        servicesInitialized = true;
+        timeInitialized = SystemClock.uptimeMillis();
+        AndroidAutoClusterController.INSTANCE.start();
+        br.com.redesurftank.havalshisuku.services.AndroidAutoNavigationMonitor.INSTANCE.start(context);
+
+        Log.w(TAG, "Starting SimulatorGateway");
         try {
+            // Instantiate using reflection or direct call since it's in the same project but different source set
+            Object simulator = Class.forName("br.com.redesurftank.havalshisuku.simulator.SimulatorGateway")
+                    .getConstructor(ServiceManager.class)
+                    .newInstance(this);
+            simulator.getClass().getMethod("start").invoke(simulator);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start SimulatorGateway", e);
+        }
+
+        Log.w(TAG, "Services initialized successfully (Simulator Mode)");
+        new Handler(Looper.getMainLooper()).post(() -> ProjectorManager.getInstance().initialize());
+        return true;
+    }
+
+    public synchronized boolean initializeServices(Context context) {
+        if (timeBootReceived <= 0) {
+            timeBootReceived = SystemClock.uptimeMillis();
+            Log.w(TAG, "[HavalDev] timeBootReceived fallback set during initializeServices");
+        }
+
+        try {
+            stopMobileDataGuard(context);
+            stopControlChannelRuntime();
             if (controlService != null) {
                 if (controlService.asBinder().isBinderAlive()) {
                     try {
                         controlService.unRegisterDataChangedListener(context.getPackageName(), listener);
-                        controlService = null;  // Disconnect binder
                     } catch (Exception e) {
                         // ignore
                     }
                 }
             }
+            controlService = null;
             if (vehicle != null) {
-                vehicle = null;  // Disconnect binder
+                vehicle = null;
             }
             if (dvr != null) {
-                dvr = null;  // Disconnect binder
+                dvr = null;
             }
             if (vehicleModel != null) {
-                vehicleModel = null;  // Disconnect binder
+                vehicleModel = null;
             }
-            if (clusterService != null) {
-                if (clusterService.asBinder().isBinderAlive()) {
+                if (clusterService != null) {
                     try {
                         clusterService.unregisterCallback(clusterCallback);
                     } catch (Exception e) {
                         // ignore
                     }
                 }
-                if (clusterServiceConnection != null) {
-                    context.unbindService(clusterServiceConnection);
-                }
-                clusterService = null;  // Disconnect binder
+            clusterService = null;
+            if (clusterServiceConnection != null) {
+                context.unbindService(clusterServiceConnection);
             }
-            if (inputService != null) {
-                if (inputService.asBinder().isBinderAlive()) {
-                    try {
-                        inputService.unregisterKeyEventListener(new int[]{-1}, inputListener);
-                    } catch (Exception e) {
-                        // ignore
-                    }
+            // Unbinding does NOT drop the key-event listener: the input service holds its
+            // own binder reference, so every re-init used to leave the previous listener
+            // registered and add another. Observed on-car: after one re-init each press
+            // was dispatched to us twice, and the car stopped acting on exactly those
+            // doubled presses (single-dispatch presses still worked). Drop ours first.
+            if (inputService != null && inputListener != null) {
+                try {
+                    inputService.unregisterKeyEventListener(INPUT_LISTENER_KEY_CODES, inputListener);
+                    Log.w(TAG, "InputService listener unregistered");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to unregister input listener", e);
                 }
-                if (inputServiceConnection != null) {
-                    context.unbindService(inputServiceConnection);
-                }
-                inputService = null;  // Disconnect binder
             }
+            if (inputServiceConnection != null) {
+                context.unbindService(inputServiceConnection);
+            }
+            inputService = null;
             if (handlerThread != null && handlerThread.isAlive()) {
                 handlerThread.quitSafely();
-                handlerThread = null;
-                backgroundHandler = null;
             }
+            handlerThread = null;
+            backgroundHandler = null;
+            // The heartbeat runnable lived on the handler we just destroyed. Without
+            // clearing this flag startClusterHeartbeat() short-circuits forever, so the
+            // 1s msgId=134 "Android is alive" signal never resumes after a re-init.
+            isClusterHeartbeatRunning = false;
         } catch (Exception e) {
             Log.e(TAG, "Error during service cleanup", e);
         }
+
         timeStartInitialization = SystemClock.uptimeMillis();
-        Log.w(TAG, "Initializing services with Shizuku");
+        Log.w(TAG, "Initializing services");
         sharedPreferences = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
         handlerThread = new HandlerThread("ServiceManagerHandlerThread");
         handlerThread.start();
         backgroundHandler = new Handler(handlerThread.getLooper());
+
+        int shizukuRetry = 0;
+        while (!Shizuku.pingBinder() && shizukuRetry < 3) {
+            shizukuRetry++;
+            Log.w(TAG, "Shizuku not available, retrying... (" + shizukuRetry + "/3)");
+            try { Thread.sleep(500); } catch (InterruptedException e) {}
+        }
+
         if (!Shizuku.pingBinder()) {
-            Log.e(TAG, "Shizuku not available");
+            Log.e(TAG, "Shizuku not available after retries");
             return false;
         }
 
         try {
-            IBinder controlBinder = new ShizukuBinderWrapper(getSystemService("com.beantechs.intelligentvehiclecontrol"));
+            IBinder rawControlBinder = getSystemService("com.beantechs.intelligentvehiclecontrol");
+            if (rawControlBinder == null) {
+                Log.e(TAG, "IntelligentVehicleControlService binder not available");
+                return false;
+            }
+            IBinder controlBinder = new ShizukuBinderWrapper(rawControlBinder);
             if (!controlBinder.pingBinder()) {
                 Log.e(TAG, "IntelligentVehicleControlService binder not alive");
                 return false;
             }
             controlService = IIntelligentVehicleControlService.Stub.asInterface(controlBinder);
-            IBinder poolBinder = new ShizukuBinderWrapper(getSystemService("com.beantechs.voice.adapter.VoiceAdapterService"));
-            if (!poolBinder.pingBinder()) {
-                Log.e(TAG, "IBinderPool binder not alive");
-                return false;
+            registerControlDeathRecipient();
+
+            IBinder rawPoolBinder = getSystemService("com.beantechs.voice.adapter.VoiceAdapterService");
+            if (rawPoolBinder == null) {
+                Log.w(TAG, "VoiceAdapterService binder unavailable; continuing without vehicle/dvr/model binder pool");
+            } else {
+                IBinder poolBinder = new ShizukuBinderWrapper(rawPoolBinder);
+                if (!poolBinder.pingBinder()) {
+                    Log.w(TAG, "IBinderPool binder not alive; continuing without vehicle/dvr/model binder pool");
+                } else {
+                    IBinderPool pool = IBinderPool.Stub.asInterface(poolBinder);
+                    IBinder vehicleBinder = pool.queryBinder(6);
+                    if (vehicleBinder != null) {
+                        vehicle = IVehicle.Stub.asInterface(new ShizukuBinderWrapper(vehicleBinder));
+                    }
+                    IBinder dvrBinder = pool.queryBinder(8);
+                    if (dvrBinder != null) {
+                        dvr = IDvr.Stub.asInterface(new ShizukuBinderWrapper(dvrBinder));
+                    }
+                    IBinder vehicleModelBinder = pool.queryBinder(13);
+                    if (vehicleModelBinder != null) {
+                        vehicleModel = IVehicleModel.Stub.asInterface(new ShizukuBinderWrapper(vehicleModelBinder));
+                    }
+                }
             }
-            IBinderPool pool = IBinderPool.Stub.asInterface(poolBinder);
-            IBinder vehicleBinder = pool.queryBinder(6);
-            vehicle = IVehicle.Stub.asInterface(new ShizukuBinderWrapper(vehicleBinder));
-            IBinder dvrBinder = pool.queryBinder(8);
-            dvr = IDvr.Stub.asInterface(new ShizukuBinderWrapper(dvrBinder));
-            IBinder vehicleModelBinder = pool.queryBinder(13);
-            vehicleModel = IVehicleModel.Stub.asInterface(new ShizukuBinderWrapper(vehicleModelBinder));
+
             Intent clusterIntent = new Intent();
             clusterIntent.setComponent(new ComponentName("com.autolink.clusterservice", "com.autolink.clusterservice.ClusterService"));
             clusterCallback = new IClusterCallback.Stub() {
                 @Override
                 public void callbackMsg(int msgId, ClusterMsgData data) {
+                    // Only the cluster-protocol messages we care about. Logging every
+                    // msgId floods logcat: registering the callback makes the car dump
+                    // ~100 messages at once, which rotates the buffer and destroys the
+                    // window around a failure (happened twice while investigating).
+                    if (msgId == 133 || msgId == 134 || msgId == 135 || msgId == 75) {
+                        Log.w(TAG, "[CLUSTER_RX] msgId=" + msgId + " value=" + data.getIntValue());
+                    }
+                    if (DisplayAppLauncher.INSTANCE.shouldLogAndroidAutoClusterCallbackProbe(msgId)) {
+                        Log.w(
+                                TAG,
+                                "Android Auto cluster callback probe msgId="
+                                        + msgId
+                                        + " intValue="
+                                        + data.getIntValue()
+                        );
+                    }
                     if (msgId == 133) {
                         int whichCard = data.getIntValue();
-                        clusterCardView = whichCard;
-                        dispatchServiceManagerEvent(ServiceManagerEventType.CLUSTER_CARD_CHANGED, clusterCardView);
-                        if (whichCard == 1) {
-                            MainUiManager.getInstance().updateScreen();
+                        int previousCard = clusterCardView;
+                        long now = SystemClock.uptimeMillis();
+                        // Liveness marker for the cluster callback: the car reached us.
+                        // Used to detect a silently-dropped registration (see
+                        // refreshClusterCallbackIfStale).
+                        lastClusterCardReportAtMs = now;
+                        long sinceInputMs =
+                                lastClusterInputAtMs == 0L
+                                        ? -1L
+                                        : now - lastClusterInputAtMs;
+                        // The car owns the active card, so the only report worth skipping is one
+                        // restating the card we already hold — and even that must go through once,
+                        // so a theme whose static initial cardId is not 0 gets corrected on boot.
+                        //
+                        // Nothing else is filtered. The previous ClusterCardSyncPolicy also rejected
+                        // "spontaneous" rises to the menu/aircon card, on the theory that the OEM
+                        // raised them by itself on passive climate activity. Three days of on-car
+                        // logs did not contain a single such event: every rise it suppressed was the
+                        // car truthfully answering "which card am I on?" seconds after our callback
+                        // registered, which is exactly when previousCard is still its initial 0.
+                        if (whichCard == previousCard && hasSyncedNativeClusterCard) {
+                            return;
                         }
-                        Log.w(TAG, "Cluster card changed: " + whichCard);
+                        clusterCardView = whichCard;
+                        hasSyncedNativeClusterCard = true;
+                        // Fan-out runs off the car's binder thread. dispatchServiceManagerEvent
+                        // notifies every listener synchronously, and this callback is invoked by
+                        // com.autolink.clusterservice — holding its thread risks it treating the
+                        // callback as unresponsive and dropping it (the symptom being card
+                        // reports going silent until we re-register).
+                        dispatchClusterEventOffBinderThread(
+                                ServiceManagerEventType.CLUSTER_CARD_CHANGED,
+                                clusterCardView
+                        );
+                        Log.w(
+                                TAG,
+                                "Cluster card changed: "
+                                        + previousCard
+                                        + " -> "
+                                        + whichCard
+                                        + " lastInputKey="
+                                        + lastClusterInputKeyName
+                                        + "("
+                                        + lastClusterInputKeyCode
+                                        + ") sinceInputMs="
+                                        + sinceInputMs
+                        );
+                        logPersistentClusterEvent(
+                                "native_cluster_card_changed",
+                                "from=" + previousCard
+                                        + " to=" + whichCard
+                                        + " lastInputKey=" + lastClusterInputKeyName
+                                        + "(" + lastClusterInputKeyCode + ")"
+                                        + " sinceInputMs=" + sinceInputMs
+                        );
                     } else if (msgId == 134) {
                         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
-                            int intValue = data.getIntValue();
-                            if (intValue == 2) {
-                                Log.w(TAG, "Cluster heartbeat reset requested");
-                                sendHeartBeatToCluster();
-                                startClusterHeartbeat();
+                            if (data.getIntValue() == 2) {
+                                // sendHeartBeatToCluster() calls back into the cluster service
+                                // via binder. Doing that from inside its own callback keeps its
+                                // thread blocked on us; run it off-thread.
+                                Handler heartbeatHandler = backgroundHandler;
+                                if (heartbeatHandler != null) {
+                                    heartbeatHandler.post(() -> {
+                                        sendHeartBeatToCluster();
+                                        startClusterHeartbeat();
+                                    });
+                                } else {
+                                    sendHeartBeatToCluster();
+                                    startClusterHeartbeat();
+                                }
                             }
                         }
                     } else if (msgId == 135) {
+                        int val = data.getIntValue();
+                        Log.w(TAG, "Cluster media command msgId=135 value=" + val);
+                        logPersistentClusterEvent(
+                                "cluster_media_command",
+                                "msgId=135 value=" + val
+                        );
+                        // Answer the car FIRST, exactly as v6 does. Captured v6 trace shows a
+                        // setMsg(135, val) reply within 1-9ms of every card change; v7 returned
+                        // early whenever Android Auto was considered active and never replied.
+                        // The reply is the car-facing protocol obligation, so it must not be
+                        // conditional on Android Auto state.
                         if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
-                            int intValue = data.getIntValue();
-                            if (intValue == 1) {
-                                Log.w(TAG, "Cluster ready to show");
-                                sendClusterIntMsg(135, 1);
-                            } else if (intValue == 2) {
-                                Log.w(TAG, "Cluster ready to hide");
-                                sendClusterIntMsg(135, 2);
-                            } else if (intValue == 3 || intValue == 4) {
-                                boolean show = (intValue == 3);
-                                Log.w(TAG, "Cluster show or hide card: " + show);
-                            }
+                            if (val == 1) sendClusterIntMsg(135, 1);
+                            else if (val == 2) sendClusterIntMsg(135, 2);
+                        }
+                        // Android Auto media handling is a separate concern layered on top, and
+                        // must not suppress the reply above.
+                        if (DisplayAppLauncher.INSTANCE.handleAndroidAutoClusterMediaCommand(val)) {
+                            Log.w(TAG, "Android Auto handled cluster media command msgId=135 value=" + val);
                         }
                     }
                 }
@@ -343,60 +929,185 @@ public class ServiceManager {
                 @Override
                 public void onServiceConnected(ComponentName name, IBinder service) {
                     clusterService = IClusterService.Stub.asInterface(service);
-                    try {
-                        clusterService.registerCallback(clusterCallback);
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error registering cluster callback", e);
-                    }
+                    try { clusterService.registerCallback(clusterCallback); } catch (Exception e) {}
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
                         startClusterHeartbeat();
                     }
-                    Log.w(TAG, "ClusterService connected successfully");
                 }
-
-                @Override
-                public void onServiceDisconnected(ComponentName name) {
-                    clusterService = null;
-                    Log.w(TAG, "ClusterService disconnected");
-                }
+                @Override public void onServiceDisconnected(ComponentName name) { clusterService = null; }
             };
-
-
-            // Initialize MainUiManager and respective menu management controls
-            MainUiManager.getInstance();
-
             context.bindService(clusterIntent, clusterServiceConnection, Context.BIND_AUTO_CREATE);
+
             Intent inputIntent = new Intent("com.beantechs.inputservice.service_init");
             inputIntent.setPackage("com.beantechs.inputservice");
             inputListener = new IInputListener.Stub() {
                 @Override
                 public void dispatchKeyEvent(KeyEvent keyEvent) {
-                    if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
-                        Log.w(TAG, "Key event received: " + keyEvent);
+                    final long dispatchStartedAt = SystemClock.uptimeMillis();
+                    final int dispatchKeyCode = keyEvent.getKeyCode();
+                    // PRIMEIRA coisa do dispatch, antes de qualquer handler que possa dar return:
+                    // é a única porta de volta do Modo Concessionária e não pode depender de
+                    // nenhuma preferência nem de nenhum outro caminho ter deixado passar.
+                    try {
+                        handleStealthExitSequence(keyEvent);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error in stealth exit sequence detection", e);
+                    }
+                    try {
+                    Log.w(
+                            TAG,
+                            "InputService dispatch key="
+                                    + keyEvent.getKeyCode()
+                                    + "("
+                                    + KeyEvent.keyCodeToString(keyEvent.getKeyCode())
+                                    + ") action="
+                                    + keyEvent.getAction()
+                    );
+                    if (DisplayAppLauncher.INSTANCE.shouldLogAndroidAutoMediaInputProbe(keyEvent.getKeyCode())) {
+                        Log.w(
+                                TAG,
+                                "Android Auto media input probe key="
+                                        + keyEvent.getKeyCode()
+                                        + " action="
+                                        + keyEvent.getAction()
+                        );
+                    }
+                    if (DisplayAppLauncher.INSTANCE.handleAndroidAutoSteeringMediaKey(keyEvent.getKeyCode(), keyEvent.getAction())) {
+                        Log.w(TAG, "Android Auto handled steering media key: " + keyEvent.getKeyCode());
+                        return;
+                    }
+                    // As ações CUSTOM do volante ficam suspensas no Modo Concessionária: senão os
+                    // 3 toques curtos da sequência de saída disparariam a ação de toque curto
+                    // configurada pelo usuário (e a de toque DUPLO, que a janela de 350ms detecta no
+                    // meio da sequência). A pref já está desligada no modo, então isto é rede de
+                    // segurança. A detecção da sequência já rodou lá em cima, antes de tudo.
+                    if (!StealthModeManager.isActive()
+                            && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
                         switch (keyEvent.getKeyCode()) {
-                            case 517://button 1
-                                handleSteeringWheelCustomButton(sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.name()), 1);
-                                break;
-                            case 1031://button 2
-                                handleSteeringWheelCustomButton(sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.name()), 2);
-                                break;
+                            case 517: onSteeringCustomShortPress(1); break;   // botao 1 curto
+                            case 1031: onSteeringCustomShortPress(2); break;  // botao 2 curto
+                            case 518: onSteeringCustomLongPress(1); break;    // botao 1 longo
+                            case 1032: onSteeringCustomLongPress(2); break;   // botao 2 longo
                         }
                     }
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_MENU.getKey(), false)) {
-                        if (clusterCardView == 1) {
-                            Screen.Key key = null;
-                            switch (keyEvent.getKeyCode()) {
-                                case 1024: key = Screen.Key.UP; break;
-                                case 1025: key = Screen.Key.DOWN; break;
-                                case 1028: key = Screen.Key.ENTER; break;
-                                case 1029: key = Screen.Key.HOME; break;
-                                case 1030: key = Screen.Key.BACK; break;
-                                case 1033: key = Screen.Key.UP_LONG; break;
-                                case 1034: key = Screen.Key.DOWN_LONG; break;
-                                case 1037: key = Screen.Key.ENTER_LONG; break;
-                                case 1039: key = Screen.Key.BACK_LONG; break;
+                        ClusterKey key = null;
+                        switch (keyEvent.getKeyCode()) {
+                            case 1024:
+                                key = ClusterKey.UP;
+                                break;
+                            case 1025:
+                                key = ClusterKey.DOWN;
+                                break;
+                            case 1026:
+                                key = ClusterKey.LEFT;
+                                break;
+                            case 1027:
+                                key = ClusterKey.RIGHT;
+                                break;
+                            case 1028:
+                                key = ClusterKey.ENTER;
+                                break;
+                            case 1029:
+                                key = ClusterKey.HOME;
+                                break;
+                            case 1030:
+                                key = ClusterKey.BACK;
+                                break;
+                            case 1033:
+                                key = ClusterKey.UP_LONG;
+                                break;
+                            case 1034:
+                                key = ClusterKey.DOWN_LONG;
+                                break;
+                            case 1037:
+                                key = ClusterKey.ENTER_LONG;
+                                break;
+                            case 1039:
+                                key = ClusterKey.BACK_LONG;
+                                break;
+                        }
+                        if (key != null) {
+                            int inputCardBeforeHandling = clusterCardView;
+                            lastClusterInputAtMs = SystemClock.uptimeMillis();
+                            lastClusterInputKeyCode = keyEvent.getKeyCode();
+                            lastClusterInputKeyName = key.name();
+                            Log.w(
+                                    TAG,
+                                    "Cluster input key: "
+                                            + lastClusterInputKeyName
+                                            + "("
+                                            + lastClusterInputKeyCode
+                                            + ") action="
+                                            + keyEvent.getAction()
+                            );
+                            logPersistentClusterEvent(
+                                    "cluster_input_key",
+                                    "key=" + lastClusterInputKeyName
+                                            + "(" + lastClusterInputKeyCode + ")"
+                                            + " action=" + keyEvent.getAction()
+                                            + " currentCard=" + inputCardBeforeHandling
+                            );
+                            dispatchServiceManagerEvent(
+                                    ServiceManagerEventType.CLUSTER_INPUT_KEY,
+                                    lastClusterInputKeyName,
+                                    lastClusterInputKeyCode,
+                                    keyEvent.getAction()
+                            );
+                            long now = SystemClock.uptimeMillis();
+                            boolean duplicateClusterInput =
+                                    lastHandledClusterInputKeyCode == keyEvent.getKeyCode()
+                                            && now - lastHandledClusterInputAtMs <= CLUSTER_INPUT_DEDUP_WINDOW_MS;
+                            boolean isPhysicalClusterAction =
+                                    ClusterCardNavigationPolicy.shouldHandleInputAction(
+                                            keyEvent.getAction()
+                                    );
+                            if (!duplicateClusterInput && isPhysicalClusterAction) {
+                                lastHandledClusterInputKeyCode = keyEvent.getKeyCode();
+                                lastHandledClusterInputAtMs = now;
+                                // refreshClusterCallbackIfStale(); // Disabled: unregistering/re-registering callback drops native 133 events
+                                {
+                                    // LEFT/RIGHT are NOT predicted here. The wheel drives the car
+                                    // directly; we learn the resulting card only from msgId=133.
+                                    if (key == ClusterKey.BACK) {
+                                        dispatchServiceManagerEvent(ServiceManagerEventType.DISMISS_WARNING);
+                                    }
+                                    if (isLegacySportThemeActive()) {
+                                        MainUiManager.getInstance().handleGeneralKeyEvents(
+                                                Screen.Key.valueOf(key.name())
+                                        );
+                                    } else {
+                                        dispatchServiceManagerEvent(ServiceManagerEventType.RAW_KEY_EVENT, key);
+                                    }
+                                }
+                            } else if (duplicateClusterInput) {
+                                Log.w(
+                                        TAG,
+                                        "Cluster input duplicate ignored: "
+                                                + lastClusterInputKeyName
+                                                + "("
+                                                + lastClusterInputKeyCode
+                                                + ") action="
+                                                + keyEvent.getAction()
+                                );
+                                logPersistentClusterEvent(
+                                        "cluster_input_duplicate_ignored",
+                                        "key=" + lastClusterInputKeyName
+                                                + "(" + lastClusterInputKeyCode + ")"
+                                                + " action=" + keyEvent.getAction()
+                                                + " currentCard=" + inputCardBeforeHandling
+                                );
                             }
-                            if (key != null) MainUiManager.getInstance().handleGeneralKeyEvents(key);
+                        }
+                    }
+                    } finally {
+                        long heldMs = SystemClock.uptimeMillis() - dispatchStartedAt;
+                        if (heldMs > 15L) {
+                            Log.e(
+                                    TAG,
+                                    "[INPUT_HOLD] held inputservice thread " + heldMs
+                                            + "ms for key=" + dispatchKeyCode
+                            );
                         }
                     }
                 }
@@ -404,150 +1115,236 @@ public class ServiceManager {
             inputServiceConnection = new ServiceConnection() {
                 @Override
                 public void onServiceConnected(ComponentName name, IBinder service) {
-                    Log.w(TAG, "InputService connected");
                     inputService = IInputService.Stub.asInterface(service);
-                    try {
-                        inputService.registerKeyEventListener(new int[]{-1}, inputListener);
-                        Log.w(TAG, "InputService connected and listener registered successfully");
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error registering key event listener", e);
-                    }
-                }
-
-                @Override
-                public void onServiceDisconnected(ComponentName name) {
-                    inputService = null;
-                    Log.w(TAG, "InputService disconnected");
-                }
+                    final IInputService connectedInputService = inputService;
+                    new Thread(
+                                    () -> {
+                                        try {
+                                            connectedInputService.registerKeyEventListener(
+                                                    INPUT_LISTENER_KEY_CODES,
+                                                    inputListener
+                                            );
+                                            Log.w(
+                                                    TAG,
+                                                    "InputService listener registered keyCodes="
+                                                            + Arrays.toString(INPUT_LISTENER_KEY_CODES)
+                                            );
+                                        } catch (Exception e) {
+                                            Log.e(
+                                                    TAG,
+                                                    "InputService explicit listener registration failed; trying wildcard",
+                                                    e
+                                            );
+                                            try {
+                                                connectedInputService.registerKeyEventListener(
+                                                        new int[]{-1},
+                                                        inputListener
+                                                );
+                                                Log.w(TAG, "InputService wildcard listener registered");
+                                            } catch (Exception fallbackError) {
+                                                Log.e(TAG, "InputService wildcard listener registration failed", fallbackError);
+                                            }
+                                        }
+                                    },
+                                    "InputServiceRegister"
+                            )
+                            .start();
+                        }
+                @Override public void onServiceDisconnected(ComponentName name) { inputService = null; }
             };
             context.bindService(inputIntent, inputServiceConnection, Context.BIND_AUTO_CREATE);
-            Log.w(TAG, "Services bound successfully");
+
             listener = new IListener.Stub() {
-                @Override
-                public void onDataChanged(String key, String value) {
-                    OnDataChanged(key, value);
-                }
+                @Override public void onDataChanged(String key, String value) { OnDataChanged(key, value); }
             };
-            ShizukuUtils.runCommandAndGetOutput(new String[]{
-                    "settings", "put", "secure", "enabled_accessibility_services",
-                    "br.com.redesurftank.havalshisuku/.services.AccessibilityService"
-            });
-            ShizukuUtils.runCommandAndGetOutput(new String[]{
-                    "settings", "put", "secure", "accessibility_enabled", "1"
-            });
-            //enable write secure settings
-            ShizukuUtils.runCommandAndGetOutput(new String[]{
-                    "pm", "grant", context.getPackageName(), "android.permission.WRITE_SECURE_SETTINGS"
-            });
+            ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "enabled_accessibility_services", "br.com.redesurftank.havalshisuku/.services.AccessibilityService"});
+            ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "accessibility_enabled", "1"});
+            ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "grant", context.getPackageName(), "android.permission.WRITE_SECURE_SETTINGS"});
             controlService.registerDataChangedListener(context.getPackageName(), listener);
-            Log.w(TAG, "Listener registered successfully");
             controlService.addListenerKey(App.getContext().getPackageName(), getCombinedKeys());
-            Log.w(TAG, "Listener keys added successfully");
-            IBinder connectivityBinder = new ShizukuBinderWrapper(getSystemService(Context.CONNECTIVITY_SERVICE));
-            connectivityManager = IConnectivityManager.Stub.asInterface(connectivityBinder);
+            startControlChannelWatchdog(); // #111: canal resiliente (ping 10s + recupera se o binder morre)
+            initMobileDataGuard();         // #112: dados móveis (reaplica no boot + check do auto-bloqueio)
+
+            IBinder rawConnectivityBinder = getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (rawConnectivityBinder != null) {
+                IBinder connectivityBinder = new ShizukuBinderWrapper(rawConnectivityBinder);
+                connectivityManager = IConnectivityManager.Stub.asInterface(connectivityBinder);
+            } else {
+                Log.w(TAG, "Connectivity service binder unavailable; tethering controls will be skipped");
+            }
+
             IntentFilter bluetoothFilter = new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED);
             bluetoothFilter.addAction(BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED);
             context.registerReceiver(new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
                     if (intent.getAction() == null) return;
-                    String action = intent.getAction();
-                    if (action.equals(BluetoothAdapter.ACTION_STATE_CHANGED) || action.equals(BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED)) {
-                        var state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
+                    if (intent.getAction().equals(BluetoothAdapter.ACTION_STATE_CHANGED) || intent.getAction().equals(BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED)) {
+                        int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
+                        int connectionState = intent.getIntExtra(BluetoothAdapter.EXTRA_CONNECTION_STATE, BluetoothAdapter.ERROR);
+                        logPersistentClusterEvent(
+                                "bluetooth_broadcast_state",
+                                persistentEventDetails(
+                                        "action", intent.getAction(),
+                                        "state", state,
+                                        "connectionState", connectionState,
+                                        "carPoweredOff", carPoweredOff
+                                )
+                        );
                         if (state == BluetoothAdapter.STATE_ON) {
-                            var drivingReady = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
-                            boolean disableBluetoothWhenPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
-                            if ((drivingReady.equals("-1") || drivingReady.equals("0")) && disableBluetoothWhenPowerOff) {
-                                disableBluetooth();
+                            // Só re-desliga se o carro está REALMENTE desligado (estado já processado),
+                            // não pelo cache de driving_ready (que fica defasado no boot e matava o BT).
+                            if (carPoweredOff && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false)) {
+                                disableBluetooth("bluetooth_receiver_power_off");
                             }
                         }
                     }
                 }
             }, bluetoothFilter);
+
             IntentFilter wifiFilter = new IntentFilter("android.net.wifi.WIFI_AP_STATE_CHANGED");
             context.registerReceiver(new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
-                    if (intent.getAction() == null) return;
-                    String action = intent.getAction();
-                    if (action.equals("android.net.wifi.WIFI_AP_STATE_CHANGED")) {
-                        int state = intent.getIntExtra("wifi_state", 0);
-                        if (state == 13) { // WIFI_AP_STATE_ENABLED
-                            Log.w(TAG, "Wi-Fi Hotspot turned on");
-                            var drivingReady = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
-                            boolean disableHotspotWhenPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false);
-                            if ((drivingReady.equals("-1") || drivingReady.equals("0")) && disableHotspotWhenPowerOff) {
+                    if ("android.net.wifi.WIFI_AP_STATE_CHANGED".equals(intent.getAction())) {
+                        int apState = intent.getIntExtra("wifi_state", 0);
+                        // 13 = WIFI_AP_STATE_ENABLED, 11 = WIFI_AP_STATE_DISABLED
+                        if (apState == 13) {
+                            wifiTetherEnabled = true;
+                            if (carPoweredOff && sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false)) {
                                 disableWifiTether();
                             }
+                        } else if (apState == 11) {
+                            wifiTetherEnabled = false;
                         }
                     }
                 }
             }, wifiFilter);
+
+            // Snapshot on request. External consumers (the H6 3D viewer) start
+            // long after this service and would otherwise see nothing until a
+            // value happens to change — a car parked with its lights on looks
+            // identical to one with them off. dispatchAllData() re-broadcasts
+            // current values through dispatchTelemetryOnly, so this only reads
+            // and publishes; it never actuates hardware.
+            IntentFilter snapshotFilter = new IntentFilter(ACTION_REQUEST_SNAPSHOT);
+            context.registerReceiver(new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (!ACTION_REQUEST_SNAPSHOT.equals(intent.getAction())) return;
+                    Log.w(TAG, "Telemetry snapshot requested by " + intent.getStringExtra("requester"));
+                    // backgroundHandler is nulled on teardown while this receiver
+                    // may still be registered.
+                    Handler handler = backgroundHandler;
+                    if (handler == null) return;
+                    handler.post(() -> dispatchAllData());
+                }
+            }, snapshotFilter);
+
             dispatchAllData();
             if (sharedPreferences.getBoolean(SharedPreferencesKeys.SET_STARTUP_VOLUME.getKey(), false)) {
-                int startupVolume = sharedPreferences.getInt(SharedPreferencesKeys.STARTUP_VOLUME.getKey(), -1);
-                if (startupVolume != -1) {
-                    controlService.request("cmd.common.request.set", CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(), String.valueOf(startupVolume));
-                    Log.w(TAG, "Startup volume set to: " + startupVolume);
-                }
+                int vol = sharedPreferences.getInt(SharedPreferencesKeys.STARTUP_VOLUME.getKey(), -1);
+                if (vol != -1) controlService.request("cmd.common.request.set", CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(), String.valueOf(vol));
             }
-            boolean isForceDisableMonitoring = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_MONITORING.getKey(), false);
-            if (isForceDisableMonitoring) {
-                setMonitoringEnabled(false);
-                Log.w(TAG, "Distraction detection monitoring disabled by user preference");
-            }
-            boolean isForceDisableAVAS = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_AVAS.getKey(), false);
-            if (isForceDisableAVAS) {
-                setAvasEnabled(false);
-                Log.w(TAG, "AVAS disabled by user preference");
-            }
-            if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_AUTO_BRIGHTNESS.getKey(), false)) {
-                AutoBrightnessManager.Companion.getInstance().setEnabled(true);
-            }
-            if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_FRIDA_HOOKS.getKey(), false)) {
-                pendingTasks.add(this::initializeFrida);
-            }
-            if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false) && getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue()).equals("1")) {
-                updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
-            }
-
+            if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_MONITORING.getKey(), false)) setMonitoringEnabled(false);
+            if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_AVAS.getKey(), false)) setAvasEnabled(false);
+            if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_AUTO_BRIGHTNESS.getKey(), false)) AutoBrightnessManager.Companion.getInstance().setEnabled(true);
+            if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_FRIDA_HOOKS.getKey(), false)) pendingTasks.add(this::initializeFrida);
             ensureSteeringWheelButtonIntegration();
             ensureSystemApps();
-
-            servicesInitialized = true;
-            synchronized (pendingTasks) {
-                for (Runnable task : pendingTasks) {
-                    backgroundHandler.post(task);
-                }
-                pendingTasks.clear();
-            }
-
-            MainUiManager.getInstance().updateScreen();
-
-            timeInitialized = SystemClock.uptimeMillis();
-            Log.w(TAG, "Services initialized successfully");
-            ProjectorManager.getInstance().initialize();
-            return true;
+            ensureDebloatedSystemApps();
+            TripConsistencyManager.Companion.getInstance().initialize();
         } catch (RemoteException e) {
             Log.e(TAG, "Error during initialization", e);
             return false;
         }
+
+        servicesInitialized = true;
+        AndroidAutoClusterController.INSTANCE.start();
+        br.com.redesurftank.havalshisuku.services.AndroidAutoNavigationMonitor.INSTANCE.start(context);
+        synchronized (pendingTasks) {
+            for (Runnable task : pendingTasks) backgroundHandler.post(task);
+            pendingTasks.clear();
+        }
+
+        timeInitialized = SystemClock.uptimeMillis();
+        // Semeia o estado atual do hotspot (o receiver WIFI_AP só dispara em MUDANÇA; se já estava
+        // ligado antes do serviço subir, a flag ficaria falsa).
+        wifiTetherEnabled = currentWifiTetherState();
+        Log.w(TAG, "Services initialized successfully");
+        boolean curtainOnStartEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
+        traceCurtain("sunroof_curtain_init", "enabled", curtainOnStartEnabled, "hasRun", hasRunStartupCurtainAutomation);
+        if (!hasRunStartupCurtainAutomation && !curtainAutomationArmed.get()) {
+            // O listener cobre habilitar/mudar a config depois, sem polling.
+            registerCurtainPrefsListener();
+            // A primeira avaliação da agenda NÃO roda no boot: comandar o teto aos ~25-45s não pega
+            // (ver CURTAIN_SETTLE_AFTER_READY_MS). Arma e deixa driving_ready (ou leitura tardia /
+            // fallback) disparar; daí em diante a própria agenda se reagenda p/ o próximo boundary.
+            boolean curtainCloseOnTimeEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CLOSE_SUNROOF_CURTAIN_ON_TIME.getKey(), false);
+            if (curtainOnStartEnabled || curtainCloseOnTimeEnabled) {
+                armStartupCurtainAutomation();
+            }
+        }
+        scheduleStartupReportReconciliations();
+        // HEV Prioritário: no boot o carro costuma resetar o % (ex.: 45->80) e o app pode subir
+        // depois do evento -> reaplica o valor salvo no init e depois monitora continuamente.
+        backgroundHandler.postDelayed(() -> applyHevSocTargetIfActive("INIT+8s"), 8000);
+        backgroundHandler.postDelayed(() -> applyHevSocTargetIfActive("INIT+18s"), 18000);
+        startHevSocMonitor();
+        backgroundHandler.post(() -> {
+            try {
+                ShizukuUtils.runCommandAndGetOutput(new String[]{"sh", "-c", "settings put global enable_freeform_support 1"});
+                ShizukuUtils.runCommandAndGetOutput(new String[]{"sh", "-c", "settings put global force_resizable_activities 1"});
+            } catch (Exception e) {}
+        });
+        new Handler(Looper.getMainLooper()).post(() -> ProjectorManager.getInstance().initialize());
+        return true;
     }
 
     public void ensureSteeringWheelButtonIntegration() {
-        if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
-            var button1Action = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.getKey());
-            var button2Action = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION.getKey(), SteeringWheelCustomActionType.DEFAULT.getKey());
-            Log.w(TAG, "Ensuring steering wheel button integration. Button 1 action: " + button1Action + ", Button 2 action: " + button2Action);
-            if (button1Action.equals(SteeringWheelCustomActionType.DEFAULT.getKey())) {
-                disableNativeSteeringWheelButton1();
-            } else {
-                enableSteeringWheelButton1Integration();
+        // Modo Concessionária: as preferências do usuário estão desligadas (inclusive a dos botões
+        // custom), então o caminho normal aqui embaixo devolveria os botões à função NATIVA do head
+        // unit — e os toques nunca mais chegariam ao dispatchKeyEvent. Como este método roda a cada
+        // boot (initialize()), sem esta guarda o primeiro ciclo de ignição mataria a sequência de
+        // saída e trancaria o app por dentro. É a mesma razão do force_steering_integration do
+        // enter(); a saída limpa a flag ANTES de chamar este método, então o estado do usuário volta
+        // normalmente.
+        // Vale também durante o ENSAIO: ele roda antes de ativar, e é aqui que os botões usados pela
+        // sequência precisam estar capturados — senão o dono não consegue concluir o ensaio.
+        if (StealthModeManager.isActive() || StealthModeManager.isAwaitingConfirmation()) {
+            // O botão 1 fica sempre integrado (porta de saída histórica). O botão 2 só entra quando a
+            // sequência ESCOLHIDA pelo dono usa ele: integrar à toa mudaria a função nativa do botão
+            // à vista do mecânico, que é justamente o que este modo evita. Mas se a sequência precisa
+            // dele e a integração não subir, os toques nunca chegam ao dispatchKeyEvent e o dono fica
+            // trancado do lado de fora — por isso a checagem, e não uma escolha fixa.
+            boolean needsButton2 = false;
+            try {
+                needsButton2 = StealthExitSequence.current().contains(StealthExitSequence.Step.BUTTON2);
+            } catch (Exception e) {
+                Log.e(TAG, "não deu pra ler a sequência de saída; assumindo que o botão 2 é necessário", e);
+                needsButton2 = true; // lado seguro: sobra integração, não falta porta de saída
             }
-            if (button2Action.equals(SteeringWheelCustomActionType.DEFAULT.getKey())) {
-                disableNativeSteeringWheelButton2();
-            } else {
+            Log.w(TAG, "Modo Concessionária ativo; botão 1 integrado (porta de saída), botão 2 = " + needsButton2);
+            enableSteeringWheelButton1Integration();
+            if (needsButton2) {
                 enableSteeringWheelButton2Integration();
+            }
+            return;
+        }
+        if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
+            // habilita o botao se QUALQUER toque (curto/duplo/longo) tiver acao configurada
+            boolean button1Used = steeringActionConfigured(1, "SHORT") || steeringActionConfigured(1, "DOUBLE") || steeringActionConfigured(1, "LONG");
+            boolean button2Used = steeringActionConfigured(2, "SHORT") || steeringActionConfigured(2, "DOUBLE") || steeringActionConfigured(2, "LONG");
+            Log.w(TAG, "Ensuring steering wheel button integration. Button 1 used: " + button1Used + ", Button 2 used: " + button2Used);
+            if (button1Used) {
+                enableSteeringWheelButton1Integration();
+            } else {
+                disableNativeSteeringWheelButton1();
+            }
+            if (button2Used) {
+                enableSteeringWheelButton2Integration();
+            } else {
+                disableNativeSteeringWheelButton2();
             }
         } else {
             Log.w(TAG, "Steering wheel button integration disabled, restoring native functions");
@@ -557,14 +1354,239 @@ public class ServiceManager {
 
     }
 
-    private void handleSteeringWheelCustomButton(String string, int button) {
+    // ===== Toques nos botoes personalizados do volante: curto / duplo / longo =====
+    private static final long STEERING_DOUBLE_WINDOW_MS = 350L;    // janela pra detectar o 2o toque
+    private static final long STEERING_PRESS_DEBOUNCE_MS = 120L;   // ignora repique do mesmo toque
+    private static final long STEERING_LONG_OPEN_DELAY_MS = 350L;  // deixa a config do OEM abrir antes da nossa acao
+    private final Runnable[] steeringPendingSingle = new Runnable[2];
+    private final long[] steeringLastPressAtMs = {0L, 0L};
+
+    private String steeringActionKey(int button, String tapType) {
+        SharedPreferencesKeys key;
+        if (button == 1) {
+            key = tapType.equals("DOUBLE") ? SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_DOUBLE
+                    : tapType.equals("LONG") ? SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_LONG
+                    : SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION;
+        } else {
+            key = tapType.equals("DOUBLE") ? SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_DOUBLE
+                    : tapType.equals("LONG") ? SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_LONG
+                    : SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION;
+        }
+        return sharedPreferences.getString(key.getKey(), SteeringWheelCustomActionType.DEFAULT.getKey());
+    }
+
+    private String steeringOpenAppPackageKey(int button, String tapType) {
+        if (button == 1) {
+            return (tapType.equals("DOUBLE") ? SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_DOUBLE
+                    : tapType.equals("LONG") ? SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1_LONG
+                    : SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1).getKey();
+        }
+        return (tapType.equals("DOUBLE") ? SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_DOUBLE
+                : tapType.equals("LONG") ? SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2_LONG
+                : SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2).getKey();
+    }
+
+    private boolean steeringActionConfigured(int button, String tapType) {
+        String k = steeringActionKey(button, tapType);
+        return k != null
+                && !k.equals(SteeringWheelCustomActionType.DEFAULT.getKey())
+                && !k.equals(SteeringWheelCustomActionType.DEFAULT.name());
+    }
+
+    /**
+     * Modo Concessionária — detecção da sequência de saída: 3 toques CURTOS no botão 1 do volante,
+     * com até 8s entre eles. Chamada no TOPO de dispatchKeyEvent, antes de qualquer outro handler,
+     * porque com o modo ativo o ícone do app some e esta é a única porta de volta pela tela do
+     * carro.
+     *
+     * Deliberadamente NÃO consulta preferência nenhuma: no modo, ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS
+     * está desligado de propósito, e a volta não pode depender de nada que o modo desliga. Quando o
+     * modo NÃO está ativo a sequência é inerte — só zera o contador e sai, sem consumir o evento nem
+     * alterar o comportamento normal do botão (o handler custom logo abaixo continua recebendo a
+     * tecla).
+     *
+     * O que garante que a tecla CHEGUE aqui é a integração custom do botão estar habilitada no head
+     * unit — por isso enter() a força e ensureSteeringWheelButtonIntegration() a mantém enquanto o
+     * modo está ativo.
+     */
+    /**
+     * Sequência de saída do Modo Concessionária pelas setas: esquerda, direita, esquerda, direita.
+     *
+     * Avança na TROCA de lado, não por tempo nem por número de piscadas — a seta ligada emite o
+     * sinal repetidamente, e contar cada emissão faria um único acionamento valer por vários.
+     * Fora do modo é inerte: só zera o progresso e sai.
+     */
+    private void handleStealthExitTurnSignal(String key, String value) {
+        if (key == null) return;
+        // A LUZ da seta, não o switch da alavanca: este carro responde
+        // "is not support for dataId car.basic.left_turn_switch_status" e nunca emite nada por lá.
+        // Estas três chaves já estavam em DEFAULT_KEYS, então chegam sem configuração extra.
+        boolean isLeft = CarConstants.CAR_BASIC_LEFT_TURN_LIGHT_STATUS.getValue().equals(key);
+        boolean isRight = CarConstants.CAR_BASIC_RIGHT_TURN_LIGHT_STATUS.getValue().equals(key);
+        // A luz alta tambem serve de passo: ja esta em DEFAULT_KEYS, entao chega por evento como as
+        // setas, sem configuracao extra.
+        boolean isHighBeam = CarConstants.CAR_BASIC_HIGH_BEAM_LIGHT_STATUS.getValue().equals(key);
+        if (!isLeft && !isRight && !isHighBeam) return;
+
+        // O mesmo detector serve a dois momentos: o ENSAIO (o dono prova que sabe sair, antes de
+        // ativar) e a SAÍDA de verdade. Fora dos dois, é inerte.
+        boolean rehearsing = StealthModeManager.isAwaitingConfirmation();
+        if (!StealthModeManager.isActive() && !rehearsing) {
+            stealthExitTurnIndex = 0;
+            stealthExitLastTurnSide = null;
+            stealthExitLastTurnAtMs = 0L;
+            return;
+        }
+
+        boolean on = "1".equals(value == null ? "" : value.trim());
+        if (!on) return; // apagar a luz não conta; só o acendimento
+
+        // Pisca-alerta acende os dois lados alternando: sozinho ele completaria a sequência e
+        // tiraria o carro do modo sem ninguém pedir. Enquanto estiver ligado, nada conta.
+        try {
+            String hazard = getData(CarConstants.CAR_BASIC_HAZARD_LIGHT_STATUS.getValue());
+            if (hazard != null && "1".equals(hazard.trim())) {
+                stealthExitTurnIndex = 0;
+                stealthExitLastTurnSide = null;
+                return;
+            }
+        } catch (Exception ignored) {
+        }
+
+        StealthExitSequence.Step step = isLeft
+                ? StealthExitSequence.Step.LEFT
+                : isRight
+                        ? StealthExitSequence.Step.RIGHT
+                        : StealthExitSequence.Step.HIGH_BEAM;
+        feedStealthExitStep(step, rehearsing);
+    }
+
+    /**
+     * Ponto unico onde os passos da sequencia de saida entram, venham das setas ou dos botoes do
+     * volante. Antes eram dois detectores separados com contadores proprios, o que impedia uma
+     * sequencia MISTA ("seta esquerda, botao 1, seta direita"): cada um so enxergava a propria
+     * metade e nenhum dos dois fechava. Os guardas de contexto (pisca-alerta, carro parado, modo
+     * inativo) ficam com quem chama, que e quem tem os dados do CAN.
+     */
+    private void feedStealthExitStep(StealthExitSequence.Step step, boolean rehearsing) {
+        // Gate de MARCHA P, no ponto único: antes ele estava só no caminho das setas, então pelos
+        // botões do volante a sequência avançava com o carro andando. Exigir P deixa a saída ser um
+        // ato deliberado, com o carro estacionado — parado num semáforo o gesto poderia sair sem
+        // querer, e manobrar produz seta-seta naturalmente.
+        //
+        // Marcha ilegível conta como "não está em P": lado seguro. No pior caso o dono repete o
+        // gesto; sair sozinho na garagem de terceiros seria bem pior.
+        boolean inPark;
+        try {
+            String gear = getData(CarConstants.CAR_BASIC_GEAR_STATUS.getValue());
+            inPark = gear != null && "3".equals(gear.trim());   // 3 = P (ver getGearLabel)
+        } catch (Exception e) {
+            inPark = false;
+        }
+        if (!inPark) {
+            StealthExitSequence.reset();
+            // No ensaio o dono está olhando a tela: sem este aviso ele repetiria o gesto sem
+            // entender por que o contador não anda.
+            if (rehearsing) {
+                StealthModeManager.onConfirmationBlocked("Coloque o carro em P para fazer a sequência.");
+            }
+            return;
+        }
+
+        StealthExitSequence.Outcome outcome = StealthExitSequence.feed(step, StealthExitSequence.current());
+        if (outcome == StealthExitSequence.Outcome.IGNORED) return;
+
+        if (outcome == StealthExitSequence.Outcome.PROGRESS) {
+            if (rehearsing) StealthModeManager.onConfirmationStep(StealthExitSequence.progress(), false);
+            return;
+        }
+
+        int total = StealthExitSequence.current().size();
+        if (rehearsing) {
+            Log.w(TAG, "Ensaio da saida concluido");
+            StealthModeManager.onConfirmationStep(total, true);
+            return;
+        }
+        Log.w(TAG, "Sequencia de saida completa; confirmando");
+        StealthModeManager.onExitSequenceCompleted(App.getContext(), "EXIT_SEQUENCE");
+    }
+
+    private void handleStealthExitSequence(KeyEvent keyEvent) {
+        if (keyEvent == null) return;
+        StealthExitSequence.Step step;
+        switch (keyEvent.getKeyCode()) {
+            case 517:  step = StealthExitSequence.Step.BUTTON1; break;  // botao 1, toque curto
+            case 1031: step = StealthExitSequence.Step.BUTTON2; break;  // botao 2, toque curto
+            default: return;
+        }
+
+        boolean rehearsing = StealthModeManager.isAwaitingConfirmation();
+        if (!StealthModeManager.isActive() && !rehearsing) {
+            StealthExitSequence.reset();
+            return;
+        }
+        feedStealthExitStep(step, rehearsing);
+    }
+
+    private void onSteeringCustomShortPress(int button) {
+        final int idx = button - 1;
+        long now = System.currentTimeMillis();
+        synchronized (steeringPendingSingle) {
+            if (now - steeringLastPressAtMs[idx] < STEERING_PRESS_DEBOUNCE_MS) {
+                return; // repique do mesmo toque
+            }
+            steeringLastPressAtMs[idx] = now;
+            if (steeringPendingSingle[idx] != null) {
+                backgroundHandler.removeCallbacks(steeringPendingSingle[idx]);
+                steeringPendingSingle[idx] = null;
+                handleSteeringWheelCustomButton(steeringActionKey(button, "DOUBLE"), button, "DOUBLE");
+                return;
+            }
+            if (!steeringActionConfigured(button, "DOUBLE")) {
+                handleSteeringWheelCustomButton(steeringActionKey(button, "SHORT"), button, "SHORT");
+                return;
+            }
+            Runnable r = () -> {
+                synchronized (steeringPendingSingle) {
+                    steeringPendingSingle[idx] = null;
+                }
+                handleSteeringWheelCustomButton(steeringActionKey(button, "SHORT"), button, "SHORT");
+            };
+            steeringPendingSingle[idx] = r;
+            backgroundHandler.postDelayed(r, STEERING_DOUBLE_WINDOW_MS);
+        }
+    }
+
+    // Toque longo. O OEM abre a tela de config do volante; esperamos um pouco e executamos a acao.
+    // Se for OPEN_APP, o app abre POR CIMA da config; senao mandamos BACK pra fechar a config.
+    private void onSteeringCustomLongPress(int button) {
+        if (!steeringActionConfigured(button, "LONG")) return; // sem acao de longo -> deixa a config do OEM
+        final String actionKey = steeringActionKey(button, "LONG");
+        final boolean isOpenApp =
+                SteeringWheelCustomActionType.Companion.fromKey(actionKey) == SteeringWheelCustomActionType.OPEN_APP;
+        backgroundHandler.postDelayed(() -> {
+            handleSteeringWheelCustomButton(actionKey, button, "LONG");
+            if (!isOpenApp) {
+                try {
+                    ShizukuUtils.runCommandAndGetOutput(new String[]{"input", "keyevent", "4"});
+                } catch (Exception ignored) {
+                }
+            }
+        }, STEERING_LONG_OPEN_DELAY_MS);
+    }
+
+    public void handleSteeringWheelCustomButton(String string, int button) {
+        handleSteeringWheelCustomButton(string, button, "SHORT");
+    }
+
+    public void handleSteeringWheelCustomButton(String string, int button, String tapType) {
         SteeringWheelCustomActionType action = SteeringWheelCustomActionType.Companion.fromKey(string);
         if (action == null || action == SteeringWheelCustomActionType.DEFAULT) {
             return;
         }
         switch (action) {
             case CHANGE_POWER_MODE:
-                var carEvPowerMode = Integer.parseInt(getUpdatedData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.getValue()));
+                int carEvPowerMode = Integer.parseInt(getUpdatedData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.getValue()));
                 Log.w(TAG, "Current EV Power Mode: " + carEvPowerMode);
                 if (carEvPowerMode == 0) {
                     carEvPowerMode = 1;
@@ -577,7 +1599,7 @@ public class ServiceManager {
                 Log.w(TAG, "New EV Power Mode: " + carEvPowerMode);
                 break;
             case CHANGE_REGENERATION_LEVEL:
-                var regenLevel = Integer.parseInt(getUpdatedData(CarConstants.CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL.getValue()));
+                int regenLevel = Integer.parseInt(getUpdatedData(CarConstants.CAR_EV_SETTING_ENERGY_RECOVERY_LEVEL.getValue()));
                 Log.w(TAG, "Current Regeneration Level: " + regenLevel);
                 //low 2
                 //normal 0
@@ -593,7 +1615,7 @@ public class ServiceManager {
                 Log.w(TAG, "New Regeneration Level: " + regenLevel);
                 break;
             case TOGGLE_ANION:
-                var anionState = getUpdatedData(CarConstants.CAR_HVAC_ANION_ENABLE.getValue());
+                String anionState = getUpdatedData(CarConstants.CAR_HVAC_ANION_ENABLE.getValue());
                 if (anionState != null) {
                     boolean anion = anionState.equals("1");
                     anion = !anion;
@@ -601,7 +1623,7 @@ public class ServiceManager {
                     Log.w(TAG, "Anion state changed to: " + anion);
                 }
                 break;
-            /*case TOGGLE_ESP:
+            case TOGGLE_ESP:
                 var espState = getUpdatedData(CarConstants.CAR_DRIVE_SETTING_ESP_ENABLE.getValue());
                 if (espState != null) {
                     boolean esp = espState.equals("1");
@@ -609,7 +1631,7 @@ public class ServiceManager {
                     updateData(CarConstants.CAR_DRIVE_SETTING_ESP_ENABLE.getValue(), esp ? "1" : "0");
                     Log.w(TAG, "ESP state changed to: " + esp);
                 }
-                break;*/
+                break;
             case TOGGLE_ONE_PEDAL_DRIVING:
                 var onePedalState = getUpdatedData(CarConstants.CAR_CONFIGURE_PEDAL_CONTROL_ENABLE.getValue());
                 if (onePedalState != null) {
@@ -620,17 +1642,28 @@ public class ServiceManager {
                 }
                 break;
             case OPEN_APP:
-                var packageName = sharedPreferences.getString(button == 1 ? SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_1.getKey() : SharedPreferencesKeys.STEERING_WHEEL_OPEN_APP_PACKAGE_BUTTON_2.getKey(), "");
+                String packageName = sharedPreferences.getString(steeringOpenAppPackageKey(button, tapType), "");
                 if (!packageName.isEmpty()) {
                     Intent launchIntent = App.getContext().getPackageManager().getLaunchIntentForPackage(packageName);
                     if (launchIntent != null) {
                         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                         App.getContext().startActivity(launchIntent);
                         Log.w(TAG, "Launching app: " + packageName);
+                        DisplayAppLauncher.INSTANCE.preserveCarPlayClusterContract("SERVICE_OPEN_APP_" + packageName);
+                        DisplayAppLauncher.INSTANCE.preserveAndroidAutoClusterContract("SERVICE_OPEN_APP_" + packageName);
                     } else {
                         Log.e(TAG, "App not found: " + packageName);
                     }
                 }
+                break;
+            case CLIMATE_COMMAND:
+                handleSteeringWheelClimateCommand(button);
+                break;
+            case TOGGLE_PROJECTION_DISPLAY:
+                handleSteeringWheelProjectionDisplayToggle(button);
+                break;
+            case TOGGLE_IMPULSE_DASHBOARD:
+                handleSteeringWheelImpulseDashboardToggle(button);
                 break;
             case TOGGLE_CAMERA_AVM:
                 boolean cameraAVM = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_AVM_CAR_STOPPED.getKey(), false);
@@ -644,10 +1677,24 @@ public class ServiceManager {
                         delayNextAVM = true;
                         dvr.setAVM(1);
                         Log.w(TAG, "Camera AVM temporarily triggered");
+                        if (DisplayAppLauncher.INSTANCE.isAndroidAutoOnDisplay(3)) {
+                            Log.w(TAG, "Skipping projection guard for OPEN_AVM_ONCE_OPEN because Android Auto is active on D3");
+                            DisplayAppLauncher.INSTANCE.pulseAndroidAutoFocusDuringNativePanel("OPEN_AVM_ONCE_OPEN");
+                        } else {
+                            DisplayAppLauncher.INSTANCE.preserveCarPlayClusterContract("OPEN_AVM_ONCE_OPEN");
+                            DisplayAppLauncher.INSTANCE.preserveAndroidAutoNativePanelContract("OPEN_AVM_ONCE_OPEN");
+                        }
                     } else {
                         delayNextAVM = false;
                         dvr.setAVM(0);
                         Log.w(TAG, "Camera AVM closed");
+                        if (DisplayAppLauncher.INSTANCE.isAndroidAutoOnDisplay(3)) {
+                            Log.w(TAG, "Skipping projection guard for OPEN_AVM_ONCE_CLOSE because Android Auto is active on D3");
+                            DisplayAppLauncher.INSTANCE.pulseAndroidAutoFocusAfterNativePanelExit("OPEN_AVM_ONCE_CLOSE");
+                        } else {
+                            DisplayAppLauncher.INSTANCE.preserveCarPlayClusterContract("OPEN_AVM_ONCE_CLOSE");
+                            DisplayAppLauncher.INSTANCE.preserveAndroidAutoNativePanelContract("OPEN_AVM_ONCE_CLOSE");
+                        }
                     }
                 } catch (RemoteException e) {
                     Log.w(TAG, "Error to launch AVM camera");
@@ -656,11 +1703,137 @@ public class ServiceManager {
         }
     }
 
+    private void handleSteeringWheelClimateCommand(int button) {
+        long now = SystemClock.uptimeMillis();
+        boolean duplicateCommand =
+                lastClimateCommandButton == button
+                        && now - lastClimateCommandAtMs <= STEERING_WHEEL_CLIMATE_COMMAND_DEDUP_WINDOW_MS;
+        if (duplicateCommand) {
+            Log.w(TAG, "Ignoring duplicate climate command from steering wheel button " + button);
+            return;
+        }
+
+        lastClimateCommandButton = button;
+        lastClimateCommandAtMs = now;
+
+        String commandKey = sharedPreferences.getString(
+                button == 1
+                        ? SharedPreferencesKeys.STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_1.getKey()
+                        : SharedPreferencesKeys.STEERING_WHEEL_CLIMATE_COMMAND_BUTTON_2.getKey(),
+                SteeringWheelClimateCommandType.TOGGLE_AC.getKey()
+        );
+        if (commandKey == null) {
+            commandKey = SteeringWheelClimateCommandType.TOGGLE_AC.getKey();
+        }
+        SteeringWheelClimateCommandType command = SteeringWheelClimateCommandType.Companion.fromKey(commandKey);
+        if (command == null) {
+            command = SteeringWheelClimateCommandType.TOGGLE_AC;
+        }
+
+        Log.w(TAG, "Executing steering wheel climate command from button " + button + ": " + command.getKey());
+        cancelMaxAcMode();
+        switch (command) {
+            case TOGGLE_AC:
+                toggleHvacBinaryValue(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), "AC");
+                break;
+            case TOGGLE_AUTO:
+                toggleHvacBinaryValue(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), "Auto AC");
+                break;
+            case TOGGLE_POWER:
+                toggleHvacBinaryValue(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "HVAC power");
+                break;
+            case FRONT_DEFROST:
+                toggleFrontDefrostAirflow(button);
+                break;
+        }
+    }
+
+    private void toggleFrontDefrostAirflow(int button) {
+        String frontDefrostState = getUpdatedData(CarConstants.CAR_HVAC_FRONT_DEFROST_ENABLE.getValue());
+        String blowerMode = getUpdatedData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue());
+        boolean frontDefrostActive = "1".equals(frontDefrostState) || "4".equals(blowerMode);
+
+        if (frontDefrostActive) {
+            updateData(CarConstants.CAR_HVAC_FRONT_DEFROST_ENABLE.getValue(), "0");
+            if ("4".equals(blowerMode)) {
+                updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), "0");
+            }
+            Log.w(TAG, "Front defrost airflow disabled from steering wheel button " + button);
+            return;
+        }
+
+        updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1");
+        updateData(CarConstants.CAR_HVAC_FRONT_DEFROST_ENABLE.getValue(), "1");
+        updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), "4");
+        Log.w(TAG, "Front defrost airflow enabled from steering wheel button " + button);
+    }
+
+    private void toggleHvacBinaryValue(String key, String label) {
+        String currentState = getUpdatedData(key);
+        if (currentState == null) {
+            Log.e(TAG, "Unable to toggle " + label + ": current value is null");
+            return;
+        }
+        boolean enabled = currentState.equals("1");
+        updateData(key, enabled ? "0" : "1");
+        Log.w(TAG, label + " state changed to: " + !enabled);
+    }
+
+    private boolean isLegacySportThemeActive() {
+        String activeTheme = sharedPreferences == null
+                ? ""
+                : sharedPreferences.getString(
+                        SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.getKey(),
+                        ""
+                );
+        return "SportRed".equalsIgnoreCase(activeTheme)
+                || "SportRedLite".equalsIgnoreCase(activeTheme);
+    }
+
+    private void handleSteeringWheelProjectionDisplayToggle(int button) {
+        long now = SystemClock.uptimeMillis();
+        boolean duplicateToggle =
+                lastProjectionDisplayToggleButton == button
+                        && now - lastProjectionDisplayToggleAtMs <= STEERING_WHEEL_PROJECTION_TOGGLE_DEDUP_WINDOW_MS;
+        if (duplicateToggle) {
+            Log.w(TAG, "Ignoring duplicate projection display toggle from steering wheel button " + button);
+            return;
+        }
+
+        lastProjectionDisplayToggleButton = button;
+        lastProjectionDisplayToggleAtMs = now;
+        DisplayAppLauncher.INSTANCE.toggleActiveProjectionDisplayFromSteeringWheel(
+                "STEERING_WHEEL_TOGGLE_PROJECTION_BUTTON_" + button
+        );
+    }
+
+    private void handleSteeringWheelImpulseDashboardToggle(int button) {
+        long now = SystemClock.uptimeMillis();
+        boolean duplicateToggle =
+                lastDashboardToggleButton == button
+                        && now - lastDashboardToggleAtMs <= STEERING_WHEEL_DASHBOARD_TOGGLE_DEDUP_WINDOW_MS;
+        if (duplicateToggle) {
+            Log.w(TAG, "Ignoring duplicate Impulse dashboard toggle from steering wheel button " + button);
+            return;
+        }
+
+        lastDashboardToggleButton = button;
+        lastDashboardToggleAtMs = now;
+        boolean handled = BottomBarService.requestImpulseDashboardToggleFromSteeringWheel(
+                "STEERING_WHEEL_TOGGLE_DASHBOARD_BUTTON_" + button
+        );
+        Log.w(TAG, "Impulse dashboard toggle from steering wheel button " + button + " handled=" + handled);
+    }
+
     public void enableSteeringWheelButton1Integration() {
         try {
-            var currentConfig = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "system", "bean_sw_custom_key1_config"}).trim();
+            String currentConfig = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "system", "bean_sw_custom_key1_config"}).trim();
             Log.w(TAG, "Current steering wheel button 1 config: " + currentConfig);
-            sharedPreferences.edit().putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL.getKey(), currentConfig).apply();
+            saveOriginalSteeringWheelButtonConfig(
+                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL,
+                    currentConfig,
+                    "1"
+            );
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key1_config", "99"});
         } catch (Exception e) {
             Log.e(TAG, "Error disabling native steering wheel custom buttons", e);
@@ -669,9 +1842,13 @@ public class ServiceManager {
 
     public void enableSteeringWheelButton2Integration() {
         try {
-            var currentConfig = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "system", "bean_sw_custom_key2_config"}).trim();
+            String currentConfig = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "system", "bean_sw_custom_key2_config"}).trim();
             Log.w(TAG, "Current steering wheel button 2 config: " + currentConfig);
-            sharedPreferences.edit().putString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL.getKey(), currentConfig).apply();
+            saveOriginalSteeringWheelButtonConfig(
+                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL,
+                    currentConfig,
+                    "2"
+            );
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key2_config", "99"});
         } catch (Exception e) {
             Log.e(TAG, "Error disabling native steering wheel custom buttons", e);
@@ -680,8 +1857,11 @@ public class ServiceManager {
 
     public void disableNativeSteeringWheelButton1() {
         try {
-            var originalConfig = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL.getKey(), "0");
-            if (originalConfig.equals("99"))
+            String originalConfig = getOriginalSteeringWheelButtonConfig(
+                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL,
+                    "1"
+            );
+            if (originalConfig == null)
                 return;
             Log.w(TAG, "Restoring steering wheel button 1 config to: " + originalConfig);
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key1_config", originalConfig});
@@ -692,8 +1872,11 @@ public class ServiceManager {
 
     public void disableNativeSteeringWheelButton2() {
         try {
-            var originalConfig = sharedPreferences.getString(SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL.getKey(), "0");
-            if (originalConfig.equals("99"))
+            String originalConfig = getOriginalSteeringWheelButtonConfig(
+                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL,
+                    "2"
+            );
+            if (originalConfig == null)
                 return;
             Log.w(TAG, "Restoring steering wheel button 2 config to: " + originalConfig);
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key2_config", originalConfig});
@@ -702,45 +1885,109 @@ public class ServiceManager {
         }
     }
 
+    private void saveOriginalSteeringWheelButtonConfig(
+            SharedPreferencesKeys key,
+            String currentConfig,
+            String buttonLabel
+    ) {
+        if (!isNativeSteeringWheelButtonConfig(currentConfig)) {
+            Log.w(TAG, "Skipping original steering wheel button " + buttonLabel + " capture for integration config: " + currentConfig);
+            return;
+        }
+
+        sharedPreferences.edit().putString(key.getKey(), currentConfig).apply();
+        Log.w(TAG, "Saved original steering wheel button " + buttonLabel + " config: " + currentConfig);
+    }
+
+    private String getOriginalSteeringWheelButtonConfig(SharedPreferencesKeys key, String buttonLabel) {
+        if (!sharedPreferences.contains(key.getKey())) {
+            Log.w(TAG, "No original steering wheel button " + buttonLabel + " config saved; keeping current native setting");
+            return null;
+        }
+
+        String originalConfig = sharedPreferences.getString(key.getKey(), null);
+        if (!isNativeSteeringWheelButtonConfig(originalConfig)) {
+            Log.w(TAG, "Ignoring invalid original steering wheel button " + buttonLabel + " config: " + originalConfig);
+            return null;
+        }
+
+        return originalConfig;
+    }
+
+    private boolean isNativeSteeringWheelButtonConfig(String config) {
+        if (config == null) return false;
+
+        String normalized = config.trim();
+        if (normalized.isEmpty() || normalized.equals("99")) return false;
+        if (normalized.equalsIgnoreCase("null") || normalized.equalsIgnoreCase("undefined")) return false;
+
+        try {
+            int value = Integer.parseInt(normalized);
+            return value >= 0 && value < 99;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
     private void sendClusterIntMsg(int type, int value) {
         if (clusterService == null) {
-            Log.e(TAG, "ClusterService not initialized");
+            Log.e(TAG, "[CLUSTER_TX] setMsg(" + type + ", " + value + ") dropped: service null");
             return;
         }
         ClusterMsgData msg = new ClusterMsgData();
         msg.setIntValue(value);
         try {
             clusterService.setMsg(type, msg);
+            Log.w(TAG, "[CLUSTER_TX] setMsg(" + type + ", " + value + ")");
         } catch (RemoteException e) {
-            Log.e(TAG, "Error sending message to cluster service", e);
+            Log.e(TAG, "[CLUSTER_TX] setMsg(" + type + ", " + value + ") failed", e);
         }
     }
 
     private void sendAndroidReadyToCluster() {
         try {
-            var msg = new ClusterMsgData();
+            // Required: this is what registers our Android-owned cards (1 and 3) with the
+            // car. With it disabled the cluster falls back to card 0 plus a single
+            // "loading" card and never reports 133 for our cards at all.
+            ClusterMsgData msg = new ClusterMsgData();
             msg.setIntValue(1);
             clusterService.setMsg(75, msg);
+            Log.w(TAG, "[CLUSTER_TX] setMsg(75, 1) android-ready");
         } catch (Exception e) {
-            Log.e(TAG, "Error setting cluster service message", e);
+            Log.e(TAG, "[CLUSTER_TX] setMsg(75, 1) android-ready failed", e);
         }
     }
 
     public synchronized void startClusterHeartbeat() {
-        if (isClusterHeartbeatRunning)
+        if (isClusterHeartbeatRunning) {
+            Log.w(TAG, "[HEARTBEAT] start skipped: already running");
             return;
+        }
+        Handler handler = backgroundHandler;
+        if (handler == null) {
+            // Previously this NPE'd silently out of the caller; the loop just never began.
+            Log.e(TAG, "[HEARTBEAT] start failed: backgroundHandler null");
+            return;
+        }
         isClusterHeartbeatRunning = true;
+        Log.w(TAG, "[HEARTBEAT] loop starting");
         sendAndroidReadyToCluster();
-        backgroundHandler.postDelayed(new Runnable() {
+        handler.postDelayed(new Runnable() {
             @Override
             public void run() {
                 if (!sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_CUSTOM_MEDIA_INTEGRATION.getKey(), false)) {
+                    Log.e(TAG, "[HEARTBEAT] loop exiting: media-integration pref is off");
                     isClusterHeartbeatRunning = false;
                     return;
                 }
                 sendHeartBeatToCluster();
-                backgroundHandler.postDelayed(this, 1000);
-
+                Handler h = backgroundHandler;
+                if (h != null) {
+                    h.postDelayed(this, 1000);
+                } else {
+                    Log.e(TAG, "[HEARTBEAT] loop exiting: backgroundHandler gone");
+                    isClusterHeartbeatRunning = false;
+                }
             }
         }, 1000);
     }
@@ -749,26 +1996,269 @@ public class ServiceManager {
         if (clusterHeartBeatCount > 32767) {
             clusterHeartBeatCount = 0; // Reset to avoid overflow
         }
-        var msg = new ClusterMsgData();
-        msg.setIntValue(clusterHeartBeatCount++);
+        ClusterMsgData msg = new ClusterMsgData();
+        int beat = clusterHeartBeatCount++;
+        msg.setIntValue(beat);
         try {
-            clusterService.setMsg(134, msg);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Error sending heartbeat to cluster service", e);
+            IClusterService service = clusterService;
+            if (service == null) {
+                // Was an uncaught NPE that killed the handler thread silently.
+                Log.e(TAG, "[HEARTBEAT] beat=" + beat + " dropped: service null");
+                return;
+            }
+            service.setMsg(134, msg);
+            if (beat % 10 == 0) {
+                Log.w(TAG, "[HEARTBEAT] alive beat=" + beat);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "[HEARTBEAT] beat=" + beat + " failed", e);
+        }
+    }
+
+    /**
+     * Test-only replay of a cluster key through the same InputService listener
+     * path. Used by TestKeyInjectReceiver when its token gate is armed.
+     */
+    public boolean injectMappedClusterKey(int keyCode, int keyAction) {
+        IInputListener.Stub listener = inputListener;
+        if (listener == null) {
+            Log.w(TAG, "injectMappedClusterKey ignored: input listener not bound key=" + keyCode);
+            return false;
+        }
+        try {
+            listener.dispatchKeyEvent(new KeyEvent(keyAction, keyCode));
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "injectMappedClusterKey failed key=" + keyCode, e);
+            return false;
         }
     }
 
     public void dispatchAllData() {
-        if (controlService == null) return;
+        IIntelligentVehicleControlService svc = controlService;
+        if (!isControlServiceAlive(svc)) return;
         try {
-            var allKeys = getCombinedKeys();
-            String[] currentValues = controlService.fetchDatas(allKeys);
-            for (int i = 0; i < currentValues.length; i++) {
-                OnDataChanged(allKeys[i], currentValues[i]);
+            String[] allKeys = getCombinedKeys();
+            String[] currentValues = svc.fetchDatas(allKeys);
+            if (currentValues != null) {
+                for (int i = 0; i < allKeys.length && i < currentValues.length; i++) {
+                    if (currentValues[i] != null && !currentValues[i].isEmpty()) {
+                        dispatchTelemetryOnly(allKeys[i], currentValues[i]);
+                    }
+                }
             }
-        } catch (RemoteException e) {
+            dispatchSyntheticTelemetrySnapshot();
+        } catch (Exception e) {
             Log.e(TAG, "Error dispatching data", e);
         }
+    }
+
+    /**
+     * App settings the 3D viewer's CLIMA popup shows beside the car's own
+     * climate keys: Impulse features, not CAN. Published on the same bus so
+     * the viewer learns their state, and written back through
+     * {@link br.com.redesurftank.havalshisuku.broadcastReceivers.CarDataWriteReceiver}.
+     */
+    public static final String APP_PREF_MAX_AC_ON_UNLOCK = "app.impulse.max_ac_on_unlock";
+    public static final String APP_PREF_SEAT_VENT_WITH_AC = "app.impulse.seat_vent_with_ac";
+
+    private static final java.util.Map<String, SharedPreferencesKeys> APP_PREF_KEYS =
+            java.util.Collections.unmodifiableMap(new java.util.HashMap<String, SharedPreferencesKeys>() {{
+                put(APP_PREF_MAX_AC_ON_UNLOCK, SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK);
+                put(APP_PREF_SEAT_VENT_WITH_AC, SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON);
+            }});
+
+    public boolean isAppPreferenceKey(String key) {
+        return key != null && APP_PREF_KEYS.containsKey(key);
+    }
+
+    /** Write one allowlisted app preference and publish the new value. */
+    public void setAppPreference(String key, String value) {
+        SharedPreferencesKeys pref = APP_PREF_KEYS.get(key);
+        if (pref == null || sharedPreferences == null) return;
+        boolean on = "1".equals(value) || "true".equalsIgnoreCase(value);
+        sharedPreferences.edit().putBoolean(pref.getKey(), on).apply();
+        Log.w(TAG, "App preference " + key + " -> " + on);
+        dispatchTelemetryOnly(key, on ? "1" : "0");
+    }
+
+    private void dispatchAppPreferences() {
+        if (sharedPreferences == null) return;
+        for (java.util.Map.Entry<String, SharedPreferencesKeys> e : APP_PREF_KEYS.entrySet()) {
+            dispatchTelemetryOnly(e.getKey(),
+                    sharedPreferences.getBoolean(e.getValue().getKey(), false) ? "1" : "0");
+        }
+    }
+
+    private void dispatchSyntheticTelemetrySnapshot() {
+        // Constant, so it is published rather than cached: every snapshot carries it.
+        dispatchTelemetryOnly(AndroidAutoTelemetryKeys.API_VERSION, AndroidAutoTelemetryKeys.API_VERSION_VALUE);
+        dispatchAppPreferences();
+        for (String key : AndroidAutoTelemetryKeys.SYNTHETIC_KEYS) {
+            String value = dataCache.get(key);
+            if (value != null) {
+                dispatchTelemetryOnly(key, value);
+            }
+        }
+    }
+
+    private boolean isControlServiceAlive() {
+        return isControlServiceAlive(controlService);
+    }
+
+    private boolean isControlServiceAlive(IIntelligentVehicleControlService svc) {
+        if (svc == null) return false;
+        try {
+            if (!Shizuku.pingBinder()) return false;
+            IBinder binder = svc.asBinder();
+            return binder != null && binder.isBinderAlive();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Liga o linkToDeath no binder do servico de controle. Se o processo do controle do carro morre
+     * (reinicio do app OEM / OOM do system_server), o binderDied dispara e agenda a recuperacao no
+     * backgroundHandler (fora da main). Remove um recipient anterior antes, pra nao empilhar.
+     */
+    private void registerControlDeathRecipient() {
+        if (!CONTROL_CHANNEL_RESILIENCE_ENABLED) return;
+        try {
+            IIntelligentVehicleControlService svc = controlService;
+            if (svc == null) return;
+            final IBinder binder = svc.asBinder();
+            if (binder == null) return;
+            unlinkControlDeathRecipient();
+            IBinder.DeathRecipient recipient = new IBinder.DeathRecipient() {
+                @Override public void binderDied() {
+                    if (controlDeathBinder != binder) return;
+                    logPersistentClusterEvent("control_channel_binder_died", persistentEventDetails("trigger", "binderDied"));
+                    Handler handler = backgroundHandler;
+                    if (handler != null) handler.post(() -> recoverControlChannel("BINDER_DIED"));
+                }
+            };
+            controlDeathBinder = binder;
+            controlDeathRecipient = recipient;
+            binder.linkToDeath(recipient, 0);
+        } catch (Throwable t) {
+            unlinkControlDeathRecipient();
+            Log.w(TAG, "registerControlDeathRecipient falhou: " + t.getMessage());
+        }
+    }
+
+    private void unlinkControlDeathRecipient() {
+        IBinder binder = controlDeathBinder;
+        IBinder.DeathRecipient recipient = controlDeathRecipient;
+        controlDeathBinder = null;
+        controlDeathRecipient = null;
+        if (binder != null && recipient != null) {
+            try { binder.unlinkToDeath(recipient, 0); } catch (Throwable ignored) {}
+        }
+    }
+
+    private void stopControlChannelRuntime() {
+        Handler handler = backgroundHandler;
+        Runnable watchdog = controlChannelWatchdogRunnable;
+        controlChannelWatchdogRunnable = null;
+        if (handler != null && watchdog != null) handler.removeCallbacks(watchdog);
+        unlinkControlDeathRecipient();
+    }
+
+    public synchronized void stopManagedBackgroundGuards(android.content.Context context) {
+        stopMobileDataGuard(context);
+        stopControlChannelRuntime();
+    }
+
+    /**
+     * Re-adquire o binder do servico de controle do zero e re-registra listener + chaves + re-dispatch.
+     * Gate atomico pra nao rodar duas recuperacoes ao mesmo tempo (watchdog + binderDied podem
+     * coincidir). Desregistra o listener antigo antes de
+     * registrar o novo, pra nao duplicar. Cada etapa vai pro log persistente (sobrevive ao R8).
+     */
+    public void recoverControlChannel(String reason) {
+        if (!CONTROL_CHANNEL_RESILIENCE_ENABLED) return;
+        if (!controlChannelRecoveryGate.tryAcquire()) return;
+        recoveringControlChannel = true;
+        long t0 = SystemClock.uptimeMillis();
+        try {
+            logPersistentClusterEvent("control_channel_recover_start",
+                    persistentEventDetails("reason", reason, "attempt", String.valueOf(controlChannelRecoveryCount + 1)));
+
+            if (!Shizuku.pingBinder()) {
+                throw new IllegalStateException("Shizuku indisponivel durante recuperacao do canal de controle");
+            }
+            Context context = App.getContext();
+
+            // desregistra o listener antigo se o binder velho ainda responde (evita listener duplicado)
+            IIntelligentVehicleControlService old = controlService;
+            if (old != null && listener != null) {
+                try {
+                    IBinder oldBinder = old.asBinder();
+                    if (oldBinder != null && oldBinder.isBinderAlive()) {
+                        old.unRegisterDataChangedListener(context.getPackageName(), listener);
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            IBinder rawControlBinder = getSystemService("com.beantechs.intelligentvehiclecontrol");
+            if (rawControlBinder == null) throw new IllegalStateException("binder de controle indisponivel");
+            IBinder controlBinder = new ShizukuBinderWrapper(rawControlBinder);
+            if (!controlBinder.pingBinder()) throw new IllegalStateException("binder de controle morto");
+            controlService = IIntelligentVehicleControlService.Stub.asInterface(controlBinder);
+
+            registerControlDeathRecipient();
+
+            if (listener == null) {
+                listener = new IListener.Stub() {
+                    @Override public void onDataChanged(String key, String value) { OnDataChanged(key, value); }
+                };
+            }
+            controlService.registerDataChangedListener(context.getPackageName(), listener);
+            controlService.addListenerKey(context.getPackageName(), getCombinedKeys());
+            dispatchAllData();
+
+            controlChannelRecoveryCount++;
+            logPersistentClusterEvent("control_channel_recover_ok",
+                    persistentEventDetails("reason", reason,
+                            "totalRecoveries", String.valueOf(controlChannelRecoveryCount),
+                            "elapsedMs", String.valueOf(SystemClock.uptimeMillis() - t0)));
+        } catch (Throwable e) {
+            logPersistentClusterEvent("control_channel_recover_fail",
+                    persistentEventDetails("reason", reason, "error", String.valueOf(e.getMessage())));
+        } finally {
+            recoveringControlChannel = false;
+            controlChannelRecoveryGate.release();
+        }
+    }
+
+    /**
+     * Watchdog: a cada 10s faz ping no binder do controle; se estiver morto (e nenhuma recuperacao em
+     * curso), dispara recoverControlChannel. Idempotente - cancela o runnable anterior antes de reagendar,
+     * e so se reagenda enquanto ainda for o runnable ativo (evita duplicar o loop em re-init).
+     */
+    private void startControlChannelWatchdog() {
+        if (!CONTROL_CHANNEL_RESILIENCE_ENABLED) return;
+        if (backgroundHandler == null) return;
+        if (controlChannelWatchdogRunnable != null) {
+            backgroundHandler.removeCallbacks(controlChannelWatchdogRunnable);
+        }
+        controlChannelWatchdogRunnable = new Runnable() {
+            @Override public void run() {
+                try {
+                    if (!recoveringControlChannel && !isControlServiceAlive()) {
+                        logPersistentClusterEvent("control_channel_watchdog_dead", persistentEventDetails("trigger", "watchdog"));
+                        recoverControlChannel("WATCHDOG");
+                    }
+                } catch (Throwable ignored) {
+                } finally {
+                    if (backgroundHandler != null && controlChannelWatchdogRunnable == this) {
+                        backgroundHandler.postDelayed(this, CONTROL_CHANNEL_WATCHDOG_MS);
+                    }
+                }
+            }
+        };
+        backgroundHandler.postDelayed(controlChannelWatchdogRunnable, CONTROL_CHANNEL_WATCHDOG_MS);
     }
 
     public void addDataChangedListener(IDataChanged listener) {
@@ -836,7 +2326,7 @@ public class ServiceManager {
         if (dataCache.containsKey(key)) {
             return dataCache.get(key);
         }
-        if (controlService == null) {
+        if (!isControlServiceAlive()) {
             Log.e(TAG, "ControlService not initialized");
             return null;
         }
@@ -844,14 +2334,14 @@ public class ServiceManager {
             String value = controlService.fetchData(key);
             dataCache.put(key, value);
             return value;
-        } catch (RemoteException e) {
+        } catch (Exception e) {
             Log.e(TAG, "Error fetching data", e);
             return null;
         }
     }
 
     public String getUpdatedData(String key) {
-        if (controlService == null) {
+        if (!isControlServiceAlive()) {
             Log.e(TAG, "ControlService not initialized");
             return null;
         }
@@ -859,34 +2349,250 @@ public class ServiceManager {
             String value = controlService.fetchData(key);
             dataCache.put(key, value);
             return value;
-        } catch (RemoteException e) {
+        } catch (Exception e) {
             Log.e(TAG, "Error fetching data", e);
             return null;
         }
     }
 
-    public void updateData(String key, String value) {
-        if (controlService == null) {
-            Log.e(TAG, "ControlService not initialized");
+    private void maybeCounterPulseSceneNotify(String value) {
+        // Ignore re-entrant notifications produced by our own counter-pulse write.
+        if (isSelfWritingSceneNotify) {
+            Log.w(TAG, "scene_notify=" + value + " ignored (self-write echo)");
             return;
         }
-        try {
-            controlService.request("cmd.common.request.set", key, value);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Error updating data", e);
+        // Only counter-pulse the BACKCAMERA scene that suspends the cluster decoder.
+        if (!BEAN_PUI_SCENE_BACKCAMERA.equals(value)) {
+            return;
         }
+        // Only act when CarPlay is actually live on cluster 3 — otherwise the system
+        // signal is meaningful and we shouldn't interfere with backup-camera audio
+        // routing or other coordinated behavior.
+        if (!DisplayAppLauncher.INSTANCE.isCarPlayOnDisplay(3)) {
+            Log.w(TAG, "scene_notify=8 received but CarPlay not on cluster 3; no counter-pulse");
+            return;
+        }
+        Log.w(TAG, "scene_notify=8 (SCENE_BACKCAMERA) intercepted with CarPlay on cluster 3; scheduling counter-pulse to 0");
+        if (backgroundHandler == null) {
+            // Fallback: synchronous write if no background handler yet.
+            writeSceneNotifyNeutral();
+            return;
+        }
+        backgroundHandler.postDelayed(this::writeSceneNotifyNeutral, SCENE_NOTIFY_COUNTER_PULSE_DELAY_MS);
+    }
+
+    private void writeSceneNotifyNeutral() {
+        if (!isControlServiceAlive()) {
+            Log.e(TAG, "scene_notify counter-pulse skipped: control service not initialized");
+            return;
+        }
+        // Double-check CarPlay is still on cluster 3 by the time the pulse fires —
+        // backup-camera may have closed already, in which case the natural exit
+        // event (value=0) is on its way and we shouldn't race it.
+        if (!DisplayAppLauncher.INSTANCE.isCarPlayOnDisplay(3)) {
+            Log.w(TAG, "scene_notify counter-pulse aborted: CarPlay no longer on cluster 3");
+            return;
+        }
+        isSelfWritingSceneNotify = true;
+        try {
+            controlService.request("cmd.common.request.set",
+                    CarConstants.BEAN_PUI_SCENE_NOTIFY.getValue(),
+                    BEAN_PUI_SCENE_NEUTRAL);
+            Log.w(TAG, "scene_notify counter-pulse written (=0) to keep CarPlay video alive on cluster 3");
+        } catch (Exception e) {
+            Log.e(TAG, "Error writing scene_notify counter-pulse", e);
+        } finally {
+            // Release the re-entrancy flag on the same thread shortly after the
+            // write so the echo from OnDataChanged passes through harmlessly.
+            if (backgroundHandler != null) {
+                backgroundHandler.postDelayed(() -> isSelfWritingSceneNotify = false, 250);
+            } else {
+                isSelfWritingSceneNotify = false;
+            }
+        }
+    }
+
+    public void updateData(String key, String value) {
+        if (br.com.redesurftank.havalshisuku.BuildConfig.SIMULATOR_MODE) {
+            OnDataChanged(key, value);
+            return;
+        }
+        boolean isHvacCommand = hvacKeysToSuspend.contains(key);
+        if (!isControlServiceAlive()) {
+            Log.e(TAG, "ControlService not initialized");
+            if (isHvacCommand) {
+                logPersistentClusterEvent(
+                        "hvac_update_skipped",
+                        persistentEventDetails(
+                                "key", key,
+                                "value", value,
+                                "reason", "control_service_not_alive"
+                        )
+                );
+            }
+            return;
+        }
+
+        // While the viewer holds the climate lease the OEM app is ALREADY disabled and must stay
+        // that way. Without this, the resume below would run `pm enable` 300 ms after the first
+        // climate write from a theme and hand the car's popup back mid-hand-off.
+        boolean shouldSuspend = isHvacCommand && !HvacPanelSuppressor.INSTANCE.isHeld();
+        if (shouldSuspend) {
+            ensureHvacSuspended(key);
+        }
+
+        try {
+            if (isHvacCommand) {
+                logPersistentClusterEvent(
+                        "hvac_update_request",
+                        persistentEventDetails(
+                                "key", key,
+                                "value", value
+                        )
+                );
+            }
+            controlService.request("cmd.common.request.set", key, value);
+            if (isHvacCommand) {
+                publishOptimisticHvacValue(key, value);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error updating data", e);
+            if (isHvacCommand) {
+                logPersistentClusterEvent(
+                        "hvac_update_failed",
+                        persistentEventDetails(
+                                "key", key,
+                                "value", value,
+                                "error", e.getClass().getSimpleName(),
+                                "message", e.getMessage()
+                        )
+                );
+            }
+        }
+
+        if (shouldSuspend) {
+            scheduleHvacResumption();
+        }
+    }
+
+    public void resetDriveInfo() {
+        Log.i(TAG, "Requesting accumulated drive information reset");
+        updateData(CarConstants.CAR_IPK_SETTING_DRIVE_INFO_RESET.getValue(), "1");
+    }
+
+    private void publishOptimisticHvacValue(String key, String value) {
+        String previous = dataCache.put(key, value);
+        if (value != null && value.equals(previous)) {
+            return;
+        }
+        logPersistentClusterEvent(
+                "hvac_update_optimistic",
+                persistentEventDetails(
+                        "key", key,
+                        "previous", previous,
+                        "value", value
+                )
+        );
+        for (IDataChanged listener : new ArrayList<>(dataChangedListeners)) {
+            try {
+                listener.onDataChanged(key, value);
+            } catch (Exception e) {
+                Log.e(TAG, "Error notifying optimistic HVAC listener", e);
+            }
+        }
+    }
+
+    private void ensureHvacSuspended(String triggerKey) {
+        if (resumeHvacRunnable != null) {
+            backgroundHandler.removeCallbacks(resumeHvacRunnable);
+            resumeHvacRunnable = null;
+        }
+
+        if (!isHvacSuspended) {
+            if (isHvacAppInForeground()) {
+                Log.w(TAG, "HVAC app is in foreground, skipping suspension for key: " + triggerKey);
+                return;
+            }
+
+            Log.w(TAG, "Suspending HVAC app due to key: " + triggerKey);
+            ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "disable-user", "--user", "0", HVAC_PACKAGE_NAME});
+            ShizukuUtils.runCommandAndGetOutput(new String[]{"am", "force-stop", HVAC_PACKAGE_NAME});
+            isHvacSuspended = true;
+            // Short sleep to ensure the app is fully stopped before the car command is sent
+            SystemClock.sleep(150);
+        }
+    }
+
+    private boolean isHvacAppInForeground() {
+        try {
+            // Check if the HVAC app is currently resumed via lightweight am stack list
+            String topApp = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.INSTANCE.getTopPackageOnDisplay(0);
+            boolean isForeground = HVAC_PACKAGE_NAME.equals(topApp);
+            if (isForeground) {
+                Log.w(TAG, "Detection: HVAC app IS resumed in foreground");
+            }
+            return isForeground;
+        } catch (Exception e) {
+            Log.e(TAG, "Error checking HVAC visibility", e);
+        }
+        return false;
+    }
+
+    private void scheduleHvacResumption() {
+        if (resumeHvacRunnable != null) {
+            backgroundHandler.removeCallbacks(resumeHvacRunnable);
+        }
+
+        resumeHvacRunnable = () -> {
+            Log.w(TAG, "Resuming HVAC app after inactivity");
+            ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "enable", HVAC_PACKAGE_NAME});
+            isHvacSuspended = false;
+            resumeHvacRunnable = null;
+        };
+
+        backgroundHandler.postDelayed(resumeHvacRunnable, HVAC_RESUME_DELAY_MS);
     }
 
     public Map<String, String> getAllCurrentCachedData() {
         return new HashMap<>(dataCache);
     }
 
-    private void OnDataChanged(String key, String value) {
+    /** Cache-only read. Does not hit the vehicle control service. */
+    public String peekCachedData(String key) {
+        return dataCache.get(key);
+    }
+
+    /**
+     * Normalizes telemetry values before caching and dispatching.
+     * Delegates to {@link BatteryVoltageFilter}.
+     */
+    static String normalizeTelemetryValue(String key, String value) {
+        return BatteryVoltageFilter.normalize(key, value);
+    }
+
+    public void dispatchTelemetryOnly(String key, String value) {
+        if (key == null || value == null) return;
+        value = normalizeTelemetryValue(key, value);
+        if (key.equals(CarConstants.SYS_AVM_PREVIEW_STATUS.getValue())) {
+            DisplayAppLauncher.INSTANCE.onAndroidAutoCameraPreviewStatus(value);
+        }
+        // Internal package-scoped broadcasts for havalshisuku UI components
         Intent broadcastIntent = new Intent("android.intent.haval." + key);
+        broadcastIntent.putExtra("key", key);
         broadcastIntent.putExtra("value", value);
+        broadcastIntent.setPackage(App.getContext().getPackageName());
         App.getContext().sendBroadcast(broadcastIntent);
-        broadcastIntent = new Intent("android.intent.haval." + key + "_" + value);
-        App.getContext().sendBroadcast(broadcastIntent);
+
+        Intent broadcastValueIntent = new Intent("android.intent.haval." + key + "_" + value);
+        broadcastValueIntent.setPackage(App.getContext().getPackageName());
+        App.getContext().sendBroadcast(broadcastValueIntent);
+
+        // Public broadcast for external apps (e.g. 3D Viewer)
+        Intent publicIntent = new Intent("com.haval.vehicle.EVENT_CHANGED");
+        publicIntent.putExtra("key", key);
+        publicIntent.putExtra("value", value);
+        App.getContext().sendBroadcast(publicIntent);
+
         for (IDataChanged listener : new ArrayList<>(dataChangedListeners)) {
             try {
                 listener.onDataChanged(key, value);
@@ -895,7 +2601,84 @@ public class ServiceManager {
             }
         }
         dataCache.put(key, value);
+        maybePublishPowerFlow(key);
+    }
+
+    /**
+     * Recompute the derived hybrid flow after a raw CAN write. Synthetic
+     * keys must not re-enter. RPM is hot; only dispatch when the packed
+     * mode string actually changes.
+     */
+    private void maybePublishPowerFlow(String key) {
+        if (PowerFlow.KEY_FLOW.equals(key) || PowerFlow.KEY_ICE.equals(key)) return;
         try {
+            PowerFlow flow = powerFlowTracker.ingest(key, dataCache);
+            if (flow == null) return;
+            dispatchTelemetryOnly(PowerFlow.KEY_FLOW, flow.pack());
+            dispatchTelemetryOnly(PowerFlow.KEY_ICE, flow.getIceOn() ? "1" : "0");
+        } catch (Exception e) {
+            Log.w(TAG, "power flow derive failed", e);
+        }
+    }
+
+    public void OnDataChanged(String key, String value) {
+        if (key != null && key.contains("door")) {
+            Log.w(TAG, "[DOOR_DEBUG] key=" + key + " value=" + value);
+        }
+        if (value != null) {
+            String normalized = BatteryVoltageFilter.normalize(key, value);
+            if (BatteryVoltageFilter.shouldSuppress(key, normalized, dataCache.get(key))) {
+                return;
+            }
+            value = normalized;
+        }
+        dispatchTelemetryOnly(key, value);
+        // Antes de qualquer gate: com o Modo Concessionária ativo esta é a porta de saída, e ela
+        // não pode depender de nada que o modo tenha desligado.
+        try {
+            handleStealthExitTurnSignal(key, value);
+        } catch (Exception e) {
+            Log.e(TAG, "Error in stealth exit turn-signal detection", e);
+        }
+        if (!servicesInitialized) {
+            return;
+        }
+        // ===== GATE do Modo Concessionária =====
+        // Com o modo ativo NENHUMA automação de CAN age (cortina, ventilação, brilho, BT/hotspot,
+        // AVM, HEV, janelas/teto...). A telemetria acima continua rodando de propósito: ela só
+        // alimenta a UI/tema/listeners internos, não escreve nada no carro.
+        //
+        // ISENÇÃO DAS TECLAS DO VOLANTE: elas NÃO passam por aqui. Chegam pelo callback separado
+        // IInputListener.dispatchKeyEvent (com.beantechs.inputservice), onde a sequência de saída
+        // é avaliada como primeiríssima etapa. Por isso este gate não pode trancar o app fora.
+        if (StealthModeManager.isActive()) {
+            return;
+        }
+        try {
+            if (key.equals(CarConstants.SYS_AVM_PREVIEW_STATUS.getValue())) {
+                if (DisplayAppLauncher.INSTANCE.isAndroidAutoOnDisplay(3)) {
+                    Log.w(TAG, "Skipping projection guard for AVM_PREVIEW_STATUS_" + value + " because Android Auto is active on D3");
+                    if (value.equals("1")) {
+                        DisplayAppLauncher.INSTANCE.pulseAndroidAutoFocusDuringNativePanel("AVM_PREVIEW_STATUS_" + value);
+                    } else if (value.equals("0")) {
+                        DisplayAppLauncher.INSTANCE.pulseAndroidAutoFocusAfterNativePanelExit("AVM_PREVIEW_STATUS_" + value);
+                    }
+                } else {
+                    DisplayAppLauncher.INSTANCE.preserveCarPlayClusterContract("AVM_PREVIEW_STATUS_" + value);
+                    DisplayAppLauncher.INSTANCE.preserveAndroidAutoNativePanelContract("AVM_PREVIEW_STATUS_" + value);
+                }
+            }
+            if (key.equals(CarConstants.CAR_HVAC_PANEL_DISPLAY_NOTIFY.getValue())) {
+                if (DisplayAppLauncher.INSTANCE.isAndroidAutoOnDisplay(3)) {
+                    Log.w(TAG, "Skipping projection guard for HVAC_PANEL_DISPLAY_" + value + " because Android Auto is active on D3");
+                } else {
+                    DisplayAppLauncher.INSTANCE.preserveCarPlayClusterContract("HVAC_PANEL_DISPLAY_" + value);
+                    DisplayAppLauncher.INSTANCE.preserveAndroidAutoNativePanelContract("HVAC_PANEL_DISPLAY_" + value);
+                }
+            }
+            // if (key.equals(CarConstants.BEAN_PUI_SCENE_NOTIFY.getValue())) {
+            //     maybeCounterPulseSceneNotify(value);
+            // }
             if (key.equals(CarConstants.CAR_FRS_SETTING_DISTRACTION_DETECTION_ENABLE.getValue()) && value.equals("1")) {
                 boolean isForceDisableMonitoring = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_MONITORING.getKey(), false);
                 if (isForceDisableMonitoring) {
@@ -918,20 +2701,62 @@ public class ServiceManager {
                 if (closeSunRoofOnPowerOff) {
                     closeSunRoof(true);
                 }
-            } else if ((key.equals(CarConstants.CAR_DRIVE_SETTING_OUTSIDE_VIEW_MIRROR_FOLD_STATE.getValue()) && value.equals("0"))) {
-                var speedValue = Float.parseFloat(getUpdatedData(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue()));
-                var currentGear = getUpdatedData(CarConstants.CAR_BASIC_GEAR_STATUS.getValue());
-                if (speedValue > 0 || !currentGear.equals("3")) {
-                    Log.w(TAG, "Ignoring mirror fold event due to speed or gear state");
+            } else if (key.equals(CarConstants.CAR_BASIC_DOOR_LOCK_STATUS.getValue()) && value.equals("1")) {
+                // 1 = TRANCADO, 3 = destrancado. Medido no carro (seis transicoes alternando com o
+                // dono trancando e destrancando), nao deduzido do nome.
+                //
+                // DOIS guardas, e cada um responde uma pergunta diferente: o carro esta desligado?
+                // o carro esta parado? A marcha em P saiu daqui de proposito — ela vinha do galho do
+                // retrovisor, que NAO tinha verificacao de ignicao nenhuma e precisava dela como
+                // aproximacao de "estacionou". Com o estado de ignicao sendo consultado de verdade,
+                // P nao acrescenta caso que os outros dois nao cubram: carro desligado e com
+                // velocidade zero nao esta indo a lugar nenhum.
+                //
+                // Por que os guardas existem: o carro TRANCA SOZINHO ao atingir velocidade
+                // (car.door_lock_setting.locked_by_speed), e da pra trancar pelo botao interno com
+                // gente dentro. Sem eles, esta funcao fecharia vidro em quem esta no carro.
+                //
+                // NULO NAO E PERMISSAO. getUpdatedData devolve null com o canal de controle fora, e
+                // fazer parseFloat/equals direto no retorno estoura NullPointerException — que
+                // aborta o handler INTEIRO em silencio (o try/catch externo evita o crash, so que o
+                // resto do tratamento daquele evento nunca roda). Leitura que falhou BLOQUEIA a
+                // acao, como ja vale pro estado de ignicao logo abaixo.
+                String lockSpeedRaw = getUpdatedData(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue());
+                Float lockSpeed = null;
+                if (lockSpeedRaw != null) {
+                    try {
+                        lockSpeed = Float.parseFloat(lockSpeedRaw.trim());
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+                if (lockSpeed == null || lockSpeed > 0) {
+                    Log.w(TAG, "Ignoring lock event: vehicle not confirmed stopped (speed=" + lockSpeedRaw + ")");
                     return;
                 }
-                boolean closeWindowOnFoldMirror = sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_WINDOW_ON_FOLD_MIRROR.getKey(), false);
-                if (closeWindowOnFoldMirror) {
+                // Carro LIGADO nao e "estou saindo": trancar com o motorista dentro (o carro tranca
+                // sozinho, e da pra trancar pelo botao interno) nao pode fechar os vidros na cara de
+                // ninguem. Leitura FORCADA, nao o cache: este arquivo ja registra que o cache de
+                // driving_ready fica defasado no boot e chegou a re-desligar o BT por isso.
+                //
+                // Exige explicitamente o estado DESLIGADO em vez de "nao ligado": vazio nao e nem um
+                // nem outro, e leitura que falhou nao pode virar permissao para mexer em vidro.
+                String lockReadyState = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
+                if (!isVehicleReadyStateOff(lockReadyState)) {
+                    Log.w(TAG, "Ignoring lock event: vehicle not confirmed off (readyState=" + lockReadyState + ")");
+                    return;
+                }
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_WINDOW_ON_LOCK.getKey(), false)) {
                     closeAllWindow();
                 }
-                boolean closeSunRoofOnFoldMirror = sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_FOLD_MIRROR.getKey(), false);
-                if (closeSunRoofOnFoldMirror) {
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_LOCK.getKey(), false)) {
                     closeSunRoof(true);
+                }
+                // BT/hotspot guardam o estado pra religar quando o carro voltar a ligar.
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_LOCK.getKey(), false)) {
+                    shutdownBluetoothForRestore("LOCK");
+                }
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_LOCK.getKey(), false)) {
+                    shutdownWifiTetherForRestore();
                 }
             } else if (key.equals(CarConstants.CAR_BASIC_VEHICLE_SPEED.getValue())) {
                 float currentSpeed = Float.parseFloat(value);
@@ -967,45 +2792,136 @@ public class ServiceManager {
                     delayNextAVM = false;
                 }
             } else if (key.equals(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue())) {
-                if ((value.equals("-1") || value.equals("0"))) {
-                    boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
-                    boolean currentBluetoothState = currentBluetoothState();
-                    if (currentBluetoothState && disableBluetoothOnPowerOff) {
-                        sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), true).apply();
-                        disableBluetooth();
+                if (isVehicleReadyStateOff(value)) {
+                    carPoweredOff = true;
+                    rearmCurtainForNextIgnition();
+                    if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false)) {
+                        shutdownBluetoothForRestore("POWER_OFF");
                     }
-                    boolean disableHotspotOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false);
-                    if (disableHotspotOnPowerOff) {
-                        disableWifiTether();
+                    if (sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.getKey(), false)) {
+                        shutdownWifiTetherForRestore();
+                    }
+                    if (isMaxAcActive) {
+                        cancelMaxAcMode();
                     }
                 } else {
-                    boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
-                    boolean bluetoothStateOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false);
-                    if (disableBluetoothOnPowerOff && bluetoothStateOnPowerOff && !currentBluetoothState()) {
-                        enableBluetooth();
-                    }
-                    if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), true)) {
+                    carPoweredOff = false;
+                    // Religa BT/hotspot que NÓS desligamos (por power-off OU ao trancar o carro),
+                    // com delay+retry: no power-on o adapter/serviços podem não estar prontos ainda.
+                    restoreBluetoothIfWasDisabled("POWER_ON_EVENT");
+                    restoreWifiTetherIfWasDisabled();
+                    if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), false)) {
                         if (!isMaxAcActive) enableMaxAcOn();
                     }
+                    // Ao ligar o carro, reaplica o % de bateria do HEV Prioritario (o carro costuma resetar).
+                    applyHevSocTargetIfActive("POWER_ON");
+                    // Carro pronto: é aqui que a cortina pode ser comandada com o módulo do teto acordado.
+                    // Os dois convivem: o trigger consome (uma vez só) o armamento do boot; a partir
+                    // daí ele é no-op e quem atua nas partidas seguintes é o "a cada ignição".
+                    triggerStartupCurtainAutomation("driving_ready_event");
+                    evaluateCurtainOnIgnition();
                 }
-            } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("1") && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
-                updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
-            } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("0") && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
-                updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "0");
-            } else if (key.equals(CarConstants.CAR_BASIC_INSIDE_TEMP.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), true)) {
+            } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
+                syncDriverSeatVentilationWithHvac(value, "HVAC_POWER_EVENT");
+            } else if (key.equals(CarConstants.CAR_BASIC_INSIDE_TEMP.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), false)) {
                 if (isMaxAcActive) updateMaxAcSmoothing();
+            } else if (key.equals(CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.getValue())) {
+                // O carro (ou o usuario) alterou o % alvo de bateria do HEV. Se a persistencia estiver
+                // ligada e o sub-modo for Prioritario, reaplica o valor que o usuario escolheu.
+                applyHevSocTargetIfActive("SOC_CHANGED");
+            } else if (key.equals(CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG.getValue()) && value.trim().equals("2")) {
+                // Entrou em HEV Prioritario -> aplica o % desejado.
+                applyHevSocTargetIfActive("ENTER_PRIORITARIO");
+            } else if (key.equals(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.getValue()) && value.trim().equals("0")) {
+                // Mudou de EV para HEV -> reaplica o % desejado (o carro costuma cair pra 20%).
+                // applyHevSocTargetIfActive se auto-gateia (so atua em HEV Prioritario + persistencia ON).
+                applyHevSocTargetIfActive("ENTER_HEV");
             }
         } catch (Exception e) {
             Log.e(TAG, "Error in OnDataChanged", e);
         }
     }
 
+    // Reaplica o % de bateria escolhido pelo usuario no HEV Prioritario, caso o carro o tenha
+    // alterado sozinho. So atua quando a persistencia esta ligada E o carro JA esta em HEV
+    // Prioritario (modo HEV + sub-modo Prioritario). NUNCA escreve o modo nem o sub-modo: se nao
+    // estiver exatamente em HEV Prioritario, sai sem fazer nada (o modo quem define e o usuario no
+    // carro). O eco da propria escrita nao re-dispara (current == desired).
+    // Monitor periódico: reaplica o % salvo enquanto o carro estiver em HEV Prioritário. É a rede de
+    // segurança para eventos perdidos (power-on com app subindo tarde, corrida ao entrar no modo,
+    // carro resetando o valor). Auto-gateado por applyHevSocTargetIfActive (retorna rápido se a
+    // persistência estiver desligada ou fora de HEV Prioritário) e idempotente (só escreve se drift).
+    private void startHevSocMonitor() {
+        if (backgroundHandler == null) return;
+        if (hevSocMonitorRunnable != null) {
+            backgroundHandler.removeCallbacks(hevSocMonitorRunnable);
+        }
+        hevSocMonitorRunnable = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    applyHevSocTargetIfActive("MONITOR");
+                } catch (Exception e) {
+                    Log.e(TAG, "HEV SOC monitor tick failed", e);
+                } finally {
+                    // Só o runnable corrente reagenda (no restart o handler é recriado e este é trocado).
+                    if (backgroundHandler != null && hevSocMonitorRunnable == this) {
+                        backgroundHandler.postDelayed(this, HEV_SOC_MONITOR_INTERVAL_MS);
+                    }
+                }
+            }
+        };
+        backgroundHandler.postDelayed(hevSocMonitorRunnable, HEV_SOC_MONITOR_INTERVAL_MS);
+    }
+
+    public void applyHevSocTargetIfActive(String reason) {
+        try {
+            if (!sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_PERSIST_HEV_SOC_TARGET.getKey(), false)) {
+                return;
+            }
+            // 1) tem que estar em HEV (power_model_config == 0). Em EV/Prioridade EV, nao mexe em nada.
+            String driveMode = getUpdatedData(CarConstants.CAR_EV_SETTING_POWER_MODEL_CONFIG.getValue());
+            if (driveMode == null || !driveMode.trim().equals("0")) {
+                return;
+            }
+            // 2) e o sub-modo tem que ser Prioritario (power_reserve_config == 2).
+            String subMode = getUpdatedData(CarConstants.CAR_EV_SETTING_POWER_RESERVE_CONFIG.getValue());
+            if (subMode == null || !subMode.trim().equals("2")) {
+                return;
+            }
+            int desired = sharedPreferences.getInt(SharedPreferencesKeys.HEV_SOC_TARGET_VALUE.getKey(), 50);
+            String currentStr = getUpdatedData(CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.getValue());
+            // Sem leitura válida do valor atual, NÃO escreve às cegas (evita reescrever quando o
+            // control service piscou). Mesmo padrão dos gates de driveMode/subMode acima.
+            if (currentStr == null) {
+                return;
+            }
+            int current = Integer.MIN_VALUE;
+            try { current = Integer.parseInt(currentStr.trim()); } catch (Exception ignored) {}
+            if (current != desired) {
+                updateData(CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.getValue(), String.valueOf(desired));
+                Log.w(TAG, "[HEV-SOC " + reason + "] alvo estava " + current + ", reaplicado " + desired);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "applyHevSocTargetIfActive falhou", e);
+        }
+    }
+
+    // Define o % alvo do HEV Prioritario a partir da UI (barra estendida/config): salva a pref
+    // e escreve no carro. Clampa em 20..80.
+    public void setHevSocTargetValue(int value) {
+        int v = Math.max(20, Math.min(80, value));
+        sharedPreferences.edit().putInt(SharedPreferencesKeys.HEV_SOC_TARGET_VALUE.getKey(), v).apply();
+        updateData(CarConstants.CAR_EV_SETTING_CHARGE_SOC_TARGET_CONFIG.getValue(), String.valueOf(v));
+        Log.w(TAG, "[HEV-SOC UI_SET] alvo definido = " + v);
+    }
+
     public boolean closeAllWindow() {
         try {
             int[] windowsStatus = vehicle.getWindowsStatus(0);
             for (int i = 0; i < windowsStatus.length; i++) {
-                if (windowsStatus[i] != 1) {
-                    vehicle.setWindowStatus(i, 1);
+                if (windowsStatus[i] != WINDOW_CLOSED) {
+                    vehicle.setWindowStatus(i, WINDOW_CLOSED);
                 }
             }
             return true;
@@ -1015,9 +2931,49 @@ public class ServiceManager {
         }
     }
 
+    /**
+     * IVehicle mirror fold: 0 = folded, 1 = unfolded.
+     * Commented out 2026-09-10: on this GWM config the binder call succeeds
+     * ({@code ok=true}) but never changes
+     * {@code car.drive.setting.outside_view_mirror_fold_state}. Voice-adapter
+     * {@code isSupportRearViewMirrorFold} also requires
+     * {@code persist.vendor.gwm.cfg.osrvm.fold.virtual.sw.control == 1}; even
+     * with that forced to 1 after reboot the set remained a no-op.
+     */
+    // public boolean foldMirrors() {
+    //     try {
+    //         vehicle.setRearViewMirrorFoldState(0);
+    //         return true;
+    //     } catch (Exception e) {
+    //         Log.e(TAG, "Error folding mirrors", e);
+    //         return false;
+    //     }
+    // }
+    //
+    // public boolean unfoldMirrors() {
+    //     try {
+    //         vehicle.setRearViewMirrorFoldState(1);
+    //         return true;
+    //     } catch (Exception e) {
+    //         Log.e(TAG, "Error unfolding mirrors", e);
+    //         return false;
+    //     }
+    // }
+    //
+    // public boolean toggleMirrors() {
+    //     try {
+    //         int state = vehicle.getRearViewMirrorFoldState();
+    //         vehicle.setRearViewMirrorFoldState(state == 0 ? 1 : 0);
+    //         return true;
+    //     } catch (Exception e) {
+    //         Log.e(TAG, "Error toggling mirrors", e);
+    //         return false;
+    //     }
+    // }
+
     public void closeSunRoof(boolean checkCloseShade) {
         try {
-            var sunRoofStatus = vehicle.getSkylightLevel(0);
+            int sunRoofStatus = vehicle.getSkylightLevel(0);
             if (sunRoofStatus != 0) {
                 vehicle.setSkylightLevel(0);
             }
@@ -1031,7 +2987,7 @@ public class ServiceManager {
 
     public void closeSunRoofShade() {
         try {
-            var sunRoofBlockStatus = vehicle.getShadeScreensLevel(0);
+            int sunRoofBlockStatus = vehicle.getShadeScreensLevel(0);
             if (sunRoofBlockStatus != 0) {
                 vehicle.setShadeScreensLevel(0);
             }
@@ -1040,41 +2996,670 @@ public class ServiceManager {
         }
     }
 
+    /**
+     * Trace durável do fluxo da cortina. O logcat deste device não serve p/ pós-mortem:
+     * não há logd persistente e o buffer compartilhado rola em ~5min, então a decisão
+     * tomada no boot já sumiu quando o problema é percebido. Vai p/ cluster-diagnostics.
+     */
+    private void traceCurtain(String event, Object... keyValues) {
+        Map<String, Object> details = new HashMap<>();
+        for (int i = 0; i + 1 < keyValues.length; i += 2) {
+            details.put(String.valueOf(keyValues[i]), keyValues[i + 1]);
+        }
+        ClusterPersistentEventLogger.log(event, details);
+    }
+
+    public void openSunRoofShade() {
+        try {
+            int sunRoofBlockStatus = vehicle.getShadeScreensLevel(0);
+            if (sunRoofBlockStatus != 100) {
+                vehicle.setShadeScreensLevel(100);
+                Log.w(TAG, "Opening sunroof curtain");
+                traceCurtain("sunroof_curtain_actuate", "levelBefore", sunRoofBlockStatus, "action", "set_100");
+            } else {
+                Log.w(TAG, "Sunroof curtain already open, nothing to do");
+                traceCurtain("sunroof_curtain_actuate", "levelBefore", sunRoofBlockStatus, "action", "already_open");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening shade screens", e);
+            traceCurtain("sunroof_curtain_actuate_error", "error", String.valueOf(e));
+        }
+    }
+
+    /**
+     * Hotspot / viewer body commands. Returns false when the vehicle binder is
+     * not ready or the command is unknown.
+     */
+    public boolean invokeVehicleCommand(String command, String value) {
+        if (command == null || command.isEmpty()) return false;
+        if (vehicle == null) {
+            Log.w(TAG, "invokeVehicleCommand: vehicle binder not ready (" + command + ")");
+            return false;
+        }
+        try {
+            switch (command) {
+                case "open_windows":
+                    return openAllWindows();
+                case "close_windows":
+                    return closeAllWindow();
+                case "toggle_windows":
+                    return toggleAllWindows();
+                case "toggle_window_fl":
+                    return toggleWindow(0);
+                case "toggle_window_fr":
+                    return toggleWindow(1);
+                case "toggle_window_rl":
+                    return toggleWindow(2);
+                case "toggle_window_rr":
+                    return toggleWindow(3);
+                case "open_sunroof":
+                    return setSunroofLevel(100);
+                case "close_sunroof":
+                    closeSunRoof(false);
+                    return true;
+                case "toggle_sunroof":
+                    return toggleSunRoof();
+                case "open_curtain":
+                    openSunRoofShade();
+                    return true;
+                case "close_curtain":
+                    closeSunRoofShade();
+                    return true;
+                case "toggle_curtain":
+                    return toggleCurtain();
+                case "set_curtain_level":
+                    return setCurtainLevel(parseLevel(value));
+                case "set_sunroof_level":
+                    return setSunroofLevel(parseLevel(value));
+                case "set_windows_level":
+                    return setWindowsLevel(parseLevel(value));
+                case "toggle_trunk":
+                    return toggleDoor(5);
+                case "toggle_door_fl":
+                    return toggleDoor(0);
+                case "toggle_door_fr":
+                    return toggleDoor(1);
+                case "toggle_door_rl":
+                    return toggleDoor(2);
+                case "toggle_door_rr":
+                    return toggleDoor(3);
+                case "toggle_doors_all":
+                    return toggleAllDoors();
+                // case "fold_mirrors":
+                //     return foldMirrors();
+                // case "unfold_mirrors":
+                //     return unfoldMirrors();
+                // case "toggle_mirrors":
+                //     return toggleMirrors();
+                default:
+                    Log.w(TAG, "Unknown vehicle command: " + command);
+                    return false;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "invokeVehicleCommand failed: " + command, e);
+            return false;
+        }
+    }
+
+    private static int parseLevel(String value) {
+        if (value == null || value.isEmpty()) return 0;
+        try {
+            return Math.max(0, Math.min(100, Integer.parseInt(value.trim())));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Window vocabulary, measured on the car 2026-09-09 by moving the driver window by hand and
+     * reading car.basic.window_status after each position:
+     *
+     *   1 = closed        2 = fully open        3 = partially open
+     *
+     * Index 0 is the driver window (only slot 0 moved). This method used to write 0 to open, which
+     * is not in that vocabulary at all: sending open_windows left {1,1,1,1} untouched, while
+     * close_windows (writing 1) closed a fully open window in the same session. So the command side
+     * speaks the same vocabulary as the status side, and "open" is 2.
+     *
+     * setWindowStatus is a passthrough - the voice adapter packs {index,status} into
+     * car.basic.window_control_action - so nothing below the adapter constrains these values.
+     */
+    public static final int WINDOW_CLOSED = 1;
+    public static final int WINDOW_OPEN = 2;
+    public static final int WINDOW_PARTIAL = 3;
+
+    /**
+     * Windows have no intermediate position, so a "level" can only ever mean open or shut.
+     *
+     * There is no stop command. Measured on the car 2026-09-09 by interrupting a 2.5s travel at
+     * 1000ms and sampling window_status every 500ms afterwards: repeating the same command is
+     * ignored, the opposite command reverses and runs to completion, and raw 0 (the moving state),
+     * 3 (partially open) and 4 (out of range) were all ignored. Every run finished its travel.
+     *
+     * So timed positioning - open for 40% of travel, then halt - is impossible, and a percentage
+     * cannot be honoured. The threshold keeps a dragged UI control meaningful: past halfway opens,
+     * below it closes.
+     */
+    public boolean setWindowsLevel(int level) {
+        return level >= 50 ? openAllWindows() : closeAllWindow();
+    }
+
+    /**
+     * One corner. Slot order is front-left, front-right, rear-left, rear-right, confirmed on the
+     * car because only slot 0 moved while the driver's window did.
+     *
+     * Anything not CLOSED shuts, so a partially open window (3) closes rather than opening
+     * further - there is no "open a bit more" to ask for. A corner reading 0 is mid-travel; the
+     * car ignores commands during travel anyway, so this reports false instead of pretending.
+     */
+    public boolean toggleWindow(int index) {
+        try {
+            int[] windowsStatus = vehicle.getWindowsStatus(0);
+            if (index < 0 || index >= windowsStatus.length) {
+                Log.w(TAG, "toggleWindow: index " + index + " outside " + windowsStatus.length);
+                return false;
+            }
+            int current = windowsStatus[index];
+            if (current == 0) {
+                Log.w(TAG, "toggleWindow(" + index + "): glass is moving, ignoring");
+                return false;
+            }
+            int target = current == WINDOW_CLOSED ? WINDOW_OPEN : WINDOW_CLOSED;
+            Log.w(TAG, "toggleWindow(" + index + "): " + current + " -> " + target);
+            vehicle.setWindowStatus(index, target);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "toggleWindow failed for index " + index, e);
+            return false;
+        }
+    }
+
+    public boolean openAllWindows() {
+        try {
+            int[] windowsStatus = vehicle.getWindowsStatus(0);
+            for (int i = 0; i < windowsStatus.length; i++) {
+                if (windowsStatus[i] != WINDOW_OPEN) {
+                    vehicle.setWindowStatus(i, WINDOW_OPEN);
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening all windows", e);
+            return false;
+        }
+    }
+
+    /** Anything not CLOSED counts as open, so a partially open window (3) toggles shut. */
+    public boolean toggleAllWindows() {
+        try {
+            int[] windowsStatus = vehicle.getWindowsStatus(0);
+            boolean anyOpen = false;
+            for (int status : windowsStatus) {
+                if (status != WINDOW_CLOSED) {
+                    anyOpen = true;
+                    break;
+                }
+            }
+            for (int i = 0; i < windowsStatus.length; i++) {
+                vehicle.setWindowStatus(i, anyOpen ? WINDOW_CLOSED : WINDOW_OPEN);
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling windows", e);
+            return false;
+        }
+    }
+
+    public boolean toggleSunRoof() {
+        try {
+            int level = vehicle.getSkylightLevel(0);
+            if (level != 0) {
+                vehicle.setSkylightLevel(0);
+            } else {
+                vehicle.setSkylightLevel(100);
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling sunroof", e);
+            return false;
+        }
+    }
+
+    public boolean toggleCurtain() {
+        try {
+            int level = vehicle.getShadeScreensLevel(0);
+            if (level > 50) {
+                closeSunRoofShade();
+            } else {
+                openSunRoofShade();
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling curtain", e);
+            return false;
+        }
+    }
+
+    /** 0–100 UI percent → skylight level (0 / tilt up to 200 / slide up to 100). */
+    public boolean setCurtainLevel(int pct) {
+        try {
+            vehicle.setShadeScreensLevel(pct);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting curtain level", e);
+            return false;
+        }
+    }
+
+    public boolean setSunroofLevel(int pct) {
+        try {
+            int level;
+            if (pct <= 0) {
+                level = 0;
+            } else if (pct <= 25) {
+                level = Math.round(200f * pct / 25f);
+            } else {
+                level = Math.round(100f * (pct - 25f) / 75f);
+            }
+            vehicle.setSkylightLevel(level);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting sunroof level", e);
+            return false;
+        }
+    }
+
+    /**
+     * Door slot matches the viewer's CAR_DOOR_SLOTS (trunk = 5). param2 is
+     * 1 = open, 0 = closed on the voice-adapter binder.
+     */
+    public boolean toggleDoor(int slot) {
+        try {
+            int open = vehicle.isDoorOpened(slot, 0, 0);
+            vehicle.setDoorOpen(slot, open == 1 ? 0 : 1);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling door slot " + slot, e);
+            return false;
+        }
+    }
+
+    /** Toggle only the four passenger doors; the tailgate remains independent. */
+    public boolean toggleAllDoors() {
+        try {
+            boolean anyOpen = false;
+            for (int slot = 0; slot < 4; slot++) {
+                if (vehicle.isDoorOpened(slot, 0, 0) == 1) {
+                    anyOpen = true;
+                    break;
+                }
+            }
+            int target = anyOpen ? 0 : 1;
+            for (int slot = 0; slot < 4; slot++) {
+                vehicle.setDoorOpen(slot, target);
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling all doors", e);
+            return false;
+        }
+    }
+
+    /**
+     * Arma a automação da cortina sem comandar nada agora. Não faz trabalho nenhum no boot:
+     * só marca a flag e agenda dois timers. Quem disparar primeiro (evento de driving_ready,
+     * leitura tardia ou fallback) consome o armamento via compareAndSet.
+     */
+    private void armStartupCurtainAutomation() {
+        if (backgroundHandler == null) return;
+        curtainAutomationArmed.set(true);
+        traceCurtain("sunroof_curtain_armed", "settleMs", CURTAIN_SETTLE_AFTER_READY_MS,
+                "readyCheckMs", CURTAIN_READY_CHECK_DELAY_MS, "fallbackMs", CURTAIN_ARM_FALLBACK_MS);
+
+        // Carro já ligado quando o app subiu: a transição não vem, então confere ao vivo mais tarde.
+        backgroundHandler.postDelayed(() -> {
+            if (!curtainAutomationArmed.get()) return;
+            String readyState = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
+            if (isVehicleReadyStateOn(readyState)) {
+                triggerStartupCurtainAutomation("driving_ready_poll");
+            } else {
+                traceCurtain("sunroof_curtain_wait", "readyState", readyState);
+            }
+        }, CURTAIN_READY_CHECK_DELAY_MS);
+
+        backgroundHandler.postDelayed(() -> triggerStartupCurtainAutomation("fallback_timeout"), CURTAIN_ARM_FALLBACK_MS);
+    }
+
+    /**
+     * Consome o armamento (uma vez só) e, após o settle, faz a primeira avaliação da agenda de
+     * abrir/fechar (evaluateCurtainSchedule), que então se reagenda sozinha.
+     */
+    private void triggerStartupCurtainAutomation(String trigger) {
+        if (!curtainAutomationArmed.compareAndSet(true, false)) return;
+        hasRunStartupCurtainAutomation = true;
+        traceCurtain("sunroof_curtain_trigger", "trigger", trigger, "settleMs", CURTAIN_SETTLE_AFTER_READY_MS);
+        backgroundHandler.removeCallbacks(curtainScheduleRunnable);
+        backgroundHandler.postDelayed(curtainScheduleRunnable, CURTAIN_SETTLE_AFTER_READY_MS);
+    }
+
+    private void autoOpenSunroofCurtain(int attempt) {
+        Calendar now = Calendar.getInstance();
+        float outsideTemp = 99;
+        int currentHour = now.get(Calendar.HOUR_OF_DAY);
+        int currentMinute = now.get(Calendar.MINUTE);
+        int currentTime = currentHour * 60 + currentMinute;
+
+        int startHour = sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_START_HOUR.getKey(), 18);
+        int startMinute = sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_START_MINUTE.getKey(), 0);
+        int startTime = startHour * 60 + startMinute;
+
+        int endHour = sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_END_HOUR.getKey(), 9);
+        int endMinute = sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_END_MINUTE.getKey(), 0);
+        int endTime = endHour * 60 + endMinute;
+
+        boolean isTimeInRange = false;
+        if (startTime < endTime) {
+            isTimeInRange = currentTime >= startTime && currentTime < endTime;
+        } else {
+            // Wraps around midnight
+            isTimeInRange = currentTime >= startTime || currentTime < endTime;
+        }
+
+        String window = startHour + ":" + startMinute + "-" + endHour + ":" + endMinute;
+        traceCurtain("sunroof_curtain_check", "attempt", attempt, "now", currentHour + ":" + currentMinute,
+                "window", window, "timeInRange", isTimeInRange);
+
+        // Horário fora da janela é definitivo: não adianta esperar leitura de temperatura.
+        if (!isTimeInRange) {
+            Log.w(TAG, "Current time " + currentHour + ":" + currentMinute + " not in range (" + startHour + ":" + startMinute + " - " + endHour + ":" + endMinute + "), not opening curtain");
+            traceCurtain("sunroof_curtain_skip", "reason", "time_out_of_range", "now", currentHour + ":" + currentMinute, "window", window);
+            return;
+        }
+
+        // maxTemp == -1 => checagem de temperatura "Desabilitada" na UI: só o horário manda.
+        float maxTemp = sharedPreferences.getFloat(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_MAX_TEMP.getKey(), -1f);
+        boolean isTempInRange = true;
+        if (maxTemp != -1f) {
+            Float reading = readOutsideTempForCurtain();
+            if (reading == null) {
+                // Dado ainda não disponível: reagenda em vez de desistir (ver CURTAIN_TEMP_*).
+                boolean willRetry = attempt + 1 < CURTAIN_TEMP_MAX_ATTEMPTS;
+                traceCurtain("sunroof_curtain_temp_unavailable", "attempt", attempt, "willRetry", willRetry);
+                if (willRetry) {
+                    backgroundHandler.postDelayed(() -> autoOpenSunroofCurtain(attempt + 1), CURTAIN_TEMP_RETRY_MS);
+                } else {
+                    Log.w(TAG, "Outside temp still unavailable after " + CURTAIN_TEMP_MAX_ATTEMPTS + " attempts, not opening curtain");
+                    traceCurtain("sunroof_curtain_skip", "reason", "temp_unavailable", "attempts", CURTAIN_TEMP_MAX_ATTEMPTS);
+                }
+                return;
+            }
+            outsideTemp = reading;
+            isTempInRange = outsideTemp <= maxTemp;
+        }
+
+        // Ambas as condições precisam valer (horário E temperatura); temperatura desabilitada = neutra.
+        if (isTempInRange) {
+            Log.w(TAG, "Opening curtain: time " + currentHour + ":" + currentMinute + " in range, outside temp " + outsideTemp + " <= " + maxTemp + " (attempt " + attempt + ")");
+            traceCurtain("sunroof_curtain_open", "attempt", attempt, "now", currentHour + ":" + currentMinute,
+                    "outsideTemp", outsideTemp, "maxTemp", maxTemp);
+            // Delay slightly to ensure services are fully ready or just triggering command
+            backgroundHandler.postDelayed(this::openSunRoofShade, 2000);
+        } else {
+            Log.w(TAG, "Outside temp " + outsideTemp + " > max configured " + maxTemp + ", not opening curtain");
+            traceCurtain("sunroof_curtain_skip", "reason", "temp_above_max", "outsideTemp", outsideTemp, "maxTemp", maxTemp);
+        }
+    }
+
+    /**
+     * Sentinelas de "sinal indisponível/erro" do outside_temp. Sob a escala usual deste
+     * barramento (C = raw * 0.5 - 40), 87.0 e 87.5 são exatamente os raws 254 (0xFE) e
+     * 255 (0xFF) — os codigos classicos de "nao disponivel"/"erro", nao uma temperatura.
+     * Aparecem so em boot frio: em 3 dias de log, todas as leituras reais ficaram entre
+     * 20.5 e 28.0, e as duas unicas fora disso foram 87.0 e 87.5, ambas logo apos o boot.
+     */
+    private static final float[] OUTSIDE_TEMP_INVALID_SENTINELS = {87.0f, 87.5f};
+    private static final float OUTSIDE_TEMP_INVALID_MAX = 85.0f;
+    private static final float OUTSIDE_TEMP_INVALID_MIN = -40.0f;
+
+    /** Leitura de outside_temp p/ a cortina; null quando o dado ainda não veio ou não parseia. */
+    private Float readOutsideTempForCurtain() {
+        String raw = getUpdatedData(CarConstants.CAR_BASIC_OUTSIDE_TEMP.getValue());
+        if (raw == null || raw.trim().isEmpty()) {
+            Log.w(TAG, "Outside temp not available yet for curtain check (raw=" + raw + ")");
+            traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "unavailable");
+            return null;
+        }
+        try {
+            float parsed = Float.parseFloat(raw.trim());
+            // Além dos sentinelas exatos, rejeita a faixa fisicamente impossível — mesma banda que
+            // enableMaxAcOnWithRetry já usa p/ inside_temp. Sem isso um 86/88 passaria como "quente".
+            if (parsed >= OUTSIDE_TEMP_INVALID_MAX || parsed <= OUTSIDE_TEMP_INVALID_MIN) {
+                Log.w(TAG, "Outside temp out of plausible range for curtain check (raw=" + raw + ")");
+                traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "out_of_range");
+                return null;
+            }
+            for (float sentinel : OUTSIDE_TEMP_INVALID_SENTINELS) {
+                if (parsed == sentinel) {
+                    // Devolve null de proposito: o chamador ja reagenda (CURTAIN_TEMP_*), que e
+                    // exatamente o que faltava — antes o sentinela parseava, valia como "quente"
+                    // e a cortina era pulada de vez (hasRun fica true e nao tenta mais).
+                    Log.w(TAG, "Outside temp is an invalid sentinel for curtain check (raw=" + raw + ")");
+                    traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "invalid_sentinel");
+                    return null;
+                }
+            }
+            traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "ok", "parsed", parsed);
+            return parsed;
+        } catch (NumberFormatException e) {
+            Log.w(TAG, "Outside temp unparseable for curtain check (raw=" + raw + ")");
+            traceCurtain("sunroof_curtain_temp_read", "raw", raw, "result", "unparseable");
+            return null;
+        }
+    }
+
+    /**
+     * Cortina automática do teto por horário (feature unificada "Conforto & conveniência").
+     * Event-driven: roda no boot e é reagendada p/ o PRÓXIMO boundary de janela
+     * (rescheduleCurtainEvaluation — sem polling), então pega a virada do horário mesmo com o
+     * carro ligado parado. Abrir e Fechar têm janelas próprias. Cada ação dispara UMA vez por
+     * ENTRADA na janela e rearma ao sair — respeita ajuste manual e não refaz a cada disparo.
+     * Fechar tem precedência se as janelas casarem. Temperatura condiciona SOMENTE a abertura.
+     */
+    private void evaluateCurtainSchedule(String trigger) {
+        boolean openEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
+        boolean closeEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CLOSE_SUNROOF_CURTAIN_ON_TIME.getKey(), false);
+        if (!openEnabled && !closeEnabled) return;
+
+        Calendar now = Calendar.getInstance();
+        int t = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE);
+
+        boolean inOpen = openEnabled && isTimeInRange(t,
+                sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_START_HOUR.getKey(), 18),
+                sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_START_MINUTE.getKey(), 0),
+                sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_END_HOUR.getKey(), 9),
+                sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_END_MINUTE.getKey(), 0));
+        boolean inClose = closeEnabled && isTimeInRange(t,
+                sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_START_HOUR.getKey(), 9),
+                sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_START_MINUTE.getKey(), 0),
+                sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_END_HOUR.getKey(), 17),
+                sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_END_MINUTE.getKey(), 0));
+
+        // Rearma ao SAIR da janela (permite disparar de novo na próxima entrada).
+        if (!inOpen) curtainOpenActedThisWindow = false;
+        if (!inClose) curtainCloseActedThisWindow = false;
+
+        // Fechar tem precedência se (config equivocada) as janelas casarem — nunca abrir+fechar juntos.
+        if (inClose && !curtainCloseActedThisWindow) {
+            curtainCloseActedThisWindow = true;
+            traceCurtain("curtain_schedule_act", "trigger", trigger, "action", "close", "nowMin", t);
+            autoCloseSunroofCurtain();
+            return;
+        }
+        if (inOpen && !curtainOpenActedThisWindow) {
+            curtainOpenActedThisWindow = true;
+            traceCurtain("curtain_schedule_act", "trigger", trigger, "action", "open", "nowMin", t);
+            autoOpenSunroofCurtain(0);
+        }
+    }
+
+    /** Fecha a cortina do teto (janela já validada em evaluateCurtainSchedule). Idempotente. */
+    private void autoCloseSunroofCurtain() {
+        Log.w(TAG, "Auto-closing sunroof curtain (schedule)");
+        // Pequeno atraso p/ garantir serviços prontos no boot (igual à abertura).
+        backgroundHandler.postDelayed(this::closeSunRoofShade, 2000);
+    }
+
+    /** Janela [sh:sm, eh:em) com virada de meia-noite. Janela vazia (s==e) = nunca. */
+    /**
+     * Devolve a abertura da cortina ao estado "ainda não agi", uma vez por desligamento.
+     *
+     * A abertura age uma vez por ENTRADA na faixa de horário e rearma ao SAIR dela. Com uma faixa
+     * estreita isso basta. Com uma faixa larga — 01:00 às 23:59, por exemplo — o horário sai da
+     * faixa por 61 minutos de madrugada e mais nada, então na prática a cortina abre uma única vez
+     * na vida do processo, que é o contrário do que "abrir ao ligar" promete. Foi assim que um dono
+     * relatou o problema.
+     *
+     * O rearme acontece no DESLIGAR, não no ligar. Rearmar aqui não abre nada: quem abre é a
+     * avaliação da próxima partida.
+     */
+    private void rearmCurtainForNextIgnition() {
+        if (!isCurtainEveryIgnitionEnabled()) return;
+        curtainOpenActedThisWindow = false;
+        curtainPoweredOffAtMs = System.currentTimeMillis();
+        traceCurtain("sunroof_curtain_rearm", "reason", "power_off");
+    }
+
+    /** Partida do carro: reavalia a faixa, se houve um desligamento antes. */
+    private void evaluateCurtainOnIgnition() {
+        if (!isCurtainEveryIgnitionEnabled()) return;
+        if (curtainPoweredOffAtMs == 0L) return;
+        long parado = System.currentTimeMillis() - curtainPoweredOffAtMs;
+        if (parado < CURTAIN_IGNITION_MIN_OFF_MS) {
+            // Ainda no instante do desligamento: mantém a marca, a partida de verdade vem depois.
+            traceCurtain("sunroof_curtain_ignition_skip", "offMs", parado);
+            return;
+        }
+        curtainPoweredOffAtMs = 0L;
+        traceCurtain("sunroof_curtain_ignition", "offMs", parado);
+        backgroundHandler.removeCallbacks(curtainScheduleRunnable);
+        backgroundHandler.postDelayed(curtainScheduleRunnable, 2000);
+    }
+
+    private boolean isCurtainEveryIgnitionEnabled() {
+        return sharedPreferences.getBoolean(
+                SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_EVERY_IGNITION.getKey(), false)
+                && sharedPreferences.getBoolean(
+                SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
+    }
+
+    private boolean isTimeInRange(int t, int sh, int sm, int eh, int em) {
+        int s = sh * 60 + sm, e = eh * 60 + em;
+        if (s == e) return false;
+        return (s < e) ? (t >= s && t < e) : (t >= s || t < e);
+    }
+
+    /** Reagenda a próxima avaliação p/ o próximo boundary de janela (ou o teto). No-op se desligado. */
+    private void rescheduleCurtainEvaluation() {
+        if (backgroundHandler == null) return;
+        backgroundHandler.removeCallbacks(curtainScheduleRunnable);
+        boolean openEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_OPEN_SUNROOF_CURTAIN_ON_START.getKey(), false);
+        boolean closeEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CLOSE_SUNROOF_CURTAIN_ON_TIME.getKey(), false);
+        if (!openEnabled && !closeEnabled) return; // desligado: não fica acordando
+        long delay = computeCurtainDelayMs(openEnabled, closeEnabled);
+        traceCurtain("curtain_schedule_next", "delayMs", delay);
+        backgroundHandler.postDelayed(curtainScheduleRunnable, delay);
+    }
+
+    /** ms até o próximo boundary (start/end das janelas habilitadas), alinhado ao minuto, com teto. */
+    private long computeCurtainDelayMs(boolean openEnabled, boolean closeEnabled) {
+        Calendar now = Calendar.getInstance();
+        int nowMin = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE);
+        int nowSec = now.get(Calendar.SECOND);
+
+        int[] edges = new int[4];
+        int n = 0;
+        if (openEnabled) {
+            edges[n++] = clampMinuteOfDay(sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_START_HOUR.getKey(), 18),
+                    sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_START_MINUTE.getKey(), 0));
+            edges[n++] = clampMinuteOfDay(sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_END_HOUR.getKey(), 9),
+                    sharedPreferences.getInt(SharedPreferencesKeys.OPEN_SUNROOF_CURTAIN_END_MINUTE.getKey(), 0));
+        }
+        if (closeEnabled) {
+            edges[n++] = clampMinuteOfDay(sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_START_HOUR.getKey(), 9),
+                    sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_START_MINUTE.getKey(), 0));
+            edges[n++] = clampMinuteOfDay(sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_END_HOUR.getKey(), 17),
+                    sharedPreferences.getInt(SharedPreferencesKeys.CLOSE_SUNROOF_CURTAIN_END_MINUTE.getKey(), 0));
+        }
+
+        int bestAheadMin = 24 * 60;
+        for (int i = 0; i < n; i++) {
+            int ahead = ((edges[i] - nowMin) % 1440 + 1440) % 1440;
+            if (ahead == 0) ahead = 1440; // estamos no minuto do boundary: o próximo é o de amanhã
+            if (ahead < bestAheadMin) bestAheadMin = ahead;
+        }
+
+        long delay = (long) bestAheadMin * 60_000L - (long) nowSec * 1000L + 2_000L; // alinha ao minuto +2s
+        if (delay < 5_000L) delay = 5_000L;
+        if (delay > CURTAIN_RESCHEDULE_CAP_MS) delay = CURTAIN_RESCHEDULE_CAP_MS;
+        return delay;
+    }
+
+    private int clampMinuteOfDay(int h, int m) {
+        int v = h * 60 + m;
+        if (v < 0) return 0;
+        if (v > 1439) return 1439;
+        return v;
+    }
+
+    /** Reagenda na hora quando qualquer pref da cortina muda (senão a config nova só valeria no teto). */
+    private void registerCurtainPrefsListener() {
+        if (curtainPrefsListener != null) return;
+        curtainPrefsListener = (prefs, key) -> {
+            if (key != null && key.contains("SunroofCurtain") && backgroundHandler != null) {
+                // Debounce: hora+minuto viram 2 escritas; coalesce e re-avalia/reagenda 1x.
+                backgroundHandler.removeCallbacks(curtainScheduleRunnable);
+                backgroundHandler.postDelayed(curtainScheduleRunnable, 800);
+            }
+        };
+        sharedPreferences.registerOnSharedPreferenceChangeListener(curtainPrefsListener);
+    }
+
     public boolean isTurnLightOn() {
-        var leftTurnLight = getData(CarConstants.CAR_BASIC_LEFT_TURN_SWITCH_STATUS.getValue());
-        var rightTurnLight = getData(CarConstants.CAR_BASIC_RIGHT_TURN_SWITCH_STATUS.getValue());
+        String leftTurnLight = getData(CarConstants.CAR_BASIC_LEFT_TURN_SWITCH_STATUS.getValue());
+        String rightTurnLight = getData(CarConstants.CAR_BASIC_RIGHT_TURN_SWITCH_STATUS.getValue());
         return (leftTurnLight != null && leftTurnLight.equals("1")) || (rightTurnLight != null && rightTurnLight.equals("1"));
     }
 
     public void setMonitoringEnabled(boolean b) {
-        if (controlService == null) {
+        if (!isControlServiceAlive()) {
             Log.e(TAG, "ControlService not initialized");
             return;
         }
         try {
             controlService.request("cmd.common.request.set", CarConstants.CAR_FRS_SETTING_DISTRACTION_DETECTION_ENABLE.getValue(), b ? "1" : "0");
             Log.w(TAG, "Distraction detection monitoring set to: " + b);
-        } catch (RemoteException e) {
+        } catch (Exception e) {
             Log.e(TAG, "Error setting monitoring", e);
         }
     }
 
     public void setAvasEnabled(boolean b) {
-        if (controlService == null) {
+        if (!isControlServiceAlive()) {
             Log.e(TAG, "ControlService not initialized");
             return;
         }
         try {
             controlService.request("cmd.common.request.set", CarConstants.CAR_EV_SETTING_AVAS_ENABLE.getValue(), b ? "1" : "0");
             Log.w(TAG, "AVAS enabled: " + b);
-        } catch (RemoteException e) {
+        } catch (Exception e) {
             Log.e(TAG, "Error setting AVAS", e);
         }
     }
 
     private boolean currentBluetoothState() {
         try {
-            BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+            BluetoothManager bluetoothManager = (BluetoothManager) App.getContext().getSystemService(Context.BLUETOOTH_SERVICE);
+            BluetoothAdapter bluetoothAdapter = bluetoothManager != null ? bluetoothManager.getAdapter() : null;
             return bluetoothAdapter != null && bluetoothAdapter.isEnabled();
         } catch (Exception e) {
             Log.e(TAG, "Error checking Bluetooth state", e);
@@ -1083,32 +3668,200 @@ public class ServiceManager {
     }
 
     public void disableBluetooth() {
+        disableBluetooth("manual");
+    }
+
+    private void disableBluetooth(String reason) {
         try {
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"svc", "bluetooth", "disable"});
+            boolean beforeState = currentBluetoothState();
+            String output = ShizukuUtils.runCommandAndGetOutput(new String[]{"svc", "bluetooth", "disable"});
+            logPersistentClusterEvent(
+                    "bluetooth_command",
+                    persistentEventDetails(
+                            "command", "disable",
+                            "reason", reason,
+                            "beforeState", beforeState,
+                            "afterState", currentBluetoothState(),
+                            "output", output
+                    )
+            );
         } catch (Exception e) {
             Log.e(TAG, "Error disabling Bluetooth", e);
+            logPersistentClusterEvent(
+                    "bluetooth_command_failed",
+                    persistentEventDetails(
+                            "command", "disable",
+                            "reason", reason,
+                            "error", e.getClass().getSimpleName(),
+                            "message", e.getMessage()
+                    )
+            );
         }
     }
 
     public void enableBluetooth() {
+        enableBluetooth("manual");
+    }
+
+    private void enableBluetooth(String reason) {
         try {
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"svc", "bluetooth", "enable"});
+            boolean beforeState = currentBluetoothState();
+            String output = ShizukuUtils.runCommandAndGetOutput(new String[]{"svc", "bluetooth", "enable"});
+            logPersistentClusterEvent(
+                    "bluetooth_command",
+                    persistentEventDetails(
+                            "command", "enable",
+                            "reason", reason,
+                            "beforeState", beforeState,
+                            "afterState", currentBluetoothState(),
+                            "output", output
+                    )
+            );
         } catch (Exception e) {
             Log.e(TAG, "Error enabling Bluetooth", e);
+            logPersistentClusterEvent(
+                    "bluetooth_command_failed",
+                    persistentEventDetails(
+                            "command", "enable",
+                            "reason", reason,
+                            "error", e.getClass().getSimpleName(),
+                            "message", e.getMessage()
+                    )
+            );
         }
     }
 
+    private boolean isVehicleReadyStateOff(String value) {
+        String safeValue = value != null ? value.trim() : "";
+        return safeValue.equals("-1") || safeValue.equals("0");
+    }
+
+    private boolean isVehicleReadyStateOn(String value) {
+        String safeValue = value != null ? value.trim() : "";
+        return !safeValue.isEmpty() && !isVehicleReadyStateOff(safeValue);
+    }
+
+    private void scheduleStartupReportReconciliations() {
+        if (backgroundHandler == null) return;
+        backgroundHandler.postDelayed(() -> {
+            try {
+                reconcileStartupReportState();
+            } catch (Exception e) {
+                Log.e(TAG, "Error reconciling startup report state", e);
+                logPersistentClusterEvent(
+                        "startup_report_reconcile_failed",
+                        persistentEventDetails(
+                                "error", e.getClass().getSimpleName(),
+                                "message", e.getMessage()
+                        )
+                );
+            }
+        }, STARTUP_REPORT_RECONCILE_DELAY_MS);
+    }
+
+    private void reconcileStartupReportState() {
+        String readyState = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
+        boolean ready = isVehicleReadyStateOn(readyState);
+        boolean poweredOff = isVehicleReadyStateOff(readyState);
+        if (ready) {
+            carPoweredOff = false;
+        } else if (poweredOff) {
+            carPoweredOff = true;
+        }
+
+        String hvacPowerMode = getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue());
+        boolean bluetoothPendingRestore = sharedPreferences.getBoolean(
+                SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(),
+                false
+        );
+        boolean seatVentilationEnabled = sharedPreferences.getBoolean(
+                SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(),
+                false
+        );
+
+        logPersistentClusterEvent(
+                "startup_report_reconcile",
+                persistentEventDetails(
+                        "readyState", readyState,
+                        "carPoweredOff", carPoweredOff,
+                        "bluetoothPendingRestore", bluetoothPendingRestore,
+                        "bluetoothOn", currentBluetoothState(),
+                        "seatVentilationEnabled", seatVentilationEnabled,
+                        "hvacPowerMode", hvacPowerMode
+                )
+        );
+
+        if (!ready) {
+            logPersistentClusterEvent(
+                    "startup_report_reconcile_skipped",
+                    persistentEventDetails(
+                            "readyState", readyState,
+                            "reason", poweredOff ? "vehicle_powered_off" : "ready_state_unknown"
+                    )
+            );
+            return;
+        }
+
+        restoreBluetoothIfWasDisabled("STARTUP_RECONCILE");
+        restoreWifiTetherIfWasDisabled();
+        syncDriverSeatVentilationWithHvac(hvacPowerMode, "STARTUP_RECONCILE");
+    }
+
+    private void syncDriverSeatVentilationWithHvac(String hvacPowerMode, String reason) {
+        if (sharedPreferences == null ||
+                !sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
+            return;
+        }
+
+        String targetLevel;
+        if ("1".equals(hvacPowerMode)) {
+            targetLevel = "3";
+        } else if ("0".equals(hvacPowerMode)) {
+            targetLevel = "0";
+        } else {
+            logPersistentClusterEvent(
+                    "seat_ventilation_auto_skipped",
+                    persistentEventDetails(
+                            "reason", reason,
+                            "hvacPowerMode", hvacPowerMode,
+                            "cause", "unknown_hvac_power_mode"
+                    )
+            );
+            return;
+        }
+
+        logPersistentClusterEvent(
+                "seat_ventilation_auto_command",
+                persistentEventDetails(
+                        "reason", reason,
+                        "hvacPowerMode", hvacPowerMode,
+                        "targetLevel", targetLevel
+                )
+        );
+        updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), targetLevel);
+    }
+
     public void disableWifiTether() {
+        if (connectivityManager == null) return;
         try {
             connectivityManager.stopTethering(0, "br.com.redesurftank.havalshisuku");
+        } catch (NoSuchMethodError e) {
+            // Fallback for Android versions where stopTethering(int, String) doesn't exist
+            try {
+                java.lang.reflect.Method m = connectivityManager.getClass().getMethod("stopTethering", int.class);
+                m.invoke(connectivityManager, 0);
+            } catch (Exception e2) {
+                Log.e(TAG, "Error disabling Wi-Fi tether (fallback)", e2);
+            }
         } catch (Exception e) {
             Log.e(TAG, "Error disabling Wi-Fi", e);
         }
     }
 
     public void enableWifiTether() {
+        if (connectivityManager == null) return;
         try {
-            var receiver = new ResultReceiver(new Handler(Looper.getMainLooper())) {
+            ResultReceiver receiver = new ResultReceiver(new Handler(Looper.getMainLooper())) {
                 @Override
                 protected void onReceiveResult(int resultCode, Bundle resultData) {
                     if (resultCode == 0) {
@@ -1124,21 +3877,196 @@ public class ServiceManager {
         }
     }
 
+    // ---- BT/Hotspot: estado, desligamento com tracking e restauração com retry ----
+
+    private boolean currentWifiTetherState() {
+        try {
+            WifiManager wifiManager = (WifiManager) App.getContext().getSystemService(Context.WIFI_SERVICE);
+            if (wifiManager != null) {
+                Object r = wifiManager.getClass().getMethod("getWifiApState").invoke(wifiManager);
+                if (r instanceof Integer) {
+                    return ((Integer) r) == 13; // 13 = WIFI_AP_STATE_ENABLED
+                }
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "Error reading Wi-Fi AP state", t);
+        }
+        return wifiTetherEnabled;
+    }
+
+    // Estado real "no ar" do SoftAP pelo sysfs (lido via Shizuku=shell, que consegue ler sysfs_net).
+    // "1"=no ar (beaconando), "0"=iface up mas sem BSS (quebrado/meio-ligado), ""=desconhecido/down.
+    private String softApCarrier() {
+        try {
+            String out = ShizukuUtils.runCommandAndGetOutput(new String[]{"sh", "-c",
+                    "i=$(getprop sys.wifi.softap_interface_name); [ -z \"$i\" ] && i=wlan2; cat /sys/class/net/$i/carrier 2>/dev/null"});
+            if (out != null) {
+                String v = out.trim();
+                if (v.equals("1") || v.equals("0")) return v;
+            }
+        } catch (Throwable ignored) {
+        }
+        return "";
+    }
+
+    // Hotspot (Wi-Fi AP) REALMENTE no ar? Prefere o carrier do sysfs (real, via wlan2); em OEMs onde o
+    // getWifiApState() retorna -1, cai pro cache do receiver WIFI_AP_STATE_CHANGED. Usado pelo status do
+    // HotRouter pra não mostrar "Ativo" com o hotspot desligado (o daemon reporta WLAN/4G de qualquer jeito).
+    public boolean isHotspotOnAir() {
+        String carrier = softApCarrier();
+        return "1".equals(carrier) || (carrier.isEmpty() && currentWifiTetherState());
+    }
+
+    // Desliga o BT salvando que estava ligado (p/ religar no próximo power-on). Não sobrescreve um
+    // "estava ligado" anterior com false (caso recolher-retrovisor + power-off no mesmo ciclo).
+    private void shutdownBluetoothForRestore(String reason) {
+        boolean currentlyOn = currentBluetoothState();
+        logPersistentClusterEvent(
+                "bluetooth_shutdown_for_restore",
+                persistentEventDetails(
+                        "reason", reason,
+                        "currentlyOn", currentlyOn,
+                        "carPoweredOff", carPoweredOff
+                )
+        );
+        if (currentlyOn) {
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), true).apply();
+            disableBluetooth("shutdown_restore_" + reason);
+        }
+    }
+
+    private void shutdownWifiTetherForRestore() {
+        if (currentWifiTetherState()) {
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey(), true).apply();
+            disableWifiTether();
+        }
+    }
+
+    private void restoreBluetoothIfWasDisabled(String reason) {
+        boolean pendingRestore = sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false);
+        logPersistentClusterEvent(
+                "bluetooth_restore_check",
+                persistentEventDetails(
+                        "reason", reason,
+                        "pendingRestore", pendingRestore,
+                        "carPoweredOff", carPoweredOff,
+                        "currentlyOn", currentBluetoothState()
+                )
+        );
+        if (pendingRestore) {
+            attemptRestoreBluetooth(0, reason);
+        }
+    }
+
+    private void attemptRestoreBluetooth(int attempt, String reason) {
+        if (!sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false)) {
+            logPersistentClusterEvent(
+                    "bluetooth_restore_aborted",
+                    persistentEventDetails(
+                            "reason", reason,
+                            "attempt", attempt,
+                            "cause", "flag_cleared"
+                    )
+            );
+            return; // flag limpa por outra restauração
+        }
+        if (carPoweredOff) {
+            logPersistentClusterEvent(
+                    "bluetooth_restore_deferred",
+                    persistentEventDetails(
+                            "reason", reason,
+                            "attempt", attempt,
+                            "cause", "car_powered_off"
+                    )
+            );
+            return; // carro desligou no meio: mantém a intenção p/ o próximo power-on
+        }
+        if (currentBluetoothState()) {
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false).apply();
+            logPersistentClusterEvent(
+                    "bluetooth_restore_success",
+                    persistentEventDetails(
+                            "reason", reason,
+                            "attempt", attempt,
+                            "alreadyOn", true
+                    )
+            );
+            return; // já ligou: sucesso
+        }
+        logPersistentClusterEvent(
+                "bluetooth_restore_attempt",
+                persistentEventDetails(
+                        "reason", reason,
+                        "attempt", attempt
+                )
+        );
+        enableBluetooth("restore_" + reason + "_" + attempt);
+        if (attempt + 1 < RADIO_RESTORE_MAX_ATTEMPTS) {
+            backgroundHandler.postDelayed(() -> attemptRestoreBluetooth(attempt + 1, reason), RADIO_RESTORE_RETRY_MS);
+        } else {
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false).apply();
+            logPersistentClusterEvent(
+                    "bluetooth_restore_give_up",
+                    persistentEventDetails(
+                            "reason", reason,
+                            "attempts", RADIO_RESTORE_MAX_ATTEMPTS
+                    )
+            );
+        }
+    }
+
+    private void restoreWifiTetherIfWasDisabled() {
+        if (sharedPreferences.getBoolean(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey(), false)) {
+            attemptRestoreWifiTether(0);
+        }
+    }
+
+    private void attemptRestoreWifiTether(int attempt) {
+        if (!sharedPreferences.getBoolean(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey(), false)) {
+            return;
+        }
+        if (carPoweredOff) {
+            return;
+        }
+        if (currentWifiTetherState()) {
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey(), false).apply();
+            return;
+        }
+        enableWifiTether();
+        if (attempt + 1 < RADIO_RESTORE_MAX_ATTEMPTS) {
+            backgroundHandler.postDelayed(() -> attemptRestoreWifiTether(attempt + 1), RADIO_RESTORE_RETRY_MS);
+        } else {
+            sharedPreferences.edit().putBoolean(SharedPreferencesKeys.HOTSPOT_STATE_ON_POWER_OFF.getKey(), false).apply();
+        }
+    }
+
     public void cancelMaxAcMode() {
 
         if (!isMaxAcActive) return;
-
-        for (Map.Entry<String, String> entry : previousAcState.entrySet()) {
-            if (entry.getValue() != null) {
-                updateData(entry.getKey(), entry.getValue());
-            }
-        }
         isMaxAcActive = false;
-        previousAcState.clear();
         if (maxAcTimeoutRunnable != null) {
             backgroundHandler.removeCallbacks(maxAcTimeoutRunnable);
             maxAcTimeoutRunnable = null;
         }
+
+        // Restores previous AC settings (excluding power/enable keys so they can be restored last)
+        for (Map.Entry<String, String> entry : previousAcState.entrySet()) {
+            if (entry.getValue() != null &&
+                !entry.getKey().equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) &&
+                !entry.getKey().equals(CarConstants.CAR_HVAC_AC_ENABLE.getValue())) {
+                updateData(entry.getKey(), entry.getValue());
+            }
+        }
+
+        // Restore AC power mode and AC enable last to ensure the system is correctly turned ON/OFF
+        String restoredPower = previousAcState.get(CarConstants.CAR_HVAC_POWER_MODE.getValue());
+        String restoredAcEnable = previousAcState.get(CarConstants.CAR_HVAC_AC_ENABLE.getValue());
+
+        updateData(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), restoredAcEnable != null ? restoredAcEnable : "1");
+        updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), restoredPower != null ? restoredPower : "1");
+
+        previousAcState.clear();
+        clearPersistedMaxAcState();
         dispatchServiceManagerEvent(ServiceManagerEventType.MAX_AUTO_AC_STATUS_CHANGED, 0);
 
     }
@@ -1148,32 +4076,55 @@ public class ServiceManager {
     }
 
     private void enableMaxAcOn() {
+        enableMaxAcOnWithRetry(0);
+    }
+
+    private void enableMaxAcOnWithRetry(int retryCount) {
         try {
             String tempStr = getUpdatedData(CarConstants.CAR_BASIC_INSIDE_TEMP.getValue());
             if (tempStr == null) return;
             float currentTemp = Float.parseFloat(tempStr);
+
+            if (currentTemp >= 85.0f || currentTemp <= -40.0f) {
+                if (retryCount < 5) {
+                    Log.w(TAG, "Invalid temp " + currentTemp + " at startup, delaying Max AC check... retry: " + retryCount);
+                    backgroundHandler.postDelayed(() -> enableMaxAcOnWithRetry(retryCount + 1), 1000);
+                } else {
+                    Log.e(TAG, "Invalid temp " + currentTemp + " after max retries, aborting Max AC activation");
+                }
+                return;
+            }
+
             float threshold = sharedPreferences.getFloat(SharedPreferencesKeys.MAX_AC_ON_UNLOCK_THRESHOLD.getKey(), 35.0f);
-
             if (currentTemp >= threshold && !isMaxAcActive) {
-                String prevPower = getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue());
-                String prevEnabled = getUpdatedData(CarConstants.CAR_HVAC_AC_ENABLE.getValue());
-                String prevFan = getUpdatedData(CarConstants.CAR_HVAC_FAN_SPEED.getValue());
-                String prevDriverTemp = getUpdatedData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue());
-                String prevPassTemp = getUpdatedData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue());
-                String prevAuto = getUpdatedData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue());
-                String prevAnion = getUpdatedData(CarConstants.CAR_HVAC_ANION_ENABLE.getValue());
-                String prevAQS = getUpdatedData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue());
-                String prevSync = getUpdatedData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue());
 
-                previousAcState.put(CarConstants.CAR_HVAC_POWER_MODE.getValue(), prevPower);
-                previousAcState.put(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), prevEnabled);
-                previousAcState.put(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), prevFan);
-                previousAcState.put(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), prevDriverTemp);
-                previousAcState.put(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), prevPassTemp);
-                previousAcState.put(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), prevAuto);
-                previousAcState.put(CarConstants.CAR_HVAC_ANION_ENABLE.getValue(), prevAnion);
-                previousAcState.put(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), prevAQS);
-                previousAcState.put(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), prevSync);
+                tryRestoreMaxAcState();
+                if (previousAcState.isEmpty()) {
+                    String prevPower = getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue());
+                    String prevAcEnable = getUpdatedData(CarConstants.CAR_HVAC_AC_ENABLE.getValue());
+                    String prevFan = getUpdatedData(CarConstants.CAR_HVAC_FAN_SPEED.getValue());
+                    String prevDriverTemp = getUpdatedData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue());
+                    String prevPassTemp = getUpdatedData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue());
+                    String prevAuto = getUpdatedData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue());
+                    String prevAnion = getUpdatedData(CarConstants.CAR_HVAC_ANION_ENABLE.getValue());
+                    String prevAQS = getUpdatedData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue());
+                    String prevSync = getUpdatedData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue());
+                    String prevComfortCurve = getUpdatedData(CarConstants.CAR_HVAC_SETTING_COMFORT_CURVE.getValue());
+                    String prevCycleMode = getUpdatedData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue());
+
+                    previousAcState.put(CarConstants.CAR_HVAC_POWER_MODE.getValue(), prevPower);
+                    previousAcState.put(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), prevAcEnable);
+                    previousAcState.put(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), prevFan);
+                    previousAcState.put(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), prevDriverTemp);
+                    previousAcState.put(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), prevPassTemp);
+                    previousAcState.put(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), prevAuto);
+                    previousAcState.put(CarConstants.CAR_HVAC_ANION_ENABLE.getValue(), prevAnion);
+                    previousAcState.put(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), prevAQS);
+                    previousAcState.put(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), prevSync);
+                    previousAcState.put(CarConstants.CAR_HVAC_SETTING_COMFORT_CURVE.getValue(), prevComfortCurve);
+                    previousAcState.put(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), prevCycleMode);
+                    persistMaxAcState();
+                }
 
                 updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1");
                 updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), "0");
@@ -1181,28 +4132,43 @@ public class ServiceManager {
                 updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), "16.0");
                 updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), "16.0");
                 updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
-                updateData(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), "1");
-
+                updateData(CarConstants.CAR_HVAC_SETTING_COMFORT_CURVE.getValue(), "2"); // Max Cold
                 isMaxAcActive = true;
-                
+                dispatchServiceManagerEvent(ServiceManagerEventType.MAX_AUTO_AC_STATUS_CHANGED, 1);
+
                 int timeoutMinutes = sharedPreferences.getInt(SharedPreferencesKeys.MAX_AC_TIMEOUT.getKey(), 0);
-                 if (timeoutMinutes > 0) {
+                if (timeoutMinutes > 0) {
                     if (maxAcTimeoutRunnable != null) {
                         backgroundHandler.removeCallbacks(maxAcTimeoutRunnable);
                     }
                     maxAcTimeoutRunnable = () -> {
-                         Log.w(TAG, "Max AC timeout reached, aborting");
-                         cancelMaxAcMode();
+                        Log.w(TAG, "Max AC timeout reached, aborting");
+                        cancelMaxAcMode();
                     };
                     backgroundHandler.postDelayed(maxAcTimeoutRunnable, timeoutMinutes * 60 * 1000L);
                     Log.w(TAG, "Max AC timeout scheduled for " + timeoutMinutes + " minutes");
                 }
-                
+
                 Log.w(TAG, "Max AC activated power on and high temp: " + currentTemp);
             }
         } catch (Exception e) {
             Log.e(TAG, "Error in Max AC Activation logic", e);
         }
+    }
+
+    private void setOptimalAcCycleMode() {
+        try {
+            String inTempStr = getUpdatedData(CarConstants.CAR_BASIC_INSIDE_TEMP.getValue());
+            String outTempStr = getUpdatedData(CarConstants.CAR_BASIC_OUTSIDE_TEMP.getValue());
+            if (inTempStr == null || outTempStr == null) return;
+            float inTemp = Float.parseFloat(inTempStr);
+            float outTemp = Float.parseFloat(outTempStr);
+            String desiredMode = (inTemp < outTemp) ? "1" : "0";
+            updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), desiredMode);
+        } catch (Exception e) {
+            Log.d(TAG, "Error trying to set optimal cycle mode: " + e.getMessage());
+        }
+
     }
 
     private void updateMaxAcSmoothing() {
@@ -1211,6 +4177,7 @@ public class ServiceManager {
             String tempStr = getUpdatedData(CarConstants.CAR_BASIC_INSIDE_TEMP.getValue());
             if (tempStr == null) return;
             float currentTemp = Float.parseFloat(tempStr);
+
             float targetTemp = sharedPreferences.getFloat(SharedPreferencesKeys.MAX_AC_TARGET_TEMP.getKey(), 28.0f);
             float smoothingRange = 2.0f;
             float startSmoothingTemp = targetTemp + smoothingRange;
@@ -1229,13 +4196,26 @@ public class ServiceManager {
                 newFan = Math.max(3, newFan);
 
                 String prevDriverKey = CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue();
+                String prevPassKey = CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue();
                 float minTemp = 16.0f;
                 float prevDriverTemp = (previousAcState.get(prevDriverKey) != null) ? Float.parseFloat(previousAcState.get(prevDriverKey)) : 22.0f;
+                float prevPassTemp = (previousAcState.get(prevPassKey) != null) ? Float.parseFloat(previousAcState.get(prevPassKey)) : 22.0f;
+
                 float newDriverTemp = prevDriverTemp - ((prevDriverTemp - minTemp) * factor);
                 newDriverTemp = Math.min(20, newDriverTemp);
 
+                float newPassTemp = prevPassTemp - ((prevPassTemp - minTemp) * factor);
+                newPassTemp = Math.min(20, newPassTemp);
+
                 updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), String.valueOf(newFan));
-                updateData(prevDriverKey, String.format(java.util.Locale.US, "%.1f", newDriverTemp));
+                updateData(prevDriverKey, String.format(Locale.US, "%.1f", newDriverTemp));
+                updateData(prevPassKey, String.format(Locale.US, "%.1f", newPassTemp));
+
+                // Enforce Power and AC Enable to ensure they stay ON during the process
+                updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1");
+                updateData(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), "1");
+
+                setOptimalAcCycleMode();
 
                 Log.d(TAG, "Max AC Smoothing: Temp=" + currentTemp + ", Factor=" + factor + ", Fan=" + newFan + ", DriverTemp=" + newDriverTemp);
             }
@@ -1243,6 +4223,58 @@ public class ServiceManager {
             Log.e(TAG, "Error in Max AC Smoothing logic", e);
         }
     }
+
+    private void persistMaxAcState() {
+        try {
+            SharedPreferences.Editor editor = sharedPreferences.edit();
+            editor.putBoolean("MAX_AC_ACTIVE_PERSISTED", true);
+            JsonObject jsonObject = new JsonObject();
+            for (Map.Entry<String, String> entry : previousAcState.entrySet()) {
+                if (entry.getValue() != null) {
+                    jsonObject.addProperty(entry.getKey(), entry.getValue());
+                }
+            }
+            editor.putString("MAX_AC_PREVIOUS_STATE", jsonObject.toString());
+            editor.apply();
+            Log.w(TAG, "Persisted AC MAX state");
+        } catch (Exception e) {
+            Log.e(TAG, "Error persisting AC MAX state", e);
+        }
+    }
+
+    private void clearPersistedMaxAcState() {
+        try {
+            sharedPreferences.edit()
+                    .remove("MAX_AC_ACTIVE_PERSISTED")
+                    .remove("MAX_AC_PREVIOUS_STATE")
+                    .apply();
+            Log.w(TAG, "Cleared persisted AC MAX state");
+        } catch (Exception e) {
+            Log.e(TAG, "Error clearing persisted AC MAX state", e);
+        }
+    }
+
+    private void tryRestoreMaxAcState() {
+        try {
+            if (sharedPreferences.getBoolean("MAX_AC_ACTIVE_PERSISTED", false)) {
+                String jsonStr = sharedPreferences.getString("MAX_AC_PREVIOUS_STATE", null);
+                if (jsonStr != null) {
+                    JsonObject jsonObject = new Gson().fromJson(jsonStr, JsonObject.class);
+                    previousAcState.clear();
+                    for (Map.Entry<String, JsonElement> entry : jsonObject.entrySet()) {
+                        previousAcState.put(entry.getKey(), entry.getValue().getAsString());
+                    }
+                    isMaxAcActive = true;
+                    Log.w(TAG, "Restored AC MAX state from persistence");
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error restoring AC MAX state", e);
+            clearPersistedMaxAcState(); // Clear corrupted state
+        }
+    }
+
+
 
     public void executeWithServicesRunning(Runnable task) {
         Runnable wrapperWithCatch = () -> {
@@ -1267,18 +4299,16 @@ public class ServiceManager {
             return;
         }
         executeWithServicesRunning(() -> {
-            var currentUser = sharedPreferences.getString(SharedPreferencesKeys.CURRENT_USER.getKey(), "");
-            if (currentUser.equals(userId)) {
-                Log.w(TAG, "Current user is already: " + userId);
-                return;
-            }
+            String currentUser = sharedPreferences.getString(SharedPreferencesKeys.CURRENT_USER.getKey(), "");
 
             Log.w(TAG, "Switching user to: " + userId);
 
-            try {
-                saveCarSettingsForUser(currentUser);
-            } catch (Exception e) {
-                Log.e(TAG, "Error saving settings for user: " + currentUser, e);
+            if (!currentUser.equals(userId)) {
+                try {
+                    saveCarSettingsForUser(currentUser);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error saving settings for user: " + currentUser, e);
+                }
             }
 
             try {
@@ -1330,7 +4360,7 @@ public class ServiceManager {
         }
     }
 
-    private void saveCarSettingsForUser(String userId) {
+    public void saveCarSettingsForUser(String userId) {
         Map<String, String> settingsToSave = new HashMap<>();
 
         for (CarConstants key : KEYS_TO_SAVE) {
@@ -1344,7 +4374,7 @@ public class ServiceManager {
         }
 
         Gson gson = new Gson();
-        JsonObject jsonObject = new com.google.gson.JsonObject();
+        JsonObject jsonObject = new JsonObject();
         for (Map.Entry<String, String> entry : settingsToSave.entrySet()) {
             jsonObject.addProperty(entry.getKey(), entry.getValue());
         }
@@ -1359,7 +4389,7 @@ public class ServiceManager {
     }
 
     public int getTotalOdometer() {
-        var totalOdometer = getData(CarConstants.CAR_BASIC_TOTAL_ODOMETER.getValue());
+        String totalOdometer = getData(CarConstants.CAR_BASIC_TOTAL_ODOMETER.getValue());
         if (totalOdometer == null || totalOdometer.isEmpty()) {
             Log.w(TAG, "Total odometer data is not available");
             return 0;
@@ -1375,7 +4405,7 @@ public class ServiceManager {
     public void updateMonitoringProperties() {
         executeWithServicesRunning(() -> {
             try {
-                var allKeys = getCombinedKeys();
+                String[] allKeys = getCombinedKeys();
                 controlService.addListenerKey(App.getContext().getPackageName(), allKeys);
                 for (String s : new HashSet<>(dataCache.keySet())) {
                     dataCache.remove(s);
@@ -1387,11 +4417,48 @@ public class ServiceManager {
         });
     }
 
+
+
+
+
     public String[] getCombinedKeys() {
         List<String> keys = new ArrayList<>();
         keys.addAll(List.of(CarConstants.FromArray(DEFAULT_KEYS)));
         keys.addAll(sharedPreferences.getStringSet(SharedPreferencesKeys.CAR_MONITOR_PROPERTIES.getKey(), new HashSet<>()));
+        keys.addAll(dynamicallyRegisteredKeys);
         return keys.toArray(new String[0]);
+    }
+
+    public void ensureKeysMonitored(java.util.Collection<String> keys) {
+        if (keys == null || keys.isEmpty()) return;
+        if (!isControlServiceAlive()) {
+            Log.e(TAG, "ControlService not initialized; cannot add listener keys");
+            return;
+        }
+        try {
+            List<String> newKeys = new ArrayList<>();
+            String[] currentKeys = getCombinedKeys();
+            Set<String> currentKeysSet = new HashSet<>(Arrays.asList(currentKeys));
+            for (String key : keys) {
+                if (!currentKeysSet.contains(key)) {
+                    newKeys.add(key);
+                    dynamicallyRegisteredKeys.add(key);
+                }
+            }
+            if (!newKeys.isEmpty()) {
+                controlService.addListenerKey(App.getContext().getPackageName(), newKeys.toArray(new String[0]));
+                Log.d(TAG, "Added dynamic listener keys: " + newKeys);
+
+                String[] fetchValues = controlService.fetchDatas(newKeys.toArray(new String[0]));
+                if (fetchValues != null) {
+                    for (int i = 0; i < newKeys.size() && i < fetchValues.length; i++) {
+                        dataCache.put(newKeys.get(i), fetchValues[i]);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "ensureKeysMonitored failed", e);
+        }
     }
 
     public void initializeFrida() {
@@ -1442,6 +4509,72 @@ public class ServiceManager {
         }
     }
 
+    // Debloat opt-in: desativa apps do sistema (OEM) que ficam rodando e consomem RAM/CPU da
+    // multimídia, cada um atrás do seu toggle (default OFF). Reaplicado no boot para sobreviver a
+    // updates/OTA que reabilitem os pacotes. Para "desligar mais coisas" basta acrescentar outra
+    // chamada a applyDebloatToggle (NÃO incluir operatorcenter/OTA nem drivinganalysis/TBOX). O
+    // DataTrack tem toggle próprio (BLOCK_DATATRACK_TELEMETRY / MobileDataManager).
+    public void ensureDebloatedSystemApps() {
+        try {
+            // 1) Lê o estado REAL do sistema na primeira vez (pref ainda não definida): se o pacote já
+            //    está desativado por fora (ex.: pm disable-user / pm uninstall --user 0), o toggle nasce marcado ON.
+            //    Depois disso a pref é a dona do estado — quem manda é o usuário pela UI.
+            reconcileDebloatPref(SharedPreferencesKeys.DISABLE_NATIVE_NAVIGATION.getKey(),
+                    "com.neusoft.na.navigation");
+            reconcileDebloatPref(SharedPreferencesKeys.DISABLE_NATIVE_VOICE.getKey(),
+                    "com.iflytek.cutefly.speechclient.hmi");
+            reconcileDebloatPref(SharedPreferencesKeys.DISABLE_NATIVE_WEATHER.getKey(),
+                    "com.beantechs.weatherservice");
+            // 2) Aplica cada toggle (idempotente; reaplica no boot).
+            applyDebloatToggle(SharedPreferencesKeys.DISABLE_NATIVE_NAVIGATION.getKey(),
+                    "com.neusoft.na.navigation");
+            applyDebloatToggle(SharedPreferencesKeys.DISABLE_NATIVE_VOICE.getKey(),
+                    "com.iflytek.cutefly.speechclient.hmi", "com.beantechs.voiceclient");
+            applyDebloatToggle(SharedPreferencesKeys.DISABLE_NATIVE_WEATHER.getKey(),
+                    "com.beantechs.weatherservice");
+        } catch (Exception e) {
+            Log.e(TAG, "Error ensuring debloated system apps", e);
+        }
+    }
+
+    // Semeia a pref de debloat a partir do estado real do pacote — SÓ enquanto a pref nunca foi
+    // definida (nem pelo usuário, nem por um boot anterior). Assim, um pacote já desativado por fora
+    // (pm disable-user / uninstall --user 0) faz o toggle aparecer ON ao instalar; a partir daí a pref é a fonte da verdade.
+    private void reconcileDebloatPref(String prefKey, String representativePackage) {
+        if (sharedPreferences.contains(prefKey)) return;
+        boolean currentlyDisabled = !isPackageEnabledForUser(representativePackage);
+        sharedPreferences.edit().putBoolean(prefKey, currentlyDisabled).apply();
+    }
+
+    // true se o pacote está instalado E habilitado para o user 0. Cobre os dois jeitos de desativar:
+    // "pm disable-user" (some do -e) e "pm uninstall --user 0" (some do -e). Em erro, assume ENABLED
+    // (conservador: não marca o toggle ON à toa).
+    private boolean isPackageEnabledForUser(String pkg) {
+        try {
+            String out = ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "list", "packages", "-e", pkg});
+            if (out == null) return true;
+            for (String line : out.split("\\n")) {
+                if (line.trim().equals("package:" + pkg)) return true;
+            }
+            return false;
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    // Aplica um toggle de debloat a um ou mais pacotes: ON => desabilita (pm uninstall --user 0 + pkill),
+    // OFF => reabilita (pm install-existing). Reversível e idempotente.
+    private void applyDebloatToggle(String prefKey, String... packages) {
+        boolean disable = sharedPreferences.getBoolean(prefKey, false);
+        for (String pkg : packages) {
+            if (disable) {
+                disableSystemApp(pkg);
+            } else {
+                enableSystemApp(pkg);
+            }
+        }
+    }
+
     public void disableSystemApp(String packageName) {
         try {
             ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "uninstall", "--user", "0", packageName});
@@ -1483,10 +4616,24 @@ public class ServiceManager {
 
     public boolean isMainScreenOn() {
         try {
-            var engineState = getData(CarConstants.CAR_BASIC_ENGINE_STATE.getValue());
-            return engineState != null && !engineState.equals("-1") && !engineState.equals("15");
+            String engineState = getData(CarConstants.CAR_BASIC_ENGINE_STATE.getValue());
+            if (engineState == null) {
+                // Data absent, not "off": getData() returns null while the key is still
+                // missing from dataCache and the control binder isn't alive yet. Callers
+                // hide the whole cluster surface on false and only re-evaluate on an
+                // unrelated event, so a projector that samples inside this window latches
+                // hidden for the rest of the session. Observed 2026-08-24: ProjectorManager
+                // builds display 1 before display 3, D1 sampled null -> hid its background,
+                // D3 sampled a real value moments later -> painted its masks, and the
+                // cluster showed insets framing nothing. Unknown must never read as OFF;
+                // this mirrors the catch below, which already defaults to ON.
+                Log.w(TAG, "[HavalDev] Engine state not available yet; defaulting main screen to ON");
+                return true;
+            }
+            return br.com.redesurftank.havalshisuku.models.EngineState.isMainScreenOn(engineState);
         } catch (Exception e) {
-            return false;
+            Log.w(TAG, "[HavalDev] Failed to read engine state during visibility check; defaulting main screen to ON", e);
+            return true;
         }
     }
 
@@ -1509,7 +4656,12 @@ public class ServiceManager {
 
     private static IBinder getSystemService(String serviceName) {
         try {
-            return (IBinder) Objects.requireNonNull(getService.invoke(null, serviceName));
+            Object service = getService.invoke(null, serviceName);
+            if (service == null) {
+                Log.e(TAG, "System service not found: " + serviceName);
+                return null;
+            }
+            return (IBinder) service;
         } catch (IllegalAccessException | InvocationTargetException e) {
             Log.e(TAG, "Error getting system service: " + serviceName, e);
             throw new RuntimeException(e);
@@ -1529,5 +4681,127 @@ public class ServiceManager {
 
     public SharedPreferences getSharedPreferences() {
         return sharedPreferences;
+    }
+
+    private void initMobileDataGuard() {
+        stopMobileDataGuard(App.getContext());
+        try {
+            android.content.Context ctx = App.getContext();
+            // As duas reconciliações são serializadas no worker do MobileDataManager. Com os
+            // toggles OFF e sem estado pertencente ao app, ambas retornam sem executar shell.
+            MobileDataManager.INSTANCE.recomputeAndApply(ctx);
+            MobileDataManager.INSTANCE.applyDatatrackState();
+            if (!MobileDataManager.INSTANCE.isControlEnabled()) return;
+            MobileDataManager.INSTANCE.ensureUsageStatsPermission(ctx);
+            registerMobileDataWifiCallback(ctx); // reavalia na hora quando o WiFi conecta/cai
+            registerMobileDataTetherReceiver(ctx); // reforça o bloqueio na hora que o hotspot liga/desliga
+        } catch (Throwable t) {
+            Log.w(TAG, "initMobileDataGuard: " + t.getMessage());
+        }
+        if (backgroundHandler == null || mobileDataAutoblockRunnable != null) return;
+        mobileDataAutoblockRunnable = new Runnable() {
+            @Override public void run() {
+                try {
+                    MobileDataManager.INSTANCE.recomputeAndApply(App.getContext());
+                } catch (Throwable ignored) {
+                } finally {
+                    if (backgroundHandler != null && mobileDataAutoblockRunnable == this) {
+                        backgroundHandler.postDelayed(this, MOBILE_DATA_CHECK_MS);
+                    }
+                }
+            }
+        };
+        backgroundHandler.postDelayed(mobileDataAutoblockRunnable, MOBILE_DATA_CHECK_MS);
+    }
+
+    public void onMobileDataControlChanged(boolean enabled) {
+        Handler handler = backgroundHandler;
+        if (handler == null) return;
+        handler.post(() -> {
+            if (enabled) {
+                initMobileDataGuard();
+            } else {
+                stopMobileDataGuard(App.getContext());
+            }
+        });
+    }
+
+    private void stopMobileDataGuard(android.content.Context ctx) {
+        Handler handler = backgroundHandler;
+        Runnable runnable = mobileDataAutoblockRunnable;
+        mobileDataAutoblockRunnable = null;
+        if (handler != null && runnable != null) handler.removeCallbacks(runnable);
+
+        android.net.ConnectivityManager.NetworkCallback callback = mobileDataWifiCallback;
+        mobileDataWifiCallback = null;
+        if (callback != null) {
+            try {
+                android.net.ConnectivityManager cm =
+                        (android.net.ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) cm.unregisterNetworkCallback(callback);
+            } catch (IllegalArgumentException ignored) {
+                // Callback já removido pelo framework/reinit.
+            } catch (Throwable t) {
+                Log.w(TAG, "stopMobileDataGuard callback: " + t.getMessage());
+            }
+        }
+
+        BroadcastReceiver tetherReceiver = mobileDataTetherReceiver;
+        mobileDataTetherReceiver = null;
+        if (tetherReceiver != null) {
+            try {
+                ctx.unregisterReceiver(tetherReceiver);
+            } catch (IllegalArgumentException ignored) {
+                // Receiver já removido pelo framework/reinit.
+            } catch (Throwable t) {
+                Log.w(TAG, "stopMobileDataGuard tether: " + t.getMessage());
+            }
+        }
+    }
+
+    // Callback de WiFi: quando conecta/cai, reavalia as regras na hora (a regra "bloquear no WiFi"
+    // precisa reagir rápido; o periódico de 15s é só a rede de segurança pra consumo/projeção).
+    private void registerMobileDataWifiCallback(android.content.Context ctx) {
+        try {
+            if (mobileDataWifiCallback != null) return;
+            android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            android.net.NetworkRequest req = new android.net.NetworkRequest.Builder()
+                    .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                    .build();
+            mobileDataWifiCallback = new android.net.ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(android.net.Network network) {
+                    MobileDataManager.INSTANCE.recomputeAndApply(App.getContext());
+                }
+                @Override public void onLost(android.net.Network network) {
+                    MobileDataManager.INSTANCE.recomputeAndApply(App.getContext());
+                }
+            };
+            cm.registerNetworkCallback(req, mobileDataWifiCallback);
+        } catch (Throwable t) {
+            Log.w(TAG, "registerMobileDataWifiCallback: " + t.getMessage());
+        }
+    }
+
+    // Hotspot (tether) ligou/desligou -> reforça o bloqueio NA HORA. O hotspot religa o dado móvel pra
+    // ter uplink; sem este gatilho, o vazamento ficaria aberto até o próximo tick de 15s. O broadcast
+    // android.net.conn.TETHER_STATE_CHANGED não é protegido (qualquer app registra).
+    private void registerMobileDataTetherReceiver(android.content.Context ctx) {
+        try {
+            if (mobileDataTetherReceiver != null) return;
+            BroadcastReceiver receiver = new BroadcastReceiver() {
+                @Override public void onReceive(Context c, Intent i) {
+                    try {
+                        MobileDataManager.INSTANCE.recomputeAndApply(App.getContext());
+                    } catch (Throwable ignored) {
+                    }
+                }
+            };
+            ctx.registerReceiver(receiver, new IntentFilter("android.net.conn.TETHER_STATE_CHANGED"));
+            mobileDataTetherReceiver = receiver;
+        } catch (Throwable t) {
+            Log.w(TAG, "registerMobileDataTetherReceiver: " + t.getMessage());
+        }
     }
 }

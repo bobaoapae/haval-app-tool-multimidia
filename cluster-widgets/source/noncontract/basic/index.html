@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GWM App</title>
+  <script>
+    // Polyfill for Array.prototype.at (needed for older WebViews)
+    if (!Array.prototype.at) {
+      Object.defineProperty(Array.prototype, "at", {
+        value: function(n) {
+          n = Math.trunc(n) || 0;
+          if (n < 0) n += this.length;
+          if (n < 0 || n >= this.length) return undefined;
+          return this[n];
+        },
+        writable: true,
+        configurable: true
+      });
+    }
+  </script>
+    <link rel="stylesheet" href="./src/styles/night.style.css" />
+
+</head>
+
+<body>
+  <div id="app"></div>
+  <script type="module" src="./src/core/main.js"></script>
+</body>
+
+</html>

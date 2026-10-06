@@ -1,0 +1,14 @@
+<theme>
+    <name>Sport Colors Leve</name>
+    <description>Prioriza fluidez: sem os rastros borrados do ponteiro, sem o efeito de onda do Digital e com o titulo do album fixo (sem letreiro rolante), mostrando o que couber. Mesmos modos, cores e layout do Sport Colors.</description>
+    <version>0.16.44</version>
+    <thumbnail>thumbnail.png</thumbnail>
+    <mainFile>index.html</mainFile>
+    <AppDefaultPosition>
+        <x>0</x>
+        <y>62</y>
+        <width>1920</width>
+        <height>596</height>
+    </AppDefaultPosition>
+</theme>
+

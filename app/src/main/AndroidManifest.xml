@@ -10,8 +10,23 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Contador de dados móveis do carro (NetworkStatsManager): concedidas via Shizuku no boot. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.READ_NETWORK_USAGE_HISTORY" tools:ignore="ProtectedPermissions" />
+    <!-- Publishes the shared /sdcard/AppIconOverrides/ registry; see docs/ICON_OVERRIDES.md
+         in the h6-3d viewer repo. Android 9 (this MMI) has no scoped storage. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
     <application
         android:name="br.com.redesurftank.App"
@@ -26,6 +41,7 @@
         <activity
             android:name=".SplashActivity"
             android:exported="true"
+            android:noHistory="true"
             android:screenOrientation="landscape"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:theme="@style/Theme.HavalShisuku">
@@ -39,11 +55,29 @@
         <activity
             android:name=".MainActivity"
             android:exported="false"
+            android:launchMode="singleTop"
             android:screenOrientation="landscape"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:label="@string/title_activity_main"
             android:theme="@style/Theme.HavalShisuku">
         </activity>
+
+        <activity
+            android:name=".ImpulseDashboardActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.HavalShisuku.Fullscreen" />
+
+        <activity
+            android:name=".AndroidSettingsShortcutActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/android_settings_shortcut_label"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay" />
 
         <service
             android:name=".services.ForegroundService"
@@ -55,6 +89,18 @@
                 <action android:name="br.com.redesurftank.havalshisuku.ACTION_START_SERVICE" />
             </intent-filter>
         </service>
+        <!-- The H6 3D viewer binds here to own the A/C popup: while it holds the lease the OEM
+             climate app is kept disabled. Exported because the viewer is another package; the
+             lease itself is granted only to a caller that proves its identity with a PendingIntent
+             (see ViewerClimateBridgeService), so binding alone grants nothing. -->
+        <service
+            android:name=".services.ViewerClimateBridgeService"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_CLIMATE_BRIDGE" />
+            </intent-filter>
+        </service>
         <service
             android:name=".services.FridaTakeActionService"
             android:enabled="true"
@@ -62,6 +108,26 @@
             android:foregroundServiceType="dataSync">
             <intent-filter>
                 <action android:name="br.com.redesurftank.havalshisuku.services.FridaTakeActionService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".services.BottomBarService"
+            android:enabled="true"
+            android:exported="true" />
+
+        <service
+            android:name=".ambientlight.AmbientLightService"
+            android:enabled="true"
+            android:exported="false" />
+
+        <service
+            android:name=".services.BottomBarNotificationListenerService"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
 
@@ -90,11 +156,34 @@
             </intent-filter>
         </receiver>
         <receiver
+            android:name=".broadcastReceivers.BottomBarBootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+        <receiver
             android:name=".broadcastReceivers.ManualStartFridaReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="br.com.redesurftank.havalshisuku.FRIDA_START" />
+            </intent-filter>
+        </receiver>
+        <!-- Porta de serviço do Modo Concessionária: reverte por telnet/adb quando o ícone
+             do launcher está escondido e a sequência do volante não estiver disponível.
+             O broadcast PRECISA ser explícito (-n); implícito não chega em receiver de
+             manifest no Android 8+ (testado no carro):
+             am broadcast -n br.com.redesurftank.havalshisuku/.broadcastReceivers.StealthExitReceiver
+                 -a br.com.redesurftank.havalshisuku.STEALTH_EXIT -->
+        <receiver
+            android:name=".broadcastReceivers.StealthExitReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.STEALTH_EXIT" />
             </intent-filter>
         </receiver>
         <receiver
@@ -111,7 +200,60 @@
         <receiver
             android:name=".broadcastReceivers.AutoBrightnessReceiver"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.OverscanReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_UPDATE_OVERSCAN" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.CarDataWriteReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_UPDATE_CAR_DATA" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.TaskResolveReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_RESOLVE_TASK" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.TaskBoundsReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_SET_TASK_BOUNDS" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.AaClusterCommandReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_AA_CLUSTER" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".broadcastReceivers.VehicleCommandReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="br.com.redesurftank.havalshisuku.ACTION_VEHICLE_COMMAND" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="rikka.shizuku.ShizukuProvider"

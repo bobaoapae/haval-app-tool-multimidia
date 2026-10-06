@@ -1,168 +1,492 @@
 package br.com.redesurftank.havalshisuku.projectors
 
-import android.animation.ObjectAnimator
 import android.content.Context
-import android.content.SharedPreferences
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
 import android.view.Display
-import android.view.Gravity
-import android.view.View
 import android.view.WindowManager
+import android.widget.ImageView
 import android.widget.RelativeLayout
-import android.widget.TextView
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.content.SharedPreferences
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.isVisible
 import br.com.redesurftank.App
-import br.com.redesurftank.havalshisuku.listeners.IDataChanged
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
+import br.com.redesurftank.havalshisuku.managers.ClusterBackgroundSync
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
-import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
-import java.util.concurrent.TimeUnit
-import kotlin.properties.Delegates
+import br.com.redesurftank.havalshisuku.models.ServiceManagerEventType
+import br.com.redesurftank.havalshisuku.models.SolidBackgroundSpec
+import coil.imageLoader
+import coil.request.ImageRequest
 
-class InstrumentProjector(outerContext: Context, display: Display) : BaseProjector(outerContext, display), IDataChanged {
-    private val preferences: SharedPreferences = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
-    private val serviceManager: ServiceManager = ServiceManager.getInstance()
-
-    private var currentKm: Int by Delegates.observable(serviceManager.totalOdometer) { _, _, _ ->
-        ensureUi { updateView() }
-    }
-
-    private var maintenanceTextView: TextView? = null
-    private var blinkAnimator: ObjectAnimator? = null
+class InstrumentProjector(outerContext: Context, display: Display) : BaseProjector(outerContext, display) {
+    private val TAG = "InstrumentProjector"
     private lateinit var rootLayout: RelativeLayout
+    private lateinit var imageView: ImageView
+    private var webView: WebView? = null
 
-    private val maintenanceParams = RelativeLayout.LayoutParams(
-        RelativeLayout.LayoutParams.WRAP_CONTENT,
-        RelativeLayout.LayoutParams.WRAP_CONTENT
-    ).apply {
-        addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-        addRule(RelativeLayout.CENTER_HORIZONTAL)
-        bottomMargin = 15
-    }
+    private var isAnyAppOnDisplay1 = false
 
-    private val timeUpdateRunnable = object : Runnable {
-        override fun run() {
-            ensureUi { updateView() }
-            handler.postDelayed(this, 60000)
-        }
+    private val sharedPreferences by lazy {
+        App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
     }
 
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key in listOf(
-                SharedPreferencesKeys.ENABLE_INSTRUMENT_EV_BATTERY_PERCENTAGE.key,
-                SharedPreferencesKeys.INSTRUMENT_REVISION_KM.key,
-                SharedPreferencesKeys.INSTRUMENT_REVISION_NEXT_DATE.key,
-                SharedPreferencesKeys.ENABLE_INSTRUMENT_REVISION_WARNING.key
-            )
+        if (key == SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key ||
+            key == SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key ||
+            key == SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key ||
+            key == SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key ||
+            key == SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key
         ) {
-            ensureUi { updateView() }
+            ensureUi {
+                clearD1Ready("prefs_changed")
+                applyCustomBackground()
+                updateBackgroundVisibility()
+            }
         }
     }
+
+    private val backgroundSyncListener = ClusterBackgroundSync.Listener {
+        ensureUi {
+            // Shared IMAGE_URL decode finished (possibly started by D3). Re-apply so D1 paints
+            // from the same cache and then mark ready for the mask gate.
+            if (::rootLayout.isInitialized && rootLayout.isVisible) {
+                val type =
+                        sharedPreferences.getString(
+                                SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key,
+                                "THEME"
+                        )
+                if (type.equals("IMAGE_URL", ignoreCase = true)) {
+                    applyCustomBackground()
+                }
+            }
+        }
+    }
+
+    private val eventListener =
+        br.com.redesurftank.havalshisuku.listeners.IServiceManagerEvent { event, args ->
+            ensureUi {
+                when (event) {
+                    ServiceManagerEventType.DISPLAY_1_APP_STATE_CHANGED -> {
+                        isAnyAppOnDisplay1 = args[0] as Boolean
+                        Log.d(TAG, "Display 1 app state changed: $isAnyAppOnDisplay1")
+                        updateBackgroundVisibility()
+                    }
+                    else -> {}
+                }
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window?.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
-        window?.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
 
-        rootLayout = RelativeLayout(context)
-        rootLayout.layoutParams = RelativeLayout.LayoutParams(
-            RelativeLayout.LayoutParams.MATCH_PARENT,
-            RelativeLayout.LayoutParams.MATCH_PARENT
+        window?.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
+        window?.addFlags(
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         )
 
+        rootLayout = RelativeLayout(context).apply {
+            layoutParams = RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.MATCH_PARENT,
+                RelativeLayout.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+
+        imageView = ImageView(context).apply {
+            layoutParams = RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.MATCH_PARENT,
+                RelativeLayout.LayoutParams.MATCH_PARENT
+            )
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            isVisible = false
+        }
+
+        val wv = WebView(context).apply {
+            layoutParams = RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.MATCH_PARENT,
+                RelativeLayout.LayoutParams.MATCH_PARENT
+            )
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                useWideViewPort = true
+                loadWithOverviewMode = true
+                databaseEnabled = true
+                mediaPlaybackRequiresUserGesture = false // Allow autoplay without user touch
+            }
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    if (webView?.isVisible == true) {
+                        signalD1Ready()
+                    }
+                }
+
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?,
+                    error: android.webkit.WebResourceError?
+                ) {
+                    super.onReceivedError(view, request, error)
+                    Log.e(TAG, "WebView error loading ${request?.url}: ${error?.errorCode} ${error?.description}")
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?,
+                    errorResponse: android.webkit.WebResourceResponse?
+                ) {
+                    super.onReceivedHttpError(view, request, errorResponse)
+                    Log.e(TAG, "WebView HTTP error loading ${request?.url}: ${errorResponse?.statusCode}")
+                }
+            }
+            webChromeClient = object : android.webkit.WebChromeClient() {
+                override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage): Boolean {
+                    Log.d(TAG, "WebView console: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
+                    return true
+                }
+            }
+            setBackgroundColor(Color.TRANSPARENT)
+            isVisible = false
+        }
+
+        webView = wv
+
+        rootLayout.addView(imageView)
+        rootLayout.addView(wv)
         setContentView(rootLayout)
 
-        serviceManager.addDataChangedListener(this)
-        preferences.registerOnSharedPreferenceChangeListener(prefsListener)
-        handler.post(timeUpdateRunnable)
+        isAnyAppOnDisplay1 = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAnyAppOnDisplay(1)
 
-        ensureUi { updateView() }
-        rootLayout.isVisible = ServiceManager.getInstance().isMainScreenOn
+        ClusterBackgroundSync.markD1Attached()
+        ClusterBackgroundSync.addListener(backgroundSyncListener)
+        sharedPreferences.registerOnSharedPreferenceChangeListener(prefsListener)
+        ServiceManager.getInstance().addServiceManagerEventListener(eventListener)
+
+        updateBackgroundVisibility()
+        Log.d(TAG, "InstrumentProjector (Display 1 Refresh Layer) created")
     }
 
-    private fun updateView() {
-        val enableWarning = preferences.getBoolean(SharedPreferencesKeys.ENABLE_INSTRUMENT_REVISION_WARNING.key, false)
-        if (!enableWarning) {
-            maintenanceTextView?.let {
-                blinkAnimator?.cancel()
-                rootLayout.removeView(it)
-                maintenanceTextView = null
-                blinkAnimator = null
-            }
+    private fun currentIdentity(): String = ClusterBackgroundSync.identityFromPrefs(sharedPreferences)
+
+    private fun signalD1Ready() {
+        val identity = currentIdentity()
+        ClusterBackgroundSync.markD1Ready(identity)
+        ClusterPersistentEventLogger.log(
+                "d1_bg_ready",
+                mapOf("identity" to identity, "visible" to (::rootLayout.isInitialized && rootLayout.isVisible))
+        )
+    }
+
+    private fun clearD1Ready(reason: String) {
+        ClusterBackgroundSync.markD1NotReady()
+        ClusterPersistentEventLogger.log(
+                "d1_bg_not_ready",
+                mapOf(
+                        "reason" to reason,
+                        "identity" to currentIdentity(),
+                        "visible" to (::rootLayout.isInitialized && rootLayout.isVisible)
+                )
+        )
+    }
+
+    private fun clearWallpaperSurface() {
+        imageView.isVisible = false
+        imageView.setImageDrawable(null)
+        webView?.isVisible = false
+        rootLayout.setBackgroundColor(Color.TRANSPARENT)
+    }
+
+    private fun applyCustomBackground() {
+        // Default ON: theme wallpaper when available
+        val isEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+        if (!isEnabled) {
+            clearWallpaperSurface()
+            ClusterBackgroundSync.markD1NotReady()
             return
         }
 
-        val nextKm = preferences.getInt(SharedPreferencesKeys.INSTRUMENT_REVISION_KM.key, 12000)
-        val remainingKm = nextKm - currentKm
+        val type = sharedPreferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_TYPE_D1.key, "THEME") ?: "THEME"
+        val value = sharedPreferences.getString(SharedPreferencesKeys.CUSTOM_BACKGROUND_VALUE_D1.key, "") ?: ""
+        val identity = currentIdentity()
 
-        val nextDateMillis = preferences.getLong(SharedPreferencesKeys.INSTRUMENT_REVISION_NEXT_DATE.key, 0L)
-        var text = "Próxima Manutenção em: $remainingKm Km"
-        var shouldBlink = remainingKm < 1000
+        Log.d(TAG, "Applying background type: $type, value: $value")
 
-        if (nextDateMillis > 0) {
-            val remainingMillis = nextDateMillis - System.currentTimeMillis()
-            if (remainingMillis > 0) {
-                val remainingDays = TimeUnit.MILLISECONDS.toDays(remainingMillis) + 1
-                text += " ou $remainingDays dias"
-                if (remainingDays <= 30) shouldBlink = true
-            } else {
-                text += " ou atrasada"
-                shouldBlink = true
-            }
-        }
-
-        if (maintenanceTextView == null) {
-            maintenanceTextView = TextView(context).apply {
-                textSize = 20f
-                gravity = Gravity.CENTER
-            }
-            rootLayout.addView(maintenanceTextView, maintenanceParams)
-        }
-
-        maintenanceTextView!!.text = text
-
-        if (shouldBlink) {
-            maintenanceTextView!!.setTextColor(Color.RED)
-            if (blinkAnimator == null) {
-                blinkAnimator = ObjectAnimator.ofFloat(maintenanceTextView, View.ALPHA, 1f, 0f).apply {
-                    duration = 1500
-                    repeatCount = ObjectAnimator.INFINITE
-                    repeatMode = ObjectAnimator.REVERSE
-                    start()
+        when (type.uppercase()) {
+            "THEME", "PRESET", "FILE", SolidBackgroundSpec.TYPE -> {
+                webView?.isVisible = false
+                when (val resolved = ClusterBackgroundSync.resolveStillBackground(context, sharedPreferences)) {
+                    is ClusterBackgroundSync.StillBackground.FromFile -> {
+                        imageView.isVisible = true
+                        if (loadFileBackground(resolved.file.absolutePath)) {
+                            signalD1Ready()
+                        } else {
+                            ClusterBackgroundSync.markD1NotReady(identity)
+                        }
+                    }
+                    is ClusterBackgroundSync.StillBackground.FromAsset -> {
+                        imageView.isVisible = true
+                        if (loadPresetBackground(resolved.fileName)) {
+                            signalD1Ready()
+                        } else {
+                            ClusterBackgroundSync.markD1NotReady(identity)
+                        }
+                    }
+                    is ClusterBackgroundSync.StillBackground.Solid -> {
+                        imageView.isVisible = true
+                        imageView.setBackgroundColor(Color.TRANSPARENT)
+                        imageView.setImageDrawable(buildSolidBackground(resolved.spec))
+                        signalD1Ready()
+                    }
+                    else -> {
+                        // Active theme has no wallpaper declared: stay transparent instead of solid black
+                        clearWallpaperSurface()
+                        // No still wallpaper expected — release any prior ready latch so D3 does not wait.
+                        ClusterBackgroundSync.markD1NotReady()
+                    }
                 }
             }
+            "IMAGE_URL" -> {
+                webView?.isVisible = false
+                imageView.isVisible = true
+                if (value.isNotEmpty()) {
+                    loadRemoteImage(value, identity)
+                } else {
+                    imageView.setImageDrawable(null)
+                    imageView.setBackgroundColor(Color.BLACK)
+                    ClusterBackgroundSync.markD1NotReady(identity)
+                }
+            }
+            "WEB_URL" -> {
+                imageView.isVisible = false
+                webView?.let { wv ->
+                    wv.isVisible = true
+                    if (value.isNotEmpty() && wv.url != value) {
+                        ClusterBackgroundSync.markD1NotReady(identity)
+                        wv.loadUrl(value)
+                    } else if (value.isNotEmpty()) {
+                        signalD1Ready()
+                    } else {
+                        ClusterBackgroundSync.markD1NotReady(identity)
+                    }
+                }
+            }
+            else -> {
+                clearWallpaperSurface()
+                ClusterBackgroundSync.markD1NotReady()
+            }
+        }
+    }
+
+    private fun loadFileBackground(path: String): Boolean {
+        return try {
+            val file = java.io.File(path)
+            if (!file.exists()) {
+                Log.e(TAG, "Background file missing: $path")
+                imageView.setImageDrawable(null)
+                imageView.setBackgroundColor(Color.BLACK)
+                return false
+            }
+            val drawable = android.graphics.drawable.Drawable.createFromPath(file.absolutePath)
+            if (drawable != null) {
+                imageView.setImageDrawable(drawable)
+                true
+            } else {
+                imageView.setImageDrawable(null)
+                imageView.setBackgroundColor(Color.BLACK)
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading file background: $path", e)
+            imageView.setImageDrawable(null)
+            imageView.setBackgroundColor(Color.BLACK)
+            false
+        }
+    }
+
+    private fun loadPresetBackground(fileName: String): Boolean {
+        return try {
+            val assetManager = context.assets
+            val inputStream = assetManager.open("backgrounds/$fileName")
+            val drawable = android.graphics.drawable.Drawable.createFromStream(inputStream, null)
+            if (drawable != null) {
+                imageView.setImageDrawable(drawable)
+                true
+            } else {
+                imageView.setImageDrawable(null)
+                imageView.setBackgroundColor(Color.BLACK)
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading preset background from assets: $fileName", e)
+            imageView.setImageDrawable(null)
+            imageView.setBackgroundColor(Color.BLACK)
+            false
+        }
+    }
+
+    /**
+     * Cor sólida + vinheta elíptica, desenhada em um bitmap pequeno: o ImageView usa
+     * CENTER_CROP, então o gradiente escala suavemente até 1920x720 sem alocar um bitmap
+     * em tamanho real a cada mudança de cor.
+     */
+    private fun buildSolidBackground(spec: SolidBackgroundSpec): android.graphics.drawable.Drawable {
+        val width = 640
+        val height = 240
+        val bitmap = android.graphics.Bitmap.createBitmap(
+            width, height, android.graphics.Bitmap.Config.ARGB_8888
+        )
+        val canvas = android.graphics.Canvas(bitmap)
+        canvas.drawColor(spec.color)
+
+        if (spec.vignette > 0) {
+            val alpha = (spec.vignette * 255 / 100).coerceIn(0, 255)
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                shader = android.graphics.RadialGradient(
+                    width / 2f,
+                    height / 2f,
+                    width * 0.62f,
+                    intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, Color.argb(alpha, 0, 0, 0)),
+                    floatArrayOf(0f, 0.45f, 1f),
+                    android.graphics.Shader.TileMode.CLAMP
+                )
+            }
+            // Achata o círculo na vertical para acompanhar o formato panorâmico do cluster.
+            canvas.save()
+            canvas.scale(1f, height.toFloat() / width, width / 2f, height / 2f)
+            canvas.drawRect(
+                0f,
+                height / 2f - width,
+                width.toFloat(),
+                height / 2f + width,
+                paint
+            )
+            canvas.restore()
+        }
+        return android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
+    }
+
+    private fun loadRemoteImage(url: String, identity: String) {
+        // Prefer shared cache (may already be filled by D3 mask compose).
+        val shared =
+                ClusterBackgroundSync.resolveStillBackground(
+                        context,
+                        sharedPreferences,
+                        enqueueRemoteIfNeeded = true
+                )
+        if (shared is ClusterBackgroundSync.StillBackground.FromBitmap) {
+            imageView.setImageBitmap(shared.bitmap)
+            signalD1Ready()
+            return
+        }
+
+        ClusterBackgroundSync.markD1NotReady(identity)
+        try {
+            val imageRequest = ImageRequest.Builder(context)
+                .data(url)
+                .allowHardware(false)
+                .target(
+                    onSuccess = { drawable ->
+                        imageView.setImageDrawable(drawable)
+                        // Ensure shared cache sees the same decode for D3.
+                        ClusterBackgroundSync.resolveStillBackground(
+                                context,
+                                sharedPreferences,
+                                enqueueRemoteIfNeeded = true
+                        )
+                        signalD1Ready()
+                    },
+                    onError = {
+                        Log.e(TAG, "Error loading remote image: $url")
+                        imageView.setImageDrawable(null)
+                        imageView.setBackgroundColor(Color.BLACK)
+                        ClusterBackgroundSync.markD1NotReady(identity)
+                    }
+                )
+                .build()
+            context.imageLoader.enqueue(imageRequest)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading remote image: $url", e)
+            imageView.setImageDrawable(null)
+            imageView.setBackgroundColor(Color.BLACK)
+            ClusterBackgroundSync.markD1NotReady(identity)
+        }
+    }
+
+    private fun updateBackgroundVisibility() {
+        val isEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
+        val isScreenOn = ServiceManager.getInstance().isMainScreenOn
+
+        Log.w(TAG, "Visibility check: isAnyAppOnDisplay1=$isAnyAppOnDisplay1, isScreenOn=$isScreenOn, isEnabled=$isEnabled")
+
+        // When an app is on D1, hide this wallpaper so the app is visible. (D3 uses an
+        // app-rect hole in its native mask instead — see InstrumentProjector2.display3AppRect.
+        // No matching full-frame mask is applied on D1.)
+        // D3 must not wait for D1 paint while the wallpaper is intentionally covered — the
+        // ClusterBackgroundSync hold is skipped when appOnDisplay1 is true.
+        //
+        // Screen-off / disabled MUST clear the ready latch. Otherwise D3 can paint
+        // wallpaper-composited insets while D1 stays hidden (power-on ACC window):
+        // ready stayed true after carMainScreenOff, hold opened, page_finished re-showed D3.
+        if (isAnyAppOnDisplay1 || !isScreenOn || !isEnabled) {
+            rootLayout.isVisible = false
+            webView?.onPause()
+            if (!isEnabled) {
+                clearD1Ready("bg_disabled")
+            } else if (!isScreenOn) {
+                clearD1Ready("screen_off")
+            }
         } else {
-            maintenanceTextView!!.setTextColor(Color.WHITE)
-            blinkAnimator?.cancel()
-            blinkAnimator = null
-            maintenanceTextView!!.alpha = 1f
+            rootLayout.isVisible = true
+            webView?.onResume()
+            applyCustomBackground()
         }
-    }
-
-    override fun onDataChanged(key: String, value: String) {
-        if (key == CarConstants.CAR_BASIC_TOTAL_ODOMETER.value) {
-            currentKm = value.toInt()
-        }
-    }
-
-    override fun cancel() {
-        handler.removeCallbacks(timeUpdateRunnable)
-        preferences.unregisterOnSharedPreferenceChangeListener(prefsListener)
-        serviceManager.removeDataChangedListener(this)
-        super.cancel()
     }
 
     override fun carMainScreenOff() {
         ensureUi {
             rootLayout.isVisible = false
+            webView?.onPause()
+            // Keep ClusterBackgroundSync honest: hidden wallpaper is not "ready" for D3 insets.
+            clearD1Ready("car_main_screen_off")
         }
     }
 
     override fun carMainScreenOn() {
         ensureUi {
-            rootLayout.isVisible = true
+            updateBackgroundVisibility()
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        ClusterBackgroundSync.removeListener(backgroundSyncListener)
+        ClusterBackgroundSync.markD1Detached()
+        sharedPreferences.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        ServiceManager.getInstance().removeServiceManagerEventListener(eventListener)
+
+        webView?.let { wv ->
+            rootLayout.removeView(wv)
+            wv.stopLoading()
+            wv.clearHistory()
+            wv.clearCache(true)
+            wv.loadUrl("about:blank")
+            wv.onPause()
+            wv.removeAllViews()
+            wv.destroy()
+        }
+        webView = null
+    }
+
+    override fun cancel() {
+        super.cancel()
     }
 }

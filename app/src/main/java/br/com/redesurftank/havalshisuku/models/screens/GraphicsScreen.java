@@ -17,14 +17,15 @@ public class GraphicsScreen implements Screen {
     public static class GraphOptions {
         public static final String EV_CONSUMPTION = "evConsumption";
         public static final String GAS_CONSUMPTION = "gasConsumption";
-        public static final String GAS_CONSUMPTION_METRIC = "gasConsumptionMetric";
+        public static final String CAR_SPEED = "carSpeed";
+        public static final String EV_POWER_FACTOR = "evPowerFactor";
+        public static final String EV_POWER_KW = "evPowerKw";
         public static final String GAS_CONSUMPTION_IDLE = "gasConsumptionIdle";
         public static final String GAS_CONSUMPTION_METRIC_IDLE = "gasConsumptionMetricIdle";
         public static final String GAS_CONSUMPTION_MODE = "gasConsumptionMode";
-        private static final String GAS_CONSUMPTION_MODE_RUNNING = "Running";
-        private static final String GAS_CONSUMPTION_MODE_IDLE = "Idle";
-
-        public static final String CAR_SPEED = "carSpeed";
+        public static final String FUEL_PERCENT = "fuelPercent";
+        public static final String BATTERY_PERCENT = "batteryPercent";
+        public static final String MASK_VISIBLE = "maskVisible";
         private static final String[] graphsValueMap = {EV_CONSUMPTION, GAS_CONSUMPTION, CAR_SPEED};
     }
     private int currentGraphIndex = 0;

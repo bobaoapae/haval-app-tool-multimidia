@@ -27,11 +27,11 @@ public class RegenScreen implements Screen {
         public static String getLabel(String value) {
             int val = Integer.parseInt(value);
             switch (val) {
-                case 2: return "'Baixo'";
-                case 0: return "'Normal'";
-                case 1: return "'Alto'";
+                case 2: return "Baixo";
+                case 0: return "Normal";
+                case 1: return "Alto";
             }
-            return "";
+            return "--";
         }
     }
     private static final int[] regenValueMap = {RegenOptions.NORMAL, RegenOptions.MEDIUM, RegenOptions.HIGH};

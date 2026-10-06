@@ -1,0 +1,101 @@
+/* Vector uses the same telemetry/readout DOM and native viewport as Contour. */
+#vector-material,#vector-gauge-motion,#vector-gauge-scales{display:none}
+#apex-gt.display-vector #vector-material,#apex-gt.display-vector #vector-gauge-motion,#apex-gt.display-vector #vector-gauge-scales{display:block}
+#apex-gt.display-vector #gauge-material,#apex-gt.display-vector #gauge-motion,#apex-gt.display-vector .gauge-scales:not(#vector-gauge-scales){display:none}
+#apex-gt.display-vector{--cyan:#4fc6ff;--teal:#55dcd1}
+#apex-gt.display-vector #vector-material{z-index:1}
+#apex-gt.display-vector #vector-gauge-motion{position:absolute;inset:0;pointer-events:none;z-index:2}
+#apex-gt.display-vector #vector-gauge-scales{position:absolute;inset:0;pointer-events:none;z-index:3;overflow:hidden}
+#apex-gt.display-vector .temperature{top:65px;display:flex;flex-direction:column;gap:2px;width:94px;align-items:center;line-height:1}
+#apex-gt.display-vector .temperature-inside{left:450px}
+#apex-gt.display-vector .temperature-outside{left:560px}
+#apex-gt.display-vector .temperature small{font-size:13px;line-height:1.1;letter-spacing:1.3px;color:#9cb0bb}
+#apex-gt.display-vector .temperature strong{font-size:27px;line-height:1;font-weight:400}
+#apex-gt.display-vector .gear{left:860px;top:38px;width:200px}
+#apex-gt.display-vector .gear strong{display:inline-block;font-size:64px;line-height:1;font-weight:600;text-shadow:none}
+#apex-gt.display-vector .gear span{position:absolute;left:-190px;top:24px;width:200px;font-size:24px;line-height:1;letter-spacing:4px}
+#apex-gt.display-vector .propulsion{left:1110px;top:65px;width:120px}
+#apex-gt.display-vector .propulsion strong{font-size:25px;line-height:1;font-weight:500;letter-spacing:3px;color:#5bc9ff}
+#apex-gt.display-vector #clock{left:1370px;top:70px;font-size:28px;line-height:1}
+#apex-gt.display-vector .speed-readout{left:348px;top:270px;width:140px}
+#apex-gt.display-vector .speed-readout strong{font-size:100px;line-height:1.05;letter-spacing:-3px}
+#apex-gt.display-vector.speed-three-digits .speed-readout strong{font-size:86px;line-height:105px}
+#apex-gt.display-vector .speed-readout>span{font-size:25px;margin-top:4px;color:#b8c5cd}
+#apex-gt.display-vector .rpm-readout{left:350px;top:190px;width:158px;text-align:center}
+#apex-gt.display-vector .rpm-readout small{font-size:16px;letter-spacing:1px;color:#91a9b6}
+#apex-gt.display-vector .rpm-readout strong{font-size:29px}
+#apex-gt.display-vector .rpm-readout>span{font-size:17px}
+#apex-gt.display-vector .power-readout{left:1470px;top:275px;width:180px;text-align:center}
+#apex-gt.display-vector .power-readout h1{font-size:16px;letter-spacing:2px;color:#a9bdc8;margin-bottom:5px}
+#apex-gt.display-vector .power-readout>div{justify-content:center;gap:8px}
+#apex-gt.display-vector .power-readout strong{font-family:Arial,Roboto,sans-serif;font-size:76px;line-height:1;font-weight:700;letter-spacing:-2px}
+#apex-gt.display-vector .power-readout span{font-size:23px;color:#b1c4cf;letter-spacing:0}
+#apex-gt.display-vector .regen-readout{left:1480px;top:409px;width:160px;text-align:center;border-top:1px solid #67889890;padding-top:10px}
+#apex-gt.display-vector .regen-readout h2{font-size:15px;letter-spacing:1.5px;color:#789aa9}
+#apex-gt.display-vector .regen-readout>div{justify-content:center;gap:7px}
+#apex-gt.display-vector .regen-readout strong{font-size:37px;line-height:1;font-weight:400}
+#apex-gt.display-vector .regen-readout span{font-size:21px}
+#apex-gt.display-vector.is-regenerating .regen-readout h2,#apex-gt.display-vector.is-regenerating .regen-readout strong{color:var(--regen)}
+#apex-gt.display-vector .right-mode-guide{display:none}
+#apex-gt:not(.display-vector) .vector-power-readout{display:none}
+#apex-gt.display-vector:not(.menu-open) .power-readout,#apex-gt.display-vector:not(.menu-open) .regen-readout{display:none}
+#apex-gt.display-vector .vector-power-readout{display:block;position:absolute;left:1470px;top:270px;width:180px;z-index:4;text-align:center}
+#apex-gt.display-vector #vector-power-value{display:block;font-family:Arial,Roboto,sans-serif;font-size:80px;font-weight:700;line-height:1.1;letter-spacing:-2px;white-space:nowrap}
+#apex-gt.display-vector .vector-power-unit{display:block;font-size:28px;line-height:1;color:#b4c6d1;margin-top:5px}
+#apex-gt.display-vector .vector-power-state{display:flex;align-items:center;justify-content:center;gap:13px;margin-top:22px;padding-top:12px;border-top:1px solid #94b5c88f}
+#apex-gt.display-vector #vector-power-direction{font-size:33px;line-height:24px;color:#55caff}
+#apex-gt.display-vector #vector-power-state{font-size:24px;font-weight:500;letter-spacing:2px;line-height:1;color:#71d4ff}
+#apex-gt.display-vector.is-regenerating #vector-power-direction,#apex-gt.display-vector.is-regenerating #vector-power-state{color:var(--regen)}
+#apex-gt.display-vector.menu-open .vector-power-readout{display:none}
+#apex-gt.display-vector .energy{top:572px;width:350px}
+#apex-gt.display-vector .energy-fuel{left:95px}
+#apex-gt.display-vector .energy-battery{left:1475px}
+#apex-gt.display-vector .energy-detail{height:22px;padding:0;justify-content:center;gap:14px;font-size:17px;line-height:1.2;letter-spacing:.5px;color:#a9bbc5}
+#apex-gt.display-vector .energy-detail strong{display:inline-block;line-height:1}
+#apex-gt.display-vector .energy-detail small{font-size:11px}
+#apex-gt.display-vector .energy-base{position:absolute;top:52px;left:0;width:100%;justify-content:center}
+#apex-gt.display-vector .energy-track{height:14px;border-color:#5c6f79;background:#192128}
+#apex-gt.display-vector .energy-fill{background:linear-gradient(180deg,#fff,#cbd3d7 32%,#697983)}
+#apex-gt.display-vector .energy-battery .energy-fill{background:linear-gradient(180deg,#bdf0ff,#52bcf0 40%,#176a94)}
+#apex-gt.display-vector .energy-range{position:absolute;top:-29px;left:0;width:100%;margin:0;text-align:center;font-size:28px;line-height:1}
+#apex-gt.display-vector .energy-range>span,#apex-gt.display-vector .energy-range>small{display:inline-block;line-height:1}
+#apex-gt.display-vector .energy-range>small{margin-left:4px}
+#apex-gt.display-vector .trip-strip{left:520px;top:653px;width:660px;height:64px}
+#apex-gt.display-vector .trip-strip>div{width:220px;height:56px}
+#apex-gt.display-vector .trip-strip small{font-size:17px;line-height:1.25;letter-spacing:.7px;color:#b1c1ca}
+#apex-gt.display-vector .trip-strip strong{font-size:31px;line-height:1.12}
+#apex-gt.display-vector .trip-strip em{font-size:21px}
+#apex-gt.display-vector .trip-strip .derived{font-size:9px;letter-spacing:0}
+#apex-gt.display-vector .trip-strip>div+div::before{top:8px;height:38px;background:#5d7481}
+#apex-gt.display-vector .odometer{left:1180px;top:653px;width:220px;height:56px;display:grid;grid-template-columns:auto auto;grid-template-rows:21px 35px;justify-content:center;align-items:baseline;column-gap:5px;row-gap:0;text-align:center;white-space:nowrap}
+#apex-gt.display-vector .odometer::before{content:"";position:absolute;left:0;top:8px;width:1px;height:38px;background:#5d7481}
+#apex-gt.display-vector .odometer small{grid-column:1 / -1;font-size:17px;line-height:1.25;letter-spacing:.7px;color:#b1c1ca}
+#apex-gt.display-vector .odometer strong{font-size:31px;line-height:1.12;font-weight:400}
+#apex-gt.display-vector .odometer>span{font-size:21px;line-height:1;color:#edf3f6}
+#apex-gt.display-vector.menu-open .power-readout,#apex-gt.display-vector.menu-open .regen-readout{top:178px;width:90px;text-align:left;border:0;padding:0}
+#apex-gt.display-vector.menu-open .power-readout{left:1450px}
+#apex-gt.display-vector.menu-open .regen-readout{left:1542px}
+#apex-gt.display-vector.menu-open .power-readout h1,#apex-gt.display-vector.menu-open .regen-readout h2{font-size:15px;letter-spacing:.4px;margin-bottom:3px}
+#apex-gt.display-vector.menu-open .power-readout strong,#apex-gt.display-vector.menu-open .regen-readout strong{font-family:Khand,"Arial Narrow",Arial,sans-serif;font-size:38px;letter-spacing:0;font-weight:400}
+#apex-gt.display-vector.menu-open .power-readout span,#apex-gt.display-vector.menu-open .regen-readout span{font-size:18px}
+#apex-gt.display-vector.menu-open .power-readout>div,#apex-gt.display-vector.menu-open .regen-readout>div{justify-content:flex-start;gap:5px}
+#apex-gt.display-vector .apex-menus{left:1404px;width:400px;background:linear-gradient(115deg,#08131bf5,#04080dee);border-top-color:#81b8cc8c;border-bottom-color:#3e798e91}
+#apex-gt.display-vector .apex-menu-heading{border-bottom-color:#3b5b6d8f}
+#apex-gt.display-vector .apex-menu-heading h2{font-size:32px;letter-spacing:.6px}
+#apex-gt.display-vector .apex-menu-option strong{font-size:32px;letter-spacing:.2px}
+#apex-gt.display-vector .apex-menu-option small{font-size:19px;letter-spacing:0}
+#apex-gt.display-vector .apex-menu-option .apex-menu-index{font-size:19px}
+#apex-gt.display-vector .apex-menu-setting strong{font-size:34px}
+#apex-gt.display-vector .apex-menu-setting small{font-size:19px;letter-spacing:.6px}
+#apex-gt.display-vector .apex-menu-ac-control>span{width:220px}
+#apex-gt.display-vector .apex-menu-ac-control small{font-size:20px;letter-spacing:.3px}
+#apex-gt.display-vector .apex-menu-ac-control>strong{font-size:47px}
+#apex-gt.display-vector .apex-menu-footer{font-size:19px}
+#apex-gt.display-vector .apex-menu-ac-status small{font-size:15px}
+#apex-gt.display-vector .apex-menu-ac-status strong{font-size:25px}
+#apex-gt.display-vector .apex-menu-ac-hold{font-size:17px}
+#apex-gt.display-vector.menu-open #vector-gauge-scales{display:none}
+#apex-gt.display-vector .apex-menu-option.is-focused,#apex-gt.display-vector .apex-menu-ac-control.is-selected{background:linear-gradient(90deg,#142f40,#07131c);border-left-color:#5cd0ff!important}
+#apex-gt.display-vector .apex-menu-option .apex-menu-index{color:#b26773}
+#apex-gt.display-vector .apex-menu-option.is-focused .apex-menu-index{color:#ff5267}
+#apex-gt.display-vector .apex-menu-tabs button.is-selected{border-bottom-color:#58c9fb;color:#d9f4ff}

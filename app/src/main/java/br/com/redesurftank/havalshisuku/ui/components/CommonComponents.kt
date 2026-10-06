@@ -7,13 +7,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,7 +35,10 @@ data class SettingItem(
     val onSliderChange: ((Int) -> Unit)? = null,
     val sliderLabel: String? = null,
     val hideSwitch: Boolean = false,
-    val customContent: (@Composable () -> Unit)? = null
+    val customContent: (@Composable () -> Unit)? = null,
+    val alwaysShowCustomContent: Boolean = false,
+    /** Grupo/categoria do redesign (Rodada 15). null = cai no bucket "Outros" (nada some da tela). */
+    val group: String? = null
 )
 
 // Cores do tema
@@ -79,7 +86,8 @@ fun SettingCard(
     onSliderChange: ((Int) -> Unit)? = null,
     sliderLabel: String? = null,
     hideSwitch: Boolean = false,
-    customContent: (@Composable () -> Unit)? = null
+    customContent: (@Composable () -> Unit)? = null,
+    alwaysShowCustomContent: Boolean = false
 ) {
     Card(
         modifier = modifier
@@ -158,7 +166,7 @@ fun SettingCard(
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
-                    val stepSize = sliderStep ?: if (title.contains("volume", ignoreCase = true)) 1 else 5
+                    val stepSize = sliderStep ?: 1
                     val steps = ((sliderRange.last - sliderRange.first) / stepSize) - 1
 
                     val roundedValue = ((sliderValue / stepSize) * stepSize).toFloat()
@@ -193,8 +201,8 @@ fun SettingCard(
                 }
             }
             
-            // Mostrar conteúdo customizado se estiver ativado
-            if (checked && customContent != null) {
+            // Mostrar conteúdo customizado se estiver ativado ou se alwaysShowCustomContent for true
+            if ((checked || alwaysShowCustomContent) && customContent != null) {
                 Spacer(modifier = Modifier.height(16.dp))
                 customContent()
             }
@@ -249,7 +257,8 @@ fun TwoColumnSettingsLayout(
                                 sliderStep = setting.sliderStep,
                                 onSliderChange = setting.onSliderChange,
                                 sliderLabel = setting.sliderLabel,
-                                customContent = setting.customContent
+                                customContent = setting.customContent,
+                                alwaysShowCustomContent = setting.alwaysShowCustomContent
                             )
                         }
                     }
@@ -273,7 +282,8 @@ fun TwoColumnSettingsLayout(
                                 sliderStep = setting.sliderStep,
                                 onSliderChange = setting.onSliderChange,
                                 sliderLabel = setting.sliderLabel,
-                                customContent = setting.customContent
+                                customContent = setting.customContent,
+                                alwaysShowCustomContent = setting.alwaysShowCustomContent
                             )
                         }
                     }
@@ -307,7 +317,8 @@ fun TwoColumnSettingsLayout(
                             sliderStep = setting.sliderStep,
                             onSliderChange = setting.onSliderChange,
                             sliderLabel = setting.sliderLabel,
-                            customContent = setting.customContent
+                            customContent = setting.customContent,
+                            alwaysShowCustomContent = setting.alwaysShowCustomContent
                         )
                     }
                 }
@@ -331,7 +342,8 @@ fun TwoColumnSettingsLayout(
                             sliderStep = setting.sliderStep,
                             onSliderChange = setting.onSliderChange,
                             sliderLabel = setting.sliderLabel,
-                            customContent = setting.customContent
+                            customContent = setting.customContent,
+                            alwaysShowCustomContent = setting.alwaysShowCustomContent
                         )
                     }
                 }
@@ -414,7 +426,8 @@ fun StyledTextField(
     label: @Composable (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    singleLine: Boolean = true
+    singleLine: Boolean = true,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default
 ) {
     TextField(
         value = value,
@@ -423,6 +436,7 @@ fun StyledTextField(
         modifier = modifier,
         enabled = enabled,
         singleLine = singleLine,
+        keyboardOptions = keyboardOptions,
         colors = TextFieldDefaults.colors(
             focusedContainerColor = AppColors.SurfaceVariant,
             unfocusedContainerColor = AppColors.SurfaceVariant,
@@ -434,4 +448,44 @@ fun StyledTextField(
             unfocusedLabelColor = AppColors.TextSecondary
         )
     )
+}
+
+@Composable
+fun DiagnosticsDialog(showDiagnostics: Boolean, onDismiss: () -> Unit, diagnosticsText: String) {
+    if (showDiagnostics) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Diagnóstico de Estabilidade") },
+            text = {
+                Box(modifier = Modifier.height(400.dp).verticalScroll(rememberScrollState())) {
+                    Text(diagnosticsText, fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.White)
+                }
+            },
+            confirmButton = {
+                Button(onClick = onDismiss) {
+                    Text("Fechar")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun AppActionButton(
+    text: String,
+    onClick: () -> Unit,
+    isPrimary: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (isPrimary) AppColors.Primary else AppColors.ButtonSecondary
+        ),
+        shape = RoundedCornerShape(8.dp),
+        contentPadding = PaddingValues(vertical = 8.dp)
+    ) {
+        Text(text, color = Color.White, fontSize = 14.sp)
+    }
 }

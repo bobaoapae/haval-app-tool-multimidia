@@ -40,28 +40,25 @@ jobs:
 
           BRANCH_NAME="${GITHUB_REF_NAME:-${GITHUB_REF##*/}}"
 
-          if [ "$BRANCH_NAME" = "preview" ]; then
-            LATEST_TAG=$(git tag --list "v*-preview" --sort=-v:refname | head -n1)
-            if [ -z "$LATEST_TAG" ]; then
-              BASE_VERSION="1.0.0.-1-preview"
-            else
-              BASE_VERSION="${LATEST_TAG#v}"
-            fi
-            VERSION_BASE="${BASE_VERSION%-preview}"
-            IFS='.' read -r -a PARTS <<< "$VERSION_BASE"
+          # Base version: usa input do workflow_dispatch ou extrai da tag mais recente
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION_BASE="${{ github.event.inputs.version }}"
           else
-            LATEST_TAG=$(git tag --list "v[0-9]*.[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n1)
-            if [ -z "$LATEST_TAG" ]; then
-              LATEST_TAG="v1.0.0.-1"
+            # Extrair base (major.minor.patch) da tag mais recente
+            LATEST_TAG=$(git tag --list "v*" --sort=-v:refname | head -n1)
+            if [ -n "$LATEST_TAG" ]; then
+              VERSION_BASE=$(echo "$LATEST_TAG" | grep -oP 'v\K\d+\.\d+\.\d+')
+            else
+              VERSION_BASE="1.0.0"
             fi
-            VERSION="${LATEST_TAG#v}"
-            IFS='.' read -r -a PARTS <<< "$VERSION"
           fi
 
-          BUILD=${PARTS[3]:--1}
-          BUILD=$((BUILD + 1))
+          # Extrair o maior build number de TODAS as tags (release e preview)
+          LATEST_BUILD=$(git tag --list "v*" | grep -oP 'v\d+\.\d+\.\d+\.\K\d+' | sort -rn | head -1)
+          if [ -z "$LATEST_BUILD" ]; then LATEST_BUILD=-1; fi
+          NEW_BUILD=$((LATEST_BUILD + 1))
 
-          NEW_VERSION_BASE="${PARTS[0]:-1}.${PARTS[1]:-0}.${PARTS[2]:-0}.$BUILD"
+          NEW_VERSION_BASE="${VERSION_BASE}.$NEW_BUILD"
 
           if [ "$BRANCH_NAME" = "preview" ]; then
             NEW_VERSION="${NEW_VERSION_BASE}-preview"
@@ -71,20 +68,29 @@ jobs:
 
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
-          NEW_VERSION_CODE=$((BUILD + 1))
+          NEW_VERSION_CODE=$((NEW_BUILD + 1))
           echo "new_version_code=$NEW_VERSION_CODE" >> "$GITHUB_OUTPUT"
-
-      - name: Update build.gradle.kts
-        run: |
-          sed -i "s/versionName = \".*\"/versionName = \"${{ steps.version.outputs.new_version }}\"/" app/build.gradle.kts
-          sed -i "s/versionCode = [0-9]*/versionCode = ${{ steps.version.outputs.new_version_code }}/" app/build.gradle.kts
 
       - name: Build with Gradle
         env:
           SIGNING_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
+        run: |
+          EXTRA_GRADLE_ARGS=""
+          if [ -n "$POSTHOG_API_KEY" ]; then
+            EXTRA_GRADLE_ARGS="$EXTRA_GRADLE_ARGS -PposthogApiKey=$POSTHOG_API_KEY"
+          fi
+          if [ -n "$POSTHOG_HOST" ]; then
+            EXTRA_GRADLE_ARGS="$EXTRA_GRADLE_ARGS -PposthogHost=$POSTHOG_HOST"
+          fi
+
+          ./gradlew assembleRelease \
+            -PappVersionName=${{ steps.version.outputs.new_version }} \
+            -PappVersionCode=${{ steps.version.outputs.new_version_code }} \
+            $EXTRA_GRADLE_ARGS
 
       - name: Create Release
         run: |

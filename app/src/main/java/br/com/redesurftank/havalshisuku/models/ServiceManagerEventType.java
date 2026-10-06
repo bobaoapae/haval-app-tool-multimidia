@@ -2,9 +2,20 @@ package br.com.redesurftank.havalshisuku.models;
 
 public enum ServiceManagerEventType {
     CLUSTER_CARD_CHANGED,
+    CLUSTER_INPUT_KEY,
     STEERING_WHEEL_AC_CONTROL,
     GRAPH_SCREEN_NAVIGATION,
     UPDATE_SCREEN,
     MENU_ITEM_NAVIGATION,
-    MAX_AUTO_AC_STATUS_CHANGED
+    MAX_AUTO_AC_STATUS_CHANGED,
+    DISPLAY_SCREEN_SELECTION,
+    DISPLAY_1_APP_STATE_CHANGED,
+    DISPLAY_3_APP_STATE_CHANGED,
+    APP_GEOMETRY_CHANGED,
+    /** IntArray[4] = l,t,r,b — punch native-mask hole on D3 before an app/projection lands. */
+    PREPARE_DISPLAY3_APP_HOLE,
+    /** Boolean — CLUSTER Surface under the theme WebView is shown or torn down. */
+    AA_CLUSTER_SURFACE,
+    DISMISS_WARNING,
+    RAW_KEY_EVENT
 }

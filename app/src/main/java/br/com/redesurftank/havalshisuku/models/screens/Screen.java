@@ -4,7 +4,7 @@ import br.com.redesurftank.havalshisuku.managers.ServiceManager;
 
 public interface Screen {
     public static enum Key {
-        UP, DOWN, ENTER, HOME, BACK, ENTER_LONG, BACK_LONG, UP_LONG, DOWN_LONG
+        UP, DOWN, ENTER, HOME, BACK, ENTER_LONG, BACK_LONG, UP_LONG, DOWN_LONG, LEFT, RIGHT
     }
 
     String getJsName();

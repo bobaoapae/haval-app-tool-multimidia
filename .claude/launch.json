@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "default-theme-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "cluster-widgets/source/v1.0/default",
+      "port": 1235
+    },
+    {
+      "name": "minimalist-theme-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "cluster-widgets/source/v1.0/minimalist",
+      "port": 1234
+    }
+  ]
+}

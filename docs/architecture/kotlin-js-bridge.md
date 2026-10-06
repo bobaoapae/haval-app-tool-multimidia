@@ -1,0 +1,106 @@
+# Kotlin JS Bridge
+
+Updated: 2026-08-06
+
+## Current contract themes (`v1.0` / bridge `1.0.0`)
+
+Contract themes talk to the host through `window.Android` (see `ThemeBridgeImpl.kt` and the full table in [`THEME_GUIDE.md`](../../cluster-widgets/Themes/THEME_GUIDE.md)).
+
+Typical theme → host flow:
+
+- `subscribe(keysJson)` / `unsubscribe(keysJson)` — client-driven telemetry
+- `getCarData` / `updateCarData` — read declared contract telemetry / write the small vehicle-setting allowlist
+- `heartbeat()` — WebView liveness
+- Layout / theme wallpaper / theme-scoped preferences — as documented in THEME_GUIDE
+
+Host → theme:
+
+- Telemetry updates for subscribed keys
+- Raw steering events via `window.onKeyEvent(key)` (`UP`, `DOWN`, `ENTER`, `BACK`, …)
+
+System layout and versioning: [`themes-contract-v1.md`](themes-contract-v1.md).
+
+`CompatTranslationLayer.kt` supplies JS polyfills when a theme’s `minBridgeVersion` is older than the host bridge. Future or malformed minimum bridge versions are rejected before the theme is loaded.
+
+The v1 host enforces capability boundaries at the interface: subscriptions and reads are
+limited to `getAvailableKeys()`, writes use an explicit allowlist, native mask names and
+geometry are validated, preferences are scoped to the active theme, and a theme cannot
+launch or kill arbitrary Android packages. `setAppDefaultDimensions` is clamped to the
+existing 1920×720 coordinate space; this does not change the cluster resolution.
+
+## Legacy host → JS helpers (still present)
+
+`InstrumentProjector2` can still push into the page with `evaluateJavascript`, historically via:
+
+- `evaluateJsIfReady` / `batchEvaluateJs` / `updateValuesWebView`
+- `ServiceManager` listeners
+
+Older / transitional globals include:
+
+```text
+control('key', value)
+showScreen(...)
+focus(...)
+updateWarning(...)
+clearWarnings()
+```
+
+The host still treats `window.onCardChanged(cardId)` as the canonical one-way card
+notification. The two host-pinned legacy Sport packages predate that handler, so the
+card-delivery capability check adapts the notification to `control('cardId', cardId)`
+only when a trusted Sport package has no `onCardChanged`. It never invokes both paths
+for the same event. Contract `v1.0` themes must continue to implement
+`window.onCardChanged`; the adapter is not part of the authoring API.
+
+Those immutable Sport 0.16.44 bundles also predate `window.onKeyEvent`. `ServiceManager`
+therefore keeps their existing native menu state machine and `InstrumentProjector2` translates
+its resolved targets to `focus(...)`, `showScreen(...)` and selected `control(...)` calls. This
+second adapter is gated by the same active-theme trust boundary and is never enabled for a
+contract `v1.0` theme. Delivery is observable as `legacy_sport_navigation_delivery`.
+
+New `v1.0` themes should prefer **subscribe + `onKeyEvent`**, not assume a host-driven `showScreen` FSM. Prefer extending `window.Android` (and THEME_GUIDE) over adding new ad-hoc globals.
+
+## Warning policy
+
+`InstrumentProjector2` separates visual vs critical warnings:
+
+- Visual keys (`car.ipk_info.warning_tts_notify`,
+  `car.ipk_info.bsd_lca_warning_reqleft`, `car.ipk_info.bsd_lca_warning_reqright`) still go to the
+  frontend via `updateWarning(...)`;
+- those keys do not drive `syncInitialWarnings()`, critical dismiss, or heavy card/visibility recompute;
+- critical warnings may still use `window.Android.setWarningActive(...)`.
+
+Goal: keep visual-only pulses off the expensive warning/card path.
+
+## Readiness and WebView reload
+
+Theme load, watchdog reload, and theme swap set a `loading` state:
+`webViewsLoaded=false`, pending JS queue (bounded to 250 entries) cleared, heartbeat renewed. That avoids running
+`control` / `updateWarning` / `focus` / `showScreen` before the theme reinstalls its globals.
+
+On `onPageFinished`, heartbeat is renewed before full sync so the watchdog does not reload
+while the first `window.Android.heartbeat()` has not fired yet.
+
+The interface is registered before page load. `onStop` invokes `window.cleanup()`, removes
+the data listener, cancels the named heartbeat callback, clears queued JS/cache state and
+then destroys the WebView.
+
+## Related files
+
+- `InstrumentProjector2.kt`
+- `ThemeBridgeImpl.kt`
+- `CompatTranslationLayer.kt`
+- `cluster-widgets/source/v1.0/` (active themes)
+- `cluster-widgets/Themes/THEME_GUIDE.md`
+
+## Risks
+
+- Unescaped strings break JS evaluation.
+- Calls before load must queue or drop safely.
+- Warning loops can burn CPU without guards.
+- Changing bridge method signatures without a bridge/contract bump breaks OTA themes.
+
+## Open
+
+- Automated tests covering the full `window.Android` surface.
+- How long legacy `control()` push remains required for `noncontract/` themes.
