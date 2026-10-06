@@ -21,8 +21,15 @@ import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
-import br.com.redesurftank.havalshisuku.managers.TripConsistencyManager
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
+import br.com.redesurftank.havalshisuku.models.TripConsistencyClassification
+import br.com.redesurftank.havalshisuku.models.TripConsistencyEvent
+import br.com.redesurftank.havalshisuku.models.TripConsistencyEventType
+import br.com.redesurftank.havalshisuku.models.TripConsistencyMetrics
+import br.com.redesurftank.havalshisuku.models.TripConsistencyReport
+import br.com.redesurftank.havalshisuku.models.TripConsistencySession
+import br.com.redesurftank.havalshisuku.models.TripConsistencyStatus
+import com.google.gson.Gson
 import br.com.redesurftank.havalshisuku.ui.components.TripConsistencyScreen
 import br.com.redesurftank.havalshisuku.ui.navigation.MainScreen
 import br.com.redesurftank.havalshisuku.ui.screens.BasicSettingsTab
@@ -61,6 +68,7 @@ class ReadabilityExtendedSnapshotTest {
     private fun start(content: @Composable () -> Unit) {
         composeRule.mainClock.autoAdvance = false
         composeRule.setContent(content)
+        composeRule.waitForIdle()
         composeRule.mainClock.advanceTimeBy(1000)
     }
 
@@ -94,15 +102,44 @@ class ReadabilityExtendedSnapshotTest {
 
     @Test
     fun tripActive() {
-        TripConsistencyManager.getInstance().startTrip()
+        // Load a fixture through the manager's existing persistence path; no wall clock reads.
+        val timestamp = "2026-08-06T12:00:00Z"
+        val session = TripConsistencySession(
+            id = "readability-session",
+            status = TripConsistencyStatus.ACTIVE,
+            startedAt = timestamp,
+            createdAt = timestamp,
+            updatedAt = timestamp,
+            telemetryWarning = true
+        )
+        prefs().edit().putString("tripConsistency.activeSession", Gson().toJson(session)).commit()
         snap("15-trip-active") { TripConsistencyScreen() }
     }
 
     @Test
     fun tripHistoryAndRules() {
-        val m = TripConsistencyManager.getInstance()
-        m.startTrip()
-        m.finishTrip()
+        val timestamp = "2026-08-06T12:00:00Z"
+        val classification = TripConsistencyClassification.SMOOTH
+        val report = TripConsistencyReport(
+            id = "readability-report",
+            sessionId = "readability-session",
+            startedAt = timestamp,
+            endedAt = timestamp,
+            durationSeconds = 0,
+            score = 100,
+            classification = classification,
+            classificationLabel = classification.label,
+            summaryText = classification.summary,
+            metrics = TripConsistencyMetrics(),
+            events = listOf(TripConsistencyEvent(
+                id = "readability-manual-end",
+                type = TripConsistencyEventType.MANUAL_END,
+                timestamp = timestamp,
+                label = "Analise encerrada manualmente"
+            )),
+            createdAt = timestamp
+        )
+        prefs().edit().putString("tripConsistency.reportHistory", Gson().toJson(listOf(report))).commit()
         start { CarFrame { TripConsistencyScreen() } }
         composeRule.onRoot().captureRoboImage(ReadabilityHarness.path("15b-trip-history"))
         // O rótulo mudou de "Como funciona" para "Regras" na rodada de legibilidade.

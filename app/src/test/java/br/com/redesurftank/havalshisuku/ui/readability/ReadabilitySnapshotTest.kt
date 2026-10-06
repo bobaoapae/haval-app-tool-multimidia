@@ -75,6 +75,8 @@ class ReadabilitySnapshotTest {
     private fun snap(name: String, content: @Composable () -> Unit) {
         composeRule.mainClock.autoAdvance = false
         composeRule.setContent { CarFrame(content) }
+        // Start effects and animations before advancing to the fixed capture frame.
+        composeRule.waitForIdle()
         composeRule.mainClock.advanceTimeBy(1000)
         composeRule.onRoot().captureRoboImage(ReadabilityHarness.path(name))
     }
@@ -82,6 +84,8 @@ class ReadabilitySnapshotTest {
     private fun snapDialog(name: String, content: @Composable () -> Unit) {
         composeRule.mainClock.autoAdvance = false
         composeRule.setContent { CarFrame(content) }
+        // Start effects and animations before advancing to the fixed capture frame.
+        composeRule.waitForIdle()
         composeRule.mainClock.advanceTimeBy(1000)
         composeRule.onNode(isDialog()).captureRoboImage(ReadabilityHarness.path(name))
     }
@@ -196,7 +200,13 @@ class ReadabilitySnapshotTest {
     fun informacoes() = snap("10-informacoes") { InformacoesTab() }
 
     @Test
-    fun installApps() = snap("11-install-apps") { InstallAppsTab() }
+    fun installApps() {
+        // Capture the loading indicator's initial frame, before its infinite animation advances.
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent { CarFrame { InstallAppsTab() } }
+        composeRule.waitForIdle()
+        composeRule.onRoot().captureRoboImage(ReadabilityHarness.path("11-install-apps"))
+    }
 
     @Test
     fun problemReport() = snap("12-problem-report") { ProblemReportTab() }
