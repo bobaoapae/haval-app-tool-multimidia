@@ -177,7 +177,7 @@ private fun TripScoreHeader(
                     fontWeight = FontWeight.Bold
                 )
             }
-            SecondaryButton(onClick = onShowRules, text = "Como funciona")
+            SecondaryButton(onClick = onShowRules, text = "Regras")
         }
         Text(
             "Avalia suavidade, estabilidade e eficiência usando a telemetria já monitorada pelo Impulse.",
@@ -412,7 +412,7 @@ private fun ScoreRulesView(onBack: () -> Unit) {
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text("Como funciona o score", color = AppColors.TextPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                        Text("Regras implementadas usando dados reais já lidos pelo Impulse.", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Label)
+                        Text("Baseado nos dados lidos pelo Impulse.", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Label)
                     }
                 }
                 SecondaryButton(onClick = onBack, text = "Voltar")

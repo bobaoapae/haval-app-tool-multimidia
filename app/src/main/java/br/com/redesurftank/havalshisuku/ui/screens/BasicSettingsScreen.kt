@@ -997,15 +997,9 @@ fun BasicSettingsTab() {
                 if (viewerStatus.supports(ViewerPresencePolicy.API_CLIMATE_HANDOFF)) {
                         settingsList.add(
                                 SettingItem(
-                                        title = "Ar-condicionado pelo Haval H6 3D",
+                                        title = "Clima no Launcher",
                                         group = SettingsGroups.CLIMATE,
-                                        description =
-                                                SharedPreferencesKeys.VIEWER_CLIMATE_HANDOFF
-                                                        .description +
-                                                        ". Os botoes fisicos continuam funcionando " +
-                                                        "normalmente; some so o popup do carro. O " +
-                                                        "app do carro volta sozinho se o viewer " +
-                                                        "fechar, travar ou for desinstalado.",
+                                        description = "Painel no Launcher; botões físicos mantidos.",
                                         checked = viewerClimateHandoff,
                                         onCheckedChange = {
                                                 viewerClimateHandoff = it
@@ -1030,15 +1024,9 @@ fun BasicSettingsTab() {
                                 group = SettingsGroups.FEATURES,
                                 description =
                                         if (viewerStatus.installedButDisabled)
-                                                "O app esta instalado, mas desativado neste " +
-                                                        "usuario. Reative-o para voltar a ver as " +
-                                                        "opcoes do Haval H6 3D aqui."
+                                                "Launcher desativado. Reative em Apps."
                                         else
-                                                "Nao instalado. As opcoes que dependem do app " +
-                                                        "(abrir no boot, controles de ar-" +
-                                                        "condicionado) aparecem aqui assim que " +
-                                                        "ele for instalado -- veja a aba " +
-                                                        "\"Instalar Apps\".",
+                                                "Instale o Launcher em Apps.",
                                 checked = false,
                                 onCheckedChange = {},
                                 enabled = false,
@@ -1138,10 +1126,9 @@ fun BasicSettingsTab() {
                                                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                                Text("Bloquear manualmente agora", color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.Label, modifier = Modifier.weight(1f))
+                                                Text("Bloquear 4G agora", color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.Label, modifier = Modifier.weight(1f))
                                                 Switch(checked = mobileManualBlock, onCheckedChange = { mobileManualBlock = it; mdm.setManualBlock(it) })
                                         }
-                                        Text("Corta o 4G na hora, independente do resto.", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                                         Row(
                                                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                                                 verticalAlignment = Alignment.CenterVertically
@@ -2854,7 +2841,7 @@ fun BasicSettingsTab() {
                         SettingItem(
                                 title = "Desativar AVAS",
                                 group = SettingsGroups.SAFETY,
-                                description = "Sistema de alerta de veículo silencioso",
+                                description = "Desliga o alerta sonoro para pedestres.",
                                 checked = disableAvas,
                                 onCheckedChange = {
                                         disableAvas = it
@@ -2886,7 +2873,7 @@ fun BasicSettingsTab() {
                                 }
                         ),
                         SettingItem(
-                                title = "Ligar ventilação do banco do motorista com A/C ligado",
+                                title = "Ventilar banco com A/C",
                                 group = SettingsGroups.CLIMATE,
                                 description =
                                         SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON
@@ -3004,7 +2991,7 @@ fun BasicSettingsTab() {
                                 }
                         ),
                         SettingItem(
-                                title = "Habilitar botões personalizados no volante",
+                                title = "Personalizar botões do volante",
                                 group = SettingsGroups.FEATURES,
                                 description =
                                         SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS
@@ -3300,9 +3287,9 @@ fun BasicSettingsTab() {
                                         } else null
                         ),
                         SettingItem(
-                                title = "Ajustar brilho automaticamente",
+                                title = "Brilho automático",
                                 group = SettingsGroups.DISPLAY,
-                                description = "Ajusta o brilho da tela automaticamente",
+                                description = "",
                                 checked = enableAutoBrightness,
                                 onCheckedChange = {
                                         enableAutoBrightness = it

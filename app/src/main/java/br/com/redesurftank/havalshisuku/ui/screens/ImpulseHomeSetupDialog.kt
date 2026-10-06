@@ -123,7 +123,7 @@ fun ImpulseHomeSetupDialog(canOpen: Boolean, onDismiss: () -> Unit) {
                 )
 
                 Text(
-                    "Quer deixar ele à mão? Dá para mudar depois na aba de Apps.",
+                    "Altere depois em Apps.",
                     color = ImpTokens.TextSecondary,
                     fontSize = ImpulseTextSizes.BodyCompact
                 )
@@ -131,21 +131,17 @@ fun ImpulseHomeSetupDialog(canOpen: Boolean, onDismiss: () -> Unit) {
                 SetupOption(
                     checked = openOnBoot,
                     onCheckedChange = { openOnBoot = it },
-                    title = "Abrir ao ligar o carro",
-                    detail = "Na tela principal, assim que o carro liga"
+                    title = "Abrir ao ligar",
+                    detail = ""
                 )
 
                 SetupOption(
                     checked = enableBarAndSwipe,
                     onCheckedChange = { enableBarAndSwipe = it },
                     title =
-                        if (barAlreadyOn) "Deslizar a barra para cima abre o app"
-                        else "Ativar barra inferior e gesto para abrir",
-                    detail =
-                        if (barAlreadyOn)
-                            "A barra inferior já está ativa. Arraste-a para cima para abrir o Impulse Launcher rapidamente"
-                        else
-                            "Exibe a barra na base da tela e permite arrastá-la para cima para abrir o app"
+                        if (barAlreadyOn) "Arrastar a barra abre o Launcher"
+                        else "Ativar barra inferior",
+                    detail = if (barAlreadyOn) "" else "Arraste para abrir o Launcher."
                 )
             }
         },
@@ -199,7 +195,9 @@ private fun SetupOption(
         )
         Column {
             Text(title, color = ImpTokens.TextPrimary, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label)
-            Text(detail, color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
+            if (detail.isNotEmpty()) {
+                Text(detail, color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
+            }
         }
     }
 }

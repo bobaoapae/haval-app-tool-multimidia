@@ -270,12 +270,6 @@ private fun GroupIndexRail(
                 fontSize = ImpulseTextSizes.BodyCompact,
                 color = ImpTokens.TextSecondary
             )
-            Text(
-                text = "sincronizado com o carro",
-                fontFamily = IbmPlexSans,
-                fontSize = ImpulseTextSizes.BodyCompact,
-                color = ImpTokens.TextMuted
-            )
         }
     }
 }
@@ -340,7 +334,7 @@ private fun SearchPill(query: String, onQueryChange: (String) -> Unit) {
 private fun GroupBlock(header: String, items: List<SettingItem>) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = header.uppercase(),
+            text = header,
             fontFamily = IbmPlexSans,
             fontWeight = FontWeight.SemiBold,
             fontSize = ImpulseTextSizes.Label,

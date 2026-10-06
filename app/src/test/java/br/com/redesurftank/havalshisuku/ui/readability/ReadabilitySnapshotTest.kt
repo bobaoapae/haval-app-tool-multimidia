@@ -117,20 +117,20 @@ class ReadabilitySnapshotTest {
             Box(Modifier.weight(1f)) { FeatureCard(
                 icon = Icons.Default.Shield, iconTint = ImpTokens.Accent, highlighted = true,
                 title = "Android Auto Patch",
-                subtitle = "Melhora a projeção do Android Auto no cluster do carro, evitando interrupções e garantindo a melhor visualização do mapa na navegação.",
+                subtitle = "Melhora a projeção do Android Auto no cluster.",
                 status = "Ativo", statusTint = ImpTokens.Accent, subtitleBelowTitle = true,
                 extra = { AutoMountRow(checked = true, onCheckedChange = {}) }
             ) { CardButton("Desinstalar", Color(0xFF3A3F47)) {} } }
             Box(Modifier.weight(1f)) { FeatureCard(
                 icon = Icons.Default.PhoneIphone, iconTint = Color.White, highlighted = false,
                 title = "Apple CarPlay Patch",
-                subtitle = "Melhora a projeção do CarPlay no cluster do carro, evitando interrupções e garantindo a melhor visualização do mapa na navegação.",
+                subtitle = "Melhora a projeção do CarPlay no cluster.",
                 status = "Nao instalado", subtitleBelowTitle = true
             ) { CardButton("Instalar", ImpTokens.Accent) {} } }
             Box(Modifier.weight(1f)) { FeatureCard(
                 icon = Icons.Default.DirectionsCar, iconTint = Color.White, highlighted = false,
                 title = "Impulse Launcher",
-                subtitle = "Painel 3D do carro, com os widgets e os controles",
+                subtitle = "Painel 3D com widgets e controles",
                 status = "v1.2.3"
             ) { CardButton("Abrir", ImpTokens.Accent) {} } }
             Box(Modifier.weight(1f)) { FeatureCard(

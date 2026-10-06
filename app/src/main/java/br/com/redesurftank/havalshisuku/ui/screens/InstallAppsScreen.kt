@@ -501,7 +501,7 @@ fun InstallAppsTab() {
                     iconTint = if (isMounted) ImpTokens.Accent else Color.White,
                     highlighted = isMounted,
                     title = "Android Auto Patch",
-                    subtitle = "Melhora a projeção do Android Auto no cluster do carro, evitando interrupções e garantindo a melhor visualização do mapa na navegação.",
+                    subtitle = "Melhora a projeção do Android Auto no cluster.",
                     status =
                             when {
                                 isMounted -> "Ativo"
@@ -584,7 +584,7 @@ fun InstallAppsTab() {
                     iconTint = if (isCarPlayMounted) ImpTokens.Accent else Color.White,
                     highlighted = isCarPlayMounted,
                     title = "Apple CarPlay Patch",
-                    subtitle = "Melhora a projeção do CarPlay no cluster do carro, evitando interrupções e garantindo a melhor visualização do mapa na navegação.",
+                    subtitle = "Melhora a projeção do CarPlay no cluster.",
                     status =
                             when {
                                 isCarPlayMounted -> "Ativo"
@@ -691,7 +691,7 @@ fun InstallAppsTab() {
                     iconTint = if (homeInstalled != null) ImpTokens.Accent else Color.White,
                     highlighted = homeInstalled != null,
                     title = "Impulse Launcher",
-                    subtitle = "Painel 3D do carro, com os widgets e os controles",
+                    subtitle = "Painel 3D com widgets e controles",
                     previewRes = R.drawable.impulse_home_preview,
                     status =
                             when {
@@ -763,7 +763,7 @@ fun InstallAppsTab() {
                             else Color.White,
                     highlighted = mainPkg.isNotEmpty() || secondaryPkg.isNotEmpty(),
                     title = "Abrir ao ligar",
-                    subtitle = "Um app por tela quando o carro liga",
+                    subtitle = "Um app por tela ao ligar",
                     status = null,
                     extra = {
                         // Lado a lado: empilhadas, as duas linhas empurravam o botao para fora

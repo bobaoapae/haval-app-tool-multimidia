@@ -2683,7 +2683,7 @@ fun ClusterBackgroundSettingsDialog(
                             "THEME" -> {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(
-                                        "Usa o papel de parede declarado pelo tema ativo (<background> no theme.xml). Padrão recomendado.",
+                                        "Usa o fundo do tema ativo. Recomendado.",
                                         color = ImpTokens.TextSecondary,
                                         fontSize = ImpulseTextSizes.BodyCompact
                                     )
@@ -2767,7 +2767,7 @@ fun ClusterBackgroundSettingsDialog(
                             }
                             "PRESET" -> {
                                 Column {
-                                    Text("Presets Locais (assets/backgrounds/)", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
+                                    Text("Fundos locais", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                                     Spacer(modifier = Modifier.height(8.dp))
                                     LazyVerticalGrid(
                                         columns = GridCells.Adaptive(minSize = 150.dp),
@@ -2885,7 +2885,7 @@ fun ClusterBackgroundSettingsDialog(
                                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                                     CircularProgressIndicator(color = Color(0xFF4A9EFF))
                                                     Spacer(modifier = Modifier.height(8.dp))
-                                                    Text("Buscando no Wallhaven...", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
+                                                    Text("Buscando...", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                                                 }
                                             }
                                         }
@@ -3109,7 +3109,7 @@ fun ClusterBackgroundSettingsDialog(
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                "Biblioteca vazia. Favorite uma imagem na aba Web (ícone de coração) ou use \"Carregar pelo Celular\" para enviar uma foto.",
+                                                "Biblioteca vazia. Favorite uma imagem na aba Web (ícone de coração) ou use \"Enviar do celular\" para enviar uma foto.",
                                                 color = ImpTokens.TextMuted,
                                                 fontSize = ImpulseTextSizes.BodyCompact,
                                                 textAlign = TextAlign.Center
@@ -3282,7 +3282,7 @@ fun ClusterBackgroundSettingsDialog(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Carregar pelo Celular", fontSize = ImpulseTextSizes.BodyCompact, fontWeight = FontWeight.Bold, maxLines = 1)
+                            Text("Enviar do celular", fontSize = ImpulseTextSizes.BodyCompact, fontWeight = FontWeight.Bold, maxLines = 1)
                         }
                     }
                 }
@@ -4633,7 +4633,7 @@ fun AppPickerDialog(
                                 value = manualLabel,
                                 onValueChange = { manualLabel = it },
                                 placeholder = {
-                                    Text("Nome do App (ex: YouTube)", color = ImpTokens.TextMuted)
+                                    Text("App", color = ImpTokens.TextMuted)
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
@@ -4668,7 +4668,7 @@ fun AppPickerDialog(
                                 value = manualActivity,
                                 onValueChange = { manualActivity = it },
                                 placeholder = {
-                                    Text("Atividade (opcional)", color = ImpTokens.TextMuted)
+                                    Text("Atividade", color = ImpTokens.TextMuted)
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,

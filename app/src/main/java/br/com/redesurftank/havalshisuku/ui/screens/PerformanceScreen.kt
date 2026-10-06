@@ -78,9 +78,9 @@ fun performanceSettingItems(prefs: SharedPreferences): List<SettingItem> {
 
     val items = mutableListOf(
         SettingItem(
-            title = "Desativar navegador GPS nativo (Neusoft)",
+            title = "Desativar GPS nativo",
             description =
-                "Remove pro usuário o app de navegação nativo (com.neusoft.na.navigation), que fica rodando e consome RAM/CPU da multimídia. Não afeta Android Auto / CarPlay / Waze. Reversível e reaplicado no boot.",
+                "Desativa o navegador nativo. Não afeta Android Auto, CarPlay ou Waze.",
             group = SettingsGroups.PERFORMANCE,
             checked = disableNativeNavigation,
             onCheckedChange = {
@@ -90,9 +90,9 @@ fun performanceSettingItems(prefs: SharedPreferences): List<SettingItem> {
             }
         ),
         SettingItem(
-            title = "Desativar assistente de voz nativo (iFlyTek)",
+            title = "Desativar voz nativa",
             description =
-                "Remove pro usuário o assistente de voz nativo (com.iflytek.cutefly.speechclient.hmi + com.beantechs.voiceclient), que fica rodando e consome RAM/CPU. Você perde o comando de voz OEM (\"Olá Haval\"). Reversível e reaplicado no boot.",
+                "Remove o comando \"Olá Haval\". Reversível.",
             group = SettingsGroups.PERFORMANCE,
             checked = disableNativeVoice,
             onCheckedChange = {
@@ -102,9 +102,9 @@ fun performanceSettingItems(prefs: SharedPreferences): List<SettingItem> {
             }
         ),
         SettingItem(
-            title = "Desativar previsão do tempo (OEM)",
+            title = "Desativar previsão do tempo",
             description =
-                "Remove pro usuário o serviço de previsão do tempo (com.beantechs.weatherservice), que fica rodando e consome RAM/CPU. Reversível e reaplicado no boot.",
+                "Remove o serviço de previsão do tempo do carro. Reversível.",
             group = SettingsGroups.PERFORMANCE,
             checked = disableNativeWeather,
             onCheckedChange = {
@@ -114,9 +114,9 @@ fun performanceSettingItems(prefs: SharedPreferences): List<SettingItem> {
             }
         ),
         SettingItem(
-            title = "Bloquear telemetria (DataTrack → nuvem)",
+            title = "Bloquear telemetria",
             description =
-                "Congela o serviço OEM que manda telemetria pra nuvem (com.beantechs.datatrackservice). Reversível; não mexe no comando remoto. Não derruba o gasto do TBOX na fatura — ajuda na privacidade e no WiFi/Starlink.",
+                "Bloqueia o envio de dados à nuvem. Não afeta o comando remoto.",
             group = SettingsGroups.PERFORMANCE,
             checked = blockDatatrack,
             onCheckedChange = {
@@ -129,9 +129,9 @@ fun performanceSettingItems(prefs: SharedPreferences): List<SettingItem> {
     // Overlay CPU/RAM: só no modo avançado (poll permanente + janela extra = ferramenta diagnóstica).
     if (advancedUse) items.add(
         SettingItem(
-            title = "Indicador de CPU e RAM flutuante",
+            title = "Indicador CPU/RAM",
             description =
-                "Mostra o uso de CPU e RAM da multimídia num quadradinho no canto superior, por cima de qualquer app. Some sozinho quando você abre a barra estendida (lá o dado já aparece no card de dinâmica). Começa desligado: enquanto está ligado, o app faz uma leitura a cada 2,5s.",
+                "Mostra CPU e RAM sobre qualquer app. Leitura a cada 2,5 s.",
             group = SettingsGroups.PERFORMANCE,
             checked = enableResourceOverlay,
             onCheckedChange = {
@@ -264,7 +264,7 @@ fun performanceSettingItems(prefs: SharedPreferences): List<SettingItem> {
                             valueRange = 0f..300f
                         )
                         Text(
-                            "Ajuste os controles acima para reposicionar ao vivo. Feche a barra estendida para visualizar o indicador.",
+                            "Ajuste ao vivo. Feche a barra estendida para ver o indicador.",
                             color = AppColors.TextSecondary,
                             fontSize = ImpulseTextSizes.BodyCompact
                         )
