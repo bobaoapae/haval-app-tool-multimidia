@@ -1,6 +1,6 @@
 # Android Auto Service evidence and CLUSTER preflight (HAV-24)
 
-Updated 2026-10-04. **The second CLUSTER stream is not implemented or validated
+Updated 2026-10-06. **The second CLUSTER stream is not implemented or validated
 on the car.** The current tool is read-only; default patch invocation exits 2
 without changing any file. Passing the API preflight does not change that gate.
 
@@ -101,8 +101,9 @@ does not inspect native libraries or prove service ids are free on the target.
 
 ## Gates before a deployable implementation
 
-1. Obtain the currently installed Service APK with explicit vehicle access;
-   record SHA-256, package/version and head-unit firmware alongside the decode
+1. Use the supplied current Service identity below; record the actual firmware,
+   running-process ABI/native mapping and APK hash during physical validation.
+   Do not request the already supplied identical APK again
 2. Recheck the current registration path and free IDs. The historical proposal
    is video 21/input 22, displayId 1/CLUSTER, 1280×720 at 160 dpi, D-pad 19–23.
    These values are prior-art targets, not new vehicle measurements
@@ -121,3 +122,70 @@ does not inspect native libraries or prove service ids are free on the target.
 
 Never use Frida, socket frame copies, screencap mirroring or an unplanned
 `force-stop` of `com.ts.androidauto.projectionservice` to close these gaps.
+
+
+## 2026-10-06 current-source and native lifecycle evidence
+
+Rafael reports that the installed Service is the Dropbox vendor copy. Marcel's
+new direct `AndroidAutoService.apk` download was compared byte-for-byte with the
+historical artifact above: identical, including SHA-256 `a9cfb4…ae1d8`. This resolves
+which supplied APK to analyze; it is not an independent live-device inspection.
+
+Marcel then added `androidauto-apks/lib` and `lib64`. Both native files were
+inspected as ELF data, never loaded or executed:
+
+| Artifact | Bytes | SHA-256 | ELF |
+|---|---:|---|---|
+| `lib64/libautoreceiver_jni.so` | 3,503,536 | `f2d5aeb527919f351b3de3aa60b4f89ca9cc740735ac1c7ed11e06c7d73a0065` | AArch64, Android API-28 note |
+| `lib/libautoreceiver_jni.so` | 2,428,048 | `1a9f84758ad121d91fdebd176cd06542a14e9e9fa8500f7b5563c7af08eab14f` | ARM EABI5, Android API-28 note |
+
+Both list `liblog.so`, `libc++.so`, `libc.so`, `libm.so`, `libdl.so` as dependencies.
+Their JNI export sets match (127 unmangled `Java_*` names plus one mangled
+nativeBugReport symbol). All 11 VideoSink natives invoked by the inspected DEX
+have exports. The unused `nativeMaxUnackedFrames(I)V` declaration has no export;
+the called `nativeSetMaxUnackedFrames(I)V` does. Actual process mapping/ABI still
+requires device evidence, but the native artifact is no longer missing.
+
+Static AArch64 virtual addresses below are evidence coordinates only. No prototype
+or patch uses hardcoded native addresses:
+
+- `VideoSinkCallbacks::dataAvailableCallback` at `0x1528b0` obtains
+  `BufferPool.getBuffer(length)`, accesses `array`/`arrayOffset`, and copies native
+  payload using JNI `SetByteArrayRegion` at `0x152a7c` before invoking Java at
+  `0x152a98`. The Java buffer is not a borrowed native payload pointer. Retaining
+  it for worker-thread consumption is supported; return it only after use/disposal
+- `nativeAckFrames` at `0x1522ec` obtains this Java sink's native object, then
+  `MediaSinkBase::ackFrames` at `0x16e50c` emits message `0x8004` with session/count
+  on that endpoint. This does not recycle the Java buffer
+- `VideoSink::setVideoFocus` at `0x175b54` sends per-sink `VideoFocusNotification`
+  `0x8008` (mode + unsolicited). It does not locally stop transport. Its channel
+  gate at `0x175bbc` drops pre-open requests; preserve pending demand until setup
+- `handleSetup` at `0x175ae4` sends automatic unsolicited PROJECTED only when
+  `autoStartProjection` is true. A pre-advertised sink with that flag false is a
+  concrete on-demand design, not proof that the phone pauses/resumes encoding
+- Java's `onVideoFocusModeChange` fires before native send. It is not phone ACK
+- Java `registerCarService` stores/creates the provider; `startCarServices` later
+  calls `nativeRegister`. Native `MessageRouter::registerService` at `0x15f9ec`
+  rejects duplicate IDs/255 and inserts the endpoint; it does not re-advertise a
+  running session
+
+The OEM `VideoPlayer` cannot simply be reused as the demand-driven implementation:
+it ACKs before queueing, has an unbounded queue, ignores null Surface updates,
+does not reconfigure a live codec when replacing the Surface reference, and
+clears queued buffers on release without individual pool returns. Its associated
+`AapVideoManager` listener ACKs MAIN. Keep those paths untouched.
+
+### Tested next slice: independent frame-pump prototype
+
+[`prototype/`](prototype/README.md) now contains a standalone Java frame-pump
+foundation: bounded retained allocations/frames, worker-only decoding, immutable
+connection/Surface generation, separate exactly-once ACK/return attempts and
+fail-closed overflow. It delays data ACK until consumption/disposal and released
+local capacity, rather than copying the OEM early-ACK strategy. That timing
+choice still needs phone validation; tests prove its local accounting only.
+
+The actual Java code passes 24 JVM checks through one Python harness, alongside
+all 18 existing preflight tests (19 Python tests total). It is not connected to
+GAL/MediaCodec/Binder/the app, provides no installable test candidate and changes
+no OEM APK. Patching remains disabled. Next is the real authenticated adapter,
+codec/config/keyframe lifecycle and pre-session hook, then physical validation.

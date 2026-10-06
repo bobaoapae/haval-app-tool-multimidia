@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/aa-patches/patch_android_auto_service_cluster.py'
       - 'scripts/aa-patches/tests/**'
+      - 'scripts/aa-patches/prototype/**'
       - '.github/workflows/aa-cluster-contract.yml'
 
 permissions:
@@ -18,5 +19,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Run read-only preflight regression tests
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Run preflight and JVM prototype regression tests
         run: python3 -m unittest discover -s scripts/aa-patches/tests -v
