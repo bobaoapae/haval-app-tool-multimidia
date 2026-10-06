@@ -26,6 +26,7 @@ import br.com.redesurftank.havalshisuku.ui.components.AppDimensions
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
 import br.com.redesurftank.havalshisuku.ui.components.StyledCard
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
 
 @Composable
 fun CurrentValuesTab() {
@@ -69,7 +70,7 @@ fun CurrentValuesTab() {
         Text(
             "VALORES ATUAIS",
             fontFamily = Michroma,
-            fontSize = 15.sp,
+            fontSize = ImpulseTextSizes.Label,
             letterSpacing = 1.8.sp,
             color = ImpTokens.TextSecondary,
             modifier = Modifier.padding(start = 4.dp, bottom = 14.dp)
@@ -131,9 +132,9 @@ fun CurrentValuesTab() {
                         )
                         .padding(horizontal = 20.dp, vertical = 12.dp)
                 ) {
-                    Text(key ?: "", color = ImpTokens.TextSecondary, fontSize = 12.5.sp)
+                    Text(key ?: "", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                     Spacer(Modifier.height(2.dp))
-                    Text(value ?: "", color = ImpTokens.TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                    Text(value ?: "", color = ImpTokens.TextPrimary, fontSize = ImpulseTextSizes.Label, fontWeight = FontWeight.Medium)
                 }
             }
         }

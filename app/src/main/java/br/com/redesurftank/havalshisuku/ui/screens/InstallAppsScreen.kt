@@ -69,6 +69,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import rikka.shizuku.Shizuku
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
 
 /** O viewer 3D, distribuido pelo catalogo como qualquer outro app. */
 const val IMPULSE_HOME_PACKAGE = "com.havalh6.viewer"
@@ -483,7 +484,7 @@ fun InstallAppsTab() {
                 Text(
                         "INSTALAR APPS",
                         fontFamily = Michroma,
-                        fontSize = 15.sp,
+                        fontSize = ImpulseTextSizes.Label,
                         letterSpacing = 1.8.sp,
                         color = ImpTokens.TextSecondary,
                         modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp)
@@ -932,7 +933,7 @@ fun InstallAppsTab() {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                     app.name,
-                                    fontSize = 15.sp,
+                                    fontSize = ImpulseTextSizes.Label,
                                     fontWeight = FontWeight.Medium,
                                     color = Color.White,
                                     maxLines = 1,
@@ -940,7 +941,7 @@ fun InstallAppsTab() {
                             )
                             val displayVersion = installedVersion ?: app.version
                             if (displayVersion.isNotEmpty()) {
-                                Text("v$displayVersion", fontSize = 12.sp, color = ImpTokens.TextSecondary, maxLines = 1)
+                                Text("v$displayVersion", fontSize = ImpulseTextSizes.BodyCompact, color = ImpTokens.TextSecondary, maxLines = 1)
                             }
                         }
                         if (downloadingApp == app.packageName) {
@@ -1088,7 +1089,7 @@ fun InstallAppsTab() {
             },
             containerColor = ImpTokens.Container,
             title = { Text(titleText, color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text(messageText, color = ImpTokens.TextSecondary, fontSize = 14.sp) },
+            text = { Text(messageText, color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.Label) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -1151,7 +1152,7 @@ private fun SectionHeader(title: String) {
     Text(
         text = title,
         color = Color.White,
-        fontSize = 17.sp,
+        fontSize = ImpulseTextSizes.Label,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp)
     )

@@ -40,6 +40,8 @@ import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.services.BottomBarService
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
 
 /**
  * Oferecido logo depois de o Impulse Launcher ser instalado: opções essenciais de inicialização,
@@ -123,7 +125,7 @@ fun ImpulseHomeSetupDialog(canOpen: Boolean, onDismiss: () -> Unit) {
                 Text(
                     "Quer deixar ele à mão? Dá para mudar depois na aba de Apps.",
                     color = ImpTokens.TextSecondary,
-                    fontSize = 12.sp
+                    fontSize = ImpulseTextSizes.BodyCompact
                 )
 
                 SetupOption(
@@ -196,8 +198,8 @@ private fun SetupOption(
             colors = CheckboxDefaults.colors(checkedColor = ImpTokens.Accent)
         )
         Column {
-            Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            Text(detail, color = ImpTokens.TextSecondary, fontSize = 11.sp)
+            Text(title, color = ImpTokens.TextPrimary, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label)
+            Text(detail, color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
         }
     }
 }

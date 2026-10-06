@@ -20,8 +20,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import br.com.redesurftank.havalshisuku.ui.theme.DarkImpulseTextColors
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
 
 // Data class compartilhado para settings
 data class SettingItem(
@@ -122,7 +124,7 @@ fun SettingCard(
             ) {
                 Text(
                     text = title,
-                    fontSize = 18.sp,
+                    fontSize = ImpulseTextSizes.Body,
                     fontWeight = FontWeight.Medium,
                     color = if (enabled) AppColors.TextPrimary else AppColors.TextDisabled,
                     modifier = Modifier.weight(1f).padding(end = 12.dp),
@@ -149,9 +151,9 @@ fun SettingCard(
             Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = description,
-                fontSize = 12.sp,
+                fontSize = ImpulseTextSizes.BodyCompact,
                 color = if (enabled) AppColors.TextSecondary else Color(0xFF606060),
-                lineHeight = 14.sp,
+                lineHeight = 1.35.em,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
@@ -163,7 +165,7 @@ fun SettingCard(
                     if (sliderLabel != null) {
                         Text(
                             text = sliderLabel,
-                            fontSize = 14.sp,
+                            fontSize = ImpulseTextSizes.Label,
                             color = AppColors.TextPrimary,
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
@@ -460,7 +462,7 @@ fun DiagnosticsDialog(showDiagnostics: Boolean, onDismiss: () -> Unit, diagnosti
             title = { Text("Diagnóstico de Estabilidade") },
             text = {
                 Box(modifier = Modifier.height(400.dp).verticalScroll(rememberScrollState())) {
-                    Text(diagnosticsText, fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.White)
+                    Text(diagnosticsText, fontSize = ImpulseTextSizes.BodyCompact, fontFamily = FontFamily.Monospace, color = Color.White)
                 }
             },
             confirmButton = {
@@ -488,6 +490,6 @@ fun AppActionButton(
         shape = RoundedCornerShape(8.dp),
         contentPadding = PaddingValues(vertical = 8.dp)
     ) {
-        Text(text, color = Color.White, fontSize = 14.sp)
+        Text(text, color = Color.White, fontSize = ImpulseTextSizes.Label)
     }
 }

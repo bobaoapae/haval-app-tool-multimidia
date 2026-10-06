@@ -30,6 +30,7 @@ import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.ui.components.AppColors
 import br.com.redesurftank.havalshisuku.ui.components.SettingItem
 import br.com.redesurftank.havalshisuku.ui.components.SettingsGroups
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
 
 private const val SELECTED_CORNER_BACKGROUND_ALPHA = 0.22f
 
@@ -154,7 +155,7 @@ fun performanceSettingItems(prefs: SharedPreferences): List<SettingItem> {
                                     else -> "inferior direito"
                                 },
                             color = AppColors.TextSecondary,
-                            fontSize = 13.sp
+                            fontSize = ImpulseTextSizes.BodyCompact
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -198,7 +199,7 @@ fun performanceSettingItems(prefs: SharedPreferences): List<SettingItem> {
                                             color =
                                                 if (sel) AppColors.Primary
                                                 else AppColors.TextSecondary,
-                                            fontSize = 18.sp
+                                            fontSize = ImpulseTextSizes.Body
                                         )
                                     }
                                 }
@@ -206,7 +207,7 @@ fun performanceSettingItems(prefs: SharedPreferences): List<SettingItem> {
                         Text(
                             "Tamanho da fonte: $overlayFontSp sp",
                             color = AppColors.TextSecondary,
-                            fontSize = 13.sp,
+                            fontSize = ImpulseTextSizes.BodyCompact,
                             modifier = Modifier.padding(top = 10.dp)
                         )
                         Slider(
@@ -227,7 +228,7 @@ fun performanceSettingItems(prefs: SharedPreferences): List<SettingItem> {
                         Text(
                             "Distância da borda lateral: $overlayX dp",
                             color = AppColors.TextSecondary,
-                            fontSize = 13.sp
+                            fontSize = ImpulseTextSizes.BodyCompact
                         )
                         Slider(
                             value = overlayX.toFloat(),
@@ -246,7 +247,7 @@ fun performanceSettingItems(prefs: SharedPreferences): List<SettingItem> {
                         Text(
                             "Distância da borda de cima/baixo: $overlayY dp",
                             color = AppColors.TextSecondary,
-                            fontSize = 13.sp
+                            fontSize = ImpulseTextSizes.BodyCompact
                         )
                         Slider(
                             value = overlayY.toFloat(),
@@ -265,7 +266,7 @@ fun performanceSettingItems(prefs: SharedPreferences): List<SettingItem> {
                         Text(
                             "Ajuste os controles acima para reposicionar ao vivo. Feche a barra estendida para visualizar o indicador.",
                             color = AppColors.TextSecondary,
-                            fontSize = 12.sp
+                            fontSize = ImpulseTextSizes.BodyCompact
                         )
                     }
                 }

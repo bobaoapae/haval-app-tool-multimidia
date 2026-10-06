@@ -56,11 +56,13 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import br.com.redesurftank.havalshisuku.ui.theme.DarkImpulseTextColors
 import br.com.redesurftank.havalshisuku.ui.theme.IbmPlexSans
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 import kotlinx.coroutines.launch
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
 
 /**
  * Redesign da tela de Configurações — Rodada 15 (handoff de design).
@@ -171,7 +173,7 @@ fun GroupedSettingsLayout(items: List<SettingItem>) {
                         "Nenhum ajuste encontrado.",
                         color = ImpTokens.TextSecondary,
                         fontFamily = IbmPlexSans,
-                        fontSize = 15.sp,
+                        fontSize = ImpulseTextSizes.Label,
                         modifier = Modifier.padding(24.dp)
                     )
                 }
@@ -244,7 +246,7 @@ private fun GroupIndexRail(
                         text = name,
                         fontFamily = IbmPlexSans,
                         fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                        fontSize = 15.sp,
+                        fontSize = ImpulseTextSizes.Label,
                         color = if (active) ImpTokens.Accent else ImpTokens.TextPrimary,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -255,8 +257,8 @@ private fun GroupIndexRail(
                     Text(
                         text = "$count",
                         fontFamily = IbmPlexSans,
-                        fontSize = 13.sp,
-                        color = if (active) ImpTokens.Accent else ImpTokens.TextMuted
+                        fontSize = ImpulseTextSizes.BodyCompact,
+                        color = if (active) ImpTokens.Accent else ImpTokens.TextDisabled
                     )
                 }
             }
@@ -265,13 +267,13 @@ private fun GroupIndexRail(
             Text(
                 text = "$totalCount ajustes · $onCount ligados",
                 fontFamily = IbmPlexSans,
-                fontSize = 12.sp,
+                fontSize = ImpulseTextSizes.BodyCompact,
                 color = ImpTokens.TextSecondary
             )
             Text(
                 text = "sincronizado com o carro",
                 fontFamily = IbmPlexSans,
-                fontSize = 12.sp,
+                fontSize = ImpulseTextSizes.BodyCompact,
                 color = ImpTokens.TextMuted
             )
         }
@@ -312,7 +314,7 @@ private fun SearchPill(query: String, onQueryChange: (String) -> Unit) {
                     text = "Buscar ajuste...",
                     color = ImpTokens.TextMuted,
                     fontFamily = IbmPlexSans,
-                    fontSize = 15.sp
+                    fontSize = ImpulseTextSizes.Label
                 )
             }
             BasicTextField(
@@ -322,7 +324,7 @@ private fun SearchPill(query: String, onQueryChange: (String) -> Unit) {
                 textStyle = TextStyle(
                     color = ImpTokens.TextPrimary,
                     fontFamily = IbmPlexSans,
-                    fontSize = 15.sp
+                    fontSize = ImpulseTextSizes.Label
                 ),
                 cursorBrush = SolidColor(ImpTokens.Accent),
                 modifier = Modifier.fillMaxWidth()
@@ -341,8 +343,8 @@ private fun GroupBlock(header: String, items: List<SettingItem>) {
             text = header.uppercase(),
             fontFamily = IbmPlexSans,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 14.sp,
-            letterSpacing = 1.sp,
+            fontSize = ImpulseTextSizes.Label,
+            letterSpacing = 0.5.sp,
             color = ImpTokens.TextSecondary,
             modifier = Modifier.padding(start = 4.dp, bottom = 14.dp)
         )
@@ -396,8 +398,8 @@ private fun SettingsRow(item: SettingItem) {
                     text = item.title,
                     fontFamily = IbmPlexSans,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 19.sp,
-                    color = if (item.enabled) ImpTokens.TextPrimary else ImpTokens.TextMuted,
+                    fontSize = ImpulseTextSizes.Body,
+                    color = if (item.enabled) ImpTokens.TextPrimary else ImpTokens.TextDisabled,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -407,9 +409,9 @@ private fun SettingsRow(item: SettingItem) {
                         text = item.description,
                         fontFamily = IbmPlexSans,
                         fontWeight = FontWeight.Normal,
-                        fontSize = 14.5.sp,
-                        color = if (item.enabled) ImpTokens.TextSecondary else ImpTokens.TextMuted,
-                        lineHeight = 19.sp,
+                        fontSize = ImpulseTextSizes.Label,
+                        color = if (item.enabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled,
+                        lineHeight = 1.35.em,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -471,7 +473,7 @@ private fun ImpInlineSlider(item: SettingItem) {
                 text = it,
                 fontFamily = IbmPlexSans,
                 color = ImpTokens.TextPrimary,
-                fontSize = 14.sp
+                fontSize = ImpulseTextSizes.Label
             )
             Spacer(modifier = Modifier.height(6.dp))
         }
