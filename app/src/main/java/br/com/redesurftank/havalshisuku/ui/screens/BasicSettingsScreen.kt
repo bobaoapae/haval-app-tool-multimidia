@@ -53,6 +53,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
 
 // HotRouter: formata o epoch do statefile em HH:mm:ss.
@@ -2779,16 +2780,20 @@ fun BasicSettingsTab() {
                                                                 Text(
                                                                         "Abrir Impulse Drive na projeção do cluster",
                                                                         color =
-                                                                                Color.White,
+                                                                                ImpTokens.TextPrimary,
                                                                         fontSize =
-                                                                                ImpulseTextSizes.Label
+                                                                                ImpulseTextSizes.Body,
+                                                                        fontWeight =
+                                                                                ImpulseTextWeights.Label
                                                                 )
                                                                 Text(
                                                                         "Ao iniciar Android Auto ou CarPlay no cluster",
                                                                         color =
-                                                                                ImpTokens.TextMuted,
+                                                                                ImpTokens.TextSecondary,
                                                                         fontSize =
-                                                                                ImpulseTextSizes.BodyCompact
+                                                                                ImpulseTextSizes.Label,
+                                                                        fontWeight =
+                                                                                ImpulseTextWeights.Body
                                                                 )
                                                         }
                                                         Switch(
