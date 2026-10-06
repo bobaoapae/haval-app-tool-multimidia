@@ -9,6 +9,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.widget.FrameLayout
+import br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController
 import java.lang.ref.WeakReference
 
 /**
@@ -25,13 +26,21 @@ object AaClusterVideoHost {
     private var surfaceView: SurfaceView? = null
     private var surface: Surface? = null
     private var shown = false
+    private var generation = 0L
+    private var surfaceFormat = 0
+    private var surfaceWidth = 0
+    private var surfaceHeight = 0
+    private var configured = false
 
     fun attachParent(parent: FrameLayout) {
+        if (parentRef?.get() !== parent) detachParent()
         parentRef = WeakReference(parent)
         ensureView(parent.context, parent)
+        AndroidAutoClusterController.onHostAvailable()
     }
 
     fun detachParent() {
+        AndroidAutoClusterController.onSurfaceDestroyed()
         hide()
         val parent = parentRef?.get()
         surfaceView?.let { view ->
@@ -39,6 +48,8 @@ object AaClusterVideoHost {
         }
         surfaceView = null
         surface = null
+        generation++
+        configured = false
         parentRef = null
         shown = false
     }
@@ -59,7 +70,9 @@ object AaClusterVideoHost {
 
     fun isShown(): Boolean = shown
 
-    fun peekSurface(): Surface? = surface
+    fun peekSurface(): Surface? = if (configured) surface else null
+
+    internal fun surfaceGeneration(): Long = generation
 
     private fun ensureView(context: Context, parent: FrameLayout) {
         if (surfaceView != null) return
@@ -74,7 +87,10 @@ object AaClusterVideoHost {
             holder.addCallback(
                 object : SurfaceHolder.Callback {
                     override fun surfaceCreated(holder: SurfaceHolder) {
+                        if (surfaceView?.holder !== holder) return
                         surface = holder.surface
+                        generation++
+                        configured = false
                         Log.i(TAG, "CLUSTER Surface created")
                     }
 
@@ -84,11 +100,24 @@ object AaClusterVideoHost {
                         width: Int,
                         height: Int
                     ) {
+                        if (surfaceView?.holder !== holder) return
                         surface = holder.surface
+                        if (!configured || surfaceFormat != format || surfaceWidth != width || surfaceHeight != height) {
+                            generation++
+                            surfaceFormat = format
+                            surfaceWidth = width
+                            surfaceHeight = height
+                            configured = true
+                        }
+                        AndroidAutoClusterController.onSurfaceAvailable(holder.surface, generation)
                     }
 
                     override fun surfaceDestroyed(holder: SurfaceHolder) {
+                        if (surfaceView?.holder !== holder) return
                         surface = null
+                        generation++
+                        configured = false
+                        AndroidAutoClusterController.onSurfaceDestroyed()
                         Log.i(TAG, "CLUSTER Surface destroyed")
                     }
                 }

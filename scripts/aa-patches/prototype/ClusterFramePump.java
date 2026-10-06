@@ -8,7 +8,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Research prototype, NOT wired into the app or OEM Service.
+ * Independent frame core; the separate lab integration supplies OEM/Android adapters.
  *
  * One pump owns one connection/Surface generation and one independent decoder.
  * The supplied endpoint must be CLUSTER's, never MAIN's. Codec setup/config and
@@ -34,6 +34,11 @@ public final class ClusterFramePump implements AutoCloseable {
         void close() throws Exception;
     }
 
+    /** Optional immutable per-frame context, captured before asynchronous dispatch. */
+    public interface ContextualDecoder extends Decoder {
+        void consume(int sessionId, long timestamp, ByteBuffer buffer, Object context) throws Exception;
+    }
+
     public enum OfferResult {
         ACCEPTED, STOPPED, WRONG_GENERATION, CAPACITY_EXCEEDED, ALREADY_SUBMITTED
     }
@@ -46,6 +51,7 @@ public final class ClusterFramePump implements AutoCloseable {
         private final ByteBuffer buffer;
         private final int bytes;
         private final FrameOwner owner;
+        private final Object context;
         private final AtomicBoolean submitted = new AtomicBoolean();
         private final CompletableFuture<Void> disposed = new CompletableFuture<>();
         private boolean ackAttempted;
@@ -53,6 +59,12 @@ public final class ClusterFramePump implements AutoCloseable {
 
         public Frame(Object generation, int sessionId, long timestamp,
                      ByteBuffer buffer, FrameOwner owner) {
+            this(generation, sessionId, timestamp, buffer, owner, null);
+        }
+
+        public Frame(Object generation, int sessionId, long timestamp,
+                     ByteBuffer buffer, FrameOwner owner, Object immutableContext) {
+            this.context = immutableContext;
             this.generation = Objects.requireNonNull(generation, "generation");
             this.buffer = Objects.requireNonNull(buffer, "buffer");
             this.owner = Objects.requireNonNull(owner, "owner");
@@ -190,7 +202,11 @@ public final class ClusterFramePump implements AutoCloseable {
             }
             Throwable problem = null;
             try {
-                if (consume) decoder.consume(frame.sessionId, frame.timestamp, frame.buffer);
+                if (consume) {
+                    if (decoder instanceof ContextualDecoder) {
+                        ((ContextualDecoder) decoder).consume(frame.sessionId, frame.timestamp, frame.buffer, frame.context);
+                    } else decoder.consume(frame.sessionId, frame.timestamp, frame.buffer);
+                }
             } catch (Throwable callbackFailure) {
                 problem = callbackFailure;
             }

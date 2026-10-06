@@ -1,8 +1,10 @@
 # Android Auto Service evidence and CLUSTER preflight (HAV-24)
 
-Updated 2026-10-06. **The second CLUSTER stream is not implemented or validated
-on the car.** The current tool is read-only; default patch invocation exits 2
-without changing any file. Passing the API preflight does not change that gate.
+Updated 2026-10-06. **Source integration and unsigned lab assembly now exist;
+no independent CLUSTER stream or installable vehicle candidate is validated.**
+The original preflight remains read-only; its default invocation exits2 without
+changing files. The new exact-profile integration is separate and fail-closed.
+See the latest integration section below; earlier phase notes are historical.
 
 ## Artifact identity
 
@@ -189,3 +191,58 @@ all 18 existing preflight tests (19 Python tests total). It is not connected to
 GAL/MediaCodec/Binder/the app, provides no installable test candidate and changes
 no OEM APK. Patching remains disabled. Next is the real authenticated adapter,
 codec/config/keyframe lifecycle and pre-session hook, then physical validation.
+
+
+## 2026-10-06 source integration and unsigned assembly
+
+The new [`integration/`](integration/README.md) sources now implement pre-session
+paired registration, independent MediaCodec/config/IDR handling, bounded frame
+ownership, per-sink ACK/focus, synchronous native retirement, authenticated
+Binder Surface transport and host first-render readiness. Transaction55 is a
+new private extension; the verified original Stub covers1–54 plus the interface
+transaction. Only the concrete Binder override handles55; existing dispatch is
+preserved. Whole-tree and class fingerprints reject other profiles/collisions.
+
+The service preserves MAIN's providers/renderer and shared GAL lifecycle. Focus
+off/on is CLUSTER-only and demand-driven; it is not proof of phone-side encoding
+pause or guaranteed fresh IDR on resume. Annex-B config/IDR parsing and OEM-parity
+config ACK0 still require actual phone captures. New output/config generations
+cannot publish LIVE using a previous decoder's delayed rendered callback.
+
+Caller trust requires the exact Impulse package/current unique UID plus an
+explicit allowlist of current public signer SHA-256 fingerprints. The app pins
+the observed OEM Service public signer. No caller is authorized by default, no
+permissions or legacy transaction authorization change, and no key is generated.
+The supplied Service uses system shared UID and the OEM platform signer; an
+unsigned/re-signed APK is not a signature-compatible update. An authorized
+loading/signing path and physical test remain separate owner decisions.
+
+Local verification uses official pinned Android28 API, apktool3.0.2 and D8/R8
+9.1.31. Real helper/client Java compilation and DEX/smali unsigned assembly have
+succeeded. A preliminary assembled artifact resolved887 helper/OEM references;
+manifest/resources remained byte-identical, only classes.dex changed, and old
+signature files were removed. The reproducible builder additionally re-decodes
+and checks final references/class inventory. Final exact counts and hashes are
+emitted in report.json; no OEM APK, native binary or decompiled implementation is
+committed or published.
+
+Default validation builds retain the actual code branches but disable caller
+handoff/registration. This checks assembly without pretending a test vehicle
+feature is enabled. JVM/core/hook/build-gate tests do not execute MediaCodec,
+Binder, native libraries or the supplied APK. PR CI adds real Android API Java
+compilation and host Kotlin/Java compilation without signing/releasing. See the
+PR's exact-head checks for terminal CI results, not an earlier green commit.
+
+Still required: approved public client signer pins and loading route, parked-car
+negotiation/codec/focus/Surface tests, Maps and Waze separately, actual ABI/native
+mapping, MAIN/audio/TBT preservation and two settled FPS captures. No installation,
+mount, security grant, OEM binary execution, signing, merge or release occurred.
+
+
+Final review also identified an explicit **enabled-candidate blocker**: the
+SurfaceHolder destruction callback currently queues asynchronous remote disable.
+A duplicated handle does not prove remote MediaCodec quiescence before that
+callback returns. Controlled hides need a stop acknowledgement, and forced
+Surface/display loss needs a sound Android lifecycle design and validation.
+The default artifact remains disabled; public signer pins alone do not clear
+this blocker. See the integration README for the exact boundary.

@@ -1,13 +1,10 @@
 # Independent CLUSTER frame-pump research prototype
 
-**Not an installable feature or Service patch.** Nothing in this directory is
-loaded by the Android app, bundled into an APK, or registered with GAL. The
-existing patch script still refuses mutation and reports CLUSTER/deploy false.
-
-This is the tested Java ownership/queue boundary for a future independent
-CLUSTER decoder. It does not provide a MediaCodec adapter, codec-config/IDR
-recovery, Binder/Surface handoff, input registration, focus controller or proof
-that Maps/Waze sends a second stream. It never calls MAIN's renderer.
+This directory is the independently JVM-tested ownership/queue core. The
+separate [source integration](../integration/README.md) now consumes it in an
+unsigned lab Service assembly; this core alone is not an installable feature or
+proof that Maps/Waze sends a second stream. The original preflight still refuses
+patch mode. No MAIN renderer is reused.
 
 ## Why this boundary is now supported by evidence
 
@@ -68,7 +65,7 @@ on its own future; it cannot retroactively change a completed termination future
 ### Important lifecycle limits
 
 A buffer lease, not the pump's mere existence or mount hash, protects a real
-native sink's lifetime. The real adapter is still missing. Stop/unregister the
+native sink's lifetime. The separate integration supplies a native-access guard. Stop/unregister the
 producer safely and settle all accepted/rejected frame leases before destroying
 the sink. Do not release/reuse the decoder's Surface until its termination has
 settled. Callback operations must not wait on that same termination from the
@@ -76,10 +73,10 @@ worker, or they would deadlock. JVM/process-fatal failures are outside this mode
 
 The prototype handles **data frames only**. OEM codec-config handling synthesizes
 session-zero ACKs; that rule has not been carried into this prototype by guess.
-The future adapter must map setup/config/data/teardown separately and validate
+The integration maps setup/config/data/teardown separately and must validate
 the chosen data-ACK timing and resume/keyframe behavior on the phone.
 
-## Demand-driven integration plan, not implemented here
+## Integration requirements (implemented in the separate lab source, physically unverified)
 
 1. Register the separate CLUSTER VideoSink and paired InputSource before service
    discovery/session start, checking IDs against the actual registration set
@@ -110,7 +107,7 @@ From the repository root:
     python3 -m unittest discover -s scripts/aa-patches/tests -v
 
 A JDK with a compiler is required. The Python harness compiles the **actual**
-Java prototype and executes 24 deterministic/latch-driven checks. It fails if
+Java core and executes 25 deterministic/latch-driven checks. It fails if
 Java/compiler is absent, rather than reporting a skipped pass. Compilation uses
 Java 8 source/target syntax on the available JDK; it is not an Android API/DEX
 compatibility check. Intermediates use a temporary directory.
@@ -121,3 +118,7 @@ queued cancellation, stale connection/Surface generations, reused session IDs,
 duplicate frames, late arrivals, ACK/decode/recycle/close exceptions, reentrant
 completion/cleanup callbacks and concurrent producers. The original 18 preflight
 regressions remain unchanged. No OEM bytecode or native library is executed.
+
+Each frame may also carry an immutable codec-config context. The integration uses
+that captured identity so queued frames cannot be silently rebound to a newer
+config. The executable context-ordering regression covers this additive path.

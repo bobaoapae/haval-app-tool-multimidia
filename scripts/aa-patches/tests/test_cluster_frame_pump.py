@@ -25,7 +25,7 @@ class ClusterFramePumpJvmTest(unittest.TestCase):
             run = subprocess.run([java, "-cp", output, "impulse.cluster.prototype.ClusterFramePumpTest"],
                                  capture_output=True, text=True, timeout=60)
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-            self.assertIn("PASS total=24 prototype checks", run.stdout)
+            self.assertIn("PASS total=25 prototype checks", run.stdout)
 
 
 if __name__ == "__main__":

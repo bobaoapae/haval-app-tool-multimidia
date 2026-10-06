@@ -147,6 +147,20 @@ public final class ClusterFramePumpTest {
             accepted(p, f); complete(f.disposal()); stopped(p); o.exactly(1);
             check(d.firstBuffer == bytes && d.firstTimestamp == 999, "copied/replaced frame metadata");
         });
+        test("immutable per-frame context reaches worker in accepted order", () -> {
+            Object g=new Object(), first=new Object(), second=new Object();Owner owner=new Owner(7);
+            List<Object> seen=new ArrayList<>();
+            ClusterFramePump.ContextualDecoder decoder=new ClusterFramePump.ContextualDecoder(){
+                public void consume(int id,long ts,ByteBuffer bytes){throw new AssertionError("context lost");}
+                public void consume(int id,long ts,ByteBuffer bytes,Object context){seen.add(context);}
+                public void close(){}
+            };
+            ClusterFramePump p=new ClusterFramePump(g,2,16,decoder);
+            ClusterFramePump.Frame a=new ClusterFramePump.Frame(g,7,0,ByteBuffer.allocate(8),owner,first);
+            ClusterFramePump.Frame b=new ClusterFramePump.Frame(g,7,0,ByteBuffer.allocate(8),owner,second);
+            accepted(p,a);accepted(p,b);complete(a.disposal());complete(b.disposal());stopped(p);
+            check(seen.size()==2&&seen.get(0)==first&&seen.get(1)==second,"config context was replaced/reordered");owner.exactly(2);
+        });
         test("construction-to-offer window mutation cannot evade allocation budget", () -> {
             Object g=new Object();Owner o=new Owner(7);Decoder d=new Decoder(false);ClusterFramePump p=new ClusterFramePump(g,2,8,d);
             ByteBuffer bytes=ByteBuffer.allocate(16);bytes.limit(1);ClusterFramePump.Frame f=new ClusterFramePump.Frame(g,7,0,bytes,o);bytes.limit(16);
