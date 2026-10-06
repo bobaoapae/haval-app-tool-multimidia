@@ -109,6 +109,7 @@ fun InstallAppsTab() {
     var isCarPlayMounted by remember { mutableStateOf(CarPlayPatchManager.isMounted()) }
     var showStartupApps by remember { mutableStateOf(false) }
     var showHomeSetup by remember { mutableStateOf(false) }
+    var homeSetupCanOpen by remember { mutableStateOf(false) }
     // A instalacao termina FORA daqui: startDownload entrega o APK ao instalador do sistema.
     // Entao a sugestao nao pode pendurar num callback - ela observa o pacote aparecer.
     var homeWasInstalled by remember { mutableStateOf(runCatching { pm.getPackageInfo(IMPULSE_HOME_PACKAGE, 0) }.isSuccess) }
@@ -152,7 +153,10 @@ fun InstallAppsTab() {
             isCarPlayPatchInstalled = states[2]
             isCarPlayMounted = states[3]
             val homeNow = runCatching { pm.getPackageInfo(IMPULSE_HOME_PACKAGE, 0) }.isSuccess
-            if (homeNow && !homeWasInstalled) showHomeSetup = true
+            if (homeNow && !homeWasInstalled) {
+                homeSetupCanOpen = true
+                showHomeSetup = true
+            }
             homeWasInstalled = homeNow
             refreshTrigger++
             delay(4000)
@@ -318,7 +322,10 @@ fun InstallAppsTab() {
                 val wasInstalled = homeWasInstalled
                 if (SilentApkInstall.install(file, IMPULSE_HOME_PACKAGE)) {
                     withContext(Dispatchers.Main) {
-                        if (!wasInstalled) showHomeSetup = true
+                        if (!wasInstalled) {
+                            homeSetupCanOpen = true
+                            showHomeSetup = true
+                        }
                         refreshTrigger++
                     }
                     return@launch
@@ -721,7 +728,10 @@ fun InstallAppsTab() {
                                         context.startActivity(intent)
                                     }
                         }
-                        CardButton("Ajustar", ImpTokens.TrackOff) { showHomeSetup = true }
+                        CardButton("Ajustar", ImpTokens.TrackOff) {
+                            homeSetupCanOpen = false
+                            showHomeSetup = true
+                        }
                         IconButton(
                             onClick = {
                                 appToUninstall = IMPULSE_HOME_PACKAGE
@@ -996,7 +1006,10 @@ fun InstallAppsTab() {
     }
 
     if (showHomeSetup) {
-        ImpulseHomeSetupDialog(onDismiss = { showHomeSetup = false })
+        ImpulseHomeSetupDialog(
+                canOpen = homeSetupCanOpen,
+                onDismiss = { showHomeSetup = false }
+        )
     }
 
     if (showStartupApps) {
