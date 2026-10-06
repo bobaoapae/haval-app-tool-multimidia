@@ -26,6 +26,8 @@ import br.com.redesurftank.havalshisuku.ui.components.AppDimensions
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
 import br.com.redesurftank.havalshisuku.ui.components.StyledCard
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.components.impButtonColors
 
 @Composable
 fun CurrentValuesTab() {
@@ -67,17 +69,17 @@ fun CurrentValuesTab() {
 
     Column(modifier = Modifier.fillMaxSize().padding(top = 6.dp)) {
         Text(
-            "VALORES ATUAIS",
+            "Valores atuais",
             fontFamily = Michroma,
-            fontSize = 15.sp,
-            letterSpacing = 1.8.sp,
-            color = ImpTokens.TextSecondary,
+            fontSize = ImpulseTextSizes.Title,
+            letterSpacing = 0.5.sp,
+            color = ImpTokens.TextPrimary,
             modifier = Modifier.padding(start = 4.dp, bottom = 14.dp)
         )
         if (advancedUse) {
             Button(
                 onClick = { showConfigDialog = true },
-                colors = ButtonDefaults.buttonColors(containerColor = ImpTokens.Accent),
+                colors = impButtonColors(ImpTokens.Accent),
                 shape = RoundedCornerShape(12.dp)
             ) { Text("Configurar", color = ImpTokens.OnAccent, fontWeight = FontWeight.SemiBold) }
             Spacer(Modifier.height(12.dp))
@@ -131,9 +133,9 @@ fun CurrentValuesTab() {
                         )
                         .padding(horizontal = 20.dp, vertical = 12.dp)
                 ) {
-                    Text(key ?: "", color = ImpTokens.TextSecondary, fontSize = 12.5.sp)
+                    Text(key ?: "", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                     Spacer(Modifier.height(2.dp))
-                    Text(value ?: "", color = ImpTokens.TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                    Text(value ?: "", color = ImpTokens.TextPrimary, fontSize = ImpulseTextSizes.Label, fontWeight = FontWeight.Medium)
                 }
             }
         }

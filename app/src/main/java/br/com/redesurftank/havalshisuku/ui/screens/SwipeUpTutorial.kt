@@ -52,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
 
 /**
  * Preview dinâmico para o diálogo de configuração do Impulse Launcher:
@@ -149,52 +151,29 @@ fun SwipeUpTutorial(
             )
         }
 
-        // 3. Badges de estado superior
-        if (enableBar && enableSwipe) {
+        // 3. Badge de estado superior. A instrução do gesto ("Arraste para abrir o Launcher.") fica
+        // fora da ilustração, no SetupOption do diálogo, em tamanho legível.
+        if (enableBar && !enableSwipe) {
             Row(
                 modifier =
                     Modifier.align(Alignment.TopCenter)
                         .padding(top = 8.dp)
-                        .background(Color(0xDD12151B), RoundedCornerShape(16.dp))
-                        .border(1.dp, ImpTokens.Accent.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .background(ImpTokens.Container, RoundedCornerShape(16.dp))
+                        .border(1.dp, ImpTokens.Hairline, RoundedCornerShape(16.dp))
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    Icons.Default.ArrowUpward,
-                    contentDescription = null,
-                    tint = ImpTokens.Accent,
-                    modifier = Modifier.size(13.dp)
-                )
-                Text(
-                    "Deslize a barra para cima para abrir o app",
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        } else if (enableBar) {
-            Row(
-                modifier =
-                    Modifier.align(Alignment.TopCenter)
-                        .padding(top = 8.dp)
-                        .background(Color(0xDD12151B), RoundedCornerShape(16.dp))
-                        .border(1.dp, Color(0xFF2C323D), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Box(
                     modifier =
-                        Modifier.size(6.dp)
-                            .background(Color(0xFF78E08F), RoundedCornerShape(3.dp))
+                        Modifier.size(8.dp)
+                            .background(Color(0xFF78E08F), RoundedCornerShape(4.dp))
                 )
                 Text(
-                    "Barra inferior ativada na base da tela",
-                    color = ImpTokens.TextSecondary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
+                    "Barra ativa",
+                    color = ImpTokens.TextPrimary,
+                    fontSize = ImpulseTextSizes.Label,
+                    fontWeight = ImpulseTextWeights.Label
                 )
             }
         }

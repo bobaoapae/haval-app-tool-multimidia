@@ -19,7 +19,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Construction
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.CardDefaults
@@ -42,6 +41,8 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightSettingsScreen
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
 
 @Composable
 fun FeaturesHubScreen() {
@@ -73,19 +74,12 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("RECURSOS", color = AppColors.TextPrimary, fontFamily = Michroma, fontSize = 22.sp, letterSpacing = 1.sp)
-            Text(
-                "Central para recursos inteligentes do Impulse.",
-                color = AppColors.TextSecondary,
-                fontSize = 18.sp
-            )
-        }
+        Text("Recursos", color = AppColors.TextPrimary, fontFamily = Michroma, fontSize = ImpulseTextSizes.Title, letterSpacing = 0.5.sp)
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             FeatureCard(
                 title = "Score de Consistência",
-                description = "Acompanhe score da viagem, histórico das últimas 10 viagens e regras de classificação.",
+                description = "Score e histórico de viagens.",
                 status = "Disponível",
                 icon = Icons.Default.Speed,
                 enabled = true,
@@ -95,7 +89,7 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
             if (ambientLightEnabled) {
                 FeatureCard(
                     title = "Ambient Light BLE",
-                    description = "Controle LEDs externos LEDCAR/LEDDMX por Bluetooth, com testes RGB e modo de conducao.",
+                    description = "Controle LEDs externos por Bluetooth.",
                     status = "Opcional",
                     icon = Icons.Default.Settings,
                     enabled = true,
@@ -104,7 +98,7 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
                 )
             } else {
                 FeatureCard(
-                    title = "Vallet",
+                    title = "Manobrista",
                     description = "Área reservada para controles e regras de uso em modo manobrista.",
                     status = "Em breve",
                     icon = Icons.Default.AdminPanelSettings,
@@ -118,7 +112,7 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
         if (ambientLightEnabled) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 FeatureCard(
-                    title = "Vallet",
+                    title = "Manobrista",
                     description = "Área reservada para controles e regras de uso em modo manobrista.",
                     status = "Em breve",
                     icon = Icons.Default.AdminPanelSettings,
@@ -127,21 +121,6 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
                     onClick = {}
                 )
                 Spacer(modifier = Modifier.weight(1f))
-            }
-        }
-
-        StyledCard {
-            Row(modifier = Modifier.padding(22.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Construction, contentDescription = null, tint = ImpTokens.Attention, modifier = Modifier.size(30.dp))
-                Spacer(Modifier.width(12.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Padrão para próximas features", color = AppColors.TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Quando surgirem novas funções, elas devem entrar como cards nesta central e não como itens soltos no menu lateral.",
-                        color = AppColors.TextSecondary,
-                        fontSize = 15.sp
-                    )
-                }
             }
         }
     }
@@ -169,15 +148,15 @@ private fun FeatureCard(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                 Icon(icon, contentDescription = null, tint = if (enabled) ImpTokens.Accent else ImpTokens.TextMuted, modifier = Modifier.size(38.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(status, color = if (enabled) ImpTokens.TextSecondary else ImpTokens.TextMuted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(status, color = if (enabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled, fontSize = ImpulseTextSizes.Label, fontWeight = FontWeight.SemiBold)
                     if (enabled) {
                         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = ImpTokens.Accent, modifier = Modifier.size(22.dp))
                     }
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(title, color = AppColors.TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Text(description, color = AppColors.TextSecondary, fontSize = 15.sp)
+                Text(title, color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.Title, fontWeight = FontWeight.Bold)
+                Text(description, color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Body, fontWeight = ImpulseTextWeights.Body)
             }
         }
     }

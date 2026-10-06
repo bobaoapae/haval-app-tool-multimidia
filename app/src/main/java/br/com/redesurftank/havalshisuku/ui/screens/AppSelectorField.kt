@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import coil.compose.AsyncImage
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
 
 /**
  * Campo clicável que mostra o app escolhido (ícone + nome) e, ao tocar, abre o mesmo
@@ -58,7 +60,7 @@ fun AppSelectorField(
                 }
 
         Column {
-                Text(label, color = Color(0xFFB0B8C4), fontSize = 14.sp)
+                Text(label, color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.Label)
                 Row(
                         modifier =
                                 Modifier.fillMaxWidth()
@@ -97,9 +99,9 @@ fun AppSelectorField(
                                 Text(
                                         text = title,
                                         color =
-                                                if (packageName.isBlank()) Color(0xFF8A93A0)
+                                                if (packageName.isBlank()) ImpTokens.TextSecondary
                                                 else Color.White,
-                                        fontSize = 15.sp,
+                                        fontSize = ImpulseTextSizes.Label,
                                         fontWeight = FontWeight.Medium,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -111,7 +113,7 @@ fun AppSelectorField(
                                         Text(
                                                 text = packageName,
                                                 color = Color(0xFF6F7884),
-                                                fontSize = 11.sp,
+                                                fontSize = ImpulseTextSizes.BodyCompact,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                         )

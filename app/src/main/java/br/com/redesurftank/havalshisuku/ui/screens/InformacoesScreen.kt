@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import br.com.redesurftank.App
@@ -58,6 +59,8 @@ import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 import br.com.redesurftank.havalshisuku.utils.ApkUpdateInstaller
 import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import kotlinx.coroutines.*
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.components.impButtonColors
 
 
 
@@ -253,7 +256,7 @@ fun InformacoesTab() {
                                 Text(
                                         "Status do Sistema",
                                         fontFamily = Michroma,
-                                        fontSize = 17.sp,
+                                        fontSize = ImpulseTextSizes.Section,
                                         color = Color.White
                                 )
 
@@ -300,12 +303,12 @@ fun InformacoesTab() {
                                                 Text(
                                                         "Boot Completed:",
                                                         color = ImpTokens.TextSecondary,
-                                                        fontSize = 14.sp
+                                                        fontSize = ImpulseTextSizes.Label
                                                 )
                                                 Text(
                                                         formattedTime,
                                                         color = Color.White,
-                                                        fontSize = 14.sp
+                                                        fontSize = ImpulseTextSizes.Label
                                                 )
                                         }
                                         Row(
@@ -315,12 +318,12 @@ fun InformacoesTab() {
                                                 Text(
                                                         "Início:",
                                                         color = ImpTokens.TextSecondary,
-                                                        fontSize = 14.sp
+                                                        fontSize = ImpulseTextSizes.Label
                                                 )
                                                 Text(
                                                         formattedTime2,
                                                         color = Color.White,
-                                                        fontSize = 14.sp
+                                                        fontSize = ImpulseTextSizes.Label
                                                 )
                                         }
                                         Row(
@@ -330,12 +333,12 @@ fun InformacoesTab() {
                                                 Text(
                                                         "Inicialização:",
                                                         color = ImpTokens.TextSecondary,
-                                                        fontSize = 14.sp
+                                                        fontSize = ImpulseTextSizes.Label
                                                 )
                                                 Text(
                                                         formattedTime3,
                                                         color = Color.White,
-                                                        fontSize = 14.sp
+                                                        fontSize = ImpulseTextSizes.Label
                                                 )
                                         }
                                 }
@@ -351,12 +354,12 @@ fun InformacoesTab() {
                                                 Text(
                                                         "Versão",
                                                         color = ImpTokens.TextSecondary,
-                                                        fontSize = 14.sp
+                                                        fontSize = ImpulseTextSizes.Label
                                                 )
                                                 Text(
                                                         version,
                                                         color = Color.White,
-                                                        fontSize = 18.sp,
+                                                        fontSize = ImpulseTextSizes.Body,
                                                         fontWeight = FontWeight.Medium,
                                                         modifier =
                                                                 Modifier.clickable {
@@ -384,9 +387,7 @@ fun InformacoesTab() {
                                                 },
                                                 modifier = Modifier.height(48.dp),
                                                 colors =
-                                                        ButtonDefaults.buttonColors(
-                                                                containerColor = AppColors.Primary
-                                                        ),
+                                                        impButtonColors(AppColors.Primary),
                                                 shape =
                                                         RoundedCornerShape(
                                                                 AppDimensions.ButtonCornerRadius
@@ -398,7 +399,7 @@ fun InformacoesTab() {
                                                         modifier = Modifier.size(18.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
-                                                Text("Buscar Atualizações", fontSize = 14.sp)
+                                                Text("Buscar Atualizações", fontSize = ImpulseTextSizes.Label)
                                         }
                                 }
 
@@ -423,9 +424,7 @@ fun InformacoesTab() {
                                                 },
                                                 modifier = Modifier.height(48.dp),
                                                 colors =
-                                                        ButtonDefaults.buttonColors(
-                                                                containerColor = AppColors.Primary
-                                                        ),
+                                                        impButtonColors(AppColors.Primary),
                                                 shape =
                                                         RoundedCornerShape(
                                                                 AppDimensions.ButtonCornerRadius
@@ -438,8 +437,7 @@ fun InformacoesTab() {
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
-                                                        "Abrir Configurações do Android",
-                                                        color = Color.White
+                                                        "Abrir Configurações do Android"
                                                 )
                                         }
                                 }
@@ -451,18 +449,18 @@ fun InformacoesTab() {
                                         Text(
                                                 "Modo Concessionária",
                                                 color = Color.White,
-                                                fontSize = 18.sp,
+                                                fontSize = ImpulseTextSizes.Body,
                                                 fontWeight = FontWeight.Medium
                                         )
                                         Text(
                                                 "Deixa o carro como saiu de fábrica antes de levar à revisão: o ícone do Impulse some do menu, o painel volta ao nativo, a barra inferior e as luzes saem, os patches do Android Auto/CarPlay são desmontados e as automações param. Suas configurações são salvas e devolvidas na volta.",
                                                 color = ImpTokens.TextSecondary,
-                                                fontSize = 14.sp
+                                                fontSize = ImpulseTextSizes.Label
                                         )
                                         Text(
                                                 "Para voltar:",
                                                 color = ImpTokens.TextSecondary,
-                                                fontSize = 14.sp
+                                                fontSize = ImpulseTextSizes.Label
                                         )
                                         Text(
                                                 if (stealthSeq.isEmpty()) "—"
@@ -479,7 +477,7 @@ fun InformacoesTab() {
                                         Text(
                                                 "Carro em P, e a sequência toda em até ${StealthExitSequence.TOTAL_WINDOW_MS / 1000}s.",
                                                 color = Color(0xFFFFB74D),
-                                                fontSize = 13.sp
+                                                fontSize = ImpulseTextSizes.BodyCompact
                                         )
 
                                         Row(
@@ -507,7 +505,7 @@ fun InformacoesTab() {
                                                                                 stealthSeqError = null
                                                                         }
                                                                 )
-                                                                Text(label, color = Color.White, fontSize = 13.sp)
+                                                                Text(label, color = Color.White, fontSize = ImpulseTextSizes.BodyCompact)
                                                         }
                                                 }
                                         }
@@ -516,7 +514,7 @@ fun InformacoesTab() {
                                         Text(
                                                 "Toque para adicionar (${StealthExitSequence.MIN_STEPS} a ${StealthExitSequence.MAX_STEPS} passos):",
                                                 color = ImpTokens.TextSecondary,
-                                                fontSize = 13.sp
+                                                fontSize = ImpulseTextSizes.BodyCompact
                                         )
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                 StealthExitSequence.Step.values().forEach { step ->
@@ -552,7 +550,7 @@ fun InformacoesTab() {
                                                                         }
                                                                 },
                                                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                                        ) { Text("${step.short}  ${step.label.substringBefore(" (")}", fontSize = 11.sp) }
+                                                        ) { Text("${step.short}  ${step.label.substringBefore(" (")}", fontSize = ImpulseTextSizes.BodyCompact) }
                                                 }
                                         }
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -563,21 +561,21 @@ fun InformacoesTab() {
                                                                 stealthSeq = stealthSeq.dropLast(1)
                                                                 stealthSeqError = null
                                                         }
-                                                }) { Text("Apagar", color = ImpTokens.TextSecondary, fontSize = 13.sp) }
+                                                }) { Text("Apagar", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact) }
                                                 TextButton(onClick = {
                                                         stealthSeq = emptyList()
                                                         stealthSeqError = null
-                                                }) { Text("Limpar", color = ImpTokens.TextSecondary, fontSize = 13.sp) }
+                                                }) { Text("Limpar", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact) }
                                         }
                                         if (stealthSeq.size < StealthExitSequence.MIN_STEPS) {
                                                 Text(
                                                         "Faltam ${StealthExitSequence.MIN_STEPS - stealthSeq.size} passo(s) para valer. Até lá, a sequência padrão continua ativa.",
                                                         color = ImpTokens.TextSecondary,
-                                                        fontSize = 12.sp
+                                                        fontSize = ImpulseTextSizes.BodyCompact
                                                 )
                                         }
                                         stealthSeqError?.let {
-                                                Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp)
+                                                Text(it, color = Color(0xFFFF8A80), fontSize = ImpulseTextSizes.BodyCompact)
                                         }
 
                                         }
@@ -589,14 +587,14 @@ fun InformacoesTab() {
                                                 verticalAlignment = Alignment.CenterVertically
                                         ) {
                                                 Column(modifier = Modifier.weight(1f)) {
-                                                        Text("Pedir PIN depois da sequência", color = Color.White, fontSize = 14.sp)
+                                                        Text("Pedir PIN depois da sequência", color = Color.White, fontSize = ImpulseTextSizes.Label)
                                                         Text(
                                                                 if (stealthPinOn)
                                                                         "Ligado. Se esquecer o PIN com o modo ativo, só reinstalando o app — e as configurações se perdem."
                                                                 else
                                                                         "Sem PIN, quem descobrir a sequência tira o carro do modo.",
                                                                 color = ImpTokens.TextSecondary,
-                                                                fontSize = 12.sp
+                                                                fontSize = ImpulseTextSizes.BodyCompact
                                                         )
                                                 }
                                                 Switch(
@@ -673,10 +671,10 @@ fun InformacoesTab() {
                                         Text(
                                                 "Tire uma foto desta tela. O PIN não pode ser mostrado de novo: o app guarda só um resumo criptográfico dele, nunca o número.",
                                                 color = Color(0xFFFFB74D),
-                                                fontSize = 13.sp
+                                                fontSize = ImpulseTextSizes.BodyCompact
                                         )
                                         Spacer(modifier = Modifier.height(16.dp))
-                                        Text("Sequência de saída", color = ImpTokens.TextSecondary, fontSize = 12.sp)
+                                        Text("Sequência de saída", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                                         Text(
                                                 StealthExitSequence.describe(stealthSeq),
                                                 color = Color.White,
@@ -686,10 +684,10 @@ fun InformacoesTab() {
                                         Text(
                                                 stealthSeq.joinToString("  →  ") { it.label.substringBefore(" (") },
                                                 color = ImpTokens.TextSecondary,
-                                                fontSize = 12.sp
+                                                fontSize = ImpulseTextSizes.BodyCompact
                                         )
                                         Spacer(modifier = Modifier.height(14.dp))
-                                        Text("PIN", color = ImpTokens.TextSecondary, fontSize = 12.sp)
+                                        Text("PIN", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                                         Text(
                                                 pin,
                                                 color = Color.White,
@@ -700,7 +698,7 @@ fun InformacoesTab() {
                                         Text(
                                                 "Lembre: o carro precisa estar em P e a sequência inteira em até ${StealthExitSequence.TOTAL_WINDOW_MS / 1000}s.",
                                                 color = ImpTokens.TextSecondary,
-                                                fontSize = 12.sp
+                                                fontSize = ImpulseTextSizes.BodyCompact
                                         )
                                 }
                         },
@@ -723,13 +721,13 @@ fun InformacoesTab() {
                                         Text(
                                                 "De ${StealthExitPin.MIN_LENGTH} a ${StealthExitPin.MAX_LENGTH} dígitos. Ele será pedido depois da sequência, na tela da central.",
                                                 color = ImpTokens.TextSecondary,
-                                                fontSize = 14.sp
+                                                fontSize = ImpulseTextSizes.Label
                                         )
                                         Spacer(modifier = Modifier.height(10.dp))
                                         Text(
                                                 "Guarde bem: esquecer o PIN com o modo ativo só se resolve reinstalando o app, e as configurações se perdem. Não existe atalho de recuperação — é isso que faz o PIN valer alguma coisa.",
                                                 color = Color(0xFFFFB74D),
-                                                fontSize = 13.sp
+                                                fontSize = ImpulseTextSizes.BodyCompact
                                         )
                                         Spacer(modifier = Modifier.height(12.dp))
                                         OutlinedTextField(
@@ -794,14 +792,14 @@ fun InformacoesTab() {
                                                                         StealthExitSequence.describe(stealthSeq) +
                                                                         "\n\n(← → = setas, ① ② = botões do volante)",
                                                                 color = ImpTokens.TextSecondary,
-                                                                fontSize = 14.sp
+                                                                fontSize = ImpulseTextSizes.Label
                                                         )
                                                         Spacer(modifier = Modifier.height(12.dp))
                                                         stealthBlocked?.let { reason ->
                                                                 Text(
                                                                         reason,
                                                                         color = Color(0xFFFF8A80),
-                                                                        fontSize = 14.sp
+                                                                        fontSize = ImpulseTextSizes.Label
                                                                 )
                                                                 Spacer(modifier = Modifier.height(8.dp))
                                                         }
@@ -815,7 +813,7 @@ fun InformacoesTab() {
                                                         Text(
                                                                 "Você fez o gesto corretamente — é assim que vai sair do modo.\n\nAo confirmar: o ícone do Impulse e os dos apps instalados somem, tudo que o app liga é desligado, e A CENTRAL VAI REINICIAR sozinha para aplicar.\n\nSuas configurações ficam salvas e voltam inteiras na saída.",
                                                                 color = ImpTokens.TextSecondary,
-                                                                fontSize = 14.sp
+                                                                fontSize = ImpulseTextSizes.Label
                                                         )
                                                 }
                                         }
@@ -856,7 +854,7 @@ fun InformacoesTab() {
                                 Text(
                                         "Permitir coletar dados anônimos",
                                         fontFamily = Michroma,
-                                        fontSize = 15.sp,
+                                        fontSize = ImpulseTextSizes.Section,
                                         color =
                                                 if (anonymousTelemetryConfigured) Color.White
                                                 else ImpTokens.TextSecondary,
@@ -926,8 +924,8 @@ fun InformacoesTab() {
                                                                 "Essas informações servem exclusivamente para entendermos a adoção de novos recursos e melhorarmos a experiência do mesmo. As informações são coletadas apenas uma vez no boot do aplicativo. Você pode desativar essa coleta desativando esta autorização a qualquer momento."
                                                 },
                                                 color = ImpTokens.TextSecondary,
-                                                fontSize = 14.sp,
-                                                lineHeight = 20.sp
+                                                fontSize = ImpulseTextSizes.Label,
+                                                lineHeight = 1.35.em
                                         )
                                 },
                                 confirmButton = {
@@ -952,7 +950,7 @@ fun InformacoesTab() {
                                 Text(
                                         "Contribua para o Desenvolvimento",
                                         fontFamily = Michroma,
-                                        fontSize = 16.sp,
+                                        fontSize = ImpulseTextSizes.Section,
                                         color = Color.White,
                                         textAlign = TextAlign.Center
                                 )
@@ -961,10 +959,10 @@ fun InformacoesTab() {
 
                                 Text(
                                         "Ajude a manter este projeto ativo! Sua contribuição é muito importante para o desenvolvimento contínuo do app.",
-                                        fontSize = 14.sp,
+                                        fontSize = ImpulseTextSizes.Label,
                                         color = ImpTokens.TextSecondary,
                                         textAlign = TextAlign.Center,
-                                        lineHeight = 20.sp
+                                        lineHeight = 1.35.em
                                 )
 
                                 // QR Code
@@ -977,14 +975,14 @@ fun InformacoesTab() {
 
                                 Text(
                                         "Escaneie o QR Code ou use a chave PIX: joaovitorbor@gmail.com",
-                                        fontSize = 16.sp,
+                                        fontSize = ImpulseTextSizes.Label,
                                         color = ImpTokens.TextSecondary,
                                         textAlign = TextAlign.Center
                                 )
 
                                 Text(
                                         "Obrigado pelo seu apoio! 🙏",
-                                        fontSize = 14.sp,
+                                        fontSize = ImpulseTextSizes.Label,
                                         color = Color(0xFF4ADE80),
                                         fontWeight = FontWeight.Medium,
                                         textAlign = TextAlign.Center
@@ -1070,7 +1068,7 @@ fun InformacoesTab() {
                                         Text(
                                                 "Canal atual: $currentChannel ($version)",
                                                 fontWeight = FontWeight.Medium,
-                                                fontSize = 14.sp
+                                                fontSize = ImpulseTextSizes.Label
                                         )
 
                                         if (isPreviewChannel) {
@@ -1113,7 +1111,7 @@ fun InformacoesTab() {
                                                                                 fontWeight =
                                                                                         FontWeight
                                                                                                 .Bold,
-                                                                                fontSize = 14.sp
+                                                                                fontSize = ImpulseTextSizes.Label
                                                                         )
                                                                         Spacer(
                                                                                 modifier =
@@ -1178,7 +1176,7 @@ fun InformacoesTab() {
                                                                                 fontWeight =
                                                                                         FontWeight
                                                                                                 .Bold,
-                                                                                fontSize = 14.sp
+                                                                                fontSize = ImpulseTextSizes.Label
                                                                         )
                                                                         Spacer(
                                                                                 modifier =
@@ -1188,7 +1186,7 @@ fun InformacoesTab() {
                                                                         )
                                                                         Text(
                                                                                 "Os dados do app serão resetados ao voltar para estável.",
-                                                                                fontSize = 12.sp,
+                                                                                fontSize = ImpulseTextSizes.BodyCompact,
                                                                                 color =
                                                                                         Color(
                                                                                                 0xFFFF9800
@@ -1246,7 +1244,7 @@ fun InformacoesTab() {
                                                 if (!hasPreviewUpdate && !hasReleaseUpgrade) {
                                                         Text(
                                                                 "Você está na versão mais recente",
-                                                                fontSize = 14.sp,
+                                                                fontSize = ImpulseTextSizes.Label,
                                                                 color = Color(0xFF4ADE80)
                                                         )
                                                 }
@@ -1291,7 +1289,7 @@ fun InformacoesTab() {
                                                                                 fontWeight =
                                                                                         FontWeight
                                                                                                 .Bold,
-                                                                                fontSize = 14.sp
+                                                                                fontSize = ImpulseTextSizes.Label
                                                                         )
                                                                         Spacer(
                                                                                 modifier =
@@ -1342,7 +1340,7 @@ fun InformacoesTab() {
                                                 ) {
                                                         Text(
                                                                 "Mostrar versões Beta",
-                                                                fontSize = 14.sp
+                                                                fontSize = ImpulseTextSizes.Label
                                                         )
                                                         Switch(
                                                                 checked = showBetaUpdates,
@@ -1404,9 +1402,9 @@ fun InformacoesTab() {
                                                 if (hasPreviewAvailable) {
                                                         Text(
                                                                 "Versões beta são para entusiastas e usuários com conhecimento técnico. Podem conter bugs, instabilidades e funcionalidades incompletas. Use por sua conta e risco.",
-                                                                fontSize = 11.sp,
+                                                                fontSize = ImpulseTextSizes.BodyCompact,
                                                                 color = ImpTokens.Attention,
-                                                                lineHeight = 14.sp
+                                                                lineHeight = 1.35.em
                                                         )
                                                         Card(
                                                                 modifier = Modifier.fillMaxWidth(),
@@ -1429,7 +1427,7 @@ fun InformacoesTab() {
                                                                                 fontWeight =
                                                                                         FontWeight
                                                                                                 .Bold,
-                                                                                fontSize = 14.sp,
+                                                                                fontSize = ImpulseTextSizes.Label,
                                                                                 color =
                                                                                         Color(
                                                                                                 0xFFFF9800
@@ -1443,7 +1441,7 @@ fun InformacoesTab() {
                                                                         )
                                                                         Text(
                                                                                 "Versão experimental. Pode conter bugs e instabilidades.",
-                                                                                fontSize = 12.sp,
+                                                                                fontSize = ImpulseTextSizes.BodyCompact,
                                                                                 color =
                                                                                         Color(
                                                                                                 0xFFB0B8C4
@@ -1490,7 +1488,7 @@ fun InformacoesTab() {
                                                 if (!hasReleaseUpdate && !hasPreviewAvailable) {
                                                         Text(
                                                                 "Você está na versão mais recente",
-                                                                fontSize = 14.sp,
+                                                                fontSize = ImpulseTextSizes.Label,
                                                                 color = Color(0xFF4ADE80)
                                                         )
                                                 }
@@ -1587,8 +1585,8 @@ private fun ReleaseNotes(notes: String) {
                 Text(
                         text = notes,
                         color = AppColors.TextSecondary,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp
+                        fontSize = ImpulseTextSizes.BodyCompact,
+                        lineHeight = 1.35.em
                 )
         }
         Spacer(modifier = Modifier.height(12.dp))

@@ -27,7 +27,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +39,8 @@ import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.services.BottomBarService
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
 
 /**
  * Oferecido logo depois de o Impulse Launcher ser instalado: opções essenciais de inicialização,
@@ -121,29 +122,26 @@ fun ImpulseHomeSetupDialog(canOpen: Boolean, onDismiss: () -> Unit) {
                 )
 
                 Text(
-                    "Quer deixar ele à mão? Dá para mudar depois na aba de Apps.",
+                    "Altere depois em Apps.",
                     color = ImpTokens.TextSecondary,
-                    fontSize = 12.sp
+                    fontSize = ImpulseTextSizes.Body,
+                    fontWeight = ImpulseTextWeights.Body
                 )
 
                 SetupOption(
                     checked = openOnBoot,
                     onCheckedChange = { openOnBoot = it },
-                    title = "Abrir ao ligar o carro",
-                    detail = "Na tela principal, assim que o carro liga"
+                    title = "Abrir ao ligar",
+                    detail = ""
                 )
 
                 SetupOption(
                     checked = enableBarAndSwipe,
                     onCheckedChange = { enableBarAndSwipe = it },
                     title =
-                        if (barAlreadyOn) "Deslizar a barra para cima abre o app"
-                        else "Ativar barra inferior e gesto para abrir",
-                    detail =
-                        if (barAlreadyOn)
-                            "A barra inferior já está ativa. Arraste-a para cima para abrir o Impulse Launcher rapidamente"
-                        else
-                            "Exibe a barra na base da tela e permite arrastá-la para cima para abrir o app"
+                        if (barAlreadyOn) "Arrastar a barra abre o Launcher"
+                        else "Ativar barra inferior",
+                    detail = if (barAlreadyOn) "" else "Arraste para abrir o Launcher."
                 )
             }
         },
@@ -184,7 +182,6 @@ private fun SetupOption(
     Row(
         modifier =
             Modifier.fillMaxWidth()
-                .alpha(if (enabled) 1f else 0.45f)
                 .clickable(enabled = enabled) { onCheckedChange(!checked) },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -196,8 +193,10 @@ private fun SetupOption(
             colors = CheckboxDefaults.colors(checkedColor = ImpTokens.Accent)
         )
         Column {
-            Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            Text(detail, color = ImpTokens.TextSecondary, fontSize = 11.sp)
+            Text(title, color = if (enabled) ImpTokens.TextPrimary else ImpTokens.TextDisabled, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label)
+            if (detail.isNotEmpty()) {
+                Text(detail, color = if (enabled) ImpTokens.TextSecondary else ImpTokens.TextDisabled, fontSize = ImpulseTextSizes.Body, fontWeight = ImpulseTextWeights.Body)
+            }
         }
     }
 }

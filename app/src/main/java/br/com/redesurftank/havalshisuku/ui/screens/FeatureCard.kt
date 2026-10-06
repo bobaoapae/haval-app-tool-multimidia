@@ -36,13 +36,17 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
+import br.com.redesurftank.havalshisuku.ui.components.impButtonColors
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
 import coil.compose.AsyncImage
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
 
 /**
- * Card de destaque da aba "Instalar Apps" — um por coluna da grade, para os quatro caberem na
+ * Card de destaque da aba "Instalar Apps" (altura 300dp: textos legiveis de 18sp+) — um por coluna da grade, para os quatro caberem na
  * mesma linha: os dois patches de projecao, o Impulse Launcher e o "abrir ao ligar".
  *
  * Icone/preview e titulo em cima, com o slot extra no meio; botoes de acao embaixo a esquerda
@@ -76,7 +80,7 @@ fun FeatureCard(
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().height(244.dp).padding(14.dp),
+            modifier = Modifier.fillMaxWidth().height(300.dp).padding(14.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -98,13 +102,14 @@ fun FeatureCard(
                         Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(22.dp))
                     }
                 }
-                Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(title, color = ImpTokens.TextPrimary, fontSize = ImpulseTextSizes.Section, fontWeight = FontWeight.Bold)
                 if (subtitleBelowTitle && subtitle.isNotEmpty()) {
                     Text(
                         subtitle,
                         color = ImpTokens.TextSecondary,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp
+                        fontSize = ImpulseTextSizes.Body,
+                        fontWeight = ImpulseTextWeights.Body,
+                        lineHeight = 1.35.em
                     )
                 }
                 extra?.invoke()
@@ -128,15 +133,16 @@ fun FeatureCard(
                         Text(
                             subtitle,
                             color = ImpTokens.TextSecondary,
-                            fontSize = 11.sp,
-                            lineHeight = 14.sp
+                            fontSize = ImpulseTextSizes.Body,
+                            fontWeight = ImpulseTextWeights.Body,
+                            lineHeight = 1.35.em
                         )
                     }
                     if (status != null) {
                         Text(
                             status,
                             color = statusTint,
-                            fontSize = 12.sp,
+                            fontSize = ImpulseTextSizes.Label,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -160,10 +166,10 @@ fun CardButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,
-        colors = ButtonDefaults.buttonColors(containerColor = color),
+        colors = impButtonColors(color),
         shape = RoundedCornerShape(8.dp),
         contentPadding = contentPadding
-    ) { Text(label, color = Color.White, fontSize = 13.sp, maxLines = 1) }
+    ) { Text(label, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label, maxLines = 1) }
 }
 
 /** "Auto-montar ao iniciar", compacto o bastante para o card estreito. */
@@ -180,7 +186,7 @@ fun AutoMountRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
                     checkedTrackColor = ImpTokens.Accent
                 )
         )
-        Text("Auto-montar", color = ImpTokens.TextSecondary, fontSize = 11.sp)
+        Text("Auto-montar", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label)
     }
 }
 
@@ -213,14 +219,14 @@ fun StartupSlotRow(label: String, packageName: String, modifier: Modifier = Modi
                         modifier = Modifier.size(30.dp)
                     )
                 } else {
-                    Text("—", color = ImpTokens.TextMuted, fontSize = 16.sp)
+                    Text("—", color = ImpTokens.TextMuted, fontSize = ImpulseTextSizes.Label)
                 }
             }
             Text(
                 label,
                 color = ImpTokens.TextSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = ImpulseTextSizes.Label,
+                fontWeight = ImpulseTextWeights.Label,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(bottom = 2.dp)
@@ -228,9 +234,9 @@ fun StartupSlotRow(label: String, packageName: String, modifier: Modifier = Modi
         }
         Text(
             resolved?.label ?: "nenhum",
-            color = if (resolved != null) Color.White else ImpTokens.TextSecondary,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
+            color = if (resolved != null) ImpTokens.TextPrimary else ImpTokens.TextSecondary,
+            fontSize = ImpulseTextSizes.Label,
+            fontWeight = ImpulseTextWeights.Label,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

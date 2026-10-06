@@ -44,6 +44,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.components.impButtonColors
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
 
 private enum class ProblemReportAction {
     SUBMIT,
@@ -248,12 +251,12 @@ fun ProblemReportTab() {
                                 text = "Reportar problema",
                                 color = AppColors.TextPrimary,
                                 fontFamily = Michroma,
-                                fontSize = 17.sp
+                                fontSize = ImpulseTextSizes.Title
                         )
                         Text(
                                 text = "Inclua no relato a data, hora e minutos aproximados do incidente.",
                                 color = AppColors.TextSecondary,
-                                fontSize = 13.sp
+                                fontSize = ImpulseTextSizes.BodyCompact
                         )
                     }
                 }
@@ -297,9 +300,9 @@ fun ProblemReportTab() {
 
                 Text(
                         text =
-                                "Exemplo: 14/06/2026 às 13:32, usando CarPlay no D3 com Waze aberto. O display saiu de Mapa para Normal por cerca de 5 segundos e depois voltou sozinho. Antes disso, toquei no botão direito do volante para acessar o AC.",
+                                "Ex.: 14/06 às 13:32. CarPlay no D3; Waze aberto. Após tocar no volante, o mapa sumiu por 5 s.",
                         color = AppColors.TextPrimary,
-                        fontSize = 13.sp
+                        fontSize = ImpulseTextSizes.BodyCompact
                 )
 
                 Button(
@@ -308,16 +311,12 @@ fun ProblemReportTab() {
                         },
                         enabled = canCreateIssue && !isCreating && !isCheckingLatestPreview,
                         colors =
-                                ButtonDefaults.buttonColors(
-                                        containerColor = AppColors.Primary,
-                                        disabledContainerColor = AppColors.ButtonSecondary
-                                ),
+                                impButtonColors(AppColors.Primary),
                         shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius),
                         modifier = Modifier.fillMaxWidth().height(52.dp)
                 ) {
                     if (isCreating) {
                         CircularProgressIndicator(
-                                color = Color.White,
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(20.dp)
                         )
@@ -333,8 +332,7 @@ fun ProblemReportTab() {
                     Text(
                             if (isCheckingLatestPreview) "Verificando versão..."
                             else if (isCurrentVersionOutdated == true) "Enviar relatório mesmo assim"
-                            else "Enviar relatório",
-                            color = Color.White
+                            else "Enviar relatório"
                     )
                 }
 
@@ -342,12 +340,12 @@ fun ProblemReportTab() {
                     Text(
                             text = "A descrição é obrigatória e precisa ter pelo menos 10 caracteres.",
                             color = AppColors.TextSecondary,
-                            fontSize = 13.sp
+                            fontSize = ImpulseTextSizes.BodyCompact
                     )
                 }
 
                 statusMessage?.let {
-                    Text(text = it, color = AppColors.TextSecondary, fontSize = 13.sp)
+                    Text(text = it, color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                 }
             }
         }
@@ -546,7 +544,7 @@ private fun ProblemReportVersionStatus(
         Text(
                 text = "Versão do app",
                 color = AppColors.TextPrimary,
-                fontSize = 16.sp,
+                fontSize = ImpulseTextSizes.Label,
                 fontWeight = FontWeight.Medium
         )
         VersionStatusLine(label = "Instalada", value = currentVersion)
@@ -570,7 +568,7 @@ private fun ProblemReportVersionStatus(
                             else -> "Verificando se existe preview mais recente antes do envio."
                         },
                 color = if (isOutdated == true) ImpTokens.Attention else AppColors.TextSecondary,
-                fontSize = 13.sp
+                fontSize = ImpulseTextSizes.BodyCompact
         )
         OutlinedButton(
                 onClick = onRefresh,
@@ -578,7 +576,7 @@ private fun ProblemReportVersionStatus(
                 shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius),
                 modifier = Modifier.height(38.dp)
         ) {
-            Text("Verificar novamente", color = AppColors.TextPrimary, fontSize = 13.sp)
+            Text("Verificar novamente", color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label)
         }
     }
 }
@@ -607,13 +605,13 @@ private fun LogCaptureStatusCard(
                     Text(
                             text = "Captura de logs",
                             color = AppColors.TextPrimary,
-                            fontSize = 18.sp,
+                            fontSize = ImpulseTextSizes.Body,
                             fontWeight = FontWeight.Medium
                     )
                     Text(
                             text = logCaptureStatusText(status),
                             color = AppColors.TextSecondary,
-                            fontSize = 13.sp
+                            fontSize = ImpulseTextSizes.BodyCompact
                     )
                 }
                 Switch(
@@ -647,12 +645,12 @@ private fun LogCaptureStatusCard(
                     text =
                             "Logcat recente: capturado somente ao enviar ou copiar o relatório, naquele momento. Não fica rodando em segundo plano.",
                     color = AppColors.TextSecondary,
-                    fontSize = 13.sp
+                    fontSize = ImpulseTextSizes.BodyCompact
             )
             Text(
                     text = "Caminho: ${status.filePath}",
                     color = AppColors.TextSecondary,
-                    fontSize = 12.sp
+                    fontSize = ImpulseTextSizes.BodyCompact
             )
 
             OutlinedButton(
@@ -669,16 +667,16 @@ private fun LogCaptureStatusCard(
 @Composable
 private fun VersionStatusLine(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(text = label, color = AppColors.TextSecondary, fontSize = 13.sp)
-        Text(text = value, color = AppColors.TextPrimary, fontSize = 13.sp)
+        Text(text = label, color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
+        Text(text = value, color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.BodyCompact)
     }
 }
 
 @Composable
 private fun LogStatusLine(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(text = label, color = AppColors.TextSecondary, fontSize = 13.sp)
-        Text(text = value, color = AppColors.TextPrimary, fontSize = 13.sp)
+        Text(text = label, color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
+        Text(text = value, color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.BodyCompact)
     }
 }
 
