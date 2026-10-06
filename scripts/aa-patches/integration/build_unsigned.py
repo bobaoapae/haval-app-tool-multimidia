@@ -83,11 +83,14 @@ def compile_sources(work: Path, android: Path, trust: str) -> None:
     generated.write_text(trust)
     protocol = ROOT / "app/src/main/java/br/com/redesurftank/havalshisuku/api/AaClusterProtocol.java"
     pump = HERE.parent / "prototype/ClusterFramePump.java"
+    barrier = ROOT / "app/src/main/java/br/com/redesurftank/havalshisuku/api/ClusterLeaseBarrier.java"
     run(common + ["-cp", str(android), "-d", str(stubs)] + [str(p) for p in sorted((HERE / "api-stubs").rglob("*.java"))])
-    sources = sorted((HERE / "src").rglob("*.java")) + [generated, protocol, pump]
+    sources = sorted((HERE / "src").rglob("*.java")) + [generated, protocol, barrier, pump]
     run(common + ["-cp", os.pathsep.join((str(android), str(stubs))), "-d", str(classes)] + [str(p) for p in sources])
     client = ROOT / "app/src/main/java/br/com/redesurftank/havalshisuku/managers/AndroidAutoClusterClient.java"
-    run(common + ["-cp", str(android), "-d", str(host), str(protocol), str(client)])
+    ledger = protocol.parent / "ClusterReleaseLedger.java"
+    output = client.parent / "ClusterSurfaceOutput.java"
+    run(common + ["-cp", str(android), "-d", str(host), str(protocol), str(barrier), str(ledger), str(output), str(client)])
     jar_classes(stubs, work / "api-stubs.jar")
     jar_classes(classes, work / "helpers.jar")
 

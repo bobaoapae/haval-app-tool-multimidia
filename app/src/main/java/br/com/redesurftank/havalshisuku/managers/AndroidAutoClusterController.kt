@@ -165,7 +165,7 @@ object AndroidAutoClusterController {
         if (!clusterRequested.get() || !isSessionActive()) {
             surfaceAttached.set(false)
             notifyHostProjectionFlag(false)
-            if (deliveredGeneration != -1L) client.setOutput(false, null)
+            if (deliveredGeneration != -1L) client.setOutput(null)
             deliveredGeneration = -1L
             AaClusterVideoHost.hide()
             return
@@ -178,24 +178,24 @@ object AndroidAutoClusterController {
                 return
             }
         }
-        AaClusterVideoHost.peekSurface()?.takeIf { it.isValid }?.let {
+        AaClusterVideoHost.peekOutput()?.let {
             onSurfaceAvailable(it, AaClusterVideoHost.surfaceGeneration())
         }
     }
 
-    /** SurfaceHolder owns the original; the client duplicates its native handle. */
-    internal fun onSurfaceAvailable(surface: Surface, generation: Long) {
+    /** The client borrows the owned consumer until an authenticated terminal release. */
+    internal fun onSurfaceAvailable(surface: ClusterSurfaceOutput, generation: Long) {
         val epoch = demandEpoch.get()
-        if (clusterRequested.get() && isSessionActive() && surface.isValid && deliveredGeneration == generation && deliveredDemandEpoch == epoch) return
+        if (clusterRequested.get() && isSessionActive() && surface.isAvailable && deliveredGeneration == generation && deliveredDemandEpoch == epoch) return
         surfaceAttached.set(false)
         notifyHostProjectionFlag(false)
-        if (clusterRequested.get() && isSessionActive() && surface.isValid) {
+        if (clusterRequested.get() && isSessionActive() && surface.isAvailable) {
             deliveredGeneration = generation
             deliveredDemandEpoch = epoch
-            client.setOutput(true, surface)
+            client.setOutput(surface)
         } else {
             deliveredGeneration = -1L
-            client.setOutput(false, null)
+            client.setOutput(null)
         }
     }
 
@@ -203,7 +203,7 @@ object AndroidAutoClusterController {
         deliveredGeneration = -1L
         surfaceAttached.set(false)
         notifyHostProjectionFlag(false)
-        client.setOutput(false, null)
+        client.setOutput(null)
     }
 
     internal fun onHostAvailable() {

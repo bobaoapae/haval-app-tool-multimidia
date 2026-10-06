@@ -10,6 +10,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.Surface;
 import br.com.redesurftank.havalshisuku.api.AaClusterProtocol;
+import br.com.redesurftank.havalshisuku.api.ClusterLeaseBarrier;
 import com.google.android.projection.common.BufferPool;
 import com.google.android.projection.proto.Protos;
 import com.google.android.projection.protocol.CarServiceProvider;
@@ -180,6 +181,26 @@ public final class ClusterIntegration {
         finally { event.recycle(); }
     }
 
+    /** Terminal ownership event; status/timeout/error never substitute for it. */
+    private static void releaseSurfaceAndAcknowledge(Request request) {
+        if(request.surface==null) return;
+        try { request.surface.release(); }
+        catch(Throwable failure) {
+            QUARANTINED_OUTPUT.compareAndSet(null,request);
+            Log.e(TAG,"Surface release uncertain; no terminal acknowledgement",failure);
+            throw new IllegalStateException("Surface release uncertain",failure);
+        }
+        Parcel event=Parcel.obtain();
+        try {
+            event.writeInterfaceToken(AaClusterProtocol.CALLBACK_DESCRIPTOR);
+            event.writeInt(AaClusterProtocol.VERSION);
+            event.writeLong(request.id);
+            // Lost events retain the client consumer. They never authorize reuse.
+            request.callback.transact(AaClusterProtocol.CALLBACK_RELEASED,event,null,IBinder.FLAG_ONEWAY);
+        } catch(Throwable unavailable) { Log.w(TAG,"Terminal output event unavailable",unavailable); }
+        finally { event.recycle(); }
+    }
+
     private static final class Request implements IBinder.DeathRecipient {
         final int uid;
         final long id;
@@ -187,29 +208,18 @@ public final class ClusterIntegration {
         final IBinder callback;
         final Surface surface;
         volatile boolean dead;
-        private boolean baseClosed;
-        private int references = 1;
+        private final ClusterLeaseBarrier lifetime;
         Request(int uid, long id, boolean enabled, IBinder callback, Surface surface) {
-            this.uid=uid;this.id=id;this.enabled=enabled;this.callback=callback;this.surface=surface;
+            this.uid=uid; this.id=id; this.enabled=enabled; this.callback=callback; this.surface=surface;
+            lifetime=new ClusterLeaseBarrier(()->releaseSurfaceAndAcknowledge(this));
         }
-        synchronized void retain() {
-            if (baseClosed || dead) throw new IllegalStateException("Obsolete Surface owner");
-            references++;
-        }
-        void release() {
-            boolean release;
-            synchronized (this) {
-                if (references <= 0) throw new IllegalStateException("Surface lease released twice");
-                release = --references == 0;
-            }
-            if (release && surface != null) {
-                try { surface.release(); } catch (Throwable failure) { Log.e(TAG,"Surface lease release failed",failure); }
-            }
+        ClusterLeaseBarrier.Token borrow() {
+            if(dead) throw new IllegalStateException("Obsolete Surface owner");
+            return lifetime.borrow();
         }
         void closeBase() {
-            synchronized (this) { if (baseClosed) return; baseClosed = true; }
-            try { callback.unlinkToDeath(this, 0); } catch (Throwable ignored) {}
-            release();
+            try { callback.unlinkToDeath(this,0); } catch(Throwable ignored) {}
+            lifetime.closeOwner();
         }
         @Override public void binderDied() {
             boolean wasCurrent;
@@ -407,12 +417,13 @@ public final class ClusterIntegration {
         final AtomicBoolean cancelled = new AtomicBoolean();
         final AtomicLong renderedVersion = new AtomicLong(-1);
         final ClusterFramePump pump;
+        final ClusterLeaseBarrier.Token outputBorrow;
         final SwitchingDecoder decoder = new SwitchingDecoder();
         final ClusterFramePump.FrameOwner owner;
         private long deadlineVersion=-1;
         private Runnable deadline;
         RenderJob(Session session,Request request)throws Exception {
-            this.session=session;this.request=request;request.retain();
+            this.session=session;this.request=request;this.outputBorrow=request.borrow();
             try {
                 owner=new ClusterFramePump.FrameOwner(){
                     @Override public void acknowledge(int id){session.guard.acknowledge(id);}
@@ -420,7 +431,7 @@ public final class ClusterIntegration {
                 };
                 pump=new ClusterFramePump(token,16,8L*1024*1024,decoder);
                 pump.termination().whenComplete((ignored,failure)->{
-                    if (decoder.slotHealthy) request.release();
+                    if (decoder.slotHealthy) outputBorrow.close();
                     else {
                         // A failed stop/release is not a completed borrow. Keep
                         // both slot and Surface rooted; never recycle for reuse.
@@ -430,7 +441,7 @@ public final class ClusterIntegration {
                     if(failure!=null&&!session.retired.get()&&session.job==RenderJob.this)session.problem(failure,request,RenderJob.this);
                 });
             }catch(Throwable problem){
-                request.release();if(problem instanceof Exception)throw(Exception)problem;throw(Error)problem;
+                outputBorrow.close();if(problem instanceof Exception)throw(Exception)problem;throw(Error)problem;
             }
         }
         void refreshDeadline(long version){

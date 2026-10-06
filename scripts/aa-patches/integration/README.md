@@ -38,9 +38,9 @@ The original read-only preflight is unchanged and continues refusing patch mode.
   transaction delegates unchanged to OEM super. Both client and server validate
   version, package/current UID, public signer identity and bounded parcel shape.
   Missing explicit Impulse signer pins fail closed before Surface unmarshalling
-- The app duplicates Surface handles without hidden APIs; each in-flight Binder
-  request owns a lease. Holder lifecycle generations suppress duplicate enables
-  and stale callbacks. The existing AA_CLUSTER_SURFACE event becomes true only
+- The app owns the actual callback-provided SurfaceTexture through a TextureView,
+  with separate view, desired-output, remote and in-flight transport leases.
+  Terminal release identity survives close, disconnect and newer requests. The existing AA_CLUSTER_SURFACE event becomes true only
   after an authenticated current MediaCodec frame-rendered callback. No JS keys,
   methods, theme layout or CarPlay path change
 
@@ -96,19 +96,57 @@ CI runs pure-core/hook/build-gate tests, Android28 Java compilation, host Kotlin
 Java compilation and existing JVM unit tests. It does not receive the private
 OEM artifact, assemble an OEM APK, sign, access credentials, or publish a release.
 
-## Blocking Surface lifecycle gap
+## Consumer ownership and terminal release (private protocol v2)
 
-The current host revokes output asynchronously on `surfaceDestroyed`. A
-parcel-duplicated Surface owns its handle, but this does **not** prove that the
-remote decoder is quiescent before SurfaceHolder's destruction callback returns.
-Android requires that rendering access stop at that boundary. Controlled hides
-can be redesigned to await an explicit decoder-stop acknowledgement before
-removing the view; forced display/Surface destruction still needs a sound
-lifecycle design and Android validation. An arbitrary timeout is not proof.
+This supersedes the earlier SurfaceHolder destruction blocker. `AaClusterVideoHost`
+now uses a TextureView while preserving its existing bounds and position under
+masks/WebView. Its destruction callback returns false for an adopted consumer,
+so the framework detaches its hardware layer but does not release that
+SurfaceTexture. `ClusterSurfaceOutput` retains the consumer itself, not merely a
+Surface producer handle. Fresh view generations use fresh consumers; no
+`setSurfaceTexture`, manual GL attach/detach, or `updateTexImage` call is added.
 
-Keep the current artifact disabled. This issue blocks an enabled vehicle test
-candidate even if public signer pins and a loading path become available.
-No source/assembly test here claims to close that gap.
+The host retires its view owner immediately without waiting. Actual consumer
+release occurs on main only after that owner and every borrow have closed:
+
+1. The client records possible remote ownership before sending an enable. A
+   separate transport fork covers serialization and the transaction, including
+   a terminal event that arrives before the transaction returns
+2. Only one remote output is admitted. Changed demand first sends disable and
+   awaits its predecessor's terminal event. Pending toggles coalesce; they cannot
+   accumulate remote decoders or replace an unresolved record
+3. The Service seals each retired request against new jobs. Its lease barrier
+   sends `CALLBACK_RELEASED(requestId)` only after all decoder borrows close
+   successfully and the Service Surface is released. Codec cleanup uncertainty
+   retains the borrow and Surface, so no terminal event is fabricated
+4. The client authenticates that event against the exact retained Binding object,
+   caller UID and request ID. It is independent of current output/status revision
+   and remains usable after client.close. Stale/duplicate events cannot free a
+   newer request. A local disposal failure remains quarantined without retries
+5. Death, disconnect, unbind, RemoteException, acceptance, DISABLED and FAILED are
+   not terminal proof. Binder death does not prove downstream codec-service
+   cleanup; that lease stays quarantined. A five-second retirement watchdog
+   changes status to failed but never releases ownership or admits a replacement
+6. A process-rooted pool caps adopted consumers at two: one remotely exposed plus
+   one never-submitted view. If cleanup cannot be proved, later adoption/submission
+   stays blocked instead of freeing an uncertain consumer. A stale view callback
+   retires only its matching retained consumer
+
+Protocol version, descriptor and profile are bumped to v2 so a v1 client/helper
+pair cannot silently interpret status as terminal ownership. Legacy OEM Binder
+transactions and the public theme/JS contract are unchanged. Default generated
+trust is still empty, and no enabled or installable artifact is being published.
+
+This resolves the identified source ownership gap. It does not bound a vendor
+native MediaCodec.stop/release call: a native hang is isolated to its worker and
+retains the bounded quarantine; the UI does not wait. Android/vehicle execution
+must still verify teardown when an offscreen consumer stops draining and the
+composition/performance implications of TextureView.
+
+Sources: [TextureView listener contract](https://developer.android.com/reference/android/view/TextureView.SurfaceTextureListener),
+[Surface consumer ownership](https://developer.android.com/reference/android/view/Surface),
+[Android 9 TextureView implementation](https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/android-9.0.0_r1/core/java/android/view/TextureView.java),
+and [SurfaceView/TextureView composition](https://source.android.com/docs/core/graphics/arch-tv).
 
 ## Remaining gates
 
@@ -116,8 +154,9 @@ No source/assembly test here claims to close that gap.
 2. An owner-approved signature-compatible loading path: the stock Service uses
    `android.uid.system` and an OEM platform certificate. Rebuilding invalidates
    its signatures. This work supplies no signing authority or security workaround
-3. Resolve the Surface destruction barrier above; finish host full-app compilation/
-   CI and independent review for the final commit
+3. Validate the v2 consumer/terminal-event lifecycle on Android, including forced
+   display loss, offscreen codec close, lost replies and death. Check exact-head
+   host compilation/CI; JVM ownership tests do not execute Android/native graphics
 4. Authorized parked-vehicle tests: actual firmware/native mapping, phone
    negotiation, Maps/Waze separately, Annex-B config and IDR on resume, focus-off
    encoding/power behavior, callback timing, hardware decoder capacity, repeated
@@ -129,7 +168,7 @@ successful independent stream. Dynamic late-session advertisement is not
 implemented: the second endpoint must be registered before discovery. Local
 focus callbacks are never treated as phone acknowledgement or live video.
 
-## Local result recorded 2026-10-06
+## Initial v1 local result recorded 2026-10-06
 
 The reproducible full build passed with default handoff disabled. Its
 [report](validation-20261006.json) records51 helper/compiler-metadata classes,
@@ -171,3 +210,26 @@ native-guard/NAL checks; both JVM harnesses passed20 additional consecutive runs
 Synthetic hook/member/build-gate tests are not Android execution. Independent
 review found no additional source-draft blocker beyond the stated lifecycle and
 physical-validation gates.
+
+## Quiescence redesign validation
+
+The new [v2 local report](validation-quiescence-20261006.json) records successful
+Android 28 helper/client Java compilation and full disabled unsigned assembly:
+55 helper/compiler classes, 1,342 symbolic references, 41 OEM members, 10 override
+checks, four final hook calls, 4,897 preserved OEM classes and 121 preserved other
+methods in the three hook classes. Manifest/resources remain byte-identical;
+only classes.dex changes, and old signatures are removed. Unsigned local SHA-256:
+`d8dba90751449da88184abd8a7aa90afa286d2c36977a47d3761e5d0d688a779`.
+
+All 118 Python tests pass. Their four actual-source JVM harnesses exercise 97
+checks: 25 frame-pump, 33 registration/guard/NAL, 18 lease-barrier and 21 release-ledger.
+The new harnesses each passed 20 additional runs. Cases include forced view-owner
+retirement while a remote borrow is live, ACK before transport returns, wrong
+connection/request, stale/duplicate ACK, concurrent claims and settlement,
+uncertain/dead connections, reentrant callbacks and failed disposal retention.
+These simulate ownership events with real project code; they do not claim to
+execute a real forced display teardown or Android Binder/MediaCodec.
+
+Independent review found and corrected failed-disposal record loss, the terminal
+retirement-state race and stale texture callback ownership. Full host Kotlin/Java
+and existing JVM unit tasks are checked by the PR's exact-head CI after publication.

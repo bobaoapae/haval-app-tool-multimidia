@@ -246,3 +246,26 @@ callback returns. Controlled hides need a stop acknowledgement, and forced
 Surface/display loss needs a sound Android lifecycle design and validation.
 The default artifact remains disabled; public signer pins alone do not clear
 this blocker. See the integration README for the exact boundary.
+
+
+## 2026-10-06 private v2 quiescence redesign
+
+The previous known SurfaceHolder source blocker is superseded by owned
+TextureView/SurfaceTexture retention. Framework view detachment no longer
+releases a possibly active consumer. A shared tested lease barrier and separate
+single-output release ledger wait for authenticated terminal request settlement,
+including any in-flight IPC fork. Service cleanup emits RELEASED only after all
+decoder borrows and its own Surface have closed. Stale events, failed disposal,
+Binder death and timeouts never free an uncertain consumer or start a replacement.
+Retention is bounded and the UI does not wait on native stop.
+
+The private protocol is bumped to v2; public theme events/bounds and legacy OEM
+transactions are unchanged. All 118 Python tests pass, including four real Java
+harnesses totaling 97 checks. Android 28 Java compilation and full unsigned DEX
+roundtrip pass again: 1,342 references, four final hook calls, 4,897 preserved OEM
+classes and 121 other preserved methods. See the [v2 report](integration/validation-quiescence-20261006.json).
+
+This is source/design proof, not Android graphics or phone execution. Forced
+physical display loss, offscreen codec shutdown and TextureView composition cost
+still need runtime validation. Default handoff stays disabled; intended signer
+confirmation and an approved signature-compatible loading path remain required.

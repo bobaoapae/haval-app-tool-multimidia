@@ -144,3 +144,22 @@ arbitrarily re-signed candidate is not a signature-compatible PackageManager
 update. Preserve package/shared UID, components, AAP authentication material and
 native ABI dependencies. Signing and an authorized loading/vehicle test path
 are separate gates. No signing key, security bypass or deployment is supplied.
+
+
+## Private protocol v2 terminal ownership
+
+The host/helper now require version2 with matching v2 interface/profile tokens.
+Transaction55 remains the sole extension; all pre-existing OEM transactions are
+unchanged. A new one-way `CALLBACK_RELEASED` carries version and exact request ID.
+It is distinct from acceptance/status and emitted only after the retired request
+is sealed, every decoder borrow closed cleanly, and the Service Surface released.
+Uncertain codec/Surface cleanup never emits it. The app authenticates the exact
+Binding identity and UID before settling its independent bounded release ledger;
+closed/current-output filtering must never discard a valid old release event.
+
+The owned TextureView consumer remains alive after view detachment (destruction
+callback returns false) until both local view ownership and every remote/transport
+borrow settle. Timeout, disconnect, unbind, generic failure and Binder death are
+quarantine events, not proof of downstream native quiescence. UI code never waits
+for codec stop. Native stop hangs retain bounded resources and prevent a new
+remote output; hardware/runtime behavior remains a physical validation gate.

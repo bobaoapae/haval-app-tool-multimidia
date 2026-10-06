@@ -16,6 +16,7 @@ import re
 
 OWNED_PREFIXES = ("Lcom/ts/androidauto/impulse/cluster/", "Limpulse/cluster/prototype/")
 PROTOCOL = "Lbr/com/redesurftank/havalshisuku/api/AaClusterProtocol;"
+LEASE_API = {"Lbr/com/redesurftank/havalshisuku/api/ClusterLeaseBarrier;", "Lbr/com/redesurftank/havalshisuku/api/ClusterLeaseBarrier$Token;", "Lbr/com/redesurftank/havalshisuku/api/ClusterLeaseBarrier$1;"}
 COMPILER_METADATA = "Lcom/android/tools/r8/annotations/LambdaMethod;"
 COMPILER_METADATA_SHA256 = "580b7431e46832fc80a158ea731b7c047701383b9109606512ff5cad56d27df6"
 PLATFORM_PREFIXES = ("Ljava/", "Ljavax/", "Landroid/", "Ldalvik/", "Lorg/xml/", "Lorg/w3c/")
@@ -130,7 +131,7 @@ def read_tree(root: Path) -> dict[str, Class]:
 
 
 def owned(name):
-    return name == PROTOCOL or name.startswith(OWNED_PREFIXES)
+    return (name == PROTOCOL or name in LEASE_API) or name.startswith(OWNED_PREFIXES)
 
 
 def platform(name):
