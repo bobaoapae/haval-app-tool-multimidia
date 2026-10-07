@@ -47,9 +47,12 @@ import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.ui.components.*
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 import br.com.redesurftank.havalshisuku.utils.AutoPanelUpdater
+import br.com.redesurftank.havalshisuku.utils.ApkInstallReturn
 import br.com.redesurftank.havalshisuku.utils.HomeManifest
 import br.com.redesurftank.havalshisuku.utils.HomeVerifyResult
 import br.com.redesurftank.havalshisuku.utils.ImpulseHomeUpdater
+import br.com.redesurftank.havalshisuku.utils.SessionApkCache
+import br.com.redesurftank.havalshisuku.utils.SilentApkInstall
 import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -107,6 +110,7 @@ fun InstallAppsTab() {
     var isCarPlayMounted by remember { mutableStateOf(CarPlayPatchManager.isMounted()) }
     var showStartupApps by remember { mutableStateOf(false) }
     var showHomeSetup by remember { mutableStateOf(false) }
+    var homeSetupCanOpen by remember { mutableStateOf(false) }
     // A instalacao termina FORA daqui: startDownload entrega o APK ao instalador do sistema.
     // Entao a sugestao nao pode pendurar num callback - ela observa o pacote aparecer.
     var homeWasInstalled by remember { mutableStateOf(runCatching { pm.getPackageInfo(IMPULSE_HOME_PACKAGE, 0) }.isSuccess) }
@@ -154,7 +158,10 @@ fun InstallAppsTab() {
             isCarPlayPatchInstalled = states[2]
             isCarPlayMounted = states[3]
             val homeNow = runCatching { pm.getPackageInfo(IMPULSE_HOME_PACKAGE, 0) }.isSuccess
-            if (homeNow && !homeWasInstalled) showHomeSetup = true
+            if (homeNow && !homeWasInstalled) {
+                homeSetupCanOpen = true
+                showHomeSetup = true
+            }
             homeWasInstalled = homeNow
             refreshTrigger++
             delay(4000)
@@ -225,52 +232,65 @@ fun InstallAppsTab() {
         return ReleaseUpdateChecker.compareVersions(v1, v2)
     }
 
+    fun openPackageInstaller(file: File, packageName: String?) {
+        if (!pm.canRequestPackageInstalls()) {
+            showPermissionDialog = true
+            return
+        }
+        if (!packageName.isNullOrEmpty()) ApkInstallReturn.arm(context, packageName)
+        val uri =
+                FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.provider",
+                        file
+                )
+        context.startActivity(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+        )
+    }
+
     fun startDownload(app: AppInfo) {
         downloadingApp = app.packageName
         downloadProgress = downloadProgress.toMutableMap().apply { put(app.packageName, 0f) }
         scope.launch(Dispatchers.IO) {
+            val file = SessionApkCache.apk(context.cacheDir, "${app.packageName}-${app.version}")
+            val part = SessionApkCache.partial(file)
             try {
-                val file = File(context.getExternalFilesDir(null), "${app.packageName}.apk")
-                val url = URL(app.link)
-                val conn = url.openConnection() as HttpURLConnection
-                val length = conn.contentLength
-                val input = BufferedInputStream(conn.inputStream)
-                val output = FileOutputStream(file)
-                val buffer = ByteArray(4096)
-                var bytesRead: Int
-                var total = 0
-                while (input.read(buffer).also { bytesRead = it } != -1) {
-                    output.write(buffer, 0, bytesRead)
-                    total += bytesRead
-                    if (length > 0) {
-                        downloadProgress =
-                                downloadProgress.toMutableMap().apply {
-                                    put(app.packageName, total.toFloat() / length)
-                                }
+                if (SessionApkCache.matches(file)) {
+                    downloadProgress = downloadProgress.toMutableMap().apply { put(app.packageName, 1f) }
+                } else {
+                    val url = URL(app.link)
+                    val conn = url.openConnection() as HttpURLConnection
+                    val length = conn.contentLength
+                    val input = BufferedInputStream(conn.inputStream)
+                    val output = FileOutputStream(part)
+                    val buffer = ByteArray(4096)
+                    var bytesRead: Int
+                    var total = 0
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        total += bytesRead
+                        if (length > 0) {
+                            downloadProgress =
+                                    downloadProgress.toMutableMap().apply {
+                                        put(app.packageName, total.toFloat() / length)
+                                    }
+                        }
+                    }
+                    output.close()
+                    input.close()
+                    if (!SessionApkCache.publish(part, file)) {
+                        throw java.io.IOException("Could not store ${app.packageName}")
                     }
                 }
-                output.close()
-                input.close()
-                withContext(Dispatchers.Main) {
-                    if (!pm.canRequestPackageInstalls()) {
-                        showPermissionDialog = true
-                        return@withContext
-                    }
-                    val uri =
-                            FileProvider.getUriForFile(
-                                    context,
-                                    "${context.packageName}.provider",
-                                    file
-                            )
-                    val intent =
-                            Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(uri, "application/vnd.android.package-archive")
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                    context.startActivity(intent)
-                }
+                withContext(Dispatchers.Main) { openPackageInstaller(file, app.packageName) }
             } catch (e: Exception) {
+                part.delete()
+                if (!SessionApkCache.matches(file)) file.delete()
                 Log.e(TAG, "Download failed", e)
             } finally {
                 downloadingApp = null
@@ -291,8 +311,9 @@ fun InstallAppsTab() {
         downloadingApp = IMPULSE_HOME_PACKAGE
         downloadProgress = downloadProgress.toMutableMap().apply { put(IMPULSE_HOME_PACKAGE, 0f) }
         scope.launch(Dispatchers.IO) {
+            val file = SessionApkCache.apk(context.cacheDir, manifest.sha256)
             try {
-                val file = File(context.getExternalFilesDir(null), "$IMPULSE_HOME_PACKAGE.apk")
+                if (!SessionApkCache.matches(file, manifest.sha256)) {
                 val result =
                         ImpulseHomeUpdater.downloadAndVerify(pm, manifest, file) { p ->
                             downloadProgress =
@@ -304,25 +325,22 @@ fun InstallAppsTab() {
                     homeVerifyError = "Download recusado: " + result.reason
                     return@launch
                 }
-                withContext(Dispatchers.Main) {
-                    if (!pm.canRequestPackageInstalls()) {
-                        showPermissionDialog = true
-                        return@withContext
-                    }
-                    val uri =
-                            FileProvider.getUriForFile(
-                                    context,
-                                    "${context.packageName}.provider",
-                                    file
-                            )
-                    context.startActivity(
-                            Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(uri, "application/vnd.android.package-archive")
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                    )
+                } else {
+                    downloadProgress =
+                            downloadProgress.toMutableMap().apply { put(IMPULSE_HOME_PACKAGE, 1f) }
                 }
+                val wasInstalled = homeWasInstalled
+                if (SilentApkInstall.install(file, IMPULSE_HOME_PACKAGE)) {
+                    withContext(Dispatchers.Main) {
+                        if (!wasInstalled) {
+                            homeSetupCanOpen = true
+                            showHomeSetup = true
+                        }
+                        refreshTrigger++
+                    }
+                    return@launch
+                }
+                withContext(Dispatchers.Main) { openPackageInstaller(file, IMPULSE_HOME_PACKAGE) }
             } finally {
                 downloadProgress = downloadProgress.toMutableMap().apply { remove(IMPULSE_HOME_PACKAGE) }
                 downloadingApp = null
@@ -348,38 +366,29 @@ fun InstallAppsTab() {
         downloadProgress =
                 downloadProgress.toMutableMap().apply { put(AutoPanelUpdater.PACKAGE, 0f) }
         scope.launch(Dispatchers.IO) {
+            val file = SessionApkCache.apk(context.cacheDir, manifest.sha256)
             try {
-                val file = File(context.getExternalFilesDir(null), "${AutoPanelUpdater.PACKAGE}.apk")
-                val result =
-                        ImpulseHomeUpdater.downloadAndVerify(pm, manifest, file) { p ->
-                            downloadProgress =
-                                    downloadProgress.toMutableMap().apply {
-                                        put(AutoPanelUpdater.PACKAGE, p)
-                                    }
-                        }
-                if (result is HomeVerifyResult.Failed) {
-                    autoPanelError = "Download recusado: " + result.reason
+                if (!SessionApkCache.matches(file, manifest.sha256)) {
+                    val result =
+                            ImpulseHomeUpdater.downloadAndVerify(pm, manifest, file) { p ->
+                                downloadProgress =
+                                        downloadProgress.toMutableMap().apply {
+                                            put(AutoPanelUpdater.PACKAGE, p)
+                                        }
+                            }
+                    if (result is HomeVerifyResult.Failed) {
+                        autoPanelError = "Download recusado: " + result.reason
+                        return@launch
+                    }
+                } else {
+                    downloadProgress =
+                            downloadProgress.toMutableMap().apply { put(AutoPanelUpdater.PACKAGE, 1f) }
+                }
+                if (SilentApkInstall.install(file, AutoPanelUpdater.PACKAGE)) {
+                    withContext(Dispatchers.Main) { refreshTrigger++ }
                     return@launch
                 }
-                withContext(Dispatchers.Main) {
-                    if (!pm.canRequestPackageInstalls()) {
-                        showPermissionDialog = true
-                        return@withContext
-                    }
-                    val uri =
-                            FileProvider.getUriForFile(
-                                    context,
-                                    "${context.packageName}.provider",
-                                    file
-                            )
-                    context.startActivity(
-                            Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(uri, "application/vnd.android.package-archive")
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                    )
-                }
+                withContext(Dispatchers.Main) { openPackageInstaller(file, AutoPanelUpdater.PACKAGE) }
             } finally {
                 downloadProgress =
                         downloadProgress.toMutableMap().apply { remove(AutoPanelUpdater.PACKAGE) }
@@ -392,45 +401,42 @@ fun InstallAppsTab() {
         downloadingUrl = true
         urlProgress = 0f
         scope.launch(Dispatchers.IO) {
+            val file = SessionApkCache.apk(context.cacheDir, SessionApkCache.keyForUrl(urlString))
+            val part = SessionApkCache.partial(file)
             try {
-                val file = File(context.getExternalFilesDir(null), "custom.apk")
-                val url = URL(urlString)
-                val conn = url.openConnection() as HttpURLConnection
-                val length = conn.contentLength
-                val input = BufferedInputStream(conn.inputStream)
-                val output = FileOutputStream(file)
-                val buffer = ByteArray(4096)
-                var bytesRead: Int
-                var total = 0
-                while (input.read(buffer).also { bytesRead = it } != -1) {
-                    output.write(buffer, 0, bytesRead)
-                    total += bytesRead
-                    if (length > 0) {
-                        urlProgress = total.toFloat() / length
+                if (SessionApkCache.matches(file)) {
+                    urlProgress = 1f
+                } else {
+                    val url = URL(urlString)
+                    val conn = url.openConnection() as HttpURLConnection
+                    val length = conn.contentLength
+                    val input = BufferedInputStream(conn.inputStream)
+                    val output = FileOutputStream(part)
+                    val buffer = ByteArray(4096)
+                    var bytesRead: Int
+                    var total = 0
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        total += bytesRead
+                        if (length > 0) {
+                            urlProgress = total.toFloat() / length
+                        }
+                    }
+                    output.close()
+                    input.close()
+                    if (!SessionApkCache.publish(part, file)) {
+                        throw java.io.IOException("Could not store download")
                     }
                 }
-                output.close()
-                input.close()
-                withContext(Dispatchers.Main) {
-                    if (!pm.canRequestPackageInstalls()) {
-                        showPermissionDialog = true
-                        return@withContext
-                    }
-                    val uri =
-                            FileProvider.getUriForFile(
-                                    context,
-                                    "${context.packageName}.provider",
-                                    file
-                            )
-                    val intent =
-                            Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(uri, "application/vnd.android.package-archive")
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                    context.startActivity(intent)
-                }
+                val installedPackage =
+                        runCatching {
+                                    pm.getPackageArchiveInfo(file.absolutePath, 0)?.packageName
+                                }
+                                .getOrNull()
+                withContext(Dispatchers.Main) { openPackageInstaller(file, installedPackage) }
             } catch (e: Exception) {
+                part.delete()
+                if (!SessionApkCache.matches(file)) file.delete()
                 Log.e(TAG, "Download failed", e)
             } finally {
                 downloadingUrl = false
@@ -781,7 +787,10 @@ fun InstallAppsTab() {
                                         context.startActivity(intent)
                                     }
                         }
-                        CardButton("Ajustar", ImpTokens.TrackOff) { showHomeSetup = true }
+                        CardButton("Ajustar", ImpTokens.TrackOff) {
+                            homeSetupCanOpen = false
+                            showHomeSetup = true
+                        }
                         IconButton(
                             onClick = {
                                 appToUninstall = IMPULSE_HOME_PACKAGE
@@ -1124,7 +1133,10 @@ fun InstallAppsTab() {
     }
 
     if (showHomeSetup) {
-        ImpulseHomeSetupDialog(onDismiss = { showHomeSetup = false })
+        ImpulseHomeSetupDialog(
+                canOpen = homeSetupCanOpen,
+                onDismiss = { showHomeSetup = false }
+        )
     }
 
     if (showStartupApps) {

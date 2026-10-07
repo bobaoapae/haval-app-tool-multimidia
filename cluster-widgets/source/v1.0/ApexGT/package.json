@@ -1,7 +1,7 @@
 {
   "name": "haval-apex-gt",
   "private": true,
-  "version": "1.0.14",
+  "version": "1.0.15",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",

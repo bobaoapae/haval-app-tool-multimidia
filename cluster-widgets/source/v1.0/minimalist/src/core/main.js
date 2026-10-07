@@ -1,3 +1,4 @@
+import { applyClusterVisibility } from '../../../shared/runtime/clusterVisibility.js';
 import { getState as get, setState, subscribe } from './state.js';
 import { createDashboardInfo } from './components/dashboardInfo.js';
 import { createAcControlScreen } from './components/aircon/mainAcControl.js';
@@ -332,6 +333,7 @@ function initializeLayout() {
 
 
 function render() {
+    applyClusterVisibility(get('clusterEnabled'));
     logger.enter('render', { screen: get('screen'), display: get('display') });
     updateAppDimensions();
     const screen = get('screen');

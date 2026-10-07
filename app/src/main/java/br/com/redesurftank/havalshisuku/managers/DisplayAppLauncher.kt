@@ -10,6 +10,7 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.models.DisplayAppConfig
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
+import br.com.redesurftank.havalshisuku.utils.VirtualClusterPreferences
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
@@ -2331,7 +2332,8 @@ object DisplayAppLauncher {
         displayId: Int,
         bounds: IntArray,
         reason: String,
-        cameraGeneration: Long? = null
+        cameraGeneration: Long? = null,
+        refreshLayoutIfUnchanged: Boolean = false
     ) {
         if (!canContinueAndroidAutoGuard(cameraGeneration)) return
         if (displayId == 0) {
@@ -2339,6 +2341,10 @@ object DisplayAppLauncher {
         }
         if (!taskInfo.bounds.contentEqualsOrNull(bounds)) {
             sh("am stack resize ${taskInfo.stackId} ${bounds[0]} ${bounds[1]} ${bounds[2]} ${bounds[3]}")
+        } else if (refreshLayoutIfUnchanged) {
+            // Same-size display moves do not deliver onConfigurationChanged, so the
+            // cluster sidebar crop stays applied. A 1px resize forces setDisplayParams.
+            refreshAndroidAutoLayoutAfterSameSizeMove(taskInfo.stackId, bounds, reason, cameraGeneration)
         } else {
             Log.w(
                 TAG,
@@ -2347,6 +2353,34 @@ object DisplayAppLauncher {
         }
         Thread.sleep(160)
         if (canContinueAndroidAutoGuard(cameraGeneration)) sendAndroidAutoFocus(displayId, reason, cameraGeneration)
+    }
+
+    private fun refreshAndroidAutoLayoutAfterSameSizeMove(
+        stackId: Int,
+        bounds: IntArray,
+        reason: String,
+        cameraGeneration: Long?
+    ) {
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
+        val nudged = androidAutoUnchangedBoundsRefreshRect(bounds)
+        if (nudged == null) {
+            Log.w(TAG, "[$reason] Android Auto bounds unchanged and too short to refresh the sidebar crop")
+            return
+        }
+        Log.w(
+            TAG,
+            "[$reason] Android Auto bounds unchanged after display move; nudging height so the sidebar crop resets"
+        )
+        sh("am stack resize $stackId ${nudged[0]} ${nudged[1]} ${nudged[2]} ${nudged[3]}")
+        Thread.sleep(160)
+        if (!canContinueAndroidAutoGuard(cameraGeneration)) return
+        sh("am stack resize $stackId ${bounds[0]} ${bounds[1]} ${bounds[2]} ${bounds[3]}")
+    }
+
+    internal fun androidAutoUnchangedBoundsRefreshRect(bounds: IntArray): IntArray? {
+        if (bounds.size != 4) return null
+        if (bounds[3] - bounds[1] <= 1) return null
+        return intArrayOf(bounds[0], bounds[1], bounds[2], bounds[3] - 1)
     }
 
     private fun ensureAndroidAutoFullscreenAndFocus(
@@ -2537,6 +2571,7 @@ object DisplayAppLauncher {
 
         val currentTask = findTaskForPackage(ANDROID_AUTO_PACKAGE)
         if (!canContinueAndroidAutoGuard(cameraGeneration)) return
+        var movedExistingStack = false
         if (currentTask != null && currentTask.displayId != displayId) {
             saveCurrentBounds(ANDROID_AUTO_PACKAGE, currentTask)
             val tasksInStack = countTasksInStack(currentTask.stackId)
@@ -2558,6 +2593,8 @@ object DisplayAppLauncher {
                     Log.e(TAG, "[$reason] Android Auto move-stack failed: $result")
                     if (!canContinueAndroidAutoGuard(cameraGeneration)) return
                     startAndroidAutoActivity(displayId, "${reason}_MOVE_FAILED_START")
+                } else {
+                    movedExistingStack = true
                 }
             }
         } else {
@@ -2596,7 +2633,14 @@ object DisplayAppLauncher {
             // Once force-stop has begun, finish recreation instead of leaving the visual app absent.
             val completionGeneration = if (visualRecoveryStarted) null else cameraGeneration
             if (!canContinueAndroidAutoGuard(completionGeneration)) return
-            resizeAndFocusAndroidAuto(targetTask, displayId, bounds, "${reason}_POST_START", completionGeneration)
+            resizeAndFocusAndroidAuto(
+                targetTask,
+                displayId,
+                bounds,
+                "${reason}_POST_START",
+                completionGeneration,
+                refreshLayoutIfUnchanged = movedExistingStack && !visualRecoveryStarted
+            )
             if (!canContinueAndroidAutoGuard(completionGeneration)) return
             closeAndroidAutoVisualStacks("${reason}_POST_START_CLEAN_DUPLICATES", exceptStackId = targetTask.stackId)
 
@@ -7770,7 +7814,7 @@ object DisplayAppLauncher {
         }
 
         val prefs = getPrefs()
-        val virtualClusterEnabled = prefs.getBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key, true)
+        val virtualClusterEnabled = VirtualClusterPreferences.isEnabled(prefs)
 
         var x = config.x
         var y = config.y
@@ -8502,7 +8546,8 @@ object DisplayAppLauncher {
                         movedTask,
                         0,
                         intArrayOf(0, 0, res.first, effectiveHeight),
-                        "EVICTION_ANDROID_AUTO"
+                        "EVICTION_ANDROID_AUTO",
+                        refreshLayoutIfUnchanged = true
                     )
                 }
 
