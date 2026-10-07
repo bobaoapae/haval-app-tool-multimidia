@@ -101,6 +101,8 @@ and the new output directory only after checks pass; never overwrites an input.
 CI runs pure-core/hook/build-gate tests, Android28 Java compilation, host Kotlin/
 Java compilation and existing JVM unit tests. It does not receive the private
 OEM artifact, assemble an OEM APK, sign, access credentials, or publish a release.
+Both CI jobs explicitly check out the PR head SHA so the recorded result tests
+that exact commit, rather than GitHub's synthesized merge preview.
 
 ### M0 ZIP structure gate
 
