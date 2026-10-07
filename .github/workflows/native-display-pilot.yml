@@ -18,15 +18,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - name: Record exact source
         run: git rev-parse HEAD
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-      - uses: android-actions/setup-android@v3
       - name: Install public Android SDK
-        run: sdkmanager 'platforms;android-28' 'platforms;android-36' 'build-tools;36.0.0'
+        # Hosted runners already have the Android SDK/core license. Do not accept new licenses.
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-28" "platforms;android-36" "build-tools;36.0.0" </dev/null'
       - name: Lint, JVM and Android 9 simulated-runtime tests, unsigned build
         run: ./gradlew -p pilots/native-display :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --no-daemon
       - name: Inspect standalone artifact
