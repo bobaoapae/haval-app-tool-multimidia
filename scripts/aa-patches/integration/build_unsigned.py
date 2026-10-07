@@ -20,6 +20,7 @@ TOOL_HASHES = {
     "apktool": "eee4669a704a14e0623407e6701b0b91887e61e1e4049cb7a82833e14ae8b5fd",
     "r8": "3b4de3053885da105e39c15212261d22653d6d1b5eb92323dd04ae913cc8286f",
 }
+ASSEMBLY_JAVA_MAJOR = 21
 SIGNATURE_FILES = {"META-INF/CERT.RSA", "META-INF/CERT.SF", "META-INF/MANIFEST.MF"}
 CHANGED_STOCK = {
     "com/ts/androidauto/aap/sink/GalIntegration.smali",
@@ -58,6 +59,22 @@ def trust_source(certificates: list[str], enabled: bool) -> str:
 
 def run(command: list[str]) -> None:
     subprocess.run(command, cwd=ROOT, check=True, timeout=180)
+
+
+def require_assembly_java() -> None:
+    # apktool's float comments differ between Java 17 and 21. The reviewed
+    # raw-byte smali profile was generated with Java 21; never normalize hashes.
+    java = shutil.which("java")
+    if not java:
+        raise ValueError("Unsigned assembly requires the reviewed Java 21 runtime")
+    result = subprocess.run([java, "-XshowSettings:properties", "-version"],
+                            capture_output=True, text=True, check=True, timeout=15)
+    versions = re.findall(r"^\s*java\.specification\.version\s*=\s*(\d+)\s*$",
+                          result.stdout + "\n" + result.stderr, re.M)
+    if versions != [str(ASSEMBLY_JAVA_MAJOR)]:
+        raise ValueError("Unsigned assembly requires Java 21 for the reviewed raw-byte "
+                         "smali profile; compile-only may use JDK 17+. Do not replace "
+                         "the tree fingerprint to accept another runtime's decode")
 
 
 def jar_classes(source: Path, output: Path) -> None:
@@ -189,6 +206,7 @@ def main(argv=None) -> int:
             source = pinned(args.source_apk, hooks.APK_SHA256)
             apktool = pinned(args.apktool, TOOL_HASHES["apktool"])
             r8 = pinned(args.r8, TOOL_HASHES["r8"])
+            require_assembly_java()
         output = args.output.resolve()
         if output.exists():
             raise ValueError("Output must be a new directory; no existing output is overwritten")
@@ -205,6 +223,7 @@ def main(argv=None) -> int:
             if not args.compile_only:
                 report["assembly"] = assemble(work, source, android, apktool, r8)
                 report["unsigned_assembly"] = True
+                report["assembly_java_major"] = ASSEMBLY_JAVA_MAJOR
                 report["source_apk_sha256"] = hooks.APK_SHA256
             (work / "report.json").write_text(json.dumps(report, indent=2)+"\n")
             work.rename(output)

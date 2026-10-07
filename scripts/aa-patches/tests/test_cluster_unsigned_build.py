@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 HERE = Path(__file__).resolve().parents[1] / 'integration'
@@ -12,6 +13,51 @@ import build_unsigned as build
 
 
 class UnsignedBuildGates(unittest.TestCase):
+    def test_assembly_accepts_reviewed_java21_property(self):
+        result = mock.Mock(stdout="", stderr="    java.specification.version = 21\n")
+        with mock.patch.object(build.shutil, "which", return_value="java"), \
+             mock.patch.object(build.subprocess, "run", return_value=result) as run:
+            build.require_assembly_java()
+        run.assert_called_once_with(["java", "-XshowSettings:properties", "-version"],
+                                    capture_output=True, text=True, check=True, timeout=15)
+
+    def test_assembly_refuses_other_or_unrecognized_java_profile(self):
+        for text in ["java.specification.version = 17", "java.specification.version = 25",
+                     "java.specification.version = unknown", "",
+                     "java.specification.version = 21\njava.specification.version = 21"]:
+            with self.subTest(text=text), mock.patch.object(build.shutil, "which", return_value="java"), \
+                 mock.patch.object(build.subprocess, "run", return_value=mock.Mock(stdout="", stderr=text)):
+                with self.assertRaisesRegex(ValueError, "requires Java 21"):
+                    build.require_assembly_java()
+
+    def test_assembly_refuses_missing_java(self):
+        with mock.patch.object(build.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(ValueError, "requires the reviewed Java 21"):
+                build.require_assembly_java()
+
+    def test_assembly_runtime_gate_precedes_compilation_and_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            with mock.patch.object(build, "pinned", side_effect=lambda path, expected: path), \
+                 mock.patch.object(build, "require_assembly_java", side_effect=ValueError("Java 21 required")), \
+                 mock.patch.object(build, "compile_sources") as compile_sources:
+                self.assertEqual(2, build.main(["--android-jar", "android.jar", "--apktool", "apktool.jar",
+                                               "--r8", "r8.jar", "--source-apk", "source.apk", "--output", str(output)]))
+            compile_sources.assert_not_called()
+            self.assertFalse(output.exists())
+            self.assertEqual([], list(Path(tmp).iterdir()))
+
+    def test_compile_only_does_not_require_assembly_java_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            with mock.patch.object(build, "pinned", side_effect=lambda path, expected: path), \
+                 mock.patch.object(build, "require_assembly_java") as runtime_gate, \
+                 mock.patch.object(build, "compile_sources") as compile_sources:
+                self.assertEqual(0, build.main(["--compile-only", "--android-jar", "android.jar", "--output", str(output)]))
+            runtime_gate.assert_not_called()
+            compile_sources.assert_called_once()
+            self.assertTrue((output / "report.json").is_file())
+
     def test_default_trust_is_fail_closed_without_dead_code_constant(self):
         source = build.trust_source([], False)
         self.assertIn('Boolean.parseBoolean("false")', source)

@@ -49,9 +49,15 @@ See [API-CONTRACT.md](API-CONTRACT.md) for exact hook/ownership contracts and
 
 ## Reproducible local validation
 
-Required tools are JDK17+ (Java8 source syntax), Python3, and the exact public
-Android28 API jar. Full unsigned assembly additionally needs the user-supplied
-Service APK, apktool3.0.2 and R8/D89.1.31. `build_unsigned.py` pins SHA-256 for
+Compile-only validation needs JDK17+ (Java8 source syntax), Python3, and the exact
+public Android28 API jar. Full unsigned assembly requires **JDK21**, the
+user-supplied Service APK, apktool3.0.2 and R8/D89.1.31. The reviewed raw-byte
+decode profile was generated on Linux/OpenJDK21.0.12.1. Select that JDK's `bin`
+directory in `PATH` and check `java -version` / `javac -version` before assembly;
+setting `JAVA_HOME` alone does not change which executable the builder uses.
+The builder refuses other Java major versions before compilation/staging in
+full-assembly mode. Compile-only and the Android CI compilation can use JDK17.
+`build_unsigned.py` pins SHA-256 for
 all tools and the APK. It neither downloads nor executes the supplied APK/native
 libraries. API stubs are compile-only declarations and are excluded from DEX.
 
@@ -125,7 +131,7 @@ the unchanged tree fingerprint
 `3e86b201832586928e96a5296af5dd477c2978b18c8ced7e342b767225847149`.
 The original POSIX sort and the explicit portable component sort agreed.
 The production hook check passed without changing a profile or a certificate.
-The same Linux/Python 3.12.14/OpenJDK 21.0.12.1 run passed all 128 source/JVM
+The same Linux/Python 3.12.14/OpenJDK 21.0.12.1 run passed all 133 source/JVM
 tests, pinned Android 28 helper/host Java compilation and full disabled unsigned
 assembly. The final roundtrip again verified four hook calls, 121 preserved
 methods and 4,897 unchanged OEM classes, with byte-identical manifest/resources.
@@ -137,11 +143,23 @@ The decode/check commands, using the already fingerprint-verified tool/APK, were
     python3 scripts/aa-patches/integration/patch_service_hooks.py \
       tools/stock-decode --source-apk <supplied-exact-Service.apk> --check
 
-The separately reported Linux tree `98f03fa7...` remains unexplained. Matching
-the six targeted classes does not establish equality of the other 4,894 files.
-Compare exact tool/APK hashes, decode arguments, relative file inventory and
-per-file raw SHA-256 values before proposing any profile change. Do not replace
-the pinned tree hash to make assembly succeed. This portability change does not
+The separately reported Linux tree was also reproduced with the same pinned
+APK/apktool and **Temurin17.0.20.1+1**:
+`98f03fa78ba4f2dcbfcdb6f2a7a3cef3520508dd1402027b2b3dc04456349d97`.
+All 4,900 paths and six target fingerprints still match. Exactly three raw files
+differ from the Java21 decode: `com/google/common/base/SmallCharMatcher.smali`,
+`com/google/common/collect/Hashing.smali` and
+`com/google/common/hash/Murmur3_32HashFunction.smali`, each under `smali/`.
+Their float comments render `-8.2930312E7f` on Java17 versus `-8.293031E7f`
+on Java21; the underlying instruction constant is unchanged. No other file
+bytes differ. This establishes the Java-runtime dependency for these two
+reproductions, rather than a hook/class mutation or a reason to change trust.
+
+The production gate correctly refuses the Java17 tree. Use the documented
+Java21/Linux prerequisites for the reviewed production profile; do not replace
+the pinned hash or strip/normalize comments to make another decode pass.
+For any further discrepancy compare tool/APK/runtime versions, decode arguments,
+relative file inventory and per-file raw SHA-256 values first. The portability fix does not
 establish a valid Windows production decode, Android/native behavior or a valid
 vehicle test; existing signing/loading and physical-validation gates remain.
 
