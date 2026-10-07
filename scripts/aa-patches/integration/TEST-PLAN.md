@@ -32,7 +32,9 @@ bypass or OEM service restart commands.
 
 1. Run the suite and pinned local builder described in [README.md](README.md).
    Keep the source APK unchanged. Require successful helper linkage, final hook
-   checks and manifest/resource preservation; inspect report.json rather than
+   checks, manifest/resource preservation and the [M0 ZIP structure gate](README.md#m0-zip-structure-gate)
+   (source method preservation, local/central agreement, bounded valid bit-3
+   descriptors and four-byte STORED alignment); inspect report.json rather than
    treating a successful compiler exit alone as a candidate
 2. Once the intended caller fingerprint is explicitly approved, the responsible
    engineer may prepare an enabled unsigned lab build using the documented

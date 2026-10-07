@@ -102,6 +102,55 @@ CI runs pure-core/hook/build-gate tests, Android28 Java compilation, host Kotlin
 Java compilation and existing JVM unit tests. It does not receive the private
 OEM artifact, assemble an OEM APK, sign, access credentials, or publish a release.
 
+### M0 ZIP structure gate
+
+`verify_zip` checks the raw source and output records before comparing decoded
+content. It preserves each retained entry's STORED/DEFLATED method (including
+classes.dex), matches local/central filename bytes, flags, method and CRC/sizes,
+and bounds each header, extra field, payload and descriptor against the next
+local record or central directory. Bit 3 requires a descriptor immediately after
+the declared compressed payload, with matching central CRC/sizes. Both the
+12-byte form and the optional-signature 16-byte form are accepted, including a
+real CRC equal to the signature word. Local CRC/sizes may be zero or match the
+central values; conflicting nonzero values fail. Decoded lengths must also
+match the declared uncompressed sizes.
+
+Every STORED payload is checked at its **local data offset** for four-byte
+alignment, except genuine empty directory records. Empty regular files and
+nonempty trailing-slash entries still require alignment. Local extra fields
+may differ from central extras and contain zipalign's one-to-three zero padding
+bytes. Source APK Signing Blocks and their preceding zero padding are bounded
+and accepted structurally; output signing metadata remains forbidden. This
+structural inspection does not replace the exact source fingerprint gate.
+
+This deliberately supports single-disk ZIP32 with STORED/DEFLATED entries.
+ZIP64, encryption/reserved flags, newer extraction layouts, gaps/overlaps,
+malformed extras, invalid EOCD extents/comments and trailing bytes are refused.
+EOCD signatures inside archive comments receive an explicit unsupported-layout
+diagnostic because Python zipfile interprets the last such signature. Inputs
+are never normalized, repaired, recompressed or realigned by this verifier.
+Successful reports include source/output entry, descriptor and aligned-STORED
+counts under `assembly.zip.structure`.
+
+The format checks follow [PKWARE APPNOTE sections 4.3.7/4.3.9/4.3.16 and
+4.4.7–9](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT),
+[Android zipalign](https://developer.android.com/tools/zipalign), and the
+[APK Signing Block format](https://source.android.com/docs/security/features/apksigning/v2).
+They were implemented independently; no AA-Cluster source was copied.
+
+On 2026-10-07, a fresh disabled assembly with the unchanged pinned APK/tools,
+macOS/Python 3.14.0/Temurin 21.0.7+6 passed exact-profile hooking and reached
+apktool output verification. The new guard **refused** apktool's unaligned
+STORED `res/drawable/ic_smartprojection.png` at payload offset 2,427,175
+(remainder 3 modulo 4). All 35 focused and 158 aggregate Python/JVM tests
+passed without skips, as did real pinned Android28 compile-only validation.
+The output directory and report
+were not published. Final re-decode, four-hook/121-method checks and preservation
+of 4,897 OEM classes were therefore **not rerun** in this attempt. The prior
+Java21/Linux success above predates this guard and does not establish M0 success.
+Keep this refusal until the output writer's alignment is separately resolved;
+do not weaken the check or silently repair the source to obtain a passing report.
+
 ### Portable parsing and exact-profile fingerprints
 
 The hook parser accepts LF and CRLF syntax. This does **not** normalize trust

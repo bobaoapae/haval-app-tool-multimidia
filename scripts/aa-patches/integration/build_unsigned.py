@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import zipfile
@@ -112,19 +113,201 @@ def compile_sources(work: Path, android: Path, trust: str) -> None:
     jar_classes(classes, work / "helpers.jar")
 
 
+def zip_structure(raw: bytes, label: str, allow_signing_block: bool = False) -> dict:
+    """Check the bounded, single-disk ZIP32 layout used by the reviewed APK.
+
+    zipfile reads central metadata and does not validate local sizes or data
+    descriptors. Inspect those records before trusting decompressed content.
+    """
+    def refuse(reason: str) -> None:
+        raise ValueError(f"Invalid {label} ZIP structure: {reason}")
+
+    def extra_fields(extra: bytes) -> None:
+        cursor = 0
+        while cursor < len(extra):
+            # Older zipalign versions append zero padding to the local extra.
+            if not any(extra[cursor:]):
+                return
+            if cursor + 4 > len(extra):
+                refuse("truncated extra field")
+            kind, size = struct.unpack_from("<HH", extra, cursor)
+            if kind == 1:
+                refuse("ZIP64 is unsupported")
+            cursor += 4 + size
+            if cursor > len(extra):
+                refuse("extra field exceeds its header")
+
+    # An EOCD signature can occur in the comment. Require both the declared
+    # comment length and the central-directory extent, not just the last magic.
+    end = len(raw)
+    eocd = None
+    while True:
+        end = raw.rfind(b"PK\x05\x06", max(0, len(raw) - 65557), end)
+        if end < 0:
+            break
+        if end + 22 > len(raw):
+            continue
+        fields = struct.unpack_from("<4s4H2IH", raw, end)
+        if end + 22 + fields[7] != len(raw):
+            continue
+        if 0xffff in fields[1:5] or 0xffffffff in fields[5:7]:
+            refuse("ZIP64 is unsupported")
+        if fields[6] + fields[5] == end:
+            eocd = fields
+            break
+    if eocd is None:
+        refuse("missing EOCD or invalid central-directory extent/comment length")
+    if raw.rfind(b"PK\x05\x06") != end:
+        refuse("EOCD signature inside the archive comment is unsupported by zipfile")
+    if raw[max(0, end - 20):end - 16] == b"PK\x06\x07":
+        refuse("ZIP64 is unsupported")
+    _, disk, central_disk, disk_count, count, central_size, central, _ = eocd
+    if disk or central_disk or disk_count != count:
+        refuse("multi-disk ZIP is unsupported")
+    if central > end or central_size < count * 46:
+        refuse("central directory exceeds its bounds")
+
+    local_limit = central
+    if raw[max(0, central - 16):central] == b"APK Sig Block 42":
+        if not allow_signing_block:
+            refuse("unsigned output contains an APK Signing Block")
+        if central < 32:
+            refuse("truncated APK Signing Block")
+        size = struct.unpack_from("<Q", raw, central - 24)[0]
+        local_limit = central - size - 8
+        if size < 24 or local_limit < 0 or struct.unpack_from("<Q", raw, local_limit)[0] != size:
+            refuse("invalid APK Signing Block extent")
+        cursor = local_limit + 8
+        while cursor < central - 24:
+            if cursor + 8 > central - 24:
+                refuse("truncated APK Signing Block pair")
+            pair_size = struct.unpack_from("<Q", raw, cursor)[0]
+            cursor += 8 + pair_size
+            if pair_size < 4 or cursor > central - 24:
+                refuse("invalid APK Signing Block pair extent")
+
+    records = []
+    methods = {}
+    cursor = central
+    for _ in range(count):
+        if cursor + 46 > end or raw[cursor:cursor + 4] != b"PK\x01\x02":
+            refuse("truncated or invalid central header")
+        header = struct.unpack_from("<4s6H3I5H2I", raw, cursor)
+        version, flags, method = header[2:5]
+        values = header[7:10]
+        name_size, extra_size, comment_size, entry_disk = header[10:14]
+        offset = header[16]
+        record_end = cursor + 46 + name_size + extra_size + comment_size
+        if record_end > end:
+            refuse("central entry exceeds its directory")
+        if version >= 45 or 0xffffffff in (*values[1:], offset) or entry_disk == 0xffff:
+            refuse("ZIP64 or newer extraction layout is unsupported")
+        if version > 20 or entry_disk or method not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            refuse("unsupported extraction version, disk or compression method")
+        if flags & ~0x080e or (method == zipfile.ZIP_STORED and flags & 6):
+            refuse("unsupported ZIP flags (encrypted/reserved layout)")
+        name = raw[cursor + 46:cursor + 46 + name_size]
+        if not name or b"\0" in name:
+            refuse("empty or NUL-containing filename")
+        try:
+            decoded = name.decode("utf-8" if flags & 0x800 else "cp437")
+        except UnicodeDecodeError:
+            refuse("invalid UTF-8 filename")
+        if decoded in methods:
+            refuse("Duplicate ZIP entries")
+        extra_fields(raw[cursor + 46 + name_size:cursor + 46 + name_size + extra_size])
+        methods[decoded] = method
+        records.append((offset, name, flags, method, values))
+        cursor = record_end
+    if cursor != end:
+        refuse("central directory count/size mismatch")
+
+    descriptors = aligned = 0
+    previous_end = 0
+    records.sort()
+    for index, (offset, name, flags, method, values) in enumerate(records):
+        bound = records[index + 1][0] if index + 1 < len(records) else local_limit
+        if offset != previous_end or offset + 30 > bound:
+            refuse("overlapping, out-of-bounds or noncontiguous local records")
+        local = struct.unpack_from("<4s5H3I2H", raw, offset)
+        if local[0] != b"PK\x03\x04":
+            refuse("invalid local header signature")
+        if local[1] >= 45 or 0xffffffff in local[7:9]:
+            refuse("ZIP64 local header is unsupported")
+        if local[1] > 20:
+            refuse("unsupported local extraction version")
+        data = offset + 30 + local[9] + local[10]
+        if data > bound:
+            refuse("local name/extra exceeds its record")
+        if raw[offset + 30:offset + 30 + local[9]] != name:
+            refuse("local/central filename mismatch")
+        if local[2:4] != (flags, method):
+            refuse("local/central flags or compression method mismatch")
+        extra_fields(raw[offset + 30 + local[9]:data])
+        if flags & 8:
+            if any(value not in (0, expected) for value, expected in zip(local[6:9], values)):
+                refuse("local/central CRC or size mismatch with bit 3")
+        elif local[6:9] != values:
+            refuse("local/central CRC or size mismatch")
+        record_end = data + values[1]
+        if record_end > bound:
+            refuse("compressed payload exceeds its local record")
+        if method == zipfile.ZIP_STORED:
+            if values[1] != values[2]:
+                refuse("STORED compressed/uncompressed size mismatch")
+            directory = name.endswith(b"/") and values[1] == values[2] == 0
+            if not directory and data % 4:
+                refuse(f"STORED payload is not 4-byte aligned: {name!r} (offset {data})")
+            aligned += not directory
+        if flags & 8:
+            # CRC32 may itself equal 0x08074b50. Try both bounded layouts;
+            # never scan for magic or assume the first word is a signature.
+            lengths = []
+            for marker in (0, 4):
+                start = record_end + marker
+                if start + 12 <= bound and (not marker or raw[record_end:start] == b"PK\x07\x08"):
+                    if struct.unpack_from("<3I", raw, start) == values:
+                        lengths.append(marker + 12)
+            if len(lengths) != 1:
+                refuse("missing, invalid or ambiguous data descriptor")
+            record_end += lengths[0]
+            descriptors += 1
+        previous_end = record_end
+    # apksigner can pad the signed source to the signing-block boundary.
+    if previous_end != local_limit and not (allow_signing_block and local_limit != central
+                                           and previous_end < local_limit
+                                           and not any(raw[previous_end:local_limit])):
+        refuse("unexpected bytes after the final local record")
+    return {"compression_methods": methods, "entries": count,
+            "data_descriptors": descriptors, "aligned_stored_entries": aligned}
+
+
 def verify_zip(source: Path, output: Path) -> dict:
+    source_structure = zip_structure(source.read_bytes(), "source", allow_signing_block=True)
+    raw = output.read_bytes()
+    output_structure = zip_structure(raw, "output")
     with zipfile.ZipFile(source) as original, zipfile.ZipFile(output) as rebuilt:
         before, after = set(original.namelist()), set(rebuilt.namelist())
         if len(before) != len(original.infolist()) or len(after) != len(rebuilt.infolist()):
             raise ValueError("Duplicate ZIP entries")
-        changed = sorted(n for n in before & after if original.read(n) != rebuilt.read(n))
+        if any(source_structure["compression_methods"][n] != output_structure["compression_methods"][n]
+               for n in before & after):
+            raise ValueError("Source/output ZIP compression method changed")
+        changed = []
+        for name in sorted(before & after):
+            old, new = original.read(name), rebuilt.read(name)
+            if len(old) != original.getinfo(name).file_size or len(new) != rebuilt.getinfo(name).file_size:
+                raise ValueError("ZIP uncompressed size differs from decoded content")
+            if old != new:
+                changed.append(name)
         if changed != ["classes.dex"] or before - after != SIGNATURE_FILES or after - before:
             raise ValueError("Unexpected manifest/resource/ZIP mutation")
-        raw = output.read_bytes()
         if any(n.startswith("META-INF/") for n in after) or b"APK Sig Block 42" in raw:
             raise ValueError("Unsigned output unexpectedly contains signature metadata")
         return {"changed_entries": changed, "removed_signature_entries": sorted(before-after),
-                "manifest_and_resources_byte_identical": True, "unsigned_apk_sha256": digest(output)}
+                "manifest_and_resources_byte_identical": True, "unsigned_apk_sha256": digest(output),
+                "structure": {label: {k: v for k, v in report.items() if k != "compression_methods"}
+                              for label, report in (("source", source_structure), ("output", output_structure))}}
 
 
 def canonical_stock(text: str) -> str:
@@ -229,7 +412,7 @@ def main(argv=None) -> int:
             work.rename(output)
         print(json.dumps(report, indent=2))
         return 0
-    except (ValueError, OSError, subprocess.SubprocessError) as error:
+    except (ValueError, OSError, zipfile.BadZipFile, subprocess.SubprocessError) as error:
         print(f"Unsigned validation refused/failed: {error}", file=__import__("sys").stderr)
         return 2
 
