@@ -51,7 +51,9 @@ See [API-CONTRACT.md](API-CONTRACT.md) for exact hook/ownership contracts and
 
 Compile-only validation needs JDK17+ (Java8 source syntax), Python3, and the exact
 public Android28 API jar. Full unsigned assembly requires **JDK21**, the
-user-supplied Service APK, apktool3.0.2 and R8/D89.1.31. The reviewed raw-byte
+user-supplied Service APK, apktool3.0.2, R8/D89.1.31 and official Android SDK
+Build Tools36.0.0 `zipalign` (`zipalign.exe` on Windows). Compile-only does not
+need zipalign. The reviewed raw-byte
 decode profile was generated on Linux/OpenJDK21.0.12.1. Select that JDK's `bin`
 directory in `PATH` and check `java -version` / `javac -version` before assembly;
 setting `JAVA_HOME` alone does not change which executable the builder uses.
@@ -66,6 +68,26 @@ Official tool sources:
 - https://dl.google.com/android/repository/platform-28_r04.zip (android.jar)
 - https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
 - https://dl.google.com/dl/android/maven2/com/android/tools/r8/9.1.31/r8-9.1.31.jar
+- https://dl.google.com/android/repository/build-tools_r36_macosx.zip
+- https://dl.google.com/android/repository/build-tools_r36_linux.zip
+- https://dl.google.com/android/repository/build-tools_r36_windows.zip
+
+The zipalign executable SHA-256 pins are:
+
+| Platform | SHA-256 |
+|---|---|
+| macOS (universal arm64/x86_64) | `0427144f4a3fd242c5a159e7088637082539ae556bc1d2bbc2032bb775d47cea` |
+| Linux (x86_64) | `c5f559e946de5a9e7d58792181db20383b228877812136bc469d97ae00a43b0a` |
+| Windows (x86_64) | `c503c7da88bd4f6cddbcc8d3febd41e1e5022a525147f05f8caf4602353409c0` |
+
+The official package checksums from Google's
+[SDK repository manifest](https://dl.google.com/android/repository/repository2-1.xml)
+were checked before extracting these pins: macOS archive SHA-1
+`199ae0047ee61e842f8ee0c6d3918e44fb9a1f83`, Linux
+`b0b6376977657e8ad9b969bacf4093601da2c6fb`, Windows
+`f16ccffd34de8790dede813a6c7d8e2c11a27b50`. The already installed SDK36 macOS
+executable matched the official archive byte-for-byte. No tool installation or
+source-APK modification was required.
 
 Run from the repository root with already obtained tools:
 
@@ -79,6 +101,7 @@ Full local unsigned assembly into a NEW directory:
     python3 scripts/aa-patches/integration/build_unsigned.py \
       --android-jar tools/android-28/android.jar \
       --apktool tools/apktool_3.0.2.jar --r8 tools/r8-9.1.31.jar \
+      --zipalign <SDK>/build-tools/36.0.0/zipalign \
       --source-apk <supplied-exact-Service.apk> \
       --output scripts/.build/cluster-unsigned-validation
 
@@ -91,7 +114,8 @@ Do not send private signing keys/passwords to this tool or commit them.
 The builder uses fresh staging, compiles real helper/client Java against the
 pinned SDK, DEXes only program classes, validates generated helper/OEM member
 references, applies hooks to the exact original tree, assembles without signing,
-then re-decodes and verifies references/class inventory again. Existing OEM
+validates structure/content before output-only four-byte alignment, then
+revalidates and re-decodes the aligned output. Existing OEM
 classes outside the three hooks must remain text-identical after normalizing
 only apktool's omission of redundant static boolean false defaults. Manifest
 and every other non-signature ZIP entry must be byte-identical; only classes.dex
@@ -115,7 +139,13 @@ the declared compressed payload, with matching central CRC/sizes. Both the
 12-byte form and the optional-signature 16-byte form are accepted, including a
 real CRC equal to the signature word. Local CRC/sizes may be zero or match the
 central values; conflicting nonzero values fail. Decoded lengths must also
-match the declared uncompressed sizes.
+match the declared uncompressed sizes. Raw DEFLATE streams are independently
+consumed in bounded chunks and must finish exactly at the declared compressed
+extent, with matching full inflated length and CRC. Hidden inflated tails,
+unfinished streams, concatenated streams and junk in the compressed span fail.
+Unicode Path filename aliases (extra field0x7075) and backslash names are refused
+before Python/platform filename rewriting; decoded entry identity must also
+match the raw header inventory.
 
 Every STORED payload is checked at its **local data offset** for four-byte
 alignment, except genuine empty directory records. Empty regular files and
@@ -132,7 +162,20 @@ EOCD signatures inside archive comments receive an explicit unsupported-layout
 diagnostic because Python zipfile interprets the last such signature. Inputs
 are never normalized, repaired, recompressed or realigned by this verifier.
 Successful reports include source/output entry, descriptor and aligned-STORED
-counts under `assembly.zip.structure`.
+counts under `assembly.zip.structure`, plus
+`assembly.zip.android_stored_alignment_verified=true`.
+
+ZIP structure validity and Android alignment have separate diagnostics. A valid
+ZIP may have unaligned STORED payloads. After apktool assembly, every structural,
+raw-stream, method, content and unsigned-metadata check runs with **only output
+alignment deferred**. Malformed bit-3 entries are refused before zipalign runs.
+The source's alignment is still checked, and the signed source is never passed
+to a rewriting tool. The pinned zipalign then writes a fresh unsigned output
+using `zipalign -v 4 <unaligned-output> <new-output>` (no recompression flag),
+followed by `zipalign -c -v 4 <new-output>` and the complete verifier. Only that
+validated aligned output proceeds to final re-decode. The pre-alignment counts,
+tool revision/fingerprint and four-byte boundary appear in
+`assembly.zip_alignment`. The intermediate unaligned staging APK is removed.
 
 The format checks follow [PKWARE APPNOTE sections 4.3.7/4.3.9/4.3.16 and
 4.4.7–9](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT),
@@ -140,18 +183,22 @@ The format checks follow [PKWARE APPNOTE sections 4.3.7/4.3.9/4.3.16 and
 [APK Signing Block format](https://source.android.com/docs/security/features/apksigning/v2).
 They were implemented independently; no AA-Cluster source was copied.
 
-On 2026-10-07, a fresh disabled assembly with the unchanged pinned APK/tools,
-macOS/Python 3.14.0/Temurin 21.0.7+6 passed exact-profile hooking and reached
-apktool output verification. The new guard **refused** apktool's unaligned
-STORED `res/drawable/ic_smartprojection.png` at payload offset 2,427,175
-(remainder 3 modulo 4). All 35 focused and 158 aggregate Python/JVM tests
-passed without skips, as did real pinned Android28 compile-only validation.
-The output directory and report
-were not published. Final re-decode, four-hook/121-method checks and preservation
-of 4,897 OEM classes were therefore **not rerun** in this attempt. The prior
-Java21/Linux success above predates this guard and does not establish M0 success.
-Keep this refusal until the output writer's alignment is separately resolved;
-do not weaken the check or silently repair the source to obtain a passing report.
+On 2026-10-07, the guard first refused apktool's STORED
+`res/drawable/ic_smartprojection.png` at payload offset 2,427,175 (modulo 4=3).
+[Apktool3.0.2's writer](https://github.com/iBotPeaches/Apktool/blob/v3.0.2/brut.j.util/src/main/java/brut/util/ZipUtils.java)
+uses Java ZipOutputStream and offers no build alignment option. The standard
+SDK alignment step above resolved the unsigned output issue without weakening
+structure checks. A fresh disabled assembly on macOS/Python3.14.0/
+Temurin21.0.7+6 passed with the unchanged pinned source/tools/profile and the
+verified SDK36 tool. Its unaligned output had four of eight STORED payloads
+aligned; the final output has eight of eight, 28 entries and 20 valid descriptors.
+The source remains 31 entries/23 descriptors/eight aligned STORED payloads.
+All 46 focused and 169 aggregate Python/JVM tests passed without skips. The full
+final re-decode verified four hooks, 121 preserved original methods, 4,897 OEM
+classes and 55 helpers, with manifest/resources byte-identical and only
+classes.dex changed. The report records unsigned_assembly=true,
+assembly_java_major=21 and handoff_enabled/signed/deployment_ready/
+vehicle_validated=false. Source fingerprint and all trust pins remain unchanged.
 
 ### Portable parsing and exact-profile fingerprints
 

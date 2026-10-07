@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest import mock
 import zipfile
+import zlib
 
 HERE = Path(__file__).resolve().parents[1] / 'integration'
 sys.path.insert(0, str(HERE))
@@ -43,7 +44,7 @@ class UnsignedBuildGates(unittest.TestCase):
                  mock.patch.object(build, "require_assembly_java", side_effect=ValueError("Java 21 required")), \
                  mock.patch.object(build, "compile_sources") as compile_sources:
                 self.assertEqual(2, build.main(["--android-jar", "android.jar", "--apktool", "apktool.jar",
-                                               "--r8", "r8.jar", "--source-apk", "source.apk", "--output", str(output)]))
+                                               "--r8", "r8.jar", "--zipalign", "zipalign", "--source-apk", "source.apk", "--output", str(output)]))
             compile_sources.assert_not_called()
             self.assertFalse(output.exists())
             self.assertEqual([], list(Path(tmp).iterdir()))
@@ -118,17 +119,21 @@ class UnsignedBuildGates(unittest.TestCase):
         self.fail('missing fixture entry')
 
     def insert_bytes(self, path, offset, value):
+        self.replace_bytes(path, offset, 0, value)
+
+    def replace_bytes(self, path, offset, length, value):
         raw = bytearray(path.read_bytes())
+        delta = len(value) - length
         with zipfile.ZipFile(path) as archive:
             central = archive.start_dir
             items = archive.infolist()
         cursor = central
         for info in items:
-            if info.header_offset >= offset:
-                struct.pack_into('<I', raw, cursor + 42, info.header_offset + len(value))
+            if info.header_offset >= offset + length:
+                struct.pack_into('<I', raw, cursor + 42, info.header_offset + delta)
             cursor += 46 + sum(struct.unpack_from('<HHH', raw, cursor + 28))
-        struct.pack_into('<I', raw, cursor + 16, central + len(value))
-        raw[offset:offset] = value
+        struct.pack_into('<I', raw, cursor + 16, central + delta)
+        raw[offset:offset + length] = value
         path.write_bytes(raw)
 
     def descriptor(self, path, signature=True, zero_local=True, name='resources.arsc'):
@@ -385,6 +390,163 @@ class UnsignedBuildGates(unittest.TestCase):
                 archive.writestr(info, b'data')
             with self.assertRaisesRegex(ValueError, 'ZIP64 is unsupported'):
                 build.zip_structure(path.read_bytes(), 'fixture')
+
+    def test_full_deflate_span_rejects_hidden_tail_unfinished_stream_and_junk(self):
+        for case in ('hidden-tail', 'unfinished', 'junk', 'concatenated'):
+            for target in ('source', 'output'):
+                with self.subTest(case=case, target=target), tempfile.TemporaryDirectory() as tmp:
+                    a, b = self.zip_pair(tmp, {'resources.arsc': zipfile.ZIP_DEFLATED})
+                    path = a if target == 'source' else b
+                    _, _, data, info = self.locations(path)
+                    compressed = path.read_bytes()[data:data + info.compress_size]
+                    if case == 'hidden-tail':
+                        compressor = zlib.compressobj(wbits=-15)
+                        value = compressor.compress(b'resourcesHIDDEN TAIL') + compressor.flush()
+                    elif case == 'unfinished':
+                        value = compressed[:-1]
+                    elif case == 'junk':
+                        value = compressed + b'junk'
+                    else:
+                        value = compressed + compressed
+                    self.replace_bytes(path, data, info.compress_size, value)
+                    self.mutate(path, 18, '<I', len(value))
+                    self.mutate(path, 20, '<I', len(value), central=True)
+                    # CPython can report these as original bytes with valid CRC.
+                    self.assert_zip_readable(path)
+                    with self.assertRaisesRegex(ValueError, 'DEFLATE'):
+                        build.verify_zip(a, b, require_output_alignment=False)
+
+    def test_invalid_deflate_stream_has_bounded_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = self.zip_pair(tmp, {'resources.arsc': zipfile.ZIP_DEFLATED})
+            _, _, data, info = self.locations(b)
+            self.replace_bytes(b, data, info.compress_size, b'\xff')
+            self.mutate(b, 18, '<I', 1)
+            self.mutate(b, 20, '<I', 1, central=True)
+            with self.assertRaisesRegex(ValueError, 'invalid raw DEFLATE'):
+                build.verify_zip(a, b)
+
+    def test_valid_large_deflate_stream_is_consumed_in_bounded_chunks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = self.zip_pair(tmp, {'resources.arsc': zipfile.ZIP_DEFLATED}, resources=b'a' * 200000)
+            build.verify_zip(a, b)
+
+    def test_stored_crc_is_checked_independently_of_zipfile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = self.zip_pair(tmp)
+            self.mutate(b, 14, '<I', 123)
+            self.mutate(b, 16, '<I', 123, central=True)
+            with self.assertRaisesRegex(ValueError, 'STORED CRC'):
+                build.verify_zip(a, b)
+
+    def test_unicode_path_alias_payload_swap_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = self.zip_pair(tmp)
+            with zipfile.ZipFile(a) as archive:
+                original = {n: archive.read(n) for n in archive.namelist()}
+            original.update({'res/a.txt': b'aaa', 'res/b.txt': b'bbb'})
+            self.make_zip(a, original, {'res/a.txt': 8, 'res/b.txt': 8})
+            output = {k: v for k, v in original.items() if k not in build.SIGNATURE_FILES}
+            output['classes.dex'] = b'new'
+            with zipfile.ZipFile(b, 'w') as archive:
+                for name, value in output.items():
+                    info = zipfile.ZipInfo(name)
+                    if name in ('res/a.txt', 'res/b.txt'):
+                        alias = ('res/b.txt' if name == 'res/a.txt' else 'res/a.txt').encode()
+                        info.compress_type = zipfile.ZIP_DEFLATED
+                        info.extra = struct.pack('<HHBI', 0x7075, len(alias) + 5, 1, zlib.crc32(name.encode())) + alias
+                        value = b'bbb' if name == 'res/a.txt' else b'aaa'
+                    else:
+                        info.extra = b'\0' * (-(archive.fp.tell() + 30 + len(name)) % 4)
+                    archive.writestr(info, value)
+            self.assert_zip_readable(b)
+            with self.assertRaisesRegex(ValueError, 'Unicode filename aliases'):
+                build.verify_zip(a, b)
+
+    def test_backslash_names_are_refused_before_platform_normalization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'names.zip'
+            self.make_zip(path, {'res/x.png': b'data'})
+            local, central, _, _ = self.locations(path, 'res/x.png')
+            raw = bytearray(path.read_bytes())
+            raw[local + 33] = raw[central + 49] = ord('\\')
+            path.write_bytes(raw)
+            with self.assertRaisesRegex(ValueError, 'backslash filename'):
+                build.zip_structure(path.read_bytes(), 'fixture')
+
+    def test_all_record_bounds_are_limited_by_actual_file_extent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, b = self.zip_pair(tmp)
+            first, central, data, _ = self.locations(b, 'AndroidManifest.xml')
+            _, second, _, _ = self.locations(b, 'resources.arsc')
+            _, third, _, _ = self.locations(b, 'classes.dex')
+            raw = bytearray(b.read_bytes())
+            size = 100000 - data
+            struct.pack_into('<2I', raw, first + 18, size, size)
+            struct.pack_into('<2I', raw, central + 20, size, size)
+            struct.pack_into('<I', raw, second + 42, 100000)
+            struct.pack_into('<I', raw, third + 42, 200000)
+            with self.assertRaisesRegex(ValueError, 'payload exceeds'):
+                build.zip_structure(bytes(raw), 'fixture')
+
+    def test_bad_descriptor_refused_before_zipalign_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = self.zip_pair(tmp)
+            self.mutate(b, 6, '<H', 8)
+            self.mutate(b, 8, '<H', 8, central=True)
+            output = Path(tmp)/'aligned.apk'
+            with mock.patch.object(build, 'run') as run:
+                with self.assertRaisesRegex(ValueError, 'data descriptor'):
+                    build.align_unsigned(a, b, output, Path('zipalign'))
+            run.assert_not_called()
+            self.assertFalse(output.exists())
+
+    def test_alignment_is_output_only_and_final_output_is_reverified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = self.zip_pair(tmp)
+            with zipfile.ZipFile(b) as archive:
+                values = {n: archive.read(n) for n in archive.namelist()}
+            self.make_zip(b, values, align=False)
+            output = Path(tmp)/'aligned.apk'
+            tool = Path(tmp)/'zipalign'
+            tool.write_bytes(b'synthetic tool identity')
+            original = a.read_bytes()
+            calls = []
+            def align(command):
+                calls.append(command)
+                if '-c' not in command:
+                    self.make_zip(output, values)
+            with mock.patch.object(build, 'run', side_effect=align):
+                report = build.align_unsigned(a, b, output, tool)
+            self.assertEqual(original, a.read_bytes())
+            self.assertEqual([[str(tool), '-v', '4', str(b), str(output)],
+                              [str(tool), '-c', '-v', '4', str(output)]], calls)
+            self.assertTrue(report['zip']['android_stored_alignment_verified'])
+            self.assertEqual(3, report['zip']['structure']['output']['aligned_stored_entries'])
+
+    def test_alignment_cannot_publish_still_unaligned_or_mutated_content(self):
+        for mutated in (False, True):
+            with self.subTest(mutated=mutated), tempfile.TemporaryDirectory() as tmp:
+                a, b = self.zip_pair(tmp)
+                output = Path(tmp)/'aligned.apk'
+                with zipfile.ZipFile(b) as archive:
+                    values = {n: archive.read(n) for n in archive.namelist()}
+                if mutated:
+                    values['resources.arsc'] = b'changed'
+                def align(command):
+                    if '-c' not in command:
+                        self.make_zip(output, values, align=mutated)
+                with mock.patch.object(build, 'run', side_effect=align), self.assertRaises(ValueError):
+                    build.align_unsigned(a, b, output, Path('zipalign'))
+
+    def test_alignment_never_overwrites_existing_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = self.zip_pair(tmp)
+            before = a.read_bytes()
+            with mock.patch.object(build, 'run') as run, self.assertRaisesRegex(ValueError, 'new file'):
+                build.align_unsigned(a, b, a, Path('zipalign'))
+            run.assert_not_called()
+            self.assertEqual(before, a.read_bytes())
 
     def test_eocd_counts_extents_comments_and_trailing_bytes_are_bounded(self):
         for field, fmt, value in [(8, '<H', 1), (10, '<H', 2), (12, '<I', 999999),

@@ -10,8 +10,10 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import zipfile
+import zlib
 import patch_service_hooks as hooks
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -22,6 +24,14 @@ TOOL_HASHES = {
     "r8": "3b4de3053885da105e39c15212261d22653d6d1b5eb92323dd04ae913cc8286f",
 }
 ASSEMBLY_JAVA_MAJOR = 21
+ZIPALIGN_REVISION = "36.0.0"
+# Official SDK Build Tools 36.0.0 executables, verified against Google's
+# repository manifest/archive checksums; never accept a user-supplied hash.
+ZIPALIGN_HASHES = {
+    "darwin": "0427144f4a3fd242c5a159e7088637082539ae556bc1d2bbc2032bb775d47cea",
+    "linux": "c5f559e946de5a9e7d58792181db20383b228877812136bc469d97ae00a43b0a",
+    "win32": "c503c7da88bd4f6cddbcc8d3febd41e1e5022a525147f05f8caf4602353409c0",
+}
 SIGNATURE_FILES = {"META-INF/CERT.RSA", "META-INF/CERT.SF", "META-INF/MANIFEST.MF"}
 CHANGED_STOCK = {
     "com/ts/androidauto/aap/sink/GalIntegration.smali",
@@ -113,7 +123,8 @@ def compile_sources(work: Path, android: Path, trust: str) -> None:
     jar_classes(classes, work / "helpers.jar")
 
 
-def zip_structure(raw: bytes, label: str, allow_signing_block: bool = False) -> dict:
+def zip_structure(raw: bytes, label: str, allow_signing_block: bool = False,
+                  require_alignment: bool = True) -> dict:
     """Check the bounded, single-disk ZIP32 layout used by the reviewed APK.
 
     zipfile reads central metadata and does not validate local sizes or data
@@ -133,6 +144,8 @@ def zip_structure(raw: bytes, label: str, allow_signing_block: bool = False) -> 
             kind, size = struct.unpack_from("<HH", extra, cursor)
             if kind == 1:
                 refuse("ZIP64 is unsupported")
+            if kind == 0x7075:
+                refuse("Unicode filename aliases are unsupported")
             cursor += 4 + size
             if cursor > len(extra):
                 refuse("extra field exceeds its header")
@@ -207,8 +220,8 @@ def zip_structure(raw: bytes, label: str, allow_signing_block: bool = False) -> 
         if flags & ~0x080e or (method == zipfile.ZIP_STORED and flags & 6):
             refuse("unsupported ZIP flags (encrypted/reserved layout)")
         name = raw[cursor + 46:cursor + 46 + name_size]
-        if not name or b"\0" in name:
-            refuse("empty or NUL-containing filename")
+        if not name or b"\0" in name or b"\\" in name:
+            refuse("empty, NUL-containing or backslash filename is unsupported")
         try:
             decoded = name.decode("utf-8" if flags & 0x800 else "cp437")
         except UnicodeDecodeError:
@@ -222,12 +235,12 @@ def zip_structure(raw: bytes, label: str, allow_signing_block: bool = False) -> 
     if cursor != end:
         refuse("central directory count/size mismatch")
 
-    descriptors = aligned = 0
+    descriptors = aligned = stored = 0
     previous_end = 0
     records.sort()
     for index, (offset, name, flags, method, values) in enumerate(records):
-        bound = records[index + 1][0] if index + 1 < len(records) else local_limit
-        if offset != previous_end or offset + 30 > bound:
+        bound = min(records[index + 1][0], local_limit) if index + 1 < len(records) else local_limit
+        if offset != previous_end or not 0 <= offset <= local_limit or offset + 30 > bound:
             refuse("overlapping, out-of-bounds or noncontiguous local records")
         local = struct.unpack_from("<4s5H3I2H", raw, offset)
         if local[0] != b"PK\x03\x04":
@@ -256,9 +269,42 @@ def zip_structure(raw: bytes, label: str, allow_signing_block: bool = False) -> 
             if values[1] != values[2]:
                 refuse("STORED compressed/uncompressed size mismatch")
             directory = name.endswith(b"/") and values[1] == values[2] == 0
-            if not directory and data % 4:
-                refuse(f"STORED payload is not 4-byte aligned: {name!r} (offset {data})")
-            aligned += not directory
+            stored += not directory
+            if not directory and data % 4 and require_alignment:
+                raise ValueError(f"Invalid {label} Android payload alignment: STORED payload is not "
+                                 f"4-byte aligned: {name!r} (offset {data})")
+            aligned += not directory and data % 4 == 0
+            if zlib.crc32(raw[data:record_end]) != values[0]:
+                refuse("STORED CRC differs from raw payload")
+        else:
+            # ZipFile.read may truncate inflated bytes to the declared size.
+            # Independently consume the entire raw DEFLATE span, with bounded
+            # output chunks, and require an exact end-of-stream and CRC/length.
+            decoder = zlib.decompressobj(-15)
+            inflated = crc = 0
+            position = data
+            try:
+                while position < record_end:
+                    piece = raw[position:min(position + 65536, record_end)]
+                    position += len(piece)
+                    while True:
+                        limit = min(65536, values[2] - inflated + 1)
+                        chunk = decoder.decompress(piece, limit)
+                        inflated += len(chunk)
+                        crc = zlib.crc32(chunk, crc)
+                        if inflated > values[2]:
+                            refuse("DEFLATE uncompressed size differs from full raw stream")
+                        if decoder.unused_data or (decoder.eof and position != record_end):
+                            refuse("unused bytes inside declared DEFLATE span")
+                        piece = decoder.unconsumed_tail
+                        if not piece and len(chunk) < limit:
+                            break
+            except zlib.error:
+                refuse("invalid raw DEFLATE stream")
+            if not decoder.eof:
+                refuse("unfinished raw DEFLATE stream")
+            if inflated != values[2] or crc != values[0]:
+                refuse("DEFLATE CRC/uncompressed size differs from full raw stream")
         if flags & 8:
             # CRC32 may itself equal 0x08074b50. Try both bounded layouts;
             # never scan for magic or assume the first word is a signature.
@@ -279,17 +325,20 @@ def zip_structure(raw: bytes, label: str, allow_signing_block: bool = False) -> 
                                            and not any(raw[previous_end:local_limit])):
         refuse("unexpected bytes after the final local record")
     return {"compression_methods": methods, "entries": count,
-            "data_descriptors": descriptors, "aligned_stored_entries": aligned}
+            "data_descriptors": descriptors, "stored_payload_entries": stored,
+            "aligned_stored_entries": aligned}
 
 
-def verify_zip(source: Path, output: Path) -> dict:
+def verify_zip(source: Path, output: Path, require_output_alignment: bool = True) -> dict:
     source_structure = zip_structure(source.read_bytes(), "source", allow_signing_block=True)
     raw = output.read_bytes()
-    output_structure = zip_structure(raw, "output")
+    output_structure = zip_structure(raw, "output", require_alignment=require_output_alignment)
     with zipfile.ZipFile(source) as original, zipfile.ZipFile(output) as rebuilt:
         before, after = set(original.namelist()), set(rebuilt.namelist())
         if len(before) != len(original.infolist()) or len(after) != len(rebuilt.infolist()):
             raise ValueError("Duplicate ZIP entries")
+        if before != set(source_structure["compression_methods"]) or after != set(output_structure["compression_methods"]):
+            raise ValueError("ZIP filename interpretation differs from raw headers")
         if any(source_structure["compression_methods"][n] != output_structure["compression_methods"][n]
                for n in before & after):
             raise ValueError("Source/output ZIP compression method changed")
@@ -306,8 +355,23 @@ def verify_zip(source: Path, output: Path) -> dict:
             raise ValueError("Unsigned output unexpectedly contains signature metadata")
         return {"changed_entries": changed, "removed_signature_entries": sorted(before-after),
                 "manifest_and_resources_byte_identical": True, "unsigned_apk_sha256": digest(output),
+                "android_stored_alignment_verified": require_output_alignment,
                 "structure": {label: {k: v for k, v in report.items() if k != "compression_methods"}
                               for label, report in (("source", source_structure), ("output", output_structure))}}
+
+
+def align_unsigned(source: Path, unaligned: Path, output: Path, zipalign: Path) -> dict:
+    if output.exists():
+        raise ValueError("Aligned output must be a new file; no existing file is overwritten")
+    # Refuse malformed descriptors, hidden DEFLATE bytes, name aliases, content
+    # mutations and signing metadata BEFORE zipalign can rewrite any headers.
+    before = verify_zip(source, unaligned, require_output_alignment=False)
+    run([str(zipalign), "-v", "4", str(unaligned), str(output)])
+    run([str(zipalign), "-c", "-v", "4", str(output)])
+    return {"zip": verify_zip(source, output),
+            "zip_alignment": {"alignment_bytes": 4, "sdk_build_tools_revision": ZIPALIGN_REVISION,
+                              "tool_sha256": digest(zipalign),
+                              "pre_alignment_output": before["structure"]["output"]}}
 
 
 def canonical_stock(text: str) -> str:
@@ -316,7 +380,7 @@ def canonical_stock(text: str) -> str:
     return re.sub(r"(?m)^(\.field[^\n]*\bstatic\b[^\n]*:Z) = false$", r"\1", text)
 
 
-def assemble(work: Path, source: Path, android: Path, apktool: Path, r8: Path) -> dict:
+def assemble(work: Path, source: Path, android: Path, apktool: Path, r8: Path, zipalign: Path) -> dict:
     from verify_helper_references import verify, verify_final_hooks
     java = shutil.which("java")
     dex = work / "dex"
@@ -344,8 +408,10 @@ def assemble(work: Path, source: Path, android: Path, apktool: Path, r8: Path) -
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, target)
     output = work / "AndroidAutoService-UNSIGNED.apk"
-    run([java, "-jar", str(apktool), "b", "-j", "2", "-p", str(framework), "-o", str(output), str(hooked)])
-    report["zip"] = verify_zip(source, output)
+    unaligned = work / "AndroidAutoService-UNSIGNED-unaligned.apk"
+    run([java, "-jar", str(apktool), "b", "-j", "2", "-p", str(framework), "-o", str(unaligned), str(hooked)])
+    report.update(align_unsigned(source, unaligned, output, zipalign))
+    unaligned.unlink()  # This private staging file was created above, never supplied input.
     final = work / "final-decode"
     decode(output, final)
     stock_files = {p.relative_to(stock / "smali").as_posix(): p for p in (stock / "smali").rglob("*.smali")}
@@ -376,19 +442,23 @@ def main(argv=None) -> int:
     parser.add_argument("--source-apk", type=Path)
     parser.add_argument("--apktool", type=Path)
     parser.add_argument("--r8", type=Path)
+    parser.add_argument("--zipalign", type=Path)
     parser.add_argument("--enable-handoff", action="store_true")
     parser.add_argument("--client-cert-sha256", action="append", default=[])
     args = parser.parse_args(argv)
     try:
         trust = trust_source(args.client_cert_sha256, args.enable_handoff)
         android = pinned(args.android_jar, TOOL_HASHES["android"])
-        source = apktool = r8 = None
+        source = apktool = r8 = zipalign = None
         if not args.compile_only:
-            if not all((args.source_apk, args.apktool, args.r8)):
-                raise ValueError("Assembly requires supplied APK and pinned apktool/R8 files")
+            if not all((args.source_apk, args.apktool, args.r8, args.zipalign)):
+                raise ValueError("Assembly requires supplied APK and pinned apktool/R8/zipalign files")
             source = pinned(args.source_apk, hooks.APK_SHA256)
             apktool = pinned(args.apktool, TOOL_HASHES["apktool"])
             r8 = pinned(args.r8, TOOL_HASHES["r8"])
+            if sys.platform not in ZIPALIGN_HASHES:
+                raise ValueError("Pinned SDK zipalign supports macOS, Linux and Windows only")
+            zipalign = pinned(args.zipalign, ZIPALIGN_HASHES[sys.platform])
             require_assembly_java()
         output = args.output.resolve()
         if output.exists():
@@ -402,9 +472,10 @@ def main(argv=None) -> int:
                       "host_kotlin_compile": False, "handoff_enabled": args.enable_handoff,
                       "client_public_certificate_sha256": sorted(set(args.client_cert_sha256)),
                       "deployment_ready": False, "signed": False, "vehicle_validated": False,
-                      "tool_sha256": TOOL_HASHES, "unsigned_assembly": False}
+                      "tool_sha256": dict(TOOL_HASHES), "unsigned_assembly": False}
             if not args.compile_only:
-                report["assembly"] = assemble(work, source, android, apktool, r8)
+                report["tool_sha256"]["zipalign"] = ZIPALIGN_HASHES[sys.platform]
+                report["assembly"] = assemble(work, source, android, apktool, r8, zipalign)
                 report["unsigned_assembly"] = True
                 report["assembly_java_major"] = ASSEMBLY_JAVA_MAJOR
                 report["source_apk_sha256"] = hooks.APK_SHA256
