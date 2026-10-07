@@ -1,0 +1,56 @@
+name: Native display pilot checks
+
+on:
+  pull_request:
+    paths:
+      - 'pilots/native-display/**'
+      - '.github/workflows/native-display-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record exact source
+        run: git rev-parse HEAD
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: android-actions/setup-android@v3
+      - name: Install public Android SDK
+        run: sdkmanager 'platforms;android-28' 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Lint, JVM and Android 9 simulated-runtime tests, unsigned build
+        run: ./gradlew -p pilots/native-display :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --no-daemon
+      - name: Inspect standalone artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=pilots/native-display/app/build/outputs/apk/debug/app-debug-unsigned.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -p 4 "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee pilots/native-display/app/build/pilot-badging.txt
+          if grep -q 'uses-permission:' pilots/native-display/app/build/pilot-badging.txt; then
+            echo 'FAIL: standalone pilot must not request any permission'; exit 1
+          fi
+          if "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"; then
+            echo 'FAIL: build must not silently generate or use a signing key'; exit 1
+          fi
+          sha256sum "$APK" | tee pilots/native-display/app/build/pilot-sha256.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-display-pilot-unsigned-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            pilots/native-display/app/build/outputs/apk/debug/*unsigned.apk
+            pilots/native-display/app/build/reports/
+            pilots/native-display/app/build/test-results/
+            pilots/native-display/app/build/pilot-*.txt
+          retention-days: 14
