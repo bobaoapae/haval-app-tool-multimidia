@@ -60,10 +60,16 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def relative_path_key(path: Path, root: Path) -> tuple[str, ...]:
+    # Preserve POSIX component ordering, including directory/file prefixes.
+    # Native Windows Path ordering case-folds names and changes the fingerprint.
+    return path.relative_to(root).parts
+
+
 def inventory(root: Path) -> tuple[dict[str, tuple[Path, str]], str]:
     if not root.is_dir() or root.is_symlink():
         raise Refusal("Input must be an existing, non-symlink decode directory")
-    files = sorted(root.rglob("*"))
+    files = sorted(root.rglob("*"), key=lambda p: relative_path_key(p, root))
     if any(p.is_symlink() for p in files):
         raise Refusal("Symlink in decode tree")
     classes: dict[str, tuple[Path, str]] = {}
@@ -79,7 +85,7 @@ def inventory(root: Path) -> tuple[dict[str, tuple[Path, str]], str]:
             text = raw.decode("utf-8")
         except UnicodeError as exc:
             raise Refusal(f"Unreadable smali: {rel}") from exc
-        declarations = re.findall(r"^\.class\s+([^\r\n]+)$", text, re.M)
+        declarations = re.findall(r"^\.class[ \t]+([^\r\n]+)\r?$", text, re.M)
         if len(declarations) != 1:
             raise Refusal(f"Expected one class declaration: {rel}")
         name = declarations[0].split()[-1]
@@ -203,6 +209,11 @@ def plan_patch(root: Path, *, _profile: Profile = VERIFIED_PROFILE) -> dict[Path
     required = (INTEGRATION, GAL, BINDER, STUB, VIDEO, INPUT)
     if any(name not in classes for name in required):
         raise Refusal("Missing required declared class")
+    # Fingerprints remain over the exact original UTF-8 bytes, never normalized
+    # text. Only the parser/patch view accepts CRLF; it cannot approve a new tree.
+    class_hashes = {name: digest(classes[name][1].encode("utf-8")) for name in required}
+    classes = {name: (path, text.replace("\r\n", "\n"))
+               for name, (path, text) in classes.items()}
     ms = {name: methods(classes[name][1]) for name in required}
     if PAIR_METHOD in ms[GAL] or ON_TRANSACT in ms[BINDER]:
         raise Refusal("Already patched or concrete Binder dispatch changed")
@@ -232,7 +243,7 @@ def plan_patch(root: Path, *, _profile: Profile = VERIFIED_PROFILE) -> dict[Path
     if tree_hash != _profile.tree_sha256:
         raise Refusal("Decoded smali tree differs from the reviewed exact profile")
     for name in required:
-        if digest(classes[name][1].encode()) != _profile.class_hashes.get(name):
+        if class_hashes[name] != _profile.class_hashes.get(name):
             raise Refusal(f"Class bytes differ from reviewed profile: {name}")
     register_new = register.replace("    return-void", f"    # {MARKER}\n    iget-object v0, p0, {INTEGRATION}->galReceiver:{GAL}\n    if-eqz v0, :impulse_cluster_registration_done\n    iget v1, p0, {INTEGRATION}->mViewingDistance:I\n    invoke-static {{v0, v1}}, {HELPER}->register({GAL}I)V\n    :impulse_cluster_registration_done\n    return-void")
     destroy_new = destroy.replace(shutdown, f"    # {MARKER}\n    invoke-static {{v0}}, {HELPER}->retire({GAL})V\n\n" + shutdown)
@@ -259,7 +270,7 @@ def patch_tree(source: Path, output: Path, *, _profile: Profile = VERIFIED_PROFI
         # Recheck the staged bytes, catching input changes during copying.
         plan_patch(stage, _profile=_profile)
         for path, text in changes.items():
-            (stage / path.relative_to(source)).write_text(text, encoding="utf-8")
+            (stage / path.relative_to(source)).write_text(text, encoding="utf-8", newline="\n")
         if output.exists():
             raise Refusal("Output appeared while staging; refusing overwrite")
         stage.rename(output)

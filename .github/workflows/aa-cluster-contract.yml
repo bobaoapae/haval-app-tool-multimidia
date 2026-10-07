@@ -20,7 +20,11 @@ permissions:
 
 jobs:
   preflight-tests:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,7 +35,7 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
       - name: Run preflight and JVM prototype regression tests
-        run: python3 -m unittest discover -s scripts/aa-patches/tests -v
+        run: python -m unittest discover -s scripts/aa-patches/tests -v
 
   android-source:
     runs-on: ubuntu-latest

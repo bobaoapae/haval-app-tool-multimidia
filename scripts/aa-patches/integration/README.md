@@ -96,6 +96,55 @@ CI runs pure-core/hook/build-gate tests, Android28 Java compilation, host Kotlin
 Java compilation and existing JVM unit tests. It does not receive the private
 OEM artifact, assemble an OEM APK, sign, access credentials, or publish a release.
 
+### Portable parsing and exact-profile fingerprints
+
+The hook parser accepts LF and CRLF syntax. This does **not** normalize trust
+fingerprints: both the complete tree and each required class still hash the
+original UTF-8 bytes. A CRLF decode cannot pass the pinned LF profile merely
+because it contains equivalent instructions. No CLI profile override exists.
+Only the three patched files are written as explicit UTF-8/LF; all other files
+are copied byte-for-byte. The synthetic tests exercise both newline formats,
+changed-instruction refusals, raw-byte fingerprint refusals and output bytes.
+
+The tree fingerprint is SHA-256 over every `.smali` file, ordered by its
+case-sensitive relative path **components**, matching Python's original POSIX
+Path ordering. Each entry contributes `relative/path.smali` encoded as UTF-8,
+one NUL byte, then the 32 raw bytes of that file's SHA-256 digest. Filenames are
+not case-folded; file contents, comments and line endings are not normalized.
+Native Windows Path sorting must not be used. Synthetic tests include mixed
+case and a directory/file prefix to distinguish these ordering rules.
+
+Linux and Windows CI run the same full Python/JVM suite. The real-symlink test
+skips only when Windows reports missing symlink privilege (WinError 1314); other
+symlink-creation errors fail. Root and child symlink-refusal branches are also
+tested without requiring OS symlink privileges. A skip is not device validation.
+
+On 2026-10-07, an independent Linux decode of the exact source APK with the
+pinned apktool 3.0.2 reproduced all 4,900 classes, all six class fingerprints and
+the unchanged tree fingerprint
+`3e86b201832586928e96a5296af5dd477c2978b18c8ced7e342b767225847149`.
+The original POSIX sort and the explicit portable component sort agreed.
+The production hook check passed without changing a profile or a certificate.
+The same Linux/Python 3.12.14/OpenJDK 21.0.12.1 run passed all 128 source/JVM
+tests, pinned Android 28 helper/host Java compilation and full disabled unsigned
+assembly. The final roundtrip again verified four hook calls, 121 preserved
+methods and 4,897 unchanged OEM classes, with byte-identical manifest/resources.
+No enabled, signed or installable artifact was published by this validation.
+The decode/check commands, using the already fingerprint-verified tool/APK, were:
+
+    java -jar tools/apktool_3.0.2.jar d -r -j 2 -p tools/framework \
+      -o tools/stock-decode <supplied-exact-Service.apk>
+    python3 scripts/aa-patches/integration/patch_service_hooks.py \
+      tools/stock-decode --source-apk <supplied-exact-Service.apk> --check
+
+The separately reported Linux tree `98f03fa7...` remains unexplained. Matching
+the six targeted classes does not establish equality of the other 4,894 files.
+Compare exact tool/APK hashes, decode arguments, relative file inventory and
+per-file raw SHA-256 values before proposing any profile change. Do not replace
+the pinned tree hash to make assembly succeed. This portability change does not
+establish a valid Windows production decode, Android/native behavior or a valid
+vehicle test; existing signing/loading and physical-validation gates remain.
+
 ## Consumer ownership and terminal release (private protocol v2)
 
 This supersedes the earlier SurfaceHolder destruction blocker. `AaClusterVideoHost`

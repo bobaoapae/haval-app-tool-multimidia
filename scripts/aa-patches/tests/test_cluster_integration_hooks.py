@@ -1,6 +1,7 @@
 """Synthetic hook transformations; no OEM implementation or binary in fixtures."""
 import importlib.util
-from pathlib import Path
+import hashlib
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import sys
 import tempfile
 import unittest
@@ -46,7 +47,7 @@ class IntegrationHooksTest(unittest.TestCase):
         for name, text in synthetic_files().items():
             path = self.source / "smali" / (name[1:-1] + ".smali")
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text)
+            path.write_text(text, encoding="utf-8", newline="\n")
             self.paths[name] = path
         (self.source / "AndroidManifest.xml").write_bytes(b"synthetic unchanged manifest")
         self.profile = self.profile_for_source()
@@ -58,10 +59,16 @@ class IntegrationHooksTest(unittest.TestCase):
     def replace(self, name, old, new):
         path = self.paths[name]
         self.assertIn(old, path.read_text())
-        path.write_text(path.read_text().replace(old, new))
+        path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8", newline="\n")
 
     def snapshot(self, root):
         return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+    def use_crlf(self):
+        for path in self.paths.values():
+            raw = path.read_bytes()
+            self.assertNotIn(b"\r", raw)
+            path.write_bytes(raw.replace(b"\n", b"\r\n"))
 
     def refuse(self, profile=None):
         before = self.snapshot(self.source)
@@ -85,6 +92,87 @@ class IntegrationHooksTest(unittest.TestCase):
         self.assertFalse(report["helpers_included"])
         self.assertEqual([21, 22], report["service_ids"])
         self.assertEqual(before[self.paths[hooks.STUB].relative_to(self.source).as_posix()], after[self.paths[hooks.STUB].relative_to(self.source).as_posix()])
+
+    def test_path_order_matches_posix_components_on_both_path_flavours(self):
+        names = ["smali/a.smali", "smali/B.smali", "smali/B/Child.smali"]
+        expected = ["smali/B/Child.smali", "smali/B.smali", "smali/a.smali"]
+        for flavour in (PurePosixPath, PureWindowsPath):
+            with self.subTest(flavour=flavour.__name__):
+                root = flavour("decode")
+                paths = [root / name for name in names]
+                ordered = sorted(paths, key=lambda p: hooks.relative_path_key(p, root))
+                self.assertEqual(expected, [p.relative_to(root).as_posix() for p in ordered])
+
+    def test_inventory_hash_uses_case_sensitive_component_order_and_raw_bytes(self):
+        root = self.base / "ordering"
+        expected = hashlib.sha256()
+        # Directory B sorts before B.smali under the original POSIX algorithm;
+        # sorting full POSIX strings or case-folded Windows paths is different.
+        names = ["smali/B/Child.smali", "smali/B.smali", "smali/a.smali"]
+        paths = []
+        for index, name in enumerate(names):
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            raw = f".class public Lsynthetic/Order{index};\r\n".encode("utf-8")
+            path.write_bytes(raw)
+            expected.update(name.encode("utf-8") + b"\0" + hashlib.sha256(raw).digest())
+            paths.append(path)
+        with mock.patch.object(Path, "rglob", return_value=iter(reversed(paths))):
+            classes, tree = hooks.inventory(root)
+        self.assertEqual(expected.hexdigest(), tree)
+        self.assertEqual(names, [p.relative_to(root).as_posix() for p, _ in classes.values()])
+
+    def test_crlf_exact_fixture_profile_parses_and_writes_only_hooks_as_lf(self):
+        expected = hooks.plan_patch(self.source, _profile=self.profile)
+        self.use_crlf()
+        profile = self.profile_for_source()
+        before = self.snapshot(self.source)
+        out = self.base / "out"
+        report = hooks.patch_tree(self.source, out, _profile=profile)
+        self.assertEqual(before, self.snapshot(self.source))
+        after = self.snapshot(out)
+        for name, raw in before.items():
+            if name in report["changed_files"]:
+                self.assertEqual(expected[self.source / name].encode("utf-8"), after[name])
+                self.assertNotIn(b"\r", after[name])
+            else:
+                self.assertEqual(raw, after[name])
+
+    def test_crlf_conversion_cannot_pass_original_lf_tree_fingerprint(self):
+        self.use_crlf()
+        self.assertNotEqual(self.profile.tree_sha256, self.profile_for_source().tree_sha256)
+        self.refuse()
+
+    def test_crlf_class_fingerprints_are_not_normalized_even_with_matching_tree(self):
+        self.use_crlf()
+        profile = hooks.Profile(self.profile_for_source().tree_sha256, self.profile.class_hashes)
+        with self.assertRaisesRegex(hooks.Refusal, "Class bytes differ"):
+            hooks.plan_patch(self.source, _profile=profile)
+        self.refuse(profile)
+
+    def test_crlf_changed_instruction_is_not_accepted_by_original_profile(self):
+        self.use_crlf()
+        profile = self.profile_for_source()
+        path = self.paths[hooks.INPUT]
+        path.write_bytes(path.read_bytes().replace(b"const/4 v0, 0x1", b"const/4 v0, 0x0"))
+        self.refuse(profile)
+
+    def test_crlf_malformed_method_refused_even_with_new_fixture_fingerprint(self):
+        self.use_crlf()
+        path = self.paths[hooks.VIDEO]
+        path.write_bytes(path.read_bytes() + b".method public broken()V\r\n")
+        self.refuse(self.profile_for_source())
+
+    def test_crlf_duplicate_class_declaration_refused(self):
+        self.use_crlf()
+        path = self.paths[hooks.VIDEO]
+        path.write_bytes(path.read_bytes() + f".class public {hooks.VIDEO}\r\n".encode("utf-8"))
+        self.refuse()
+
+    def test_class_declaration_cannot_consume_a_newline_as_whitespace(self):
+        path = self.paths[hooks.INPUT]
+        path.write_bytes(path.read_bytes().replace(b".class public ", b".class\npublic "))
+        self.refuse()
 
     def test_missing_target_class_refused(self):
         self.paths[hooks.INPUT].unlink(); self.refuse()
@@ -224,8 +312,19 @@ class IntegrationHooksTest(unittest.TestCase):
         self.assertEqual([], list(self.base.glob(".cluster-hooks-*")))
 
     def test_symlink_input_refused(self):
-        (self.source / "escape").symlink_to(self.base / "outside")
+        try:
+            (self.source / "escape").symlink_to(self.base / "outside")
+        except OSError as exc:
+            if sys.platform == "win32" and getattr(exc, "winerror", None) == 1314:
+                self.skipTest("Windows account lacks symlink privilege (WinError 1314)")
+            raise
         with self.assertRaises(hooks.Refusal): hooks.plan_patch(self.source, _profile=self.profile)
+
+    def test_symlink_refusal_branch_without_os_symlink_privilege(self):
+        for target in (self.source, self.paths[hooks.INPUT]):
+            with self.subTest(target=target), mock.patch.object(
+                    Path, "is_symlink", autospec=True, side_effect=lambda p: p == target):
+                self.refuse()
 
     def test_synthetic_profile_cannot_pass_production_profile(self):
         with self.assertRaises(hooks.Refusal): hooks.plan_patch(self.source)
