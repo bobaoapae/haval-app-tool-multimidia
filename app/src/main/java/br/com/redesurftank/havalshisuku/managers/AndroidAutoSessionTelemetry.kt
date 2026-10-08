@@ -24,6 +24,22 @@ object AndroidAutoSessionTelemetry {
         }
     }
 
+    /**
+     * What the existing session loop should hand to [Debouncer].
+     *
+     * A real link status wins. Wireless Android Auto never binds that service, so a
+     * recent DCM "projection active" note keeps the session up. Once that note is
+     * gone and the session is still active, feed a non-linked status so the
+     * debouncer can publish stopped. Null means "leave the published value alone"
+     * (link unreadable, and we were not in a session).
+     */
+    fun statusForPoll(linkStatus: Int?, dcmEvidenceRecent: Boolean, sessionActive: Boolean): Int? {
+        if (linkStatus != null) return linkStatus
+        if (dcmEvidenceRecent) return LINK_STATUS_ACTIVATED
+        if (sessionActive) return 0
+        return null
+    }
+
     class Debouncer {
         private var lastPublished: String? = null
         private var pendingStoppedSinceMs: Long = -1L

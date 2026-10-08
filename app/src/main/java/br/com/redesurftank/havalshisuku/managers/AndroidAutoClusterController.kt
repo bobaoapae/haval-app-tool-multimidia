@@ -32,18 +32,16 @@ object AndroidAutoClusterController {
     private val sessionPollRunnable = object : Runnable {
         override fun run() {
             val status = DisplayAppLauncher.readAndroidAutoLinkStatusIfAlreadyBound("AA_SESSION_POLL")
-            if (status != null) {
-                onLinkStatus(status)
-            } else if (DisplayAppLauncher.hasRecentAndroidAutoDcmProjectionActiveEvidenceForSession()) {
-                // Wireless AA never binds the Autolink command service, so the
-                // read above is null for the whole session and this poll could
-                // not flip to active no matter how long a route ran. DCM knows,
-                // and the stale-cleanup sweep is already asking it every ~10 s.
-                onLinkStatus(AndroidAutoSessionTelemetry.LINK_STATUS_ACTIVATED)
+            val dcmEvidenceRecent =
+                DisplayAppLauncher.hasRecentAndroidAutoDcmProjectionActiveEvidenceForSession()
+            val next = AndroidAutoSessionTelemetry.statusForPoll(
+                linkStatus = status,
+                dcmEvidenceRecent = dcmEvidenceRecent,
+                sessionActive = isSessionActive()
+            )
+            if (next != null) {
+                onLinkStatus(next)
             }
-            // A null status with no DCM evidence is still left alone rather than
-            // published as stopped: that was the behaviour before this fallback
-            // and an unreadable link is not the same as a disconnected phone.
             mainHandler.postDelayed(this, 1_500L)
         }
     }
@@ -111,6 +109,9 @@ object AndroidAutoClusterController {
     private fun publishSession(value: String, force: Boolean) {
         if (!force && value == lastSessionValue) return
         lastSessionValue = value
+        br.com.redesurftank.havalshisuku.models.BottomBarState.publishAndroidAutoLinked(
+            value == AndroidAutoTelemetryKeys.SESSION_ACTIVE
+        )
         ServiceManager.getInstance().dispatchTelemetryOnly(AndroidAutoTelemetryKeys.SESSION, value)
         if (value == AndroidAutoTelemetryKeys.SESSION_STOPPED) {
             onSessionStopped()

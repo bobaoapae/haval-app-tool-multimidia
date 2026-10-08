@@ -1627,31 +1627,47 @@ internal fun launchPhoneConnectSettings(context: Context) {
 	}
 }
 
+/**
+ * Dock phone-link tile.
+ *
+ * Android Auto follows only the session flag. A leftover AA task after the phone
+ * drops must not keep the icon. CarPlay still trusts a window that is already
+ * in front, plus the link-status read the system-ui icon path already performs.
+ */
+internal fun resolveDockProjectionType(
+	mainProjection: ProjectionType,
+	clusterProjection: ProjectionType,
+	androidAutoLinked: Boolean,
+	carPlayLinked: Boolean
+): ProjectionType {
+	if (mainProjection == ProjectionType.CARPLAY || clusterProjection == ProjectionType.CARPLAY || carPlayLinked) {
+		return ProjectionType.CARPLAY
+	}
+	if (androidAutoLinked) return ProjectionType.ANDROID_AUTO
+	return ProjectionType.NONE
+}
+
+private fun projectionTypeForPackage(packageName: String): ProjectionType {
+	val normalized = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+		.resolveProjectionPackageOrNull(packageName)
+	return when (normalized) {
+		BOTTOM_BAR_CARPLAY_PACKAGE -> ProjectionType.CARPLAY
+		BOTTOM_BAR_ANDROID_AUTO_PACKAGE -> ProjectionType.ANDROID_AUTO
+		else -> ProjectionType.NONE
+	}
+}
+
 @Composable
 private fun rememberActiveProjection(activePkg: String): ProjectionType {
 	val activeClusterPkg = BottomBarState.activeClusterProjectionPackage
-	return remember(activePkg, activeClusterPkg) {
-		val projOnMain = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-			.resolveProjectionPackageOrNull(activePkg)
-		val projOnCluster = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-			.resolveProjectionPackageOrNull(activeClusterPkg)
-		when {
-			projOnMain == BOTTOM_BAR_CARPLAY_PACKAGE ||
-			projOnCluster == BOTTOM_BAR_CARPLAY_PACKAGE ||
-			activePkg.contains("carplay", ignoreCase = true) ||
-			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isCarPlayOnDisplay(0) ||
-			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isCarPlayOnDisplay(3) -> ProjectionType.CARPLAY
-
-			projOnMain == BOTTOM_BAR_ANDROID_AUTO_PACKAGE ||
-			projOnCluster == BOTTOM_BAR_ANDROID_AUTO_PACKAGE ||
-			activePkg.contains("androidauto", ignoreCase = true) ||
-			activePkg.contains("projection.gearhead", ignoreCase = true) ||
-			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAndroidAutoOnDisplay(0) ||
-			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAndroidAutoOnDisplay(3) -> ProjectionType.ANDROID_AUTO
-
-			else -> ProjectionType.NONE
-		}
-	}
+	val androidAutoLinked = BottomBarState.androidAutoLinked
+	val carPlayLinked = BottomBarState.carPlayLinked
+	return resolveDockProjectionType(
+		mainProjection = projectionTypeForPackage(activePkg),
+		clusterProjection = projectionTypeForPackage(activeClusterPkg),
+		androidAutoLinked = androidAutoLinked,
+		carPlayLinked = carPlayLinked
+	)
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)

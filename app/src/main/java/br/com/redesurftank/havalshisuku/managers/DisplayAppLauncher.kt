@@ -1251,6 +1251,11 @@ object DisplayAppLauncher {
         lastAndroidAutoDcmProjectionActiveAtMs = SystemClock.elapsedRealtime()
     }
 
+    /** A fresh DCM snapshot said no Android Auto projection is active. */
+    private fun clearAndroidAutoDcmProjectionActiveEvidence() {
+        lastAndroidAutoDcmProjectionActiveAtMs = 0L
+    }
+
     private fun hasRecentAndroidAutoDcmProjectionActiveEvidence(
         nowMs: Long = SystemClock.elapsedRealtime()
     ): Boolean {
@@ -1842,6 +1847,14 @@ object DisplayAppLauncher {
         }
     }
 
+    /** Already-read CarPlay link status. Null means unread, not disconnected. */
+    private fun noteCarPlayLinkStatus(status: Int?) {
+        if (status == null) return
+        br.com.redesurftank.havalshisuku.models.BottomBarState.publishCarPlayLinked(
+            status == CARPLAY_LINK_STATUS_ACTIVATED
+        )
+    }
+
     private fun readCarPlayLinkStatus(reason: String): Int? {
         return transactCarPlayServiceInt(
             CARPLAY_SERVICE_GET_LINK_STATUS_TRANSACTION,
@@ -1857,6 +1870,7 @@ object DisplayAppLauncher {
         }
 
         val linkStatus = readCarPlayLinkStatus(reason)
+        noteCarPlayLinkStatus(linkStatus)
         if (linkStatus != CARPLAY_LINK_STATUS_ACTIVATED) {
             Log.w(TAG, "[$reason] Skipping CarPlay requestUi; linkStatus=${linkStatus ?: "UNKNOWN"}")
             return false
@@ -2477,6 +2491,9 @@ object DisplayAppLauncher {
                         "dcmDevices=${dcmDevices.joinToString(prefix = "[", postfix = "]")}"
             )
             return
+        }
+        if (dcmDevices.isNotEmpty()) {
+            clearAndroidAutoDcmProjectionActiveEvidence()
         }
 
         val tasks = findAllTasksForPackage(ANDROID_AUTO_PACKAGE)
@@ -3518,6 +3535,7 @@ object DisplayAppLauncher {
         val hasVisualTask = isCarPlayOnDisplay(0) || isCarPlayOnDisplay(3)
         val carPlayAppPid = sh("pidof $CARPLAY_PACKAGE 2>/dev/null || true").trim()
         val linkStatus = readCarPlayLinkStatus("CARPLAY_SYSTEM_UI_ICON_RELEVANCE")
+        noteCarPlayLinkStatus(linkStatus)
         val relevant =
             isCarPlaySystemUiIconRelevantForState(
                 hasVisualTask = hasVisualTask,
