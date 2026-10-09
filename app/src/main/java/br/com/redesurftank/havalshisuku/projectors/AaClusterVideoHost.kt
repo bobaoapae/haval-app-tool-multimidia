@@ -21,9 +21,12 @@ import java.lang.ref.WeakReference
 object AaClusterVideoHost {
     private const val TAG = "AaClusterVideo"
     val DEFAULT_MAP_BOUNDS = intArrayOf(0, 62, 1920, 658)
+    private const val PANEL_WIDTH = 1920
+    private const val PANEL_HEIGHT = 720
 
     /**
-     * Map rect on D3 as (left, top, right, bottom): the user's override when set,
+     * Visible map window on D3 (the native-mask hole) as (left, top, right, bottom):
+     * the user's override when set,
      * else the active theme's default cluster app rect — the same rect a regular
      * app sent to D1/D3 gets — else [DEFAULT_MAP_BOUNDS].
      */
@@ -79,7 +82,7 @@ object AaClusterVideoHost {
         val parent = parentRef?.get() ?: return false
         ensureView(context, parent)
         val view = textureView ?: return false
-        applyBounds(view, mapBounds())
+        applyStreamTransform(view)
         view.visibility = View.VISIBLE
         shown = true
         adoptPendingConsumer()
@@ -125,11 +128,13 @@ object AaClusterVideoHost {
         }
         override fun onSurfaceTextureAvailable(texture: SurfaceTexture, newWidth: Int, newHeight: Int) {
             currentTexture = texture
+            applyStreamTransform(view)
             if (view !== textureView) return
             adoptPendingConsumer()
         }
         override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, newWidth: Int, newHeight: Int) {
             if (texture !== currentTexture || view !== textureView) return
+            applyStreamTransform(view)
             if (width != newWidth || height != newHeight) {
                 width = newWidth
                 height = newHeight
@@ -160,12 +165,17 @@ object AaClusterVideoHost {
         }
     }
 
-    /** Place the view at the map rect and centre-crop the stream into it (no stretch). */
-    private fun applyBounds(view: TextureView, bounds: IntArray) {
+    /**
+     * Maps the stream 1:1 onto the D3 panel (centre-crop, so the 1920x1080 frame's
+     * margins fall off) but sizes the view to [mapBounds] only. Nothing outside the
+     * theme's map window is ever drawn, so Google's edge card and logo stay hidden
+     * even under a translucent theme panel.
+     */
+    private fun applyStreamTransform(view: TextureView) {
+        val bounds = mapBounds()
         val w = bounds[2] - bounds[0]
         val h = bounds[3] - bounds[1]
-        val params = (view.layoutParams as? FrameLayout.LayoutParams)
-            ?: FrameLayout.LayoutParams(w, h)
+        val params = (view.layoutParams as? FrameLayout.LayoutParams) ?: FrameLayout.LayoutParams(w, h)
         if (params.width != w || params.height != h || params.leftMargin != bounds[0] || params.topMargin != bounds[1]) {
             params.width = w
             params.height = h
@@ -173,20 +183,20 @@ object AaClusterVideoHost {
             params.topMargin = bounds[1]
             params.gravity = Gravity.TOP or Gravity.START
             view.layoutParams = params
-            Log.w(TAG, "CLUSTER map rect=${bounds.joinToString(",")}")
+            Log.w(TAG, "CLUSTER map window=${bounds.joinToString(",")}")
         }
-        val scale = maxOf(
-            w.toFloat() / AaClusterProtocol.STREAM_WIDTH,
-            h.toFloat() / AaClusterProtocol.STREAM_HEIGHT
-        )
-        // TextureView stretches the buffer to the view; undo that per axis.
+        val parent = view.parent as? View
+        val panelW = parent?.width?.takeIf { it > 0 } ?: PANEL_WIDTH
+        val panelH = parent?.height?.takeIf { it > 0 } ?: PANEL_HEIGHT
+        val sw = AaClusterProtocol.STREAM_WIDTH.toFloat()
+        val sh = AaClusterProtocol.STREAM_HEIGHT.toFloat()
+        val crop = maxOf(panelW / sw, panelH / sh)
+        // TextureView stretches the buffer to the view: undo that, place the
+        // buffer centre-cropped on the panel, then shift into this window.
         val matrix = Matrix()
-        matrix.setScale(
-            AaClusterProtocol.STREAM_WIDTH * scale / w,
-            AaClusterProtocol.STREAM_HEIGHT * scale / h,
-            w / 2f,
-            h / 2f
-        )
+        matrix.setScale(sw / w, sh / h)
+        matrix.postScale(crop, crop)
+        matrix.postTranslate((panelW - sw * crop) / 2f - bounds[0], (panelH - sh * crop) / 2f - bounds[1])
         view.setTransform(matrix)
     }
 

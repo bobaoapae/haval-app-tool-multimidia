@@ -21,9 +21,14 @@ public final class AaClusterProtocol {
         "7be3a99482e3f2f7f4f411f0a5a571ac97a505e500f9e05863fa8574e00baeb0",
         "3c7d703011f11ea2a4baa35ba2c522d6b03e3af011d70dcb95c1331f11ad0f65",
     };
-    /** Coded CLUSTER stream size the Service advertises (VIDEO_1280x720). */
-    public static final int STREAM_WIDTH = 1280;
-    public static final int STREAM_HEIGHT = 720;
+    /**
+     * Coded CLUSTER stream the Service advertises: VIDEO_1920x1080 with a 360 px
+     * total height margin, so the phone draws only the middle 1920x720 band —
+     * pixel-exact for the D3 panel. The host crops the margins away.
+     */
+    public static final int STREAM_WIDTH = 1920;
+    public static final int STREAM_HEIGHT = 1080;
+    public static final int STREAM_HEIGHT_MARGIN = 360;
     public static final int QUERY = 1;
     public static final int SET_OUTPUT = 2;
     public static final int CALLBACK_STATE = 1;

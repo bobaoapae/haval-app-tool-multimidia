@@ -5,6 +5,7 @@ import android.media.MediaFormat;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.view.Surface;
+import br.com.redesurftank.havalshisuku.api.AaClusterProtocol;
 import impulse.cluster.prototype.ClusterFramePump;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -37,7 +38,7 @@ public final class ClusterAvcDecoder implements ClusterFramePump.Decoder {
     public ClusterAvcDecoder(Surface surface, int width, int height,
                              byte[] codecConfig, Events events) throws Exception {
         if (surface == null || !surface.isValid()) throw new IllegalArgumentException("Valid Surface required");
-        if (width != 1280 || height != 720) throw new IllegalArgumentException("Unsupported CLUSTER size");
+        if (width != AaClusterProtocol.STREAM_WIDTH || height != AaClusterProtocol.STREAM_HEIGHT) throw new IllegalArgumentException("Unsupported CLUSTER size");
         if (codecConfig == null || codecConfig.length == 0 || codecConfig.length > 65536 ||
                 !H264AccessUnit.hasSpsAndPps(codecConfig)) {
             throw new IllegalArgumentException("Annex-B SPS/PPS NAL presence required; MediaCodec validates contents");
