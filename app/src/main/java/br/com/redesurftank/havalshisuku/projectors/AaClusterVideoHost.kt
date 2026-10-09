@@ -26,8 +26,6 @@ object AaClusterVideoHost {
     val DEFAULT_MAP_BOUNDS = intArrayOf(0, 62, 1920, 658)
     private const val PANEL_WIDTH = 1920
     private const val PANEL_HEIGHT = 720
-    /** Google draws its guidance card at the stream's right edge (x≈1570–1910, zero insets). */
-    private const val GOOGLE_CARD_LEFT = 1560
     /** Same 70% line apps on D3 clear while the native card or a warning is up. */
     private const val NATIVE_CARD_LEFT = (PANEL_WIDTH * 0.7f).toInt()
 
@@ -53,10 +51,11 @@ object AaClusterVideoHost {
 
     /**
      * Visible map window on D3 (the native-mask hole) as (left, top, right, bottom).
-     * The user's override wins. Otherwise the map spans from the left edge to just
-     * before Google's guidance card (or to the native-card line while that card is
-     * up), with top/bottom from the theme's default cluster app rect — the rect a
-     * regular app sent to D1/D3 gets — else [DEFAULT_MAP_BOUNDS].
+     * The user's override wins. Otherwise the map spans the full panel width (Google's
+     * guidance card shows at its right edge, x≈1570–1910), or stops at the
+     * native-card line while that card is up, which also hides Google's card. Top and
+     * bottom follow the theme's default cluster app rect — the rect a regular app sent
+     * to D1/D3 gets — else [DEFAULT_MAP_BOUNDS].
      */
     fun mapBounds(): IntArray {
         val custom = App.getDeviceProtectedContext()
@@ -69,7 +68,7 @@ object AaClusterVideoHost {
         } else {
             DEFAULT_MAP_BOUNDS[1] to DEFAULT_MAP_BOUNDS[3]
         }
-        return intArrayOf(0, top, if (nativeCardShown) NATIVE_CARD_LEFT else GOOGLE_CARD_LEFT, bottom)
+        return intArrayOf(0, top, if (nativeCardShown) NATIVE_CARD_LEFT else PANEL_WIDTH, bottom)
     }
 
     internal fun parseBounds(value: String?): IntArray? {
