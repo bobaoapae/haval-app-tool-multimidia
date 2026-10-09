@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.RemoteException;
+import android.util.Log;
 import br.com.redesurftank.havalshisuku.api.AaClusterProtocol;
 import br.com.redesurftank.havalshisuku.api.ClusterReleaseLedger;
 import java.security.MessageDigest;
@@ -21,6 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Asynchronous, single-output transport with an independent terminal-release ledger. */
 public final class AndroidAutoClusterClient {
+    // WARN: this head unit drops Log.i/Log.d (persist.log.tag=WARN).
+    private static final String TAG="AaClusterClient";
     public interface Listener { void onStatus(int status,String reason); }
     private final Context context;
     private final Handler main=new Handler(android.os.Looper.getMainLooper());
@@ -130,6 +133,7 @@ public final class AndroidAutoClusterClient {
             }
             try { sendOutput(owner,newRequest(),false,null); }
             catch(Throwable uncertain) {
+                Log.w(TAG,"CLUSTER disable transaction failed; consumer quarantined",uncertain);
                 ledger.quarantine(entry);
                 notifyCurrent(version,AaClusterProtocol.FAILED,"output retirement uncertain; consumer retained");
             }
@@ -152,7 +156,9 @@ public final class AndroidAutoClusterClient {
         try {
             notifyCurrent(version,AaClusterProtocol.WAITING_SESSION,"waiting for authenticated CLUSTER output");
             sendOutput(target,entry.request,true,inFlight.output);
+            Log.w(TAG,"CLUSTER output accepted request="+entry.request);
         } catch(Throwable uncertain) {
+            Log.w(TAG,"CLUSTER output transaction failed request="+entry.request,uncertain);
             ledger.quarantine(entry);
             notifyCurrent(version,AaClusterProtocol.FAILED,"output transaction uncertain; consumer retained");
             dirty.set(true); // One ordered disable attempt, never a release shortcut.
@@ -208,8 +214,11 @@ public final class AndroidAutoClusterClient {
         boolean accepted=false;
         try {
             accepted=context.bindService(new Intent(AaClusterProtocol.SERVICE_ACTION).setPackage(AaClusterProtocol.SERVICE_PACKAGE),connection,Context.BIND_AUTO_CREATE);
-        } catch(RuntimeException unavailable) { notifyCurrent(currentRevision(),AaClusterProtocol.FAILED,"AA Service binding failed"); }
-        if(!accepted) { synchronized(lock) { bindingRegistered=false; } retry(); }
+        } catch(RuntimeException unavailable) {
+            Log.w(TAG,"AA Service bind threw",unavailable);
+            notifyCurrent(currentRevision(),AaClusterProtocol.FAILED,"AA Service binding failed");
+        }
+        if(!accepted) { Log.w(TAG,"AA Service bind not accepted; retrying"); synchronized(lock) { bindingRegistered=false; } retry(); }
     }
     private void retry() { main.postDelayed(()->{ synchronized(lock) { if(closed) return; } bind(); },2000); }
     private long currentRevision() { synchronized(lock) { return revision; } }
@@ -228,9 +237,11 @@ public final class AndroidAutoClusterClient {
                         previous=remote; remote=candidate; revision++;
                     }
                     retireBindingIfUnused(previous);
+                    Log.w(TAG,"CLUSTER Service verified uid="+uid);
                     notifyCurrent(currentRevision(),AaClusterProtocol.WAITING_SESSION,"verified new Service connection");
                     sync();
                 } catch(Throwable unavailable) {
+                    Log.w(TAG,"CLUSTER Service verification/query failed",unavailable);
                     if(candidate!=null) candidate.unlink();
                     synchronized(lock) { if(closed || generation!=connectionGeneration) return; }
                     notifyCurrent(currentRevision(),AaClusterProtocol.FAILED,"CLUSTER extension unavailable or caller not authorized");
@@ -347,7 +358,7 @@ public final class AndroidAutoClusterClient {
         if(signers==null||signers.length!=1||info.applicationInfo==null)throw new SecurityException("Unexpected AA signer set");
         byte[] digest=MessageDigest.getInstance("SHA-256").digest(signers[0].toByteArray());
         StringBuilder hex=new StringBuilder();for(byte b:digest)hex.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
-        if(!AaClusterProtocol.OEM_SIGNER_SHA256.equals(hex.toString()))throw new SecurityException("AA Service signer mismatch");
+        if(!AaClusterProtocol.OEM_SIGNER_SHA256.equals(hex.toString()))throw new SecurityException("AA Service signer mismatch: "+hex);
         return info.applicationInfo.uid;
     }
     private void query(IBinder binder)throws Exception{

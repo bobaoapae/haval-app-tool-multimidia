@@ -12,6 +12,14 @@ public final class AaClusterProtocol {
     public static final String SERVICE_PACKAGE = "com.ts.androidauto.projectionservice";
     public static final String SERVICE_ACTION = "com.ts.androidauto.action.AndroidAutoService";
     public static final String OEM_SIGNER_SHA256 = "7be3a99482e3f2f7f4f411f0a5a571ac97a505e500f9e05863fa8574e00baeb0";
+    /**
+     * Coded CLUSTER stream the Service advertises: VIDEO_1920x1080 with a 360 px
+     * total height margin, so the phone draws only the middle 1920x720 band —
+     * pixel-exact for the D3 panel. The host crops the margins away.
+     */
+    public static final int STREAM_WIDTH = 1920;
+    public static final int STREAM_HEIGHT = 1080;
+    public static final int STREAM_HEIGHT_MARGIN = 360;
     public static final int QUERY = 1;
     public static final int SET_OUTPUT = 2;
     public static final int CALLBACK_STATE = 1;

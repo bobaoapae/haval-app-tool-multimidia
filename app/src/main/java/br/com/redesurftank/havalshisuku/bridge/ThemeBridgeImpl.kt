@@ -89,6 +89,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
         )
         DisplayAppLauncher.dynamicThemeBounds = next
         context.refreshDisplayBounds()
+        br.com.redesurftank.havalshisuku.projectors.AaClusterVideoHost.refreshWindow()
     }
 
     @JavascriptInterface

@@ -1091,6 +1091,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val startedAt = SystemClock.uptimeMillis()
         val previousCard = currentCard
         currentCard = nextCard
+        syncAaClusterMapWindow()
         updateNativeMaskViews()
         updateKnownScreenForCard(nextCard)
 
@@ -1155,6 +1156,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         if (ClusterCardFlowPolicy.isCardBackedMenu(currentCard)) {
             isWarningDismissed = false
+            syncAaClusterMapWindow()
         }
         if (decision.syncVisibleCardValues) {
             updateCardEntryValuesWebView(currentCard)
@@ -1383,7 +1385,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             )
                             if (enabled) {
                                 prepareDisplay3AppHole(
-                                        AaClusterVideoHost.DEFAULT_MAP_BOUNDS,
+                                        AaClusterVideoHost.mapBounds(),
                                         reason = "AA_CLUSTER_SURFACE"
                                 )
                             }
@@ -1433,6 +1435,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         setContentView(root)
         setupControlView(root)
         AaClusterVideoHost.attachParent(root)
+        syncAaClusterMapWindow()
         if (AndroidAutoClusterController.isClusterRequested()) {
             AndroidAutoClusterController.setClusterMapEnabled(true, "projector_attach")
         }
@@ -2345,6 +2348,13 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         warningClearRunnable = null
     }
 
+    /** Same predicate as the D3 app clamp in [prepareDisplay3AppHole]. */
+    private fun syncAaClusterMapWindow() {
+        AaClusterVideoHost.setNativeCardShown(
+                !isWarningDismissed && (currentCard == ClusterCardIds.NATIVE_CARD || isWarningActive)
+        )
+    }
+
     private fun applyWarningState(active: Boolean, reason: String) {
         val dismissed = !active && dismissedCards.isNotEmpty()
         val changed = active != isWarningActive || dismissed != isWarningDismissed
@@ -2356,6 +2366,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         isWarningActive = active
         isWarningDismissed = dismissed
+        syncAaClusterMapWindow()
 
         // Tell the theme BEFORE visibility/sync work. updateVirtualClusterVisibility can
         // spend multi-seconds on this UI thread (stack list + AA probe); previously
@@ -2993,7 +3004,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 isLeftCovered = true
                 isRightCovered = true
             } else if (isAaClusterInDash()) {
-                val bounds = AaClusterVideoHost.DEFAULT_MAP_BOUNDS
+                val bounds = AaClusterVideoHost.mapBounds()
                 appRectOnDisplay3 =
                         android.graphics.Rect(bounds[0], bounds[1], bounds[2], bounds[3])
                 isLeftCovered = true
