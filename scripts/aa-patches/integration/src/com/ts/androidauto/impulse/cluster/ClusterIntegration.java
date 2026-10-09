@@ -317,7 +317,9 @@ public final class ClusterIntegration {
                     setDisplayIdAndType(1,Protos.DisplayType.DISPLAY_TYPE_CLUSTER);
                     setCodecType(Protos.MediaCodecType.MEDIA_CODEC_VIDEO_H264_BP);
                     Protos.VideoConfiguration.Builder builder=Protos.VideoConfiguration.newBuilder()
-                            .setCodecResolution(Protos.VideoCodecResolutionType.VIDEO_1280x720)
+                            .setCodecResolution(Protos.VideoCodecResolutionType.VIDEO_1920x1080)
+                            // Phone draws only the 1920x720 band that matches the D3 panel.
+                            .setHeightMargin(AaClusterProtocol.STREAM_HEIGHT_MARGIN)
                             .setFrameRate(Protos.VideoFrameRateType.VIDEO_FPS_30)
                             .setDensity(160).setRealDensity(160).setViewingDistance(viewingDistance)
                             .setVideoCodecType(Protos.MediaCodecType.MEDIA_CODEC_VIDEO_H264_BP);
@@ -507,7 +509,7 @@ public final class ClusterIntegration {
                     if(cancelled.get()||session.retired.get())throw new IllegalStateException("CLUSTER cancelled before codec creation");
                     final Config expected=config;
                     configured=config;renderedVersion.set(-1);
-                    try { decoder=new ClusterAvcDecoder(request.surface,1280,720,config.combined(),new ClusterAvcDecoder.Events(){
+                    try { decoder=new ClusterAvcDecoder(request.surface,AaClusterProtocol.STREAM_WIDTH,AaClusterProtocol.STREAM_HEIGHT,config.combined(),new ClusterAvcDecoder.Events(){
                         @Override public void firstFrameRendered(long pts){postSafe(()->{
                             if(session.job==RenderJob.this&&requested==request&&!session.retired.get()&&!cancelled.get()&&configured==expected&&session.snapshot==expected){
                                 renderedVersion.set(expected.version);publish(request,AaClusterProtocol.LIVE,"CLUSTER frame rendered",session.generation);
