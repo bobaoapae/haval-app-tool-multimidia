@@ -2,7 +2,10 @@ package br.com.redesurftank.havalshisuku.projectors
 
 import android.content.Context
 import android.graphics.Matrix
+import android.graphics.Rect
 import android.graphics.SurfaceTexture
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.Surface
@@ -23,12 +26,37 @@ object AaClusterVideoHost {
     val DEFAULT_MAP_BOUNDS = intArrayOf(0, 62, 1920, 658)
     private const val PANEL_WIDTH = 1920
     private const val PANEL_HEIGHT = 720
+    /** Google draws its guidance card at the stream's right edge (x≈1570–1910, zero insets). */
+    private const val GOOGLE_CARD_LEFT = 1560
+    /** Same 70% line apps on D3 clear while the native card or a warning is up. */
+    private const val NATIVE_CARD_LEFT = (PANEL_WIDTH * 0.7f).toInt()
+
+    @Volatile private var nativeCardShown = false
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Re-reads [mapBounds] (theme bounds changed). Any thread. */
+    fun refreshWindow() {
+        mainHandler.post { textureView?.let { applyStreamTransform(it) } }
+    }
+
+    /** Pulls the map's right edge in while the car's native card is shown. Any thread. */
+    fun setNativeCardShown(shown: Boolean) {
+        if (nativeCardShown == shown) return
+        nativeCardShown = shown
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            textureView?.let { applyStreamTransform(it) }
+        } else {
+            mainHandler.post { textureView?.let { applyStreamTransform(it) } }
+        }
+    }
 
     /**
-     * Visible map window on D3 (the native-mask hole) as (left, top, right, bottom):
-     * the user's override when set,
-     * else the active theme's default cluster app rect — the same rect a regular
-     * app sent to D1/D3 gets — else [DEFAULT_MAP_BOUNDS].
+     * Visible map window on D3 (the native-mask hole) as (left, top, right, bottom).
+     * The user's override wins. Otherwise the map spans from the left edge to just
+     * before Google's guidance card (or to the native-card line while that card is
+     * up), with top/bottom from the theme's default cluster app rect — the rect a
+     * regular app sent to D1/D3 gets — else [DEFAULT_MAP_BOUNDS].
      */
     fun mapBounds(): IntArray {
         val custom = App.getDeviceProtectedContext()
@@ -36,10 +64,12 @@ object AaClusterVideoHost {
             .getString(SharedPreferencesKeys.AA_CLUSTER_MAP_CUSTOM_BOUNDS.key, null)
         parseBounds(custom)?.let { return it }
         val theme = try { DisplayAppLauncher.themeClusterAppBounds() } catch (e: RuntimeException) { null }
-        if (theme != null && theme[2] > 0 && theme[3] > 0) {
-            return intArrayOf(theme[0], theme[1], theme[0] + theme[2], theme[1] + theme[3])
+        val (top, bottom) = if (theme != null && theme[2] > 0 && theme[3] > 0) {
+            theme[1] to theme[1] + theme[3]
+        } else {
+            DEFAULT_MAP_BOUNDS[1] to DEFAULT_MAP_BOUNDS[3]
         }
-        return DEFAULT_MAP_BOUNDS.copyOf()
+        return intArrayOf(0, top, if (nativeCardShown) NATIVE_CARD_LEFT else GOOGLE_CARD_LEFT, bottom)
     }
 
     internal fun parseBounds(value: String?): IntArray? {
@@ -167,36 +197,28 @@ object AaClusterVideoHost {
 
     /**
      * Maps the stream 1:1 onto the D3 panel (centre-crop, so the 1920x1080 frame's
-     * margins fall off) but sizes the view to [mapBounds] only. Nothing outside the
-     * theme's map window is ever drawn, so Google's edge card and logo stay hidden
-     * even under a translucent theme panel.
+     * margins fall off) and clips the view to [mapBounds]. Nothing outside the map
+     * window is ever drawn, so Google's edge card and logo stay hidden even under a
+     * translucent theme panel. The view itself always fills the panel: moving only
+     * the clip keeps the SurfaceTexture size fixed, so a card change never restarts
+     * the decoder.
      */
     private fun applyStreamTransform(view: TextureView) {
-        val bounds = mapBounds()
-        val w = bounds[2] - bounds[0]
-        val h = bounds[3] - bounds[1]
-        val params = (view.layoutParams as? FrameLayout.LayoutParams) ?: FrameLayout.LayoutParams(w, h)
-        if (params.width != w || params.height != h || params.leftMargin != bounds[0] || params.topMargin != bounds[1]) {
-            params.width = w
-            params.height = h
-            params.leftMargin = bounds[0]
-            params.topMargin = bounds[1]
-            params.gravity = Gravity.TOP or Gravity.START
-            view.layoutParams = params
-            Log.w(TAG, "CLUSTER map window=${bounds.joinToString(",")}")
-        }
         val parent = view.parent as? View
         val panelW = parent?.width?.takeIf { it > 0 } ?: PANEL_WIDTH
         val panelH = parent?.height?.takeIf { it > 0 } ?: PANEL_HEIGHT
+        val bounds = mapBounds()
+        val clip = Rect(bounds[0], bounds[1], bounds[2], bounds[3])
+        if (view.clipBounds != clip) {
+            view.clipBounds = clip
+            Log.w(TAG, "CLUSTER map window=${bounds.joinToString(",")}")
+        }
         val sw = AaClusterProtocol.STREAM_WIDTH.toFloat()
         val sh = AaClusterProtocol.STREAM_HEIGHT.toFloat()
         val crop = maxOf(panelW / sw, panelH / sh)
-        // TextureView stretches the buffer to the view: undo that, place the
-        // buffer centre-cropped on the panel, then shift into this window.
+        // TextureView stretches the buffer to the view; undo that per axis.
         val matrix = Matrix()
-        matrix.setScale(sw / w, sh / h)
-        matrix.postScale(crop, crop)
-        matrix.postTranslate((panelW - sw * crop) / 2f - bounds[0], (panelH - sh * crop) / 2f - bounds[1])
+        matrix.setScale(sw * crop / panelW, sh * crop / panelH, panelW / 2f, panelH / 2f)
         view.setTransform(matrix)
     }
 

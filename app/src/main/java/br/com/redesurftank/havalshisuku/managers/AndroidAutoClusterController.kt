@@ -19,11 +19,14 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object AndroidAutoClusterController {
     private const val TAG = "AaClusterCtrl"
+    /** Guidance can drop for a moment while re-routing; don't tear the map down for that. */
+    private const val NAVIGATION_HIDE_DEBOUNCE_MS = 5_000L
 
     private val sessionDebouncer = AndroidAutoSessionTelemetry.Debouncer()
     private val directionsPublisher = AndroidAutoNavigationTelemetry.Publisher()
     private val started = AtomicBoolean(false)
     private val clusterRequested = AtomicBoolean(false)
+    private val navigationActive = AtomicBoolean(false)
     private val demandEpoch = AtomicLong()
     private val surfaceAttached = AtomicBoolean(false)
     private var deliveredGeneration = -1L // main-thread Surface lifecycle token
@@ -31,8 +34,8 @@ object AndroidAutoClusterController {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val client by lazy {
         AndroidAutoClusterClient(App.getContext()) { state, reason ->
-            val live = state == AaClusterProtocol.LIVE && clusterRequested.get() &&
-                isSessionActive() && AaClusterVideoHost.peekSurface()?.isValid == true
+            val live = state == AaClusterProtocol.LIVE && wantsOutput() &&
+                AaClusterVideoHost.peekSurface()?.isValid == true
             surfaceAttached.set(live)
             notifyHostProjectionFlag(live)
             Log.w(TAG, "CLUSTER state=$state live=$live reason=$reason")
@@ -80,6 +83,10 @@ object AndroidAutoClusterController {
 
     fun isClusterRequested(): Boolean = clusterRequested.get()
 
+    /** The map shows only while the theme asked for it, AA is linked and Maps is guiding. */
+    private fun wantsOutput(): Boolean =
+        clusterRequested.get() && isSessionActive() && navigationActive.get()
+
     fun isSurfaceAttached(): Boolean = surfaceAttached.get()
 
     /**
@@ -101,6 +108,7 @@ object AndroidAutoClusterController {
     }
 
     fun onNavigationUpdate(update: AndroidAutoNavigationTelemetry.Directions, nowMs: Long = SystemClock.elapsedRealtime()) {
+        onNavigationActive(update.active)
         publishDirections(update, nowMs, force = false)
         mainHandler.removeCallbacks(flushDirectionsRunnable)
         mainHandler.postDelayed(flushDirectionsRunnable, AndroidAutoNavigationTelemetry.THROTTLE_MS)
@@ -109,6 +117,26 @@ object AndroidAutoClusterController {
     fun snapshotDirectionsJson(): String = directionsPublisher.lastJson()
 
     fun peekSurface(): Surface? = AaClusterVideoHost.peekSurface()
+
+    private val navigationEndedRunnable = Runnable {
+        if (navigationActive.getAndSet(false)) {
+            Log.w(TAG, "CLUSTER navigation ended; hiding map")
+            attachIfSessionAllows("navigation_ended")
+        }
+    }
+
+    private fun onNavigationActive(active: Boolean) {
+        if (active) {
+            mainHandler.removeCallbacks(navigationEndedRunnable)
+            if (!navigationActive.getAndSet(true)) {
+                Log.w(TAG, "CLUSTER navigation started")
+                if (clusterRequested.get()) attachIfSessionAllows("navigation_started")
+            }
+        } else if (navigationActive.get()) {
+            mainHandler.removeCallbacks(navigationEndedRunnable)
+            mainHandler.postDelayed(navigationEndedRunnable, NAVIGATION_HIDE_DEBOUNCE_MS)
+        }
+    }
 
     private val flushDirectionsRunnable = Runnable {
         val json = directionsPublisher.flushPending(SystemClock.elapsedRealtime()) ?: return@Runnable
@@ -131,6 +159,8 @@ object AndroidAutoClusterController {
 
     private fun onSessionStopped() {
         if (clusterRequested.getAndSet(false)) demandEpoch.incrementAndGet()
+        mainHandler.removeCallbacks(navigationEndedRunnable)
+        navigationActive.set(false)
         detachSurface("session_stopped")
         directionsPublisher.reset()
         ServiceManager.getInstance().dispatchTelemetryOnly(
@@ -163,7 +193,7 @@ object AndroidAutoClusterController {
     private fun reconcileOutput(source: String) {
         // Re-read demand on the main thread: an older posted enable must not
         // recreate output after a rapid disable or session disconnect.
-        if (!clusterRequested.get() || !isSessionActive()) {
+        if (!wantsOutput()) {
             surfaceAttached.set(false)
             notifyHostProjectionFlag(false)
             if (deliveredGeneration != -1L) client.setOutput(null)
@@ -187,10 +217,10 @@ object AndroidAutoClusterController {
     /** The client borrows the owned consumer until an authenticated terminal release. */
     internal fun onSurfaceAvailable(surface: ClusterSurfaceOutput, generation: Long) {
         val epoch = demandEpoch.get()
-        if (clusterRequested.get() && isSessionActive() && surface.isAvailable && deliveredGeneration == generation && deliveredDemandEpoch == epoch) return
+        if (wantsOutput() && surface.isAvailable && deliveredGeneration == generation && deliveredDemandEpoch == epoch) return
         surfaceAttached.set(false)
         notifyHostProjectionFlag(false)
-        if (clusterRequested.get() && isSessionActive() && surface.isAvailable) {
+        if (wantsOutput() && surface.isAvailable) {
             deliveredGeneration = generation
             deliveredDemandEpoch = epoch
             client.setOutput(surface)
