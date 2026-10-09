@@ -15,7 +15,9 @@ on:
       - 'app/src/main/java/br/com/redesurftank/havalshisuku/managers/AndroidAutoPatch*'
       - 'app/src/main/java/br/com/redesurftank/havalshisuku/ui/screens/InstallAppsScreen.kt'
       - 'app/src/test/java/br/com/redesurftank/havalshisuku/managers/AndroidAutoPatch*'
-      - 'app/src/main/java/br/com/redesurftank/havalshisuku/projectors/AaClusterVideoHost.kt'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/projectors/AaCluster*'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/projectors/InstrumentProjector2.kt'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/bridge/ThemeBridgeImpl.kt'
       - '.github/workflows/aa-cluster-contract.yml'
 
 permissions:

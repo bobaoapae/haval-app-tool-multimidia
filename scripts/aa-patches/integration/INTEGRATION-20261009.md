@@ -1,5 +1,10 @@
 # HAV-24 draft integration, 2026-10-09
 
+This is the historical integration record. The later host-only follow-up for
+the first three review findings is documented in
+[RUNTIME-FIXES-20261009.md](RUNTIME-FIXES-20261009.md); its source/test evidence
+does not close the physical validation or loading gates below.
+
 ## Scope and provenance
 
 - Destination: existing PR152 head branch `mumu/hav-24-cluster-contract-preflight`, starting at `ed06246b8f30308ca123f209f66bb37baf06d7ba`
