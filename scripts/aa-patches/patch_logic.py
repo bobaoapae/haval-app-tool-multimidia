@@ -330,7 +330,7 @@ V3_RESIZE_CODE = f"""
 
     iget v1, v3, Landroid/util/DisplayMetrics;->widthPixels:I
 
-    # v2.7: height stays the window's, so AA ends above Impulse's bottom bar
+    # v2.8: height stays the window's, so AA ends above Impulse's bottom bar
     # when the D0 window is shortened; only the 1792-wide stack needed fixing.
 
     :v3_skip_display0_override
@@ -1018,6 +1018,92 @@ V4_ONCONFIG_METHOD = f"""
 """
 
 
+V28_TOUCH_SCALE_SENTINEL = "# V28_TOUCH_SCALE"
+
+V28_TOUCH_SCALE_CODE = """    # V28_TOUCH_SCALE: the phone expects touches in the 1920x1080 frame, i.e. a
+    # 1080-tall SurfaceView (v2.2 crop of a 720 window). When the window is
+    # shortened (D0 above the bottom bar) rescale view coords onto that frame.
+    move-object v5, p2
+
+    invoke-virtual {p1}, Landroid/view/View;->getWidth()I
+
+    move-result v2
+
+    invoke-virtual {p1}, Landroid/view/View;->getHeight()I
+
+    move-result v3
+
+    if-lez v2, :v28_touch_send
+
+    if-lez v3, :v28_touch_send
+
+    const/16 v4, 0x438
+
+    if-eq v3, v4, :v28_touch_send
+
+    new-instance v4, Landroid/graphics/Matrix;
+
+    invoke-direct {v4}, Landroid/graphics/Matrix;-><init>()V
+
+    int-to-float v2, v2
+
+    const/high16 v5, 0x44f00000    # 1920.0f
+
+    div-float v2, v5, v2
+
+    int-to-float v3, v3
+
+    const/high16 v5, 0x44870000    # 1080.0f
+
+    div-float v3, v5, v3
+
+    invoke-virtual {v4, v2, v3}, Landroid/graphics/Matrix;->setScale(FF)V
+
+    invoke-static {p2}, Landroid/view/MotionEvent;->obtain(Landroid/view/MotionEvent;)Landroid/view/MotionEvent;
+
+    move-result-object v5
+
+    invoke-virtual {v5, v4}, Landroid/view/MotionEvent;->transform(Landroid/graphics/Matrix;)V
+
+    :v28_touch_send
+    invoke-interface {v0, v5}, Lcom/ts/androidauto/app/display/DisplayContract$Presenter;->screenTouchEvent(Landroid/view/MotionEvent;)V
+"""
+
+
+def apply_v28_touch_scale_patch(smali_base):
+    """v2.8: keep touches aligned when AA's D0 window is shorter than 720."""
+    print("[v2.8] AapActivity touch listener: rescale touches for a shortened window:")
+    nl = chr(10)
+    send = (
+        "    invoke-interface {v0, p2}, Lcom/ts/androidauto/app/display/"
+        "DisplayContract$Presenter;->screenTouchEvent(Landroid/view/MotionEvent;)V" + nl
+    )
+    on_touch = ".method public onTouch(Landroid/view/View;Landroid/view/MotionEvent;)Z" + nl
+    for name in sorted(os.listdir(smali_base)):
+        if not name.startswith("AapActivity$") or not name.endswith(".smali"):
+            continue
+        path = os.path.join(smali_base, name)
+        content = read_file(path)
+        if on_touch not in content:
+            continue
+        if V28_TOUCH_SCALE_SENTINEL in content:
+            print(f"  [SKIP] already injected in {name}")
+            return 0
+        if send not in content:
+            continue  # another listener; only the one that forwards to the phone
+        if content.count(send) != 1 or on_touch + "    .locals 2" + nl not in content:
+            print(f"  [WARN] unexpected onTouch layout in {name}; not patched")
+            return 0
+        content = content.replace(
+            on_touch + "    .locals 2" + nl, on_touch + "    .locals 6" + nl, 1
+        ).replace(send, V28_TOUCH_SCALE_CODE, 1)
+        write_file(path, content)
+        print(f"  [OK] {name}")
+        return 1
+    print("  [WARN] AapActivity touch listener not found")
+    return 0
+
+
 def apply_v2_1_onconfig_patch(content):
     print("[v2.1] onConfigurationChanged injection:")
     if V4_SENTINEL in content:
@@ -1148,6 +1234,7 @@ def main():
 
     total += apply_v27_status_replay_patch(REMOTE_UI_MANAGER_LISTENER)
     total += apply_v27_idempotent_hardkey_patch(HARDKEY_MODEL)
+    total += apply_v28_touch_scale_patch(SMALI_BASE)
 
     total += apply_v2_1_manifest_patch(MANIFEST)
 

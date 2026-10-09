@@ -1014,6 +1014,12 @@ class BottomBarService : LifecycleService() {
                                 val settings = getSettingsForPackage(currentPackage, storedDefault)
                                 currentAppSettings = settings
                                 applyAppSettings(settings)
+                                if (currentPackage == ANDROID_AUTO_MEDIA_APP_PACKAGE) {
+                                    // AA reaches D0 on phone connect without Impulse's launch
+                                    // path, so its window would stay full height under the bar.
+                                    br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                                            .fitAndroidAutoAboveBottomBarAsync("bar_foreground")
+                                }
                             }
 
                             // Update Frida status reactive to switches

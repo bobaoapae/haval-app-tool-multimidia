@@ -2834,6 +2834,25 @@ object DisplayAppLauncher {
         return intArrayOf(0, 0, res.first, res.second)
     }
 
+    /**
+     * AA usually reaches D0 on phone connect, not through Impulse's launch path, so
+     * its window stays full height under the bottom bar. Resize it to end at the
+     * bar (no-op when it already does, or when the bar is not up).
+     */
+    fun fitAndroidAutoAboveBottomBarAsync(reason: String) {
+        scope.launch {
+            try {
+                val task = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 0) ?: return@launch
+                val bounds = getAndroidAutoDisplayBounds(0)
+                if (task.bounds.contentEqualsOrNull(bounds)) return@launch
+                Log.w(TAG, "[$reason] fitting Android Auto above the bottom bar: ${bounds.joinToString(",")}")
+                sh("am stack resize ${task.stackId} ${bounds[0]} ${bounds[1]} ${bounds[2]} ${bounds[3]}")
+            } catch (e: Exception) {
+                Log.e(TAG, "[$reason] fitting Android Auto above the bottom bar failed", e)
+            }
+        }
+    }
+
     // Re-aplica os bounds do AA no cluster ao vivo (quando o toggle/slider de offset muda), pra
     // ajustar sem reprojetar. Desligado -> getAndroidAutoDisplayBounds volta ao padrão.
     fun reapplyAndroidAutoClusterBounds() {
