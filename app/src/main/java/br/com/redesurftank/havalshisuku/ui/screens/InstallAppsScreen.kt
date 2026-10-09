@@ -52,6 +52,7 @@ import br.com.redesurftank.havalshisuku.utils.HomeVerifyResult
 import br.com.redesurftank.havalshisuku.utils.ImpulseHomeUpdater
 import br.com.redesurftank.havalshisuku.utils.SessionApkCache
 import br.com.redesurftank.havalshisuku.utils.SilentApkInstall
+import br.com.redesurftank.havalshisuku.utils.ViewerFirstRun
 import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -113,6 +114,9 @@ fun InstallAppsTab() {
     // A instalacao termina FORA daqui: startDownload entrega o APK ao instalador do sistema.
     // Entao a sugestao nao pode pendurar num callback - ela observa o pacote aparecer.
     var homeWasInstalled by remember { mutableStateOf(runCatching { pm.getPackageInfo(IMPULSE_HOME_PACKAGE, 0) }.isSuccess) }
+    // Ultimo versionCode do viewer para o qual os grants foram aplicados. Instalar/atualizar muda
+    // o valor, e ai o Shizuku concede o que o launcher pede (permissoes novas incluidas).
+    var homeGrantedVersion by remember { mutableStateOf(ImpulseHomeUpdater.installedVersionCode(pm, IMPULSE_HOME_PACKAGE)) }
     // Manifesto assinado do viewer (latest.json). Quando disponivel, vale sobre a entrada do
     // apps.json, que fica como espelho/fallback.
     var homeManifest by remember { mutableStateOf<HomeManifest?>(null) }
@@ -161,6 +165,13 @@ fun InstallAppsTab() {
                 showHomeSetup = true
             }
             homeWasInstalled = homeNow
+            // Cobre tambem o instalador do sistema (fallback) e atualizacoes feitas fora do app.
+            // Se o Shizuku falhar, o launcher ainda pede as permissoes sozinho ao abrir.
+            val homeVersion = ImpulseHomeUpdater.installedVersionCode(pm, IMPULSE_HOME_PACKAGE)
+            if (homeVersion != null && homeVersion != homeGrantedVersion) {
+                homeGrantedVersion = homeVersion
+                withContext(Dispatchers.IO) { ViewerFirstRun.prepare(context, IMPULSE_HOME_PACKAGE) }
+            }
             refreshTrigger++
             delay(4000)
         }
@@ -324,6 +335,9 @@ fun InstallAppsTab() {
                 }
                 val wasInstalled = homeWasInstalled
                 if (SilentApkInstall.install(file, IMPULSE_HOME_PACKAGE)) {
+                    // install() so retorna depois do pm install terminar: ja da para conceder.
+                    homeGrantedVersion = ImpulseHomeUpdater.installedVersionCode(pm, IMPULSE_HOME_PACKAGE)
+                    ViewerFirstRun.prepare(context, IMPULSE_HOME_PACKAGE)
                     withContext(Dispatchers.Main) {
                         if (!wasInstalled) {
                             homeSetupCanOpen = true

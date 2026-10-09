@@ -1157,7 +1157,15 @@ public class ServiceManager {
             listener = new IListener.Stub() {
                 @Override public void onDataChanged(String key, String value) { OnDataChanged(key, value); }
             };
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "enabled_accessibility_services", "br.com.redesurftank.havalshisuku/.services.AccessibilityService"});
+            // Merge, don't overwrite: other apps' entries (e.g. the Impulse Launcher's service
+            // granted by ViewerFirstRun) must survive every boot/Shizuku reconnect.
+            String ownA11y = "br.com.redesurftank.havalshisuku/.services.AccessibilityService";
+            String currentA11y = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "secure", "enabled_accessibility_services"});
+            String mergedA11y = br.com.redesurftank.havalshisuku.utils.ViewerFirstRun.INSTANCE.withComponent(
+                    currentA11y == null ? null : currentA11y.trim(), ownA11y);
+            if (mergedA11y != null) {
+                ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "enabled_accessibility_services", mergedA11y});
+            }
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "accessibility_enabled", "1"});
             ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "grant", context.getPackageName(), "android.permission.WRITE_SECURE_SETTINGS"});
             controlService.registerDataChangedListener(context.getPackageName(), listener);
