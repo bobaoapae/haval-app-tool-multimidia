@@ -1,0 +1,79 @@
+{
+  "android_api": 28,
+  "java_compile": true,
+  "host_java_compile": true,
+  "host_kotlin_compile": false,
+  "handoff_enabled": false,
+  "client_public_certificate_sha256": [],
+  "deployment_ready": false,
+  "signed": false,
+  "vehicle_validated": false,
+  "tool_sha256": {
+    "android": "96c0b5750ea7715f1db5005085d0b0a46c98680cfd28c88c370540327ebbc862",
+    "apktool": "eee4669a704a14e0623407e6701b0b91887e61e1e4049cb7a82833e14ae8b5fd",
+    "r8": "3b4de3053885da105e39c15212261d22653d6d1b5eb92323dd04ae913cc8286f"
+  },
+  "unsigned_assembly": true,
+  "assembly": {
+    "ok": true,
+    "helper_classes": 55,
+    "compiler_metadata": [
+      {
+        "class": "Lcom/android/tools/r8/annotations/LambdaMethod;",
+        "sha256": "580b7431e46832fc80a158ea731b7c047701383b9109606512ff5cad56d27df6"
+      }
+    ],
+    "references": 1342,
+    "oem_method_references": 28,
+    "oem_field_references": 13,
+    "helper_references": 961,
+    "platform_references_not_resolved": 340,
+    "oem_override_checks": 10,
+    "deployment_ready": false,
+    "zip": {
+      "changed_entries": [
+        "classes.dex"
+      ],
+      "removed_signature_entries": [
+        "META-INF/CERT.RSA",
+        "META-INF/CERT.SF",
+        "META-INF/MANIFEST.MF"
+      ],
+      "manifest_and_resources_byte_identical": true,
+      "unsigned_apk_sha256": "d8dba90751449da88184abd8a7aa90afa286d2c36977a47d3761e5d0d688a779"
+    },
+    "final_references": {
+      "ok": true,
+      "helper_classes": 55,
+      "compiler_metadata": [
+        {
+          "class": "Lcom/android/tools/r8/annotations/LambdaMethod;",
+          "sha256": "580b7431e46832fc80a158ea731b7c047701383b9109606512ff5cad56d27df6"
+        }
+      ],
+      "references": 1342,
+      "oem_method_references": 28,
+      "oem_field_references": 13,
+      "helper_references": 961,
+      "platform_references_not_resolved": 340,
+      "oem_override_checks": 10,
+      "deployment_ready": false
+    },
+    "final_hooks": {
+      "ok": true,
+      "hook_classes": 3,
+      "hook_methods": 4,
+      "incoming_helper_calls": 4,
+      "preserved_original_methods": 121,
+      "class_and_field_metadata_preserved": true,
+      "deployment_ready": false
+    },
+    "preserved_oem_classes": 4897,
+    "changed_oem_classes": [
+      "com/google/android/projection/protocol/GalReceiver.smali",
+      "com/ts/androidauto/aap/sink/GalIntegration.smali",
+      "com/ts/androidauto/projectionservice/AndroidAutoService$LinkCommandBinder.smali"
+    ]
+  },
+  "source_apk_sha256": "a9cfb4c0e559f9638466a80d77a861ffd4b5737d5ac9f71e0c20370f048ae1d8"
+}

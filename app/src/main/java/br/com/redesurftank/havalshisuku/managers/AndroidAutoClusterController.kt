@@ -1,23 +1,21 @@
 package br.com.redesurftank.havalshisuku.managers
 
-import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.api.AaClusterProtocol
 import br.com.redesurftank.havalshisuku.projectors.AaClusterVideoHost
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Owns AA session telemetry, TBT publish, and the D3 CLUSTER Surface attach.
- *
- * Handshake constraint: CLUSTER video must be advertised before the AAP session
- * starts. Theme [setAaClusterMapEnabled] arrives after `session=active`, so the
- * Service patch advertises CLUSTER whenever it is mounted. This controller only
- * attaches or tears down the Impulse Surface. On disconnect the Surface is
- * released and the next connect starts over.
+ * Owns AA telemetry and demand for the independent D3 CLUSTER output.
+ * The exact-profile Service registers CLUSTER before discovery with automatic
+ * projection disabled. Readiness means a current authenticated rendered frame,
+ * never a mounted APK, a local focus callback or merely an allocated Surface.
  */
 object AndroidAutoClusterController {
     private const val TAG = "AaClusterCtrl"
@@ -26,9 +24,20 @@ object AndroidAutoClusterController {
     private val directionsPublisher = AndroidAutoNavigationTelemetry.Publisher()
     private val started = AtomicBoolean(false)
     private val clusterRequested = AtomicBoolean(false)
+    private val demandEpoch = AtomicLong()
     private val surfaceAttached = AtomicBoolean(false)
-    private val clusterAdvertisedThisSession = AtomicBoolean(false)
+    private var deliveredGeneration = -1L // main-thread Surface lifecycle token
+    private var deliveredDemandEpoch = -1L
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val client by lazy {
+        AndroidAutoClusterClient(App.getContext()) { state, reason ->
+            val live = state == AaClusterProtocol.LIVE && clusterRequested.get() &&
+                isSessionActive() && AaClusterVideoHost.peekSurface()?.isValid == true
+            surfaceAttached.set(live)
+            notifyHostProjectionFlag(live)
+            Log.i(TAG, "CLUSTER state=$state live=$live reason=$reason")
+        }
+    }
     private val sessionPollRunnable = object : Runnable {
         override fun run() {
             val status = DisplayAppLauncher.readAndroidAutoLinkStatusIfAlreadyBound("AA_SESSION_POLL")
@@ -79,7 +88,7 @@ object AndroidAutoClusterController {
      */
     fun setClusterMapEnabled(enabled: Boolean, source: String) {
         Log.w(TAG, "setClusterMapEnabled enabled=$enabled source=$source session=$lastSessionValue")
-        clusterRequested.set(enabled)
+        if (clusterRequested.getAndSet(enabled) != enabled) demandEpoch.incrementAndGet()
         if (!enabled) {
             detachSurface("disabled_by_$source")
             return
@@ -121,8 +130,7 @@ object AndroidAutoClusterController {
     }
 
     private fun onSessionStopped() {
-        clusterRequested.set(false)
-        clusterAdvertisedThisSession.set(false)
+        if (clusterRequested.getAndSet(false)) demandEpoch.incrementAndGet()
         detachSurface("session_stopped")
         directionsPublisher.reset()
         ServiceManager.getInstance().dispatchTelemetryOnly(
@@ -149,44 +157,65 @@ object AndroidAutoClusterController {
     }
 
     private fun attachIfSessionAllows(source: String) {
-        // Mid-session enable without a CLUSTER handshake cannot invent video.
-        // Service patch advertises CLUSTER on the next session start; a debug
-        // Surface is still shown so the theme hole/mask path can be validated.
-        val advertised = clusterAdvertisedThisSession.get() || AndroidAutoPatchManager.isServiceClusterPatchMounted()
-        if (!advertised) {
-            Log.w(
-                TAG,
-                "CLUSTER map requested mid-session without advertised CLUSTER ($source). " +
-                    "Fail closed for live video; attaching debug Surface only if the Service patch is mounted. " +
-                    "Wait for the next AA session."
-            )
-            if (!AndroidAutoPatchManager.isServiceClusterPatchMounted()) {
+        mainHandler.post { reconcileOutput(source) }
+    }
+
+    private fun reconcileOutput(source: String) {
+        // Re-read demand on the main thread: an older posted enable must not
+        // recreate output after a rapid disable or session disconnect.
+        if (!clusterRequested.get() || !isSessionActive()) {
+            surfaceAttached.set(false)
+            notifyHostProjectionFlag(false)
+            if (deliveredGeneration != -1L) client.setOutput(null)
+            deliveredGeneration = -1L
+            AaClusterVideoHost.hide()
+            return
+        }
+        if (!AaClusterVideoHost.isShown()) {
+            surfaceAttached.set(false)
+            notifyHostProjectionFlag(false)
+            if (!AaClusterVideoHost.show(App.getContext())) {
+                Log.i(TAG, "CLUSTER awaits Presentation ($source)")
                 return
             }
         }
-        attachSurface(source)
+        AaClusterVideoHost.peekOutput()?.let {
+            onSurfaceAvailable(it, AaClusterVideoHost.surfaceGeneration())
+        }
     }
 
-    private fun attachSurface(source: String) {
-        if (surfaceAttached.get()) return
-        val context: Context = App.getContext()
-        mainHandler.post {
-            val attached = AaClusterVideoHost.show(context)
-            surfaceAttached.set(attached)
-            Log.w(TAG, "CLUSTER Surface attached=$attached source=$source")
-            notifyHostProjectionFlag(attached)
+    /** The client borrows the owned consumer until an authenticated terminal release. */
+    internal fun onSurfaceAvailable(surface: ClusterSurfaceOutput, generation: Long) {
+        val epoch = demandEpoch.get()
+        if (clusterRequested.get() && isSessionActive() && surface.isAvailable && deliveredGeneration == generation && deliveredDemandEpoch == epoch) return
+        surfaceAttached.set(false)
+        notifyHostProjectionFlag(false)
+        if (clusterRequested.get() && isSessionActive() && surface.isAvailable) {
+            deliveredGeneration = generation
+            deliveredDemandEpoch = epoch
+            client.setOutput(surface)
+        } else {
+            deliveredGeneration = -1L
+            client.setOutput(null)
         }
+    }
+
+    internal fun onSurfaceDestroyed() {
+        deliveredGeneration = -1L
+        surfaceAttached.set(false)
+        notifyHostProjectionFlag(false)
+        client.setOutput(null)
+    }
+
+    internal fun onHostAvailable() {
+        mainHandler.post { reconcileOutput("presentation_available") }
     }
 
     private fun detachSurface(reason: String) {
-        if (!surfaceAttached.getAndSet(false) && !AaClusterVideoHost.isShown()) {
-            notifyHostProjectionFlag(false)
-            return
-        }
+        surfaceAttached.set(false)
+        notifyHostProjectionFlag(false)
         mainHandler.post {
-            AaClusterVideoHost.hide()
-            Log.w(TAG, "CLUSTER Surface detached reason=$reason")
-            notifyHostProjectionFlag(false)
+            reconcileOutput(reason)
         }
     }
 
@@ -197,7 +226,4 @@ object AndroidAutoClusterController {
         )
     }
 
-    internal fun markClusterAdvertisedForTest() {
-        clusterAdvertisedThisSession.set(true)
-    }
 }
