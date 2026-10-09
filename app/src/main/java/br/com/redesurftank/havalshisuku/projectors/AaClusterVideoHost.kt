@@ -1,6 +1,7 @@
 package br.com.redesurftank.havalshisuku.projectors
 
 import android.content.Context
+import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.util.Log
 import android.view.Gravity
@@ -8,14 +9,42 @@ import android.view.Surface
 import android.view.TextureView
 import android.view.View
 import android.widget.FrameLayout
+import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.api.AaClusterProtocol
 import br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController
+import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import br.com.redesurftank.havalshisuku.managers.ClusterSurfaceOutput
+import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import java.lang.ref.WeakReference
 
 /** D3 video under the existing masks/WebView, with retained consumer ownership. */
 object AaClusterVideoHost {
     private const val TAG = "AaClusterVideo"
     val DEFAULT_MAP_BOUNDS = intArrayOf(0, 62, 1920, 658)
+
+    /**
+     * Map rect on D3 as (left, top, right, bottom): the user's override when set,
+     * else the active theme's default cluster app rect — the same rect a regular
+     * app sent to D1/D3 gets — else [DEFAULT_MAP_BOUNDS].
+     */
+    fun mapBounds(): IntArray {
+        val custom = App.getDeviceProtectedContext()
+            .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+            .getString(SharedPreferencesKeys.AA_CLUSTER_MAP_CUSTOM_BOUNDS.key, null)
+        parseBounds(custom)?.let { return it }
+        val theme = try { DisplayAppLauncher.themeClusterAppBounds() } catch (e: RuntimeException) { null }
+        if (theme != null && theme[2] > 0 && theme[3] > 0) {
+            return intArrayOf(theme[0], theme[1], theme[0] + theme[2], theme[1] + theme[3])
+        }
+        return DEFAULT_MAP_BOUNDS.copyOf()
+    }
+
+    internal fun parseBounds(value: String?): IntArray? {
+        val parts = value?.split(',')?.map { it.trim().toIntOrNull() } ?: return null
+        if (parts.size != 4 || parts.any { it == null }) return null
+        val (l, t, r, b) = parts.map { it!! }
+        return if (l >= 0 && t >= 0 && r - l >= 100 && b - t >= 100) intArrayOf(l, t, r, b) else null
+    }
     private var parentRef: WeakReference<FrameLayout>? = null
     private var textureView: TextureView? = null
     private var output: ClusterSurfaceOutput? = null
@@ -50,6 +79,7 @@ object AaClusterVideoHost {
         val parent = parentRef?.get() ?: return false
         ensureView(context, parent)
         val view = textureView ?: return false
+        applyBounds(view, mapBounds())
         view.visibility = View.VISIBLE
         shown = true
         adoptPendingConsumer()
@@ -128,6 +158,36 @@ object AaClusterVideoHost {
         override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {
             // Framework RenderThread owns updateTexImage and GL attachment.
         }
+    }
+
+    /** Place the view at the map rect and centre-crop the stream into it (no stretch). */
+    private fun applyBounds(view: TextureView, bounds: IntArray) {
+        val w = bounds[2] - bounds[0]
+        val h = bounds[3] - bounds[1]
+        val params = (view.layoutParams as? FrameLayout.LayoutParams)
+            ?: FrameLayout.LayoutParams(w, h)
+        if (params.width != w || params.height != h || params.leftMargin != bounds[0] || params.topMargin != bounds[1]) {
+            params.width = w
+            params.height = h
+            params.leftMargin = bounds[0]
+            params.topMargin = bounds[1]
+            params.gravity = Gravity.TOP or Gravity.START
+            view.layoutParams = params
+            Log.w(TAG, "CLUSTER map rect=${bounds.joinToString(",")}")
+        }
+        val scale = maxOf(
+            w.toFloat() / AaClusterProtocol.STREAM_WIDTH,
+            h.toFloat() / AaClusterProtocol.STREAM_HEIGHT
+        )
+        // TextureView stretches the buffer to the view; undo that per axis.
+        val matrix = Matrix()
+        matrix.setScale(
+            AaClusterProtocol.STREAM_WIDTH * scale / w,
+            AaClusterProtocol.STREAM_HEIGHT * scale / h,
+            w / 2f,
+            h / 2f
+        )
+        view.setTransform(matrix)
     }
 
     private fun ensureView(context: Context, parent: FrameLayout) {

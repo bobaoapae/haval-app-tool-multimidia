@@ -11,8 +11,13 @@ import br.com.redesurftank.havalshisuku.api.AaClusterProtocol;
 public final class ClusterBinder {
     private ClusterBinder() {}
     public static boolean dispatch(Context context, Parcel data, Parcel reply, int flags) {
-        int caller = ClusterAuthorization.requireTrustedClient(context); // Before Surface/untrusted parsing.
-        if (data == null || reply == null || flags != 0 || data.dataSize() > AaClusterProtocol.MAX_PARCEL_BYTES) {
+        int caller;
+        try { caller = ClusterAuthorization.requireTrustedClient(context); } // Before Surface/untrusted parsing.
+        catch (SecurityException denied) { android.util.Log.w("ImpulseAaCluster", "V2DIAG binder rejected: " + denied.getMessage()); throw denied; }
+        // Only FLAG_ONEWAY matters: native IPCThreadState always ORs TF_ACCEPT_FDS
+        // (0x10) into incoming flags, so a strict flags != 0 rejected every call.
+        if (data == null || reply == null || (flags & IBinder.FLAG_ONEWAY) != 0 || data.dataSize() > AaClusterProtocol.MAX_PARCEL_BYTES) {
+            android.util.Log.w("ImpulseAaCluster", "V2DIAG binder rejected: flags=0x" + Integer.toHexString(flags) + " size=" + (data == null ? -1 : data.dataSize()));
             throw new BadParcelableException("Synchronous bounded CLUSTER request required");
         }
         data.enforceInterface(AaClusterProtocol.DESCRIPTOR);
