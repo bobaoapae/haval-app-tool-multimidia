@@ -529,7 +529,9 @@ fun InstallAppsTab() {
                     extra =
                             if (isPatchInstalled) {
                                 {
-                                    Column {
+                                    // One row, like the other cards: stacked switches pushed the
+                                    // Ativar/Desativar row out of the fixed-height card.
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         AutoMountRow(
                                                 checked = aaPatchAutoMount,
                                                 onCheckedChange = { enabled ->
@@ -542,6 +544,12 @@ fun InstallAppsTab() {
                                                                     enabled
                                                             )
                                                             .apply()
+                                                    if (enabled) {
+                                                        scope.launch(Dispatchers.IO) {
+                                                            val mounted = AndroidAutoPatchManager.applyMounts()
+                                                            withContext(Dispatchers.Main) { isMounted = mounted }
+                                                        }
+                                                    }
                                                 }
                                         )
                                         AutoMountRow(
@@ -579,11 +587,17 @@ fun InstallAppsTab() {
                     ) {
                         if (!isMounted) {
                             CardButton("Ativar", Color(0xFF4CAF50)) {
-                                if (AndroidAutoPatchManager.applyMounts()) isMounted = true
+                                scope.launch(Dispatchers.IO) {
+                                    val mounted = AndroidAutoPatchManager.applyMounts()
+                                    withContext(Dispatchers.Main) { isMounted = mounted }
+                                }
                             }
                         } else {
                             CardButton("Desativar", Color(0xFFF44336)) {
-                                if (AndroidAutoPatchManager.removeMounts()) isMounted = false
+                                scope.launch(Dispatchers.IO) {
+                                    val removed = AndroidAutoPatchManager.removeMounts()
+                                    withContext(Dispatchers.Main) { if (removed) isMounted = false }
+                                }
                             }
                         }
                         IconButton(

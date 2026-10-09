@@ -291,8 +291,11 @@ object AndroidAutoPatchManager {
             return false
         }
 
+        // Refresh the staged App from the APK bundled in this Impulse first, as the
+        // boot path does; otherwise "Ativar" re-mounts whatever an older build staged.
         Log.w(TAG, "Applying Android Auto visual App mount")
-        return applyAppMount()
+        ensureVisualMounted()
+        return isAppPatchMounted()
     }
 
     fun isServiceClusterPatchMounted(): Boolean {
