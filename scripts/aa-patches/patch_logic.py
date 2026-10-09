@@ -330,7 +330,8 @@ V3_RESIZE_CODE = f"""
 
     iget v1, v3, Landroid/util/DisplayMetrics;->widthPixels:I
 
-    iget v2, v3, Landroid/util/DisplayMetrics;->heightPixels:I
+    # v2.7: height stays the window's, so AA ends above Impulse's bottom bar
+    # when the D0 window is shortened; only the 1792-wide stack needed fixing.
 
     :v3_skip_display0_override
     new-instance v3, Ljava/lang/StringBuilder;

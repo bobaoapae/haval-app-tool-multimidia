@@ -2824,6 +2824,13 @@ object DisplayAppLauncher {
                 return intArrayOf(offset, 0, res.first, res.second)
             }
         }
+        if (displayId == 0) {
+            // End at the bottom bar's top edge, not under it (the bar is 60 dp; the
+            // system overscan is only the 20 dp touch margin). The AA App patch
+            // (v2.7) keeps this window height, so the projection ends here.
+            val bar = br.com.redesurftank.havalshisuku.services.BottomBarService.occupiedHeightPx()
+            if (bar in 1 until res.second) return intArrayOf(0, 0, res.first, res.second - bar)
+        }
         return intArrayOf(0, 0, res.first, res.second)
     }
 

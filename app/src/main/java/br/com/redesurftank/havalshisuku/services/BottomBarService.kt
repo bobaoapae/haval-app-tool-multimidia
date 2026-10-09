@@ -4629,6 +4629,13 @@ class BottomBarService : LifecycleService() {
                 )
         @Volatile private var instance: BottomBarService? = null
 
+        /** Pixels the bar occupies at the bottom of D0 right now; 0 when it is not up. */
+        fun occupiedHeightPx(): Int {
+            val service = instance ?: return 0
+            if (!BottomBarState.isVisible) return 0
+            return (service.BOTTOM_BAR_BASE_HEIGHT_DP * service.resources.displayMetrics.density).toInt()
+        }
+
         fun requestBarRestoreAfterExternalFocus(packageName: String?, reason: String) {
             instance?.scheduleLeftNavPaneCheck(reason)
             instance?.restoreBarAfterExternalFocus(packageName, reason)
