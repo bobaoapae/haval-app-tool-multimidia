@@ -722,6 +722,10 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                 } else {
                     Log.d(TAG, "AA patch auto-mount is disabled in settings.");
                 }
+                if (prefs.getBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.getKey(), false)) {
+                    Log.w(TAG, "Checking Android Auto cluster Service auto-mount...");
+                    AndroidAutoPatchManager.INSTANCE.ensureClusterServiceAutoMount();
+                }
 
             } catch (Exception e) {
                 Log.e(TAG, "Projection patch auto-mount check failed: " + e.getMessage(), e);

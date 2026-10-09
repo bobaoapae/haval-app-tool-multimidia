@@ -130,6 +130,9 @@ fun InstallAppsTab() {
     var aaPatchAutoMount by remember {
         mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.AA_PATCH_AUTO_MOUNT.key, false))
     }
+    var aaClusterServiceAutoMount by remember {
+        mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.key, false))
+    }
     var carPlayPatchAutoMount by remember {
         mutableStateOf(
                 prefs.getBoolean(SharedPreferencesKeys.CARPLAY_PATCH_AUTO_MOUNT.key, false)
@@ -512,20 +515,42 @@ fun InstallAppsTab() {
                     extra =
                             if (isPatchInstalled) {
                                 {
-                                    AutoMountRow(
-                                            checked = aaPatchAutoMount,
-                                            onCheckedChange = {
-                                                aaPatchAutoMount = it
-                                                prefs.edit()
-                                                        .putBoolean(
-                                                                SharedPreferencesKeys
-                                                                        .AA_PATCH_AUTO_MOUNT
-                                                                        .key,
-                                                                it
-                                                        )
-                                                        .apply()
-                                            }
-                                    )
+                                    Column {
+                                        AutoMountRow(
+                                                checked = aaPatchAutoMount,
+                                                onCheckedChange = { enabled ->
+                                                    aaPatchAutoMount = enabled
+                                                    prefs.edit()
+                                                            .putBoolean(
+                                                                    SharedPreferencesKeys
+                                                                            .AA_PATCH_AUTO_MOUNT
+                                                                            .key,
+                                                                    enabled
+                                                            )
+                                                            .apply()
+                                                }
+                                        )
+                                        AutoMountRow(
+                                                checked = aaClusterServiceAutoMount,
+                                                label = "Mapa no cluster",
+                                                onCheckedChange = { enabled ->
+                                                    aaClusterServiceAutoMount = enabled
+                                                    prefs.edit()
+                                                            .putBoolean(
+                                                                    SharedPreferencesKeys
+                                                                            .AA_CLUSTER_SERVICE_AUTO_MOUNT
+                                                                            .key,
+                                                                    enabled
+                                                            )
+                                                            .apply()
+                                                    if (enabled) {
+                                                        scope.launch(Dispatchers.IO) {
+                                                            AndroidAutoPatchManager.ensureClusterServiceAutoMount()
+                                                        }
+                                                    }
+                                                }
+                                        )
+                                    }
                                 }
                             } else null
             ) {

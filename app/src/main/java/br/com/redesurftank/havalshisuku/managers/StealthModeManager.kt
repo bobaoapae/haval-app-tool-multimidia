@@ -893,6 +893,9 @@ object StealthModeManager {
                 if (prefs().getBoolean(SharedPreferencesKeys.AA_PATCH_AUTO_MOUNT.key, false)) {
                     AndroidAutoPatchManager.ensureMounted()
                 }
+                if (prefs().getBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.key, false)) {
+                    AndroidAutoPatchManager.ensureClusterServiceAutoMount()
+                }
             }
             step("remount_carplay") {
                 if (prefs().getBoolean(SharedPreferencesKeys.CARPLAY_PATCH_AUTO_MOUNT.key, true)) {

@@ -1,12 +1,20 @@
 package br.com.redesurftank.havalshisuku.managers
 
 import android.content.Context
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.SystemClock
 import android.util.Log
 import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 object AndroidAutoPatchManager {
     private const val TAG = "AA_PATCH_MGR"
@@ -22,6 +30,18 @@ object AndroidAutoPatchManager {
     
     const val VENDOR_SERVICE_OAT = "/vendor/app/AndroidAutoService/oat"
     const val VENDOR_APP_OAT = "/vendor/app/AndroidAutoApp/oat"
+
+    /** Stock Service on this head unit. A different md5 is not swapped. */
+    private const val EXPECTED_STOCK_SERVICE_MD5 = "48ffded64e9b485521e3174dcd70db27"
+    private const val CLUSTER_MOUNT_POLL_MS = 3_000L
+    private const val CLUSTER_SESSION_SETTLE_MS = 15_000L
+    private const val CLUSTER_CERT_CHECK_DELAY_MS = 8_000L
+
+    private val clusterWatchArmed = AtomicBoolean(false)
+    private val clusterMountThread = HandlerThread("aa-cluster-mount").apply { start() }
+    private val clusterMountHandler = Handler(clusterMountThread.looper)
+    private var settledPid: String? = null
+    private var settledSinceElapsedMs = 0L
 
     private fun sh(command: String): String {
         val output = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "$command 2>&1"))
@@ -192,6 +212,41 @@ object AndroidAutoPatchManager {
         }
     }
 
+    private fun installServicePatch(context: Context): Boolean {
+        try {
+            if (!hasBundledAsset(context, SERVICE_APK)) {
+                Log.e(TAG, "Cannot install Android Auto Service patch: missing bundled asset aa_patches/$SERVICE_APK")
+                return false
+            }
+
+            sh("mkdir -p '$PATCH_DIR'")
+            sh("chmod 755 '$PATCH_DIR'")
+            sh("mkdir -p '$PATCH_DIR/empty_oat'")
+            sh("chmod 755 '$PATCH_DIR/empty_oat'")
+
+            val tempFile = File(context.cacheDir, SERVICE_APK)
+            context.assets.open("aa_patches/$SERVICE_APK").use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            val destPath = "$PATCH_DIR/$SERVICE_APK"
+            val cpOut = sh("cp '${tempFile.absolutePath}' '$destPath'")
+            Log.d(TAG, "Copy output for service patch $SERVICE_APK: $cpOut")
+            sh("chmod 644 '$destPath'")
+            sh("chcon u:object_r:vendor_app_file:s0 '$destPath'")
+            tempFile.delete()
+
+            val success = isServicePatchInstalled()
+            Log.w(TAG, "Service patch installation success: $success")
+            return success
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install Android Auto Service patch", e)
+            return false
+        }
+    }
+
     private fun applyAppMount(): Boolean {
         if (!isAppPatchInstalled()) {
             Log.e(TAG, "Cannot apply Android Auto visual mount: App patch not installed")
@@ -236,14 +291,8 @@ object AndroidAutoPatchManager {
             return false
         }
 
-        Log.w(TAG, "Applying Android Auto App mount; Service CLUSTER mount if a Service APK is staged")
-        val appOk = applyAppMount()
-        val serviceOk = if (isServicePatchInstalled()) {
-            applyServiceMountWithoutForceStop()
-        } else {
-            true
-        }
-        return appOk && serviceOk
+        Log.w(TAG, "Applying Android Auto visual App mount")
+        return applyAppMount()
     }
 
     fun isServiceClusterPatchMounted(): Boolean {
@@ -271,13 +320,16 @@ object AndroidAutoPatchManager {
 
             sh("umount -l '$VENDOR_SERVICE_PATH' 2>/dev/null || true")
             sh("[ -d '$VENDOR_SERVICE_OAT' ] && umount -l '$VENDOR_SERVICE_OAT' 2>/dev/null || true")
+            // After the lazy umount, the vendor path is the stock APK. The
+            // staged file has to keep that mtime or the head unit rejects it.
+            sh("touch -r '$VENDOR_SERVICE_PATH' '$PATCH_DIR/$SERVICE_APK' 2>/dev/null || true")
 
             val mountResult = sh("mount --bind '$PATCH_DIR/$SERVICE_APK' '$VENDOR_SERVICE_PATH'")
             if (mountResult.contains("error", ignoreCase = true) || mountResult.contains("failed", ignoreCase = true)) {
                 Log.e(TAG, "Failed to mount Android Auto Service APK: $mountResult")
             }
             sh("[ -d '$VENDOR_SERVICE_OAT' ] && mount --bind '$PATCH_DIR/empty_oat' '$VENDOR_SERVICE_OAT' || true")
-            sh("rm -f /data/dalvik-cache/arm64/*AndroidAutoService* 2>/dev/null || true")
+            sh("rm -f /data/dalvik-cache/arm64/*AndroidAutoService* /data/dalvik-cache/arm64/*com.ts.androidauto* 2>/dev/null || true")
 
             val success = isServiceClusterPatchMounted()
             if (success) {
@@ -318,12 +370,14 @@ object AndroidAutoPatchManager {
     }
     
     /**
-     * Auto-mount the visual Android Auto patch if installed but not yet mounted.
-     * Designed to be called from ForegroundService on boot after Shizuku is ready.
-     * The service APK is intentionally not auto-mounted because service variants have regressed
-     * video startup before; manual controls remain available for explicit diagnostics.
+     * Auto-mount the visual Android Auto app after Shizuku is ready.
+     * The cluster Service is a separate opt-in: [ensureClusterServiceAutoMount].
      */
     fun ensureMounted() {
+        ensureVisualMounted()
+    }
+
+    private fun ensureVisualMounted() {
         try {
             val context = App.getContext()
             val bundledAppMd5 = bundledPatchMd5(context, APP_APK)
@@ -357,6 +411,162 @@ object AndroidAutoPatchManager {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Android Auto visual auto-mount failed", e)
+        }
+    }
+
+    private fun isClusterServiceAutoMountEnabled(): Boolean {
+        return App.getDeviceProtectedContext()
+            .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+            .getBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.key, false)
+    }
+
+    private fun setClusterServiceAutoMountEnabled(enabled: Boolean) {
+        App.getDeviceProtectedContext()
+            .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.key, enabled)
+            .apply()
+    }
+
+    /**
+     * Restores the cluster Service after reboot, once. The visual Auto-montar
+     * switch does not call this.
+     *
+     * Stock Android Auto has to finish its handshake first. The client
+     * certificate is decrypted from the vehicle model and year, and a reload
+     * before that push fails the same way on the patched Service and on stock.
+     * One SIGTERM after the phone session has been up on a stable pid. Never
+     * `am force-stop` or `am startservice`.
+     *
+     * The vendor file underneath the bind has to be the known stock build
+     * [EXPECTED_STOCK_SERVICE_MD5]. A different firmware is left alone.
+     * If the reloaded process hits the certificate crash, the bind comes off
+     * and this opt-in turns itself off so the next boot stays on stock.
+     */
+    fun ensureClusterServiceAutoMount() {
+        if (!isClusterServiceAutoMountEnabled()) return
+        if (!clusterWatchArmed.compareAndSet(false, true)) return
+        clusterMountHandler.post { pollClusterServiceMount() }
+    }
+
+    private fun pollClusterServiceMount() {
+        try {
+            if (!isClusterServiceAutoMountEnabled()) return
+            if (isServiceClusterPatchMounted()) {
+                Log.w(TAG, "CLUSTER service already mounted; running process left as-is")
+                return
+            }
+            if (!isAndroidAutoSessionSettled()) {
+                settledPid = null
+                clusterMountHandler.postDelayed({ pollClusterServiceMount() }, CLUSTER_MOUNT_POLL_MS)
+                return
+            }
+            val pid = androidAutoPid()
+            if (pid == null) {
+                settledPid = null
+                clusterMountHandler.postDelayed({ pollClusterServiceMount() }, CLUSTER_MOUNT_POLL_MS)
+                return
+            }
+            val now = SystemClock.elapsedRealtime()
+            if (pid != settledPid) {
+                settledPid = pid
+                settledSinceElapsedMs = now
+                Log.w(TAG, "CLUSTER mount waiting until pid=$pid has held the session for ${CLUSTER_SESSION_SETTLE_MS}ms")
+                clusterMountHandler.postDelayed({ pollClusterServiceMount() }, CLUSTER_MOUNT_POLL_MS)
+                return
+            }
+            if (now - settledSinceElapsedMs < CLUSTER_SESSION_SETTLE_MS) {
+                clusterMountHandler.postDelayed({ pollClusterServiceMount() }, CLUSTER_MOUNT_POLL_MS)
+                return
+            }
+            val stockMd5 = vendorServiceMd5()
+            if (stockMd5.isEmpty()) {
+                clusterMountHandler.postDelayed({ pollClusterServiceMount() }, CLUSTER_MOUNT_POLL_MS)
+                return
+            }
+            if (stockMd5 != EXPECTED_STOCK_SERVICE_MD5) {
+                Log.w(TAG, "CLUSTER mount refused: stock Service md5=$stockMd5 expected=$EXPECTED_STOCK_SERVICE_MD5")
+                return
+            }
+            val context = App.getContext()
+            val bundledServiceMd5 = bundledPatchMd5(context, SERVICE_APK)
+            if (bundledServiceMd5 == null) {
+                Log.w(TAG, "No bundled Android Auto Service patch; cluster map stays on stock")
+                return
+            }
+            if (!isServicePatchInstalled() || bundledServiceMd5 != installedPatchMd5(SERVICE_APK)) {
+                Log.w(TAG, "Installing bundled Android Auto Service CLUSTER patch")
+                if (!installServicePatch(context)) {
+                    Log.e(TAG, "Cannot auto-mount Android Auto Service patch: install failed")
+                    clusterMountHandler.postDelayed({ pollClusterServiceMount() }, CLUSTER_MOUNT_POLL_MS)
+                    return
+                }
+            }
+            val mounted = applyServiceMountWithoutForceStop()
+            Log.w(TAG, "Service CLUSTER auto-mount result: $mounted")
+            if (!mounted) return
+            val since = SimpleDateFormat("MM-dd HH:mm:ss.000", Locale.US).format(Date())
+            reloadAndroidAutoServiceProcess("CLUSTER_AFTER_SESSION")
+            clusterMountHandler.postDelayed({ rollbackClusterMountIfCertFailed(since) }, CLUSTER_CERT_CHECK_DELAY_MS)
+        } catch (e: Exception) {
+            Log.e(TAG, "Android Auto Service CLUSTER auto-mount failed", e)
+        }
+    }
+
+    private fun isAndroidAutoSessionSettled(): Boolean {
+        if (DisplayAppLauncher.hasRecentAndroidAutoDcmProjectionActiveEvidenceForSession()) return true
+        val link = DisplayAppLauncher.readAndroidAutoLinkStatusIfAlreadyBound("CLUSTER_MOUNT")
+        return link == AndroidAutoSessionTelemetry.LINK_STATUS_ACTIVATED
+    }
+
+    private fun vendorServiceMd5(): String {
+        return sh("md5sum '$VENDOR_SERVICE_PATH' 2>/dev/null | awk '{print \$1}'").trim()
+    }
+
+    private fun androidAutoPid(): String? {
+        val pid = sh("pidof com.ts.androidauto 2>/dev/null || true").trim().split(Regex("\\s+")).firstOrNull()
+        return pid?.takeIf { it.toIntOrNull() != null }
+    }
+
+    private fun rollbackClusterMountIfCertFailed(sinceLogTimestamp: String) {
+        val crash = sh(
+            "logcat -d -t '$sinceLogTimestamp' 2>/dev/null | grep -E 'Failed to set client certificate|SSL initialization failed' | tail -n 3"
+        ).trim()
+        if (crash.isEmpty()) {
+            Log.w(TAG, "CLUSTER service reload stayed up; certificate crash not seen")
+            return
+        }
+        Log.w(TAG, "CLUSTER mount rolled back after certificate crash: $crash")
+        sh("umount -l '$VENDOR_SERVICE_PATH' 2>/dev/null || true")
+        sh("[ -d '$VENDOR_SERVICE_OAT' ] && umount -l '$VENDOR_SERVICE_OAT' 2>/dev/null || true")
+        setClusterServiceAutoMountEnabled(false)
+        Log.w(TAG, "CLUSTER service opt-in turned off; next boot stays on the stock Service")
+    }
+
+    private fun reloadAndroidAutoServiceProcess(reason: String) {
+        val pidList = sh("pidof com.ts.androidauto 2>/dev/null || true")
+            .trim()
+            .split(Regex("\\s+"))
+            .filter { it.isNotEmpty() }
+        if (pidList.isEmpty() || pidList.any { it.toIntOrNull() == null }) {
+            Log.w(TAG, "[$reason] com.ts.androidauto is not running; CLUSTER patch loads on its next start")
+            return
+        }
+        Log.w(
+            TAG,
+            "[$reason] SIGTERM com.ts.androidauto pid=${pidList.joinToString(",")} so the mounted CLUSTER Service loads"
+        )
+        sh("kill -TERM ${pidList.joinToString(" ")} 2>/dev/null || true")
+        try {
+            Thread.sleep(500)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        val restarted = sh("pidof com.ts.androidauto 2>/dev/null || true").trim()
+        if (restarted.isEmpty()) {
+            Log.w(TAG, "[$reason] com.ts.androidauto has not returned yet; mount left in place")
+        } else {
+            Log.w(TAG, "[$reason] com.ts.androidauto restarted pid=$restarted")
         }
     }
 
