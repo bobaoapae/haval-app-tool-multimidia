@@ -88,19 +88,47 @@ object AndroidAutoPatchManager {
         return installed
     }
 
-    fun isMounted(): Boolean {
-        val appMounted = isAppPatchMounted()
-        val servicePatchInstalled = isServicePatchInstalled()
-        val serviceMounted = if (servicePatchInstalled) {
-            val vendorServiceMd5 = sh("md5sum '$VENDOR_SERVICE_PATH' 2>/dev/null | awk '{print \$1}'").trim()
-            val patchServiceMd5 = sh("md5sum '$PATCH_DIR/$SERVICE_APK' 2>/dev/null | awk '{print \$1}'").trim()
-            vendorServiceMd5.isNotEmpty() && vendorServiceMd5 == patchServiceMd5
-        } else {
-            true
-        }
+    /** Legacy App-only checksum predicate; does not establish a mount or CLUSTER runtime. */
+    fun isMounted(): Boolean = readComponentStatus(APP_APK, VENDOR_APP_PATH).hasMatchingChecksums()
 
-        Log.d(TAG, "isMounted (visual MD5): $appMounted (Service patch mounted: $serviceMounted)")
-        return appMounted
+    /** Blocking read-only checks. Call from an IO dispatcher, never during composition. */
+    fun readPatchStatus(): AndroidAutoPatchStatus = AndroidAutoPatchStatus(
+        readComponentStatus(APP_APK, VENDOR_APP_PATH),
+        readComponentStatus(SERVICE_APK, VENDOR_SERVICE_PATH)
+    )
+
+    private fun readComponentStatus(assetName: String, vendorPath: String): AndroidAutoPatchStatus.Component {
+        val staged = readFileEvidence("$PATCH_DIR/$assetName")
+        val vendor = if (staged.presence == AndroidAutoPatchStatus.Presence.PRESENT) {
+            readFileEvidence(vendorPath)
+        } else {
+            AndroidAutoPatchStatus.FileEvidence.unknown()
+        }
+        return AndroidAutoPatchStatus.Component.compare(staged, vendor)
+    }
+
+    private fun readFileEvidence(path: String): AndroidAutoPatchStatus.FileEvidence {
+        val parent = path.substringBeforeLast('/')
+        // Absence is conclusive only with an accessible parent, or an accessible ancestor
+        // proving PATCH_DIR itself absent. Shell/access errors must not become "not installed".
+        val absentPatchDir = if (parent == PATCH_DIR) {
+            "elif [ ! -e '$PATCH_DIR' ] && [ ! -L '$PATCH_DIR' ] && " +
+                    "[ -d '/data/local/tmp' ] && [ -r '/data/local/tmp' ] && [ -x '/data/local/tmp' ]; " +
+                    "then echo AA_PATCH_ABSENT; "
+        } else ""
+        return try {
+            val output = sh(
+                "if [ -f '$path' ]; then echo AA_PATCH_PRESENT; md5sum '$path'; " +
+                        "elif [ ! -e '$path' ] && [ ! -L '$path' ] && " +
+                        "[ -d '$parent' ] && [ -r '$parent' ] && [ -x '$parent' ]; " +
+                        "then echo AA_PATCH_ABSENT; " + absentPatchDir +
+                        "else echo AA_PATCH_UNKNOWN; fi"
+            )
+            AndroidAutoPatchStatus.FileEvidence.fromShellOutput(path, output)
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot read Android Auto file evidence: $path", e)
+            AndroidAutoPatchStatus.FileEvidence.unknown()
+        }
     }
 
     fun installPatches(context: Context): Boolean {
@@ -246,12 +274,9 @@ object AndroidAutoPatchManager {
         return appOk && serviceOk
     }
 
-    fun isServiceClusterPatchMounted(): Boolean {
-        if (!isServicePatchInstalled()) return false
-        val vendorServiceMd5 = sh("md5sum '$VENDOR_SERVICE_PATH' 2>/dev/null | awk '{print \$1}'").trim()
-        val patchServiceMd5 = installedPatchMd5(SERVICE_APK)
-        return vendorServiceMd5.isNotEmpty() && vendorServiceMd5 == patchServiceMd5
-    }
+    /** Legacy checksum predicate only; this does not identify or validate a CLUSTER candidate. */
+    fun isServiceClusterPatchMounted(): Boolean =
+        readComponentStatus(SERVICE_APK, VENDOR_SERVICE_PATH).hasMatchingChecksums()
 
     /**
      * Bind-mount the patched Service APK. Does **not** force-stop
@@ -371,12 +396,13 @@ object AndroidAutoPatchManager {
         sb.append("Patch Files:\n$patchFiles\n\n")
         sb.append("Vendor Files:\n$vendorFiles\n\n")
 
-        sb.append("--- Integrity Check ---\n")
+        sb.append("--- File evidence (not runtime validation) ---\n")
+        sb.append("${AndroidAutoPatchStatus.RUNTIME_NOTICE}\n\n")
         sb.append("OAT Mounts:\n")
         val oatCheck1 = sh("ls /vendor/app/AndroidAutoService/oat 2>/dev/null").trim()
         val oatCheck2 = sh("ls /vendor/app/AndroidAutoApp/oat 2>/dev/null").trim()
-        sb.append("  Service OAT: ${if (isServicePatchInstalled()) { if (oatCheck1.isEmpty()) "EMPTY (OK)" else "NOT EMPTY (FAILED)" } else "STOCK (OK)"}\n")
-        sb.append("  App OAT:     ${if (oatCheck2.isEmpty()) "EMPTY (OK)" else "NOT EMPTY (FAILED)"}\n\n")
+        sb.append("  Service OAT output (empty is not mount proof): $oatCheck1\n")
+        sb.append("  App OAT output (empty is not mount proof): $oatCheck2\n\n")
         val targets = arrayOf(
             "/vendor/app/AndroidAutoService/AndroidAutoService.apk",
             "/vendor/app/AndroidAutoApp/AndroidAutoApp.apk"
@@ -389,12 +415,16 @@ object AndroidAutoPatchManager {
             sb.append("$fileName:\n")
             sb.append("  Vendor: $vendorMd5\n")
             sb.append("  Patch:  $patchMd5\n")
-            if (vendorMd5 == patchMd5 && vendorMd5.isNotEmpty()) {
-                sb.append("  Result: MATCH (Mounted)\n")
+            val validMd5 = Regex("[0-9a-fA-F]{32}")
+            if (!validMd5.matches(vendorMd5) || !validMd5.matches(patchMd5)) {
+                sb.append("  Result: UNKNOWN (missing or invalid checksum)\n")
+            } else if (vendorMd5.equals(patchMd5, ignoreCase = true)) {
+                sb.append("  Result: MD5 MATCH (file evidence only)\n")
             } else {
-                sb.append("  Result: MISMATCH (Not Mounted or Failed)\n")
+                sb.append("  Result: MD5 DIFFERENT (file evidence only)\n")
             }
         }
         return sb.toString()
     }
 }
+

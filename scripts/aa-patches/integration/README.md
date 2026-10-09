@@ -12,9 +12,10 @@ The original read-only preflight is unchanged and continues refusing patch mode.
   the existing receiver monitor, after checking both slots and fresh providers.
   Failed creation/configuration rolls back only owned providers. No native offset
   patches and no replacement of the MAIN sink, renderer, channel or listener
-- CLUSTER advertises displayId 1, H.264 baseline, 1280×720/30fps, density160 and
-  the existing vehicle viewing distance. These are explicit lab-profile values,
-  not new device measurements. The host's existing D3 bounds remain unchanged
+- CLUSTER advertises displayId 1, H.264 baseline, 1920×1080/30fps with a
+  360px total height margin, density160 and the existing vehicle viewing distance.
+  Actual decoder output dimensions/crop still require device evidence; the
+  advertised geometry does not independently establish a 1920×720 decoded frame
 - `autoStartProjection=false` suppresses automatic projection. Pending demand
   waits for setup. NATIVE/PROJECTED focus is sent only through the CLUSTER sink.
   A replacement Surface first withdraws focus, closes the old decoder, installs
@@ -111,6 +112,13 @@ handoff requires both `--enable-handoff` and one or more explicit
 not sign the Service, authorize installation, or make `deployment_ready` true.
 Do not send private signing keys/passwords to this tool or commit them.
 
+For a fresh, hash-bound **offline developer package** containing the unsigned
+Service and its validation receipt, see [PACKAGE-PREPARATION.md](PACKAGE-PREPARATION.md).
+That workflow never replaces `app/src/main/assets/aa_patches/`, stages a system
+file, signs, loads or enables automatic Service mounting. The existing default
+Service asset is not rebuilt by a normal Impulse Gradle build. Its replacement
+and any vehicle loading remain separate, uncompleted approval/validation gates.
+
 The builder uses fresh staging, compiles real helper/client Java against the
 pinned SDK, DEXes only program classes, validates generated helper/OEM member
 references, applies hooks to the exact original tree, assembles without signing,
@@ -122,10 +130,11 @@ and every other non-signature ZIP entry must be byte-identical; only classes.dex
 changes. Original signature entries must be absent. It publishes report.json
 and the new output directory only after checks pass; never overwrites an input.
 
-CI runs pure-core/hook/build-gate tests, Android28 Java compilation, host Kotlin/
-Java compilation and existing JVM unit tests. It does not receive the private
-OEM artifact, assemble an OEM APK, sign, access credentials, or publish a release.
-Both CI jobs explicitly check out the PR head SHA so the recorded result tests
+CI runs pure-core/hook/build/package-gate tests, Android28 Java compilation, a
+debug host build and JVM unit tests. The ordinary Android debug host build is
+not a signed OEM Service candidate. CI does not receive the private OEM artifact,
+assemble/sign an OEM APK, access release credentials, or publish a release.
+The workflow jobs explicitly check out the PR head SHA so the recorded result tests
 that exact commit, rather than GitHub's synthesized merge preview.
 
 ### M0 ZIP structure gate
