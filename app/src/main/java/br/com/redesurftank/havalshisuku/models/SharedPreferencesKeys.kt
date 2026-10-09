@@ -111,6 +111,10 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     // ===== Deslocamento do Android Auto no cluster (contorna o crop do menu lateral) =====
     ENABLE_AA_CLUSTER_OFFSET("enableAaClusterOffset", "Habilitar deslocamento do Android Auto no cluster"),
     AA_CLUSTER_LEFT_OFFSET("aaClusterLeftOffset", "Deslocamento horizontal do Android Auto no cluster (px)"),
+    AA_CLUSTER_MAP_CUSTOM_BOUNDS(
+            "aaClusterMapCustomBounds",
+            "Retângulo do mapa do Android Auto no D3 (\"esq,topo,dir,base\"); vazio = padrão do tema"
+    ),
     CAR_MONITOR_PROPERTIES("carMonitorProperties", "Propriedades do monitoramento do carro"),
     // ===== Modo Concessionária =====
     // Ao ENTRAR, o modo grava um retrato (JSON, com os tipos) de TODAS as preferências em

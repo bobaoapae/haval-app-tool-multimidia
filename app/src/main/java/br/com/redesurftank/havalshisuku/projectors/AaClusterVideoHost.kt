@@ -1,101 +1,236 @@
 package br.com.redesurftank.havalshisuku.projectors
 
 import android.content.Context
-import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.Rect
+import android.graphics.SurfaceTexture
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.Surface
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.view.TextureView
 import android.view.View
 import android.widget.FrameLayout
+import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.api.AaClusterProtocol
+import br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController
+import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+import br.com.redesurftank.havalshisuku.managers.ClusterSurfaceOutput
+import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import java.lang.ref.WeakReference
 
-/**
- * D3 CLUSTER video layer. Lives inside the Presentation under the native masks
- * and the theme WebView. MAIN [AapActivity] stays on display 0.
- */
+/** D3 video under the existing masks/WebView, with retained consumer ownership. */
 object AaClusterVideoHost {
     private const val TAG = "AaClusterVideo"
-
-    /** Clean-mode map band matching Minimalist AppDefaultPosition. */
     val DEFAULT_MAP_BOUNDS = intArrayOf(0, 62, 1920, 658)
+    private const val PANEL_WIDTH = 1920
+    private const val PANEL_HEIGHT = 720
+    @Volatile private var nativeCardShown = false
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Re-reads [mapBounds] (theme bounds changed). Any thread. */
+    fun refreshWindow(onBoundsApplied: ((IntArray) -> Unit)? = null) {
+        val refresh = Runnable {
+            val bounds = mapBounds()
+            textureView?.let { applyStreamTransform(it, bounds) }
+            // The hole must use exactly the clip just applied, in this same UI turn.
+            onBoundsApplied?.invoke(bounds)
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) refresh.run()
+        else mainHandler.post(refresh)
+    }
+
+    /** Pulls the map's right edge in while the car's native card is shown. Any thread. */
+    fun setNativeCardShown(shown: Boolean, onBoundsApplied: ((IntArray) -> Unit)? = null) {
+        val update = Runnable {
+            if (nativeCardShown != shown) {
+                nativeCardShown = shown
+                refreshWindow(onBoundsApplied)
+            }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) update.run()
+        else mainHandler.post(update)
+    }
+
+    /**
+     * Visible map window on D3 (the native-mask hole) as (left, top, right, bottom).
+     * The user's override wins within the panel and native-card exclusion. Otherwise
+     * the map spans the full panel width (Google's
+     * guidance card shows at its right edge, x≈1570–1910), or stops at the
+     * native-card line while that card is up, which also hides Google's card. Top and
+     * bottom follow the theme's default cluster app rect — the rect a regular app sent
+     * to D1/D3 gets — else [DEFAULT_MAP_BOUNDS].
+     */
+    fun mapBounds(): IntArray {
+        val custom = App.getDeviceProtectedContext()
+            .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+            .getString(SharedPreferencesKeys.AA_CLUSTER_MAP_CUSTOM_BOUNDS.key, null)
+        val theme = try { DisplayAppLauncher.themeClusterAppBounds() } catch (e: RuntimeException) { null }
+        return AaClusterGeometry.resolve(custom, theme, nativeCardShown)
+    }
+
+    internal fun parseBounds(value: String?): IntArray? {
+        return AaClusterGeometry.parseCustom(value)
+    }
     private var parentRef: WeakReference<FrameLayout>? = null
-    private var surfaceView: SurfaceView? = null
-    private var surface: Surface? = null
+    private var textureView: TextureView? = null
+    private var output: ClusterSurfaceOutput? = null
     private var shown = false
+    private var generation = 0L
+    private var width = 0
+    private var height = 0
 
     fun attachParent(parent: FrameLayout) {
+        if (parentRef?.get() !== parent) detachParent()
         parentRef = WeakReference(parent)
+        ClusterSurfaceOutput.setCapacityListener { adoptPendingConsumer() }
         ensureView(parent.context, parent)
+        AndroidAutoClusterController.onHostAvailable()
     }
 
     fun detachParent() {
-        hide()
+        AndroidAutoClusterController.onSurfaceDestroyed()
+        val oldView = textureView
         val parent = parentRef?.get()
-        surfaceView?.let { view ->
-            parent?.removeView(view)
-        }
-        surfaceView = null
-        surface = null
+        // Keep the per-view listener/owner alive. Its destruction callback must
+        // return false even when this global current-view pointer has moved on.
+        textureView = null
+        output = null
         parentRef = null
         shown = false
+        generation++
+        if (oldView != null) parent?.removeView(oldView)
     }
 
     fun show(context: Context): Boolean {
         val parent = parentRef?.get() ?: return false
         ensureView(context, parent)
-        val view = surfaceView ?: return false
+        val view = textureView ?: return false
+        applyStreamTransform(view)
         view.visibility = View.VISIBLE
         shown = true
+        adoptPendingConsumer()
         return true
     }
 
     fun hide() {
-        surfaceView?.visibility = View.GONE
+        textureView?.visibility = View.GONE
         shown = false
     }
-
     fun isShown(): Boolean = shown
+    fun peekSurface(): Surface? = output?.takeIf { it.isAvailable }?.surface
+    internal fun peekOutput(): ClusterSurfaceOutput? = output?.takeIf { it.isAvailable }
+    internal fun surfaceGeneration(): Long = generation
 
-    fun peekSurface(): Surface? = surface
+    /** Capacity can return after an old terminal ACK; no polling or forced release. */
+    private fun adoptPendingConsumer() {
+        val view = textureView ?: return
+        val owner = view.surfaceTextureListener as? TextureOwner ?: return
+        if (owner.adoptIfPossible()) {
+            output = owner.owned
+            generation++
+            width = view.width
+            height = view.height
+            output?.let { AndroidAutoClusterController.onSurfaceAvailable(it, generation) }
+        }
+    }
+
+    private class TextureOwner(private val view: TextureView) : TextureView.SurfaceTextureListener {
+        var owned: ClusterSurfaceOutput? = null
+            private set
+        private var currentTexture: SurfaceTexture? = null
+
+        fun adoptIfPossible(): Boolean {
+            if (view !== textureView || owned != null) return false
+            val texture = currentTexture ?: return false
+            if (!view.isAvailable || view.surfaceTexture !== texture) return false
+            owned = try { ClusterSurfaceOutput.adopt(texture) } catch (failure: RuntimeException) {
+                Log.e(TAG, "Cannot adopt CLUSTER consumer", failure)
+                null
+            }
+            return owned != null
+        }
+        override fun onSurfaceTextureAvailable(texture: SurfaceTexture, newWidth: Int, newHeight: Int) {
+            currentTexture = texture
+            applyStreamTransform(view)
+            if (view !== textureView) return
+            adoptPendingConsumer()
+        }
+        override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, newWidth: Int, newHeight: Int) {
+            if (texture !== currentTexture || view !== textureView) return
+            applyStreamTransform(view)
+            if (width != newWidth || height != newHeight) {
+                width = newWidth
+                height = newHeight
+                generation++
+                owned?.let { AndroidAutoClusterController.onSurfaceAvailable(it, generation) }
+            }
+        }
+        override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+            val matchesCurrent = texture === currentTexture
+            val retiring = owned?.takeIf { it.texture === texture }
+                ?: ClusterSurfaceOutput.retained(texture)
+            if (view === textureView && matchesCurrent) {
+                output = null
+                generation++
+                AndroidAutoClusterController.onSurfaceDestroyed()
+            }
+            if (matchesCurrent) currentTexture = null
+            if (owned === retiring) owned = null
+            if (retiring == null) return true // Never exposed; framework retains normal ownership.
+            // Android 9 has detached its hardware layer before this callback.
+            // Return false so forced display loss cannot abandon the consumer
+            // while the remote decoder/transport still has a live borrow.
+            retiring.detachViewOwner()
+            return false
+        }
+        override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {
+            // Framework RenderThread owns updateTexImage and GL attachment.
+        }
+    }
+
+    /**
+     * Maps the stream 1:1 onto the D3 panel (centre-crop, so the 1920x1080 frame's
+     * margins fall off) and clips the view to [mapBounds]. Nothing outside the map
+     * window is ever drawn. The full-width window retains the stream's right edge;
+     * the native-card exclusion clips it only while that card is shown. The view
+     * itself always fills the panel: moving only
+     * the clip keeps the SurfaceTexture size fixed, so a card change never restarts
+     * the decoder.
+     */
+    private fun applyStreamTransform(view: TextureView, bounds: IntArray = mapBounds()) {
+        val parent = view.parent as? View
+        val panelW = parent?.width?.takeIf { it > 0 } ?: PANEL_WIDTH
+        val panelH = parent?.height?.takeIf { it > 0 } ?: PANEL_HEIGHT
+        val clip = Rect(bounds[0], bounds[1], bounds[2], bounds[3])
+        if (view.clipBounds != clip) {
+            view.clipBounds = clip
+            Log.w(TAG, "CLUSTER map window=${bounds.joinToString(",")}")
+        }
+        val sw = AaClusterProtocol.STREAM_WIDTH.toFloat()
+        val sh = AaClusterProtocol.STREAM_HEIGHT.toFloat()
+        val crop = maxOf(panelW / sw, panelH / sh)
+        // TextureView stretches the buffer to the view; undo that per axis.
+        val matrix = Matrix()
+        matrix.setScale(sw * crop / panelW, sh * crop / panelH, panelW / 2f, panelH / 2f)
+        view.setTransform(matrix)
+    }
 
     private fun ensureView(context: Context, parent: FrameLayout) {
-        if (surfaceView != null) return
-        val view = SurfaceView(context).apply {
+        if (textureView != null) return
+        val view = TextureView(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 Gravity.FILL
             )
-            setBackgroundColor(Color.TRANSPARENT)
+            isOpaque = false
             visibility = View.GONE
-            holder.addCallback(
-                object : SurfaceHolder.Callback {
-                    override fun surfaceCreated(holder: SurfaceHolder) {
-                        surface = holder.surface
-                        Log.i(TAG, "CLUSTER Surface created")
-                    }
-
-                    override fun surfaceChanged(
-                        holder: SurfaceHolder,
-                        format: Int,
-                        width: Int,
-                        height: Int
-                    ) {
-                        surface = holder.surface
-                    }
-
-                    override fun surfaceDestroyed(holder: SurfaceHolder) {
-                        surface = null
-                        Log.i(TAG, "CLUSTER Surface destroyed")
-                    }
-                }
-            )
         }
-        surfaceView = view
-        // Under native masks (index 0 after this insert) and WebView.
+        view.surfaceTextureListener = TextureOwner(view)
+        textureView = view
         parent.addView(view, 0)
     }
 }

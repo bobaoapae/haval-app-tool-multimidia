@@ -209,6 +209,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
      * appInDash, so knowing this costs no extra Shizuku round trip.
      */
     private var display3AppRect: android.graphics.Rect? = null
+    /** A live external app/projection hole must never be replaced by an AA-only refresh. */
+    private var display3AppRectIsAaCluster = false
 
     /**
      * Cached wallpaper × d3_mask composite with no app hole. App-rect changes copy this and
@@ -966,6 +968,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             val appliedWidth = kotlin.math.max(100, kotlin.math.min(baseWidth, actualWidth))
             val rect =
                     android.graphics.Rect(baseX, baseY, baseX + appliedWidth, baseBottom)
+            display3AppRectIsAaCluster = false
             if (rect != display3AppRect) {
                 display3AppRect = rect
                 Log.w(TAG, "display3AppRect hole prepare reason=$reason rect=$rect")
@@ -1111,6 +1114,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val startedAt = SystemClock.uptimeMillis()
         val previousCard = currentCard
         currentCard = nextCard
+        // The mandatory card-mask pass below also paints the newly applied AA hole.
+        syncAaClusterMapWindow(redrawMasks = false)
         updateNativeMaskViews()
         updateKnownScreenForCard(nextCard)
 
@@ -1175,6 +1180,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         if (ClusterCardFlowPolicy.isCardBackedMenu(currentCard)) {
             isWarningDismissed = false
+            syncAaClusterMapWindow()
         }
         if (decision.syncVisibleCardValues) {
             updateCardEntryValuesWebView(currentCard)
@@ -1396,17 +1402,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             }
                         }
                         ServiceManagerEventType.AA_CLUSTER_SURFACE -> {
-                            val enabled = args.getOrNull(0) as? Boolean ?: false
+                            AaClusterVideoHost.refreshWindow { updateAaClusterAppHole(it) }
                             updateVirtualClusterVisibility(
                                     reason = "AA_CLUSTER_SURFACE",
                                     forceNativeMaskRefresh = true
                             )
-                            if (enabled) {
-                                prepareDisplay3AppHole(
-                                        AaClusterVideoHost.DEFAULT_MAP_BOUNDS,
-                                        reason = "AA_CLUSTER_SURFACE"
-                                )
-                            }
                         }
                         ServiceManagerEventType.RAW_KEY_EVENT -> {
                             val key = args[0] as br.com.redesurftank.havalshisuku.models.ClusterKey
@@ -1453,6 +1453,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         setContentView(root)
         setupControlView(root)
         AaClusterVideoHost.attachParent(root)
+        syncAaClusterMapWindow()
         if (AndroidAutoClusterController.isClusterRequested()) {
             AndroidAutoClusterController.setClusterMapEnabled(true, "projector_attach")
         }
@@ -2365,6 +2366,22 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         warningClearRunnable = null
     }
 
+    /** Same predicate as the D3 app clamp in [prepareDisplay3AppHole]. */
+    private fun syncAaClusterMapWindow(redrawMasks: Boolean = true) {
+        AaClusterVideoHost.setNativeCardShown(
+                !isWarningDismissed && (currentCard == ClusterCardIds.NATIVE_CARD || isWarningActive)
+        ) { updateAaClusterAppHole(it, redrawMasks) }
+    }
+
+    /** Called with the applied video clip on the UI thread; no resize/events/JS feedback. */
+    private fun updateAaClusterAppHole(bounds: IntArray, redrawMasks: Boolean = true) {
+        if (!display3AppRectIsAaCluster || !isAaClusterInDash()) return
+        val rect = android.graphics.Rect(bounds[0], bounds[1], bounds[2], bounds[3])
+        if (rect == display3AppRect) return
+        display3AppRect = rect
+        if (redrawMasks) updateNativeMaskViews()
+    }
+
     private fun applyWarningState(active: Boolean, reason: String) {
         val dismissed = !active && dismissedCards.isNotEmpty()
         val changed = active != isWarningActive || dismissed != isWarningDismissed
@@ -2376,6 +2393,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         isWarningActive = active
         isWarningDismissed = dismissed
+        syncAaClusterMapWindow()
 
         // Tell the theme BEFORE visibility/sync work. updateVirtualClusterVisibility can
         // spend multi-seconds on this UI thread (stack list + AA probe); previously
@@ -2942,6 +2960,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 }
 
         var appRectOnDisplay3: android.graphics.Rect? = null
+        var appRectIsAaCluster = false
 
         for (displayId in listOf(1, 3)) {
             val res =
@@ -3019,14 +3038,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 isLeftCovered = true
                 isRightCovered = true
             } else if (isAaClusterInDash()) {
-                val bounds = AaClusterVideoHost.DEFAULT_MAP_BOUNDS
+                val bounds = AaClusterVideoHost.mapBounds()
                 appRectOnDisplay3 =
                         android.graphics.Rect(bounds[0], bounds[1], bounds[2], bounds[3])
+                appRectIsAaCluster = true
                 isLeftCovered = true
                 isRightCovered = true
             }
         }
 
+        display3AppRectIsAaCluster = appRectIsAaCluster
         val rectChanged = appRectOnDisplay3 != display3AppRect
         if (rectChanged) {
             display3AppRect = appRectOnDisplay3?.let { android.graphics.Rect(it) }
@@ -3777,6 +3798,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     override fun refreshDisplayBounds() {
         Log.w(TAG, "refreshDisplayBounds: Triggering display app sync from frontend")
         ensureUi {
+            AaClusterVideoHost.refreshWindow { updateAaClusterAppHole(it) }
             // Do not clear lastAppliedConfigs up front. Clearing forced a resize on every
             // identical setAppDefaultDimensions call from theme render(); sync itself
             // compares target vs lastApplied and only resizes when the rect changed.
