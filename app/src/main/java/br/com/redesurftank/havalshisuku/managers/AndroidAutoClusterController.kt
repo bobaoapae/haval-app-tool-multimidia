@@ -35,7 +35,7 @@ object AndroidAutoClusterController {
                 isSessionActive() && AaClusterVideoHost.peekSurface()?.isValid == true
             surfaceAttached.set(live)
             notifyHostProjectionFlag(live)
-            Log.i(TAG, "CLUSTER state=$state live=$live reason=$reason")
+            Log.w(TAG, "CLUSTER state=$state live=$live reason=$reason")
         }
     }
     private val sessionPollRunnable = object : Runnable {
@@ -175,7 +175,7 @@ object AndroidAutoClusterController {
             surfaceAttached.set(false)
             notifyHostProjectionFlag(false)
             if (!AaClusterVideoHost.show(App.getContext())) {
-                Log.i(TAG, "CLUSTER awaits Presentation ($source)")
+                Log.w(TAG, "CLUSTER awaits Presentation ($source)")
                 return
             }
         }

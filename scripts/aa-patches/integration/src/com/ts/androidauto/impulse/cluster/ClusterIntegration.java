@@ -38,11 +38,16 @@ public final class ClusterIntegration {
     private static volatile Session active;
     private static volatile Request requested;
     private static volatile int status = AaClusterProtocol.DISABLED;
+    // Lab-only: true sends PROJECTED focus on setup without host demand (frames
+    // are ACKed and dropped). Milestones log at WARN
+    // because this unit drops Log.i/Log.d.
+    static final boolean LAB_SELF_FOCUS = false;
     static { WORKER.start(); CONTROL = new Handler(WORKER.getLooper()); }
     private ClusterIntegration() {}
 
     /** Exact pre-session hook. Failure leaves the existing OEM services intact. */
     public static void register(GalReceiver receiver, int viewingDistance) {
+        Log.w(TAG, "V2DIAG register hook entered handoff=" + GeneratedTrust.HANDOFF_ENABLED + " pins=" + GeneratedTrust.CLIENT_CERTIFICATES.length + " viewingDistance=" + viewingDistance);
         if (!GeneratedTrust.HANDOFF_ENABLED || GeneratedTrust.CLIENT_CERTIFICATES.length == 0) return;
         Session created = null;
         try {
@@ -59,6 +64,7 @@ public final class ClusterIntegration {
                     return;
                 }
                 active = created;
+                Log.w(TAG, "V2DIAG CLUSTER pair registered video=" + PairedRegistration.VIDEO_ID + " input=" + PairedRegistration.INPUT_ID + " gen=" + created.generation);
             }
             wake();
         } catch (Throwable problem) {
@@ -90,8 +96,10 @@ public final class ClusterIntegration {
             @Override public boolean create(int id, long pointer) { return provider.create(id, pointer); }
             @Override public void destroy() { provider.destroy(); }
         }
-        return PairedRegistration.register(registry, receiverPointer, stopping,
+        boolean ok = PairedRegistration.register(registry, receiverPointer, stopping,
                 new Adapter(video), new Adapter(input));
+        Log.w(TAG, "V2DIAG registerPair ok=" + ok + " stopping=" + stopping + " receiverPtr=" + (receiverPointer != 0) + " services=" + services.size());
+        return ok;
     }
 
     /** Synchronous native-access barrier, BEFORE OEM provider destruction. */
@@ -129,6 +137,7 @@ public final class ClusterIntegration {
                     throw new IllegalArgumentException("Stale CLUSTER request generation");
                 }
                 requested = next;
+                Log.w(TAG, "V2DIAG setOutput accepted uid=" + uid + " id=" + id + " enabled=" + enabled + " surface=" + (surface != null));
             }
         } catch (Exception problem) {
             try { callback.unlinkToDeath(next, 0); } catch (Throwable ignored) {}
@@ -244,10 +253,12 @@ public final class ClusterIntegration {
         private volatile boolean phoneFocusRequest;
         private Request failedRequest;
         private int lastFocus = -1;
+        private long frameCount;
         Session(GalReceiver receiver, int viewingDistance) {
             this.receiver = receiver;
             VideoSink.ProjectionListener listener = new VideoSink.ProjectionListener() {
                 @Override public void onCodecSetup(int codecType) {
+                    Log.w(TAG, "V2DIAG onCodecSetup codecType=" + codecType);
                     try {
                         unsupportedCodec = codecType != Protos.MediaCodecType.MEDIA_CODEC_VIDEO_H264_BP.getNumber();
                         guard.onSetup(); wake();
@@ -268,6 +279,7 @@ public final class ClusterIntegration {
                             if (pendingSps != null && pendingPps != null) {
                                 snapshot=new Config(++configVersion,pendingSps,pendingPps);
                                 pendingSps=null;pendingPps=null;Session.this.notifyAll();
+                                Log.w(TAG, "V2DIAG codec config ready version=" + configVersion);
                             }
                         }
                         // Explicit OEM parity: config has synthetic session0 ACK,
@@ -281,6 +293,8 @@ public final class ClusterIntegration {
                 }
                 @Override public void onProjectionUpdate(VideoFrame frame) {
                     if (frame == null || frame.data == null) return;
+                    long n = ++frameCount;
+                    if (n == 1 || n % 3000 == 0) Log.w(TAG, "V2DIAG frame n=" + n + " session=" + frame.sessionId + " job=" + (job != null));
                     RenderJob current = job;
                     try {
                         if (retired.get() || current == null || current.request != requested) {
@@ -293,6 +307,7 @@ public final class ClusterIntegration {
                     } catch (Throwable problem) { problem(problem, current == null ? requested : current.request, current); }
                 }
                 @Override public void onVideoFocusRequest(int mode, int reason) {
+                    Log.w(TAG, "V2DIAG phone focus request mode=" + mode + " reason=" + reason);
                     phoneFocusRequest=true; wake();
                 }
             };
@@ -344,13 +359,19 @@ public final class ClusterIntegration {
         private void focus(boolean enabled) {
             int wanted=enabled?1:2;
             boolean reply=phoneFocusRequest;
-            if ((wanted!=lastFocus || reply) && guard.focus(wanted,!reply)) {
-                lastFocus=wanted;phoneFocusRequest=false;
+            if (wanted!=lastFocus || reply) {
+                boolean sent = guard.focus(wanted,!reply);
+                Log.w(TAG, "V2DIAG focus mode=" + wanted + " unsolicited=" + !reply + " sent=" + sent);
+                if (sent) { lastFocus=wanted;phoneFocusRequest=false; }
             }
         }
         void apply(Request request) {
             if (retired.get() || active != this) { stopRendering("obsolete session"); return; }
             boolean wanted=request!=null && request.enabled && !request.dead;
+            if (!wanted && job==null && LAB_SELF_FOCUS) {
+                if (guard.isReady()) focus(true);
+                return;
+            }
             if (job!=null && (job.request!=request || !wanted)) {
                 // A fresh Surface needs a fresh stream start/IDR. Retain NATIVE
                 // until the replacement ownership pump is installed below.

@@ -11,7 +11,19 @@ public final class AaClusterProtocol {
     public static final String CLIENT_PACKAGE = "br.com.redesurftank.havalshisuku";
     public static final String SERVICE_PACKAGE = "com.ts.androidauto.projectionservice";
     public static final String SERVICE_ACTION = "com.ts.androidauto.action.AndroidAutoService";
-    public static final String OEM_SIGNER_SHA256 = "7be3a99482e3f2f7f4f411f0a5a571ac97a505e500f9e05863fa8574e00baeb0";
+    /**
+     * Accepted projection-Service signers as PackageManager reports them.
+     * The bind-mounted Service is not re-verified after boot, so PM keeps the
+     * stock Service's boot-scan signer: on bean07021019 that is the OEM
+     * projection key (3c7d70…), not the platform key (7be3a9…).
+     */
+    public static final String[] OEM_SIGNER_SHA256 = {
+        "7be3a99482e3f2f7f4f411f0a5a571ac97a505e500f9e05863fa8574e00baeb0",
+        "3c7d703011f11ea2a4baa35ba2c522d6b03e3af011d70dcb95c1331f11ad0f65",
+    };
+    /** Coded CLUSTER stream size the Service advertises (VIDEO_1280x720). */
+    public static final int STREAM_WIDTH = 1280;
+    public static final int STREAM_HEIGHT = 720;
     public static final int QUERY = 1;
     public static final int SET_OUTPUT = 2;
     public static final int CALLBACK_STATE = 1;

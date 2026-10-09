@@ -1403,7 +1403,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             )
                             if (enabled) {
                                 prepareDisplay3AppHole(
-                                        AaClusterVideoHost.DEFAULT_MAP_BOUNDS,
+                                        AaClusterVideoHost.mapBounds(),
                                         reason = "AA_CLUSTER_SURFACE"
                                 )
                             }
@@ -3019,7 +3019,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 isLeftCovered = true
                 isRightCovered = true
             } else if (isAaClusterInDash()) {
-                val bounds = AaClusterVideoHost.DEFAULT_MAP_BOUNDS
+                val bounds = AaClusterVideoHost.mapBounds()
                 appRectOnDisplay3 =
                         android.graphics.Rect(bounds[0], bounds[1], bounds[2], bounds[3])
                 isLeftCovered = true
