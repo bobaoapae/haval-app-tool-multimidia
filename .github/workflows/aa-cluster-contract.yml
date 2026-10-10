@@ -12,7 +12,12 @@ on:
       - 'app/src/main/java/br/com/redesurftank/havalshisuku/api/ClusterReleaseLedger.java'
       - 'app/src/main/java/br/com/redesurftank/havalshisuku/managers/ClusterSurfaceOutput.java'
       - 'app/src/main/java/br/com/redesurftank/havalshisuku/managers/AndroidAutoCluster*'
-      - 'app/src/main/java/br/com/redesurftank/havalshisuku/projectors/AaClusterVideoHost.kt'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/managers/AndroidAutoPatch*'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/ui/screens/InstallAppsScreen.kt'
+      - 'app/src/test/java/br/com/redesurftank/havalshisuku/managers/AndroidAutoPatch*'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/projectors/AaCluster*'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/projectors/InstrumentProjector2.kt'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/bridge/ThemeBridgeImpl.kt'
       - '.github/workflows/aa-cluster-contract.yml'
 
 permissions:
@@ -60,5 +65,6 @@ jobs:
           unzip -q scripts/.build/ci-sdk/platform.zip -d scripts/.build/ci-sdk/platform
           ANDROID_JAR="$(find scripts/.build/ci-sdk/platform -name android.jar -type f)"
           python3 scripts/aa-patches/integration/build_unsigned.py --compile-only --android-jar "$ANDROID_JAR" --output scripts/.build/ci-cluster-source
-      - name: Compile host and run existing JVM unit tests without signing
-        run: bash gradlew :app:compileDebugKotlin :app:compileDebugJavaWithJavac :app:testDebugUnitTest --no-daemon
+      - name: Build debug host and run JVM unit tests (no OEM Service signing)
+        run: bash gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon
+

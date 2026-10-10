@@ -39,6 +39,7 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.TAG
 import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.havalshisuku.managers.AndroidAutoPatchManager
+import br.com.redesurftank.havalshisuku.managers.AndroidAutoPatchStatus
 import br.com.redesurftank.havalshisuku.managers.StartupAppManager
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 import br.com.redesurftank.havalshisuku.managers.CarPlayPatchManager
@@ -102,8 +103,10 @@ fun InstallAppsTab() {
     var urlInput by remember { mutableStateOf("") }
     var downloadingUrl by remember { mutableStateOf(false) }
     var urlProgress by remember { mutableFloatStateOf(0f) }
-    var isPatchInstalled by remember { mutableStateOf(AndroidAutoPatchManager.isPatchInstalled()) }
-    var isMounted by remember { mutableStateOf(AndroidAutoPatchManager.isMounted()) }
+    var aaPatchState by remember { mutableStateOf(AndroidAutoPatchStatus.PollState.initial()) }
+    val aaPatchStatus = aaPatchState.snapshot
+    val isPatchInstalled = aaPatchStatus.app.hasStagedFile()
+    val appChecksumsMatch = aaPatchStatus.app.hasMatchingChecksums()
     var isCarPlayPatchInstalled by remember {
         mutableStateOf(CarPlayPatchManager.isPatchInstalled())
     }
@@ -145,20 +148,27 @@ fun InstallAppsTab() {
 
     LaunchedEffect(Unit) {
         while (true) {
+            val generation = aaPatchState.generation
+            val status = withContext(Dispatchers.IO) {
+                AndroidAutoPatchManager.readPatchStatus()
+            }
+            aaPatchState = aaPatchState.accept(generation, status)
+            delay(4000)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
             // Estas checagens rodam shells Shizuku (ls/md5sum de APKs grandes). Rodar fora da
             // main thread (IO) e num intervalo maior — o estado dos patches muda raramente.
             val states = withContext(Dispatchers.IO) {
                 listOf(
-                    AndroidAutoPatchManager.isPatchInstalled(),
-                    AndroidAutoPatchManager.isMounted(),
                     CarPlayPatchManager.isPatchInstalled(),
                     CarPlayPatchManager.isMounted()
                 )
             }
-            isPatchInstalled = states[0]
-            isMounted = states[1]
-            isCarPlayPatchInstalled = states[2]
-            isCarPlayMounted = states[3]
+            isCarPlayPatchInstalled = states[0]
+            isCarPlayMounted = states[1]
             val homeNow = runCatching { pm.getPackageInfo(IMPULSE_HOME_PACKAGE, 0) }.isSuccess
             if (homeNow && !homeWasInstalled) {
                 homeSetupCanOpen = true
@@ -512,19 +522,14 @@ fun InstallAppsTab() {
         // Home e o "abrir ao ligar". A grade tem 4 colunas, entao cada um ocupa 1 e eles caem
         // sozinhos na mesma linha; os apps genericos seguem abaixo, 4 por linha.
         item {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             FeatureCard(
                     icon = Icons.Default.Shield,
-                    iconTint = if (isMounted) ImpTokens.Accent else Color.White,
-                    highlighted = isMounted,
+                    iconTint = if (appChecksumsMatch) ImpTokens.Accent else Color.White,
+                    highlighted = appChecksumsMatch,
                     title = "Android Auto Patch",
                     subtitle = "Melhora a projeção do Android Auto no cluster do carro, evitando interrupções e garantindo a melhor visualização do mapa na navegação.",
-                    status =
-                            when {
-                                isMounted -> "Ativo"
-                                isPatchInstalled -> "Instalado"
-                                else -> "Nao instalado"
-                            },
-                    statusTint = if (isMounted) ImpTokens.Accent else ImpTokens.TextSecondary,
+                    status = null,
                     subtitleBelowTitle = true,
                     extra =
                             if (isPatchInstalled) {
@@ -568,22 +573,25 @@ fun InstallAppsTab() {
                                 }
                             } else null
             ) {
-                if (!isPatchInstalled) {
+                if (aaPatchStatus.app.stagedPresence == AndroidAutoPatchStatus.Presence.ABSENT) {
                     CardButton("Instalar", ImpTokens.Accent) {
-                        if (AndroidAutoPatchManager.installPatches(context)) isPatchInstalled = true
+                        aaPatchState = aaPatchState.reset()
+                        AndroidAutoPatchManager.installPatches(context)
                     }
-                } else {
+                } else if (isPatchInstalled) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (!isMounted) {
+                        if (!appChecksumsMatch) {
                             CardButton("Ativar", Color(0xFF4CAF50)) {
-                                if (AndroidAutoPatchManager.applyMounts()) isMounted = true
+                                aaPatchState = aaPatchState.reset()
+                                AndroidAutoPatchManager.applyMounts()
                             }
                         } else {
                             CardButton("Desativar", Color(0xFFF44336)) {
-                                if (AndroidAutoPatchManager.removeMounts()) isMounted = false
+                                aaPatchState = aaPatchState.reset()
+                                AndroidAutoPatchManager.removeMounts()
                             }
                         }
                         IconButton(
@@ -600,8 +608,12 @@ fun InstallAppsTab() {
                         }
                         IconButton(
                                 onClick = {
-                                    diagnosticsText = AndroidAutoPatchManager.getDiagnostics()
-                                    showDiagnostics = true
+                                    scope.launch {
+                                        diagnosticsText = withContext(Dispatchers.IO) {
+                                            AndroidAutoPatchManager.getDiagnostics()
+                                        }
+                                        showDiagnostics = true
+                                    }
                                 },
                                 modifier = Modifier.size(36.dp)
                         ) {
@@ -613,6 +625,30 @@ fun InstallAppsTab() {
                         }
                     }
                 }
+            }
+                // Keep file evidence outside FeatureCard's fixed height so both existing
+                // auto-mount switches retain their layout and the caveat can wrap.
+                Text(
+                    "App visual: ${aaPatchStatus.app.summary}",
+                    color = if (appChecksumsMatch) ImpTokens.Accent else ImpTokens.TextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 14.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+                Text(
+                    "Service: ${aaPatchStatus.service.summary}",
+                    color = ImpTokens.TextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 14.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+                Text(
+                    AndroidAutoPatchStatus.RUNTIME_NOTICE,
+                    color = ImpTokens.TextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
             }
         }
 
@@ -1138,12 +1174,17 @@ fun InstallAppsTab() {
                         isPatchUninstall = null
                         when (patch) {
                             "aa" -> {
+                                aaPatchState = aaPatchState.reset()
                                 scope.launch(Dispatchers.IO) {
-                                    if (AndroidAutoPatchManager.uninstallPatches()) {
+                                    try {
+                                        if (AndroidAutoPatchManager.uninstallPatches()) {
+                                            withContext(Dispatchers.Main) {
+                                                refreshTrigger++
+                                            }
+                                        }
+                                    } finally {
                                         withContext(Dispatchers.Main) {
-                                            isPatchInstalled = false
-                                            isMounted = false
-                                            refreshTrigger++
+                                            aaPatchState = aaPatchState.reset()
                                         }
                                     }
                                 }

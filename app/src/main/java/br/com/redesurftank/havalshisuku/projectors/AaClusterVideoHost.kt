@@ -27,9 +27,6 @@ object AaClusterVideoHost {
     val DEFAULT_MAP_BOUNDS = intArrayOf(0, 62, 1920, 658)
     private const val PANEL_WIDTH = 1920
     private const val PANEL_HEIGHT = 720
-    /** Same 70% line apps on D3 clear while the native card or a warning is up. */
-    private const val NATIVE_CARD_LEFT = (PANEL_WIDTH * 0.7f).toInt()
-
     @Volatile private var nativeCardShown = false
 
     /** Edge fades over the map (under the theme): hide Google's guidance card and logo. */
@@ -48,28 +45,34 @@ object AaClusterVideoHost {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /** Re-reads [mapBounds] (theme bounds changed). Any thread. */
-    fun refreshWindow() {
-        mainHandler.post { textureView?.let { applyStreamTransform(it) } }
+    fun refreshWindow(onBoundsApplied: ((IntArray) -> Unit)? = null) {
+        val refresh = Runnable {
+            val bounds = mapBounds()
+            textureView?.let { applyStreamTransform(it, bounds) }
+            // The hole must use exactly the clip just applied, in this same UI turn.
+            onBoundsApplied?.invoke(bounds)
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) refresh.run()
+        else mainHandler.post(refresh)
     }
 
     /** Pulls the map's right edge in while the car's native card is shown. Any thread. */
-    fun setNativeCardShown(shown: Boolean) {
-        if (nativeCardShown == shown) return
-        nativeCardShown = shown
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            textureView?.let { applyStreamTransform(it) }
-            syncFades()
-        } else {
-            mainHandler.post {
-                textureView?.let { applyStreamTransform(it) }
+    fun setNativeCardShown(shown: Boolean, onBoundsApplied: ((IntArray) -> Unit)? = null) {
+        val update = Runnable {
+            if (nativeCardShown != shown) {
+                nativeCardShown = shown
+                refreshWindow(onBoundsApplied)
                 syncFades()
             }
         }
+        if (Looper.myLooper() == Looper.getMainLooper()) update.run()
+        else mainHandler.post(update)
     }
 
     /**
      * Visible map window on D3 (the native-mask hole) as (left, top, right, bottom).
-     * The user's override wins. Otherwise the map spans the full panel width (Google's
+     * The user's override wins within the panel and native-card exclusion. Otherwise
+     * the map spans the full panel width (Google's
      * guidance card shows at its right edge, x≈1570–1910), or stops at the
      * native-card line while that card is up, which also hides Google's card. Top and
      * bottom follow the theme's default cluster app rect — the rect a regular app sent
@@ -79,21 +82,12 @@ object AaClusterVideoHost {
         val custom = App.getDeviceProtectedContext()
             .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
             .getString(SharedPreferencesKeys.AA_CLUSTER_MAP_CUSTOM_BOUNDS.key, null)
-        parseBounds(custom)?.let { return it }
         val theme = try { DisplayAppLauncher.themeClusterAppBounds() } catch (e: RuntimeException) { null }
-        val (top, bottom) = if (theme != null && theme[2] > 0 && theme[3] > 0) {
-            theme[1] to theme[1] + theme[3]
-        } else {
-            DEFAULT_MAP_BOUNDS[1] to DEFAULT_MAP_BOUNDS[3]
-        }
-        return intArrayOf(0, top, if (nativeCardShown) NATIVE_CARD_LEFT else PANEL_WIDTH, bottom)
+        return AaClusterGeometry.resolve(custom, theme, nativeCardShown)
     }
 
     internal fun parseBounds(value: String?): IntArray? {
-        val parts = value?.split(',')?.map { it.trim().toIntOrNull() } ?: return null
-        if (parts.size != 4 || parts.any { it == null }) return null
-        val (l, t, r, b) = parts.map { it!! }
-        return if (l >= 0 && t >= 0 && r - l >= 100 && b - t >= 100) intArrayOf(l, t, r, b) else null
+        return AaClusterGeometry.parseCustom(value)
     }
     private var parentRef: WeakReference<FrameLayout>? = null
     private var textureView: TextureView? = null
@@ -226,11 +220,10 @@ object AaClusterVideoHost {
      * the clip keeps the SurfaceTexture size fixed, so a card change never restarts
      * the decoder.
      */
-    private fun applyStreamTransform(view: TextureView) {
+    private fun applyStreamTransform(view: TextureView, bounds: IntArray = mapBounds()) {
         val parent = view.parent as? View
         val panelW = parent?.width?.takeIf { it > 0 } ?: PANEL_WIDTH
         val panelH = parent?.height?.takeIf { it > 0 } ?: PANEL_HEIGHT
-        val bounds = mapBounds()
         val clip = Rect(bounds[0], bounds[1], bounds[2], bounds[3])
         if (view.clipBounds != clip) {
             view.clipBounds = clip

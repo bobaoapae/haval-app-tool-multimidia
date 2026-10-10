@@ -26,12 +26,31 @@ object AndroidAutoClusterController {
     private val directionsPublisher = AndroidAutoNavigationTelemetry.Publisher()
     private val started = AtomicBoolean(false)
     private val clusterRequested = AtomicBoolean(false)
-    private val navigationActive = AtomicBoolean(false)
     private val demandEpoch = AtomicLong()
     private val surfaceAttached = AtomicBoolean(false)
     private var deliveredGeneration = -1L // main-thread Surface lifecycle token
     private var deliveredDemandEpoch = -1L
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val navigationDebouncer = AndroidAutoClusterNavigationDebouncer(
+        NAVIGATION_HIDE_DEBOUNCE_MS,
+        object : AndroidAutoClusterNavigationDebouncer.Scheduler {
+            override fun postDelayed(callback: Runnable, delayMs: Long) {
+                mainHandler.postDelayed(callback, delayMs)
+            }
+
+            override fun removeCallbacks(callback: Runnable) {
+                mainHandler.removeCallbacks(callback)
+            }
+        }
+    ) { active ->
+        if (active) {
+            Log.w(TAG, "CLUSTER navigation started")
+            if (clusterRequested.get()) attachIfSessionAllows("navigation_started")
+        } else {
+            Log.w(TAG, "CLUSTER navigation ended; hiding map")
+            attachIfSessionAllows("navigation_ended")
+        }
+    }
     private val client by lazy {
         AndroidAutoClusterClient(App.getContext()) { state, reason ->
             val live = state == AaClusterProtocol.LIVE && wantsOutput() &&
@@ -85,7 +104,7 @@ object AndroidAutoClusterController {
 
     /** The map shows only while the theme asked for it, AA is linked and Maps is guiding. */
     private fun wantsOutput(): Boolean =
-        clusterRequested.get() && isSessionActive() && navigationActive.get()
+        clusterRequested.get() && isSessionActive() && navigationDebouncer.isActive
 
     fun isSurfaceAttached(): Boolean = surfaceAttached.get()
 
@@ -108,7 +127,7 @@ object AndroidAutoClusterController {
     }
 
     fun onNavigationUpdate(update: AndroidAutoNavigationTelemetry.Directions, nowMs: Long = SystemClock.elapsedRealtime()) {
-        onNavigationActive(update.active)
+        navigationDebouncer.onNavigationActive(update.active)
         publishDirections(update, nowMs, force = false)
         mainHandler.removeCallbacks(flushDirectionsRunnable)
         mainHandler.postDelayed(flushDirectionsRunnable, AndroidAutoNavigationTelemetry.THROTTLE_MS)
@@ -117,26 +136,6 @@ object AndroidAutoClusterController {
     fun snapshotDirectionsJson(): String = directionsPublisher.lastJson()
 
     fun peekSurface(): Surface? = AaClusterVideoHost.peekSurface()
-
-    private val navigationEndedRunnable = Runnable {
-        if (navigationActive.getAndSet(false)) {
-            Log.w(TAG, "CLUSTER navigation ended; hiding map")
-            attachIfSessionAllows("navigation_ended")
-        }
-    }
-
-    private fun onNavigationActive(active: Boolean) {
-        if (active) {
-            mainHandler.removeCallbacks(navigationEndedRunnable)
-            if (!navigationActive.getAndSet(true)) {
-                Log.w(TAG, "CLUSTER navigation started")
-                if (clusterRequested.get()) attachIfSessionAllows("navigation_started")
-            }
-        } else if (navigationActive.get()) {
-            mainHandler.removeCallbacks(navigationEndedRunnable)
-            mainHandler.postDelayed(navigationEndedRunnable, NAVIGATION_HIDE_DEBOUNCE_MS)
-        }
-    }
 
     private val flushDirectionsRunnable = Runnable {
         val json = directionsPublisher.flushPending(SystemClock.elapsedRealtime()) ?: return@Runnable
@@ -159,8 +158,7 @@ object AndroidAutoClusterController {
 
     private fun onSessionStopped() {
         if (clusterRequested.getAndSet(false)) demandEpoch.incrementAndGet()
-        mainHandler.removeCallbacks(navigationEndedRunnable)
-        navigationActive.set(false)
+        navigationDebouncer.reset()
         detachSurface("session_stopped")
         directionsPublisher.reset()
         ServiceManager.getInstance().dispatchTelemetryOnly(

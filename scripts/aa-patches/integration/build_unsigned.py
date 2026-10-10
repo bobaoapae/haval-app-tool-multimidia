@@ -38,6 +38,67 @@ CHANGED_STOCK = {
     "com/google/android/projection/protocol/GalReceiver.smali",
     "com/ts/androidauto/projectionservice/AndroidAutoService$LinkCommandBinder.smali",
 }
+# This is the existing v9 host allowlist, not authorization for new trust.
+HOST_SERVICE_SIGNERS_SHA256 = (
+    "7be3a99482e3f2f7f4f411f0a5a571ac97a505e500f9e05863fa8574e00baeb0",
+    "3c7d703011f11ea2a4baa35ba2c522d6b03e3af011d70dcb95c1331f11ad0f65",
+)
+PROTOCOL_VERSION = 2
+PROTOCOL_PROFILE = "stock48ff-cluster-v2"
+REPORT_SCHEMA = 2
+
+
+def source_manifest() -> dict:
+    """Hash the actual compilation/verification inputs, not a claimed Git revision."""
+    api = ROOT / "app/src/main/java/br/com/redesurftank/havalshisuku/api"
+    managers = api.parent / "managers"
+    paths = [HERE / name for name in ("build_unsigned.py", "patch_service_hooks.py",
+                                    "verify_helper_references.py")]
+    paths += [api / name for name in ("AaClusterProtocol.java", "ClusterLeaseBarrier.java",
+                                     "ClusterReleaseLedger.java")]
+    paths += [managers / name for name in ("AndroidAutoClusterClient.java", "ClusterSurfaceOutput.java")]
+    paths += [HERE.parent / "prototype/ClusterFramePump.java"]
+    for folder in (HERE / "src", HERE / "api-stubs"):
+        if not folder.is_dir():
+            raise ValueError("Missing source directory")
+        entries = list(folder.rglob("*"))
+        if any(path.is_symlink() for path in entries):
+            raise ValueError("Symlink in source inventory")
+        paths += [path for path in entries if path.suffix == ".java"]
+    files = {}
+    for path in paths:
+        if any(part.is_symlink() for part in (path, *path.parents)) or not path.is_file():
+            raise ValueError("Source must be a regular non-symlink file")
+        files[path.relative_to(ROOT).as_posix()] = digest(path)
+    files = dict(sorted(files.items()))
+    return {"files_sha256": files,
+            "inventory_sha256": hashlib.sha256(json.dumps(files, sort_keys=True,
+                                            separators=(",", ":")).encode()).hexdigest()}
+
+
+def host_service_signers() -> list[str]:
+    """Read and verify the exact pre-existing v9 host pins without changing them."""
+    protocol = (ROOT / "app/src/main/java/br/com/redesurftank/havalshisuku/api/AaClusterProtocol.java").read_text(encoding="utf-8")
+    arrays = re.findall(r'public static final String\[\] OEM_SIGNER_SHA256\s*=\s*\{([^}]+)\};', protocol)
+    pins = re.findall(r'"([0-9a-f]{64})"', arrays[0]) if len(arrays) == 1 else []
+    if (pins != list(HOST_SERVICE_SIGNERS_SHA256)
+            or re.findall(r'"([0-9a-f]{64})"', protocol) != pins
+            or protocol.count("OEM_SIGNER_SHA256") != 1
+            or re.sub(r'"[0-9a-f]{64}"|[\s,]', '', arrays[0]) != ''):
+        raise ValueError("Host must retain the reviewed existing v9 Service signer allowlist")
+    return pins
+
+
+def profile_manifest() -> dict:
+    protocol = (ROOT / "app/src/main/java/br/com/redesurftank/havalshisuku/api/AaClusterProtocol.java").read_text(encoding="utf-8")
+    if (re.findall(r'public static final int VERSION\s*=\s*(\d+)\s*;', protocol) != [str(PROTOCOL_VERSION)]
+            or re.findall(r'public static final String PROFILE\s*=\s*"([^"\r\n]+)"\s*;', protocol) != [PROTOCOL_PROFILE]):
+        raise ValueError("Source protocol version/profile differs from reviewed package contract")
+    return {"source_apk_sha256": hooks.APK_SHA256,
+            "protocol_version": PROTOCOL_VERSION, "protocol_profile": PROTOCOL_PROFILE,
+            "smali_tree_sha256": hooks.VERIFIED_PROFILE.tree_sha256,
+            "smali_class_sha256": dict(hooks.VERIFIED_PROFILE.class_hashes),
+            "host_service_signers_sha256": host_service_signers()}
 
 
 def digest(path: Path) -> str:
@@ -108,7 +169,7 @@ def compile_sources(work: Path, android: Path, trust: str) -> None:
         directory.mkdir()
     generated = work / "generated/com/ts/androidauto/impulse/cluster/GeneratedTrust.java"
     generated.parent.mkdir(parents=True)
-    generated.write_text(trust)
+    generated.write_text(trust, encoding="utf-8", newline="\n")
     protocol = ROOT / "app/src/main/java/br/com/redesurftank/havalshisuku/api/AaClusterProtocol.java"
     pump = HERE.parent / "prototype/ClusterFramePump.java"
     barrier = ROOT / "app/src/main/java/br/com/redesurftank/havalshisuku/api/ClusterLeaseBarrier.java"
@@ -460,6 +521,7 @@ def main(argv=None) -> int:
                 raise ValueError("Pinned SDK zipalign supports macOS, Linux and Windows only")
             zipalign = pinned(args.zipalign, ZIPALIGN_HASHES[sys.platform])
             require_assembly_java()
+        sources = source_manifest()
         output = args.output.resolve()
         if output.exists():
             raise ValueError("Output must be a new directory; no existing output is overwritten")
@@ -472,14 +534,24 @@ def main(argv=None) -> int:
                       "host_kotlin_compile": False, "handoff_enabled": args.enable_handoff,
                       "client_public_certificate_sha256": sorted(set(args.client_cert_sha256)),
                       "deployment_ready": False, "signed": False, "vehicle_validated": False,
-                      "tool_sha256": dict(TOOL_HASHES), "unsigned_assembly": False}
+                      "tool_sha256": dict(TOOL_HASHES), "unsigned_assembly": False,
+                      "report_schema": REPORT_SCHEMA,
+                      "provenance": {"sources": sources, "profile": profile_manifest(),
+                                     "generated_trust_sha256": hashlib.sha256(trust.encode()).hexdigest()}}
             if not args.compile_only:
                 report["tool_sha256"]["zipalign"] = ZIPALIGN_HASHES[sys.platform]
                 report["assembly"] = assemble(work, source, android, apktool, r8, zipalign)
                 report["unsigned_assembly"] = True
                 report["assembly_java_major"] = ASSEMBLY_JAVA_MAJOR
                 report["source_apk_sha256"] = hooks.APK_SHA256
-            (work / "report.json").write_text(json.dumps(report, indent=2)+"\n")
+            if source_manifest() != sources:
+                raise ValueError("Source inputs changed during validation")
+            for path, expected in ((android, TOOL_HASHES["android"]), (source, hooks.APK_SHA256),
+                                   (apktool, TOOL_HASHES["apktool"]), (r8, TOOL_HASHES["r8"]),
+                                   (zipalign, ZIPALIGN_HASHES.get(sys.platform))):
+                if path is not None:
+                    pinned(path, expected)
+            (work / "report.json").write_text(json.dumps(report, indent=2)+"\n", encoding="utf-8", newline="\n")
             work.rename(output)
         print(json.dumps(report, indent=2))
         return 0
