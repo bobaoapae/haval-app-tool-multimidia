@@ -1,3 +1,7 @@
+> Historical validation record for its stated commits. For the current PR152
+> consolidation scope and trust/loading changes, see
+> [CONSOLIDATION-PR152-20261011.md](CONSOLIDATION-PR152-20261011.md).
+
 # HAV-24 host runtime follow-up, 2026-10-09
 
 ## Scope

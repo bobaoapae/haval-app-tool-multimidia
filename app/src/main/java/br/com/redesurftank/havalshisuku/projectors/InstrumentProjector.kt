@@ -14,6 +14,7 @@ import android.content.SharedPreferences
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.isVisible
 import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.managers.ClusterBackgroundSync
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
@@ -42,7 +43,7 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
             key == SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key
         ) {
             ensureUi {
-                ClusterBackgroundSync.markD1NotReady()
+                clearD1Ready("prefs_changed")
                 applyCustomBackground()
                 updateBackgroundVisibility()
             }
@@ -177,7 +178,24 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
     private fun currentIdentity(): String = ClusterBackgroundSync.identityFromPrefs(sharedPreferences)
 
     private fun signalD1Ready() {
-        ClusterBackgroundSync.markD1Ready(currentIdentity())
+        val identity = currentIdentity()
+        ClusterBackgroundSync.markD1Ready(identity)
+        ClusterPersistentEventLogger.log(
+                "d1_bg_ready",
+                mapOf("identity" to identity, "visible" to (::rootLayout.isInitialized && rootLayout.isVisible))
+        )
+    }
+
+    private fun clearD1Ready(reason: String) {
+        ClusterBackgroundSync.markD1NotReady()
+        ClusterPersistentEventLogger.log(
+                "d1_bg_not_ready",
+                mapOf(
+                        "reason" to reason,
+                        "identity" to currentIdentity(),
+                        "visible" to (::rootLayout.isInitialized && rootLayout.isVisible)
+                )
+        )
     }
 
     private fun clearWallpaperSurface() {
@@ -407,18 +425,24 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
         val isEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
         val isScreenOn = ServiceManager.getInstance().isMainScreenOn
 
-        Log.d(TAG, "Visibility check: isAnyAppOnDisplay1=$isAnyAppOnDisplay1, isScreenOn=$isScreenOn, isEnabled=$isEnabled")
+        Log.w(TAG, "Visibility check: isAnyAppOnDisplay1=$isAnyAppOnDisplay1, isScreenOn=$isScreenOn, isEnabled=$isEnabled")
 
         // When an app is on D1, hide this wallpaper so the app is visible. (D3 uses an
         // app-rect hole in its native mask instead — see InstrumentProjector2.display3AppRect.
         // No matching full-frame mask is applied on D1.)
         // D3 must not wait for D1 paint while the wallpaper is intentionally covered — the
         // ClusterBackgroundSync hold is skipped when appOnDisplay1 is true.
+        //
+        // Screen-off / disabled MUST clear the ready latch. Otherwise D3 can paint
+        // wallpaper-composited insets while D1 stays hidden (power-on ACC window):
+        // ready stayed true after carMainScreenOff, hold opened, page_finished re-showed D3.
         if (isAnyAppOnDisplay1 || !isScreenOn || !isEnabled) {
             rootLayout.isVisible = false
             webView?.onPause()
             if (!isEnabled) {
-                ClusterBackgroundSync.markD1NotReady()
+                clearD1Ready("bg_disabled")
+            } else if (!isScreenOn) {
+                clearD1Ready("screen_off")
             }
         } else {
             rootLayout.isVisible = true
@@ -431,6 +455,8 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
         ensureUi {
             rootLayout.isVisible = false
             webView?.onPause()
+            // Keep ClusterBackgroundSync honest: hidden wallpaper is not "ready" for D3 insets.
+            clearD1Ready("car_main_screen_off")
         }
     }
 

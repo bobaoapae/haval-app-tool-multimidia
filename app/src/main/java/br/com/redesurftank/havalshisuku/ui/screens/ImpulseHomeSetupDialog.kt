@@ -2,6 +2,11 @@ package br.com.redesurftank.havalshisuku.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.runtime.rememberCoroutineScope
+import br.com.redesurftank.havalshisuku.utils.ViewerFirstRun
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -41,7 +46,7 @@ import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
  * barra inferior persistente e gesto de deslizar para cima.
  */
 @Composable
-fun ImpulseHomeSetupDialog(onDismiss: () -> Unit) {
+fun ImpulseHomeSetupDialog(canOpen: Boolean, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember {
         App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
@@ -52,9 +57,54 @@ fun ImpulseHomeSetupDialog(onDismiss: () -> Unit) {
 
     var openOnBoot by remember { mutableStateOf(true) }
     var enableBarAndSwipe by remember { mutableStateOf(true) }
+    var applying by remember { mutableStateOf(false) }
+    var opening by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    fun applyChoices(openAfter: Boolean) {
+        if (applying) return
+        applying = true
+        opening = openAfter
+        if (openOnBoot) StartupAppManager.setMainDisplayPackage(IMPULSE_HOME_PACKAGE)
+        val shouldEnableBar = if (barAlreadyOn) true else enableBarAndSwipe
+        val shouldEnableSwipe = enableBarAndSwipe
+
+        prefs.edit {
+            putBoolean(SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR.key, shouldEnableBar)
+            if (shouldEnableSwipe) {
+                putString(
+                    SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_ACTION.key,
+                    BottomBarState.SwipeUpAction.CUSTOM_APP.key
+                )
+                putString(
+                    SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_PACKAGE.key,
+                    IMPULSE_HOME_PACKAGE
+                )
+            }
+        }
+        runCatching {
+            if (shouldEnableBar) {
+                context.startService(Intent(context, BottomBarService::class.java))
+            } else {
+                context.stopService(Intent(context, BottomBarService::class.java))
+            }
+        }
+        scope.launch(Dispatchers.IO) {
+            if (openAfter) ViewerFirstRun.prepare(context, IMPULSE_HOME_PACKAGE)
+            withContext(Dispatchers.Main) {
+                if (openAfter) {
+                    context.packageManager.getLaunchIntentForPackage(IMPULSE_HOME_PACKAGE)?.let { launch ->
+                        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(launch)
+                    }
+                }
+                onDismiss()
+            }
+        }
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!canOpen && !applying) onDismiss() },
         containerColor = ImpTokens.Container,
         title = {
             Text("Impulse Launcher instalado", color = Color.White, fontWeight = FontWeight.Bold)
@@ -98,39 +148,26 @@ fun ImpulseHomeSetupDialog(onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    if (openOnBoot) StartupAppManager.setMainDisplayPackage(IMPULSE_HOME_PACKAGE)
-                    val shouldEnableBar = if (barAlreadyOn) true else enableBarAndSwipe
-                    val shouldEnableSwipe = enableBarAndSwipe
-
-                    prefs.edit {
-                        putBoolean(SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR.key, shouldEnableBar)
-                        if (shouldEnableSwipe) {
-                            putString(
-                                SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_ACTION.key,
-                                BottomBarState.SwipeUpAction.CUSTOM_APP.key
-                            )
-                            putString(
-                                SharedPreferencesKeys.BOTTOM_BAR_SWIPE_UP_PACKAGE.key,
-                                IMPULSE_HOME_PACKAGE
-                            )
+            Button(enabled = !applying, onClick = { applyChoices(canOpen) }) {
+                Text(
+                        when {
+                            canOpen && opening -> "Abrindo..."
+                            canOpen -> "Salvar e abrir"
+                            applying -> "Salvando..."
+                            else -> "Salvar"
                         }
-                    }
-                    runCatching {
-                        if (shouldEnableBar) {
-                            context.startService(Intent(context, BottomBarService::class.java))
-                        } else {
-                            context.stopService(Intent(context, BottomBarService::class.java))
-                        }
-                    }
-                    onDismiss()
-                }
-            ) { Text("Aplicar") }
+                )
+            }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Agora não", color = ImpTokens.TextSecondary)
+            if (canOpen) {
+                TextButton(enabled = !applying, onClick = { applyChoices(false) }) {
+                    Text(if (applying && !opening) "Salvando..." else "Só salvar")
+                }
+            } else {
+                TextButton(enabled = !applying, onClick = onDismiss) {
+                    Text("Cancelar", color = ImpTokens.TextSecondary)
+                }
             }
         }
     )

@@ -358,7 +358,7 @@ public final class AndroidAutoClusterClient {
         if(signers==null||signers.length!=1||info.applicationInfo==null)throw new SecurityException("Unexpected AA signer set");
         byte[] digest=MessageDigest.getInstance("SHA-256").digest(signers[0].toByteArray());
         StringBuilder hex=new StringBuilder();for(byte b:digest)hex.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
-        if(!AaClusterProtocol.OEM_SIGNER_SHA256.equals(hex.toString()))throw new SecurityException("AA Service signer mismatch: "+hex);
+        if(!java.util.Arrays.asList(AaClusterProtocol.OEM_SIGNER_SHA256).contains(hex.toString()))throw new SecurityException("AA Service signer mismatch: "+hex);
         return info.applicationInfo.uid;
     }
     private void query(IBinder binder)throws Exception{

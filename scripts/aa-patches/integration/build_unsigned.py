@@ -38,10 +38,14 @@ CHANGED_STOCK = {
     "com/google/android/projection/protocol/GalReceiver.smali",
     "com/ts/androidauto/projectionservice/AndroidAutoService$LinkCommandBinder.smali",
 }
-SERVICE_SIGNER_SHA256 = "7be3a99482e3f2f7f4f411f0a5a571ac97a505e500f9e05863fa8574e00baeb0"
+# This is the existing v9 host allowlist, not authorization for new trust.
+HOST_SERVICE_SIGNERS_SHA256 = (
+    "7be3a99482e3f2f7f4f411f0a5a571ac97a505e500f9e05863fa8574e00baeb0",
+    "3c7d703011f11ea2a4baa35ba2c522d6b03e3af011d70dcb95c1331f11ad0f65",
+)
 PROTOCOL_VERSION = 2
 PROTOCOL_PROFILE = "stock48ff-cluster-v2"
-REPORT_SCHEMA = 1
+REPORT_SCHEMA = 2
 
 
 def source_manifest() -> dict:
@@ -72,6 +76,19 @@ def source_manifest() -> dict:
                                             separators=(",", ":")).encode()).hexdigest()}
 
 
+def host_service_signers() -> list[str]:
+    """Read and verify the exact pre-existing v9 host pins without changing them."""
+    protocol = (ROOT / "app/src/main/java/br/com/redesurftank/havalshisuku/api/AaClusterProtocol.java").read_text(encoding="utf-8")
+    arrays = re.findall(r'public static final String\[\] OEM_SIGNER_SHA256\s*=\s*\{([^}]+)\};', protocol)
+    pins = re.findall(r'"([0-9a-f]{64})"', arrays[0]) if len(arrays) == 1 else []
+    if (pins != list(HOST_SERVICE_SIGNERS_SHA256)
+            or re.findall(r'"([0-9a-f]{64})"', protocol) != pins
+            or protocol.count("OEM_SIGNER_SHA256") != 1
+            or re.sub(r'"[0-9a-f]{64}"|[\s,]', '', arrays[0]) != ''):
+        raise ValueError("Host must retain the reviewed existing v9 Service signer allowlist")
+    return pins
+
+
 def profile_manifest() -> dict:
     protocol = (ROOT / "app/src/main/java/br/com/redesurftank/havalshisuku/api/AaClusterProtocol.java").read_text(encoding="utf-8")
     if (re.findall(r'public static final int VERSION\s*=\s*(\d+)\s*;', protocol) != [str(PROTOCOL_VERSION)]
@@ -81,7 +98,7 @@ def profile_manifest() -> dict:
             "protocol_version": PROTOCOL_VERSION, "protocol_profile": PROTOCOL_PROFILE,
             "smali_tree_sha256": hooks.VERIFIED_PROFILE.tree_sha256,
             "smali_class_sha256": dict(hooks.VERIFIED_PROFILE.class_hashes),
-            "host_service_signer_sha256": SERVICE_SIGNER_SHA256}
+            "host_service_signers_sha256": host_service_signers()}
 
 
 def digest(path: Path) -> str:

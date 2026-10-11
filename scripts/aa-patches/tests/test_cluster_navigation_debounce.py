@@ -45,6 +45,16 @@ class ClusterNavigationDebounceTest(unittest.TestCase):
         self.assertIn('attachIfSessionAllows("navigation_started")', source)
         self.assertIn('attachIfSessionAllows("navigation_ended")', source)
 
+    def test_v9_session_poll_and_dock_publication_are_preserved(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        self.assertIn("AndroidAutoSessionTelemetry.statusForPoll(", source)
+        for field in ("linkStatus = status", "dcmEvidenceRecent = dcmEvidenceRecent", "sessionActive = isSessionActive()"):
+            self.assertIn(field, source)
+        self.assertIn("BottomBarState.publishAndroidAutoLinked(", source)
+        publish = source.split("    private fun publishSession(", 1)[1].split("    private fun onSessionStopped()", 1)[0]
+        self.assertIn("value == AndroidAutoTelemetryKeys.SESSION_ACTIVE", publish)
+        self.assertIn("mainHandler.postDelayed(this, 1_500L)", source)
+
     def test_session_baseline_resets_policy_and_preserves_demand_and_telemetry_contract(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         start = source.split("    fun start() {", 1)[1].split("    fun onLinkStatus", 1)[0]

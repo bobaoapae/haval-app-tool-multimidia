@@ -19,6 +19,7 @@ APK = "AndroidAutoService-UNSIGNED.apk"
 TRUST = "GeneratedTrust.java"
 REPORT = "report.json"
 MANIFEST = "manifest.json"
+PACKAGE_SCHEMA = 2
 PAYLOAD = (APK, TRUST, REPORT)
 GATES = ["signing_and_signature_compatible_loading_not_authorized",
          "installed_client_identity_and_enabled_trust_not_validated",
@@ -75,24 +76,19 @@ def write_json(path: Path, value: dict) -> None:
 
 
 def check_host_trust() -> None:
-    """Refuse a widened source trust boundary; never infer another signer."""
+    """Verify the unchanged v9 allowlist/predicate; never infer another signer."""
     java = build.ROOT / "app/src/main/java/br/com/redesurftank/havalshisuku"
-    protocol = (java / "api/AaClusterProtocol.java").read_text(encoding="utf-8")
-    if (re.findall(r'"([0-9a-f]{64})"', protocol) != [build.SERVICE_SIGNER_SHA256]
-            or not re.search(r'public static final String OEM_SIGNER_SHA256\s*=\s*"'
-                             + build.SERVICE_SIGNER_SHA256 + r'";', protocol)
-            or protocol.count("OEM_SIGNER_SHA256") != 1):
-        raise ValueError("Host must retain the reviewed single Service signer")
+    build.host_service_signers()
     client = (java / "managers/AndroidAutoClusterClient.java").read_text(encoding="utf-8")
     start, end = client.find("private int verifyService("), client.find("private void query(")
     check = re.sub(r"\s+", "", client[start:end]) if 0 <= start < end else ""
-    expected = ('if(!AaClusterProtocol.OEM_SIGNER_SHA256.equals(hex.toString()))'
+    expected = ('if(!java.util.Arrays.asList(AaClusterProtocol.OEM_SIGNER_SHA256).contains(hex.toString()))'
                 'thrownewSecurityException("AAServicesignermismatch:"+hex);')
     if ("signers==null||signers.length!=1||info.applicationInfo==null" not in check
             or expected not in check or check.count("OEM_SIGNER_SHA256") != 1
             or "returninfo.applicationInfo.uid;" not in check
             or check.index("OEM_SIGNER_SHA256") > check.index("returninfo.applicationInfo.uid;")):
-        raise ValueError("Host Service signer verification must stay single-pin")
+        raise ValueError("Host Service verification must keep the existing v9 allowlist and single APK signer")
 
 
 def refuse_readiness(value) -> None:
@@ -178,7 +174,7 @@ def copy_verified(source: Path, target: Path) -> None:
 def verify_archive(path: Path, manifest: dict) -> None:
     refuse_readiness(manifest)
     files = manifest.get("files_sha256")
-    if (type(manifest.get("schema")) is not int or manifest["schema"] != 1
+    if (type(manifest.get("schema")) is not int or manifest["schema"] != PACKAGE_SCHEMA
             or manifest.get("artifact_kind") != "unsigned-developer-package"
             or not isinstance(files, dict) or set(files) != set(PAYLOAD)
             or any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
@@ -247,7 +243,7 @@ def prepare(args) -> dict:
                 or json.dumps(read_json(package / REPORT), sort_keys=True, allow_nan=False)
                 != json.dumps(report, sort_keys=True, allow_nan=False)):
             raise ValueError("Copied payload differs from validated build evidence")
-        manifest = {"schema": 1, "artifact_kind": "unsigned-developer-package",
+        manifest = {"schema": PACKAGE_SCHEMA, "artifact_kind": "unsigned-developer-package",
                     "deployment_ready": False, "signed": False, "vehicle_validated": False,
                     "handoff_enabled": args.enable_handoff,
                     "client_public_certificate_sha256": certificates,

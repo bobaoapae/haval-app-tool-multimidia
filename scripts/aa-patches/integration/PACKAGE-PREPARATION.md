@@ -1,3 +1,7 @@
+> Historical validation record for its stated commits. For the current PR152
+> consolidation scope and trust/loading changes, see
+> [CONSOLIDATION-PR152-20261011.md](CONSOLIDATION-PR152-20261011.md).
+
 # Offline unsigned developer package
 
 `prepare_package.py` prepares a reviewable ZIP containing a freshly assembled

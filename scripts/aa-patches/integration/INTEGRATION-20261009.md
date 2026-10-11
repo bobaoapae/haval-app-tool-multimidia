@@ -1,3 +1,7 @@
+> Historical validation record for its stated commits. For the current PR152
+> consolidation scope and trust/loading changes, see
+> [CONSOLIDATION-PR152-20261011.md](CONSOLIDATION-PR152-20261011.md).
+
 # HAV-24 draft integration, 2026-10-09
 
 This is the historical integration record. The later host-only follow-up for

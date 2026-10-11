@@ -55,6 +55,21 @@ class ClusterGeometryTest(unittest.TestCase):
         self.assertLess(refresh.index("applyStreamTransform(it, bounds)"), refresh.index("onBoundsApplied?.invoke(bounds)"))
         self.assertIn("Looper.myLooper() == Looper.getMainLooper()", refresh)
 
+    def test_v9_transform_fades_and_virtual_cluster_guards_are_preserved(self):
+        source = HOST.read_text(encoding="utf-8")
+        self.assertIn("private const val VEHICLE_CENTER_SHIFT = 175", source)
+        self.assertIn("private const val RIGHT_FADE_LEFT = 1400", source)
+        self.assertIn("private const val LEFT_FADE_WIDTH = 520", source)
+        self.assertIn("matrix.postTranslate(VEHICLE_CENTER_SHIFT.toFloat(), 0f)", source)
+        self.assertIn("syncFades()", method(source, "fun setNativeCardShown("))
+        self.assertIn("if (shown && !nativeCardShown)", method(source, "private fun syncFades()"))
+        ensure = method(source, "private fun ensureView(")
+        self.assertIn("leftFade = fade(", ensure)
+        self.assertIn("rightFade = fade(", ensure)
+        projector = PROJECTOR.read_text(encoding="utf-8")
+        self.assertIn("VirtualClusterPreferences.isEnabled(preferences)", method(projector, "private fun shouldShowProjector()"))
+        self.assertIn("!VirtualClusterPreferences.isEnabled(preferences)", method(projector, "fun updateNativeMaskViews()"))
+
     def test_aa_hole_ownership_and_empty_rect_are_preserved(self):
         source = PROJECTOR.read_text(encoding="utf-8")
         visibility = method(source, "private fun updateVirtualClusterVisibility(")

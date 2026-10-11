@@ -1,6 +1,6 @@
 # Projector Flow
 
-Atualizado em: 2026-09-24
+Atualizado em: 2026-10-05
 
 ## O Que Foi Identificado
 
@@ -33,6 +33,11 @@ insets com textura enquanto o D1 ainda está vazio.
 O hold **não** se aplica quando o D1 não está attached, quando um app cobre o D1 de propósito, ou
 quando não há still esperado (desligado, WEB_URL, THEME sem wallpaper).
 
+**Power-on (2026-10-05):** esconder o wallpaper no screen-off (`carMainScreenOff` / `!isMainScreenOn`)
+**sem** limpar o latch ready deixava o hold aberto — o D3 podia reaparecer via `page_finished` com
+insets enquanto o D1 seguia vazio. `InstrumentProjector` agora chama `markD1NotReady` nesses
+caminhos e grava `d1_bg_ready` / `d1_bg_not_ready` / `native_masks_hold` no cluster-diagnostics.
+
 ## Eventos Relevantes
 
 - `CAR_BASIC_ENGINE_STATE` desliga ou religa visibilidade dos projectors.
@@ -61,3 +66,13 @@ quando não há still esperado (desligado, WEB_URL, THEME sem wallpaper).
 ## A Confirmar
 
 - Todos os caminhos que chamam `ProjectorManager.refresh()`.
+
+## Virtual cluster preference changes (HAV-26)
+
+`ProjectorManager` now observes `enableVirtualCluster` and reconciles on the main Looper,
+without refreshing the independent D1 Presentation. Disabled D3 windows are dismissed and
+remain absent at boot/display reconnect; enabling recreates the saved theme. The native root
+and masks also guard the preference before dismissal. All readers use the compatible
+missing-key default `true`; Telas no longer resets the selected theme when disabling.
+See [virtual-cluster-toggle.md](virtual-cluster-toggle.md) for lifecycle/compatibility details
+and the required physical acceptance checklist.

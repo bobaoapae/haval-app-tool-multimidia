@@ -20,6 +20,7 @@ import br.com.redesurftank.havalshisuku.models.CarConstants;
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys;
 import br.com.redesurftank.havalshisuku.projectors.InstrumentProjector;
 import br.com.redesurftank.havalshisuku.projectors.InstrumentProjector2;
+import br.com.redesurftank.havalshisuku.utils.VirtualClusterPreferences;
 import br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher;
 
 public class ProjectorManager {
@@ -33,6 +34,21 @@ public class ProjectorManager {
     private InstrumentProjector2 instrumentProjector2;
     private boolean initialized = false;
     private DisplayManager.DisplayListener displayListener;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private volatile boolean preferencesListenerRegistered = false;
+    private final Runnable reconcilePreferences = () -> {
+        if (preferencesListenerRegistered) initialize();
+    };
+    private final SharedPreferences.OnSharedPreferenceChangeListener preferencesListener = (prefs, key) -> {
+        // Android may already have snapshotted a notification before stop unregisters us.
+        if (preferencesListenerRegistered &&
+                (key == null || SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.getKey().equals(key))) {
+            // Read the latest value on the UI thread. Coalesce rapid off/on writes and avoid
+            // destroying a WebView in the middle of another preference listener's callback.
+            mainHandler.removeCallbacks(reconcilePreferences);
+            mainHandler.post(reconcilePreferences);
+        }
+    };
 
     /**
      * O listener de dados do carro e registrado UMA vez so. Antes ele vinha carona na criacao das
@@ -106,7 +122,7 @@ public class ProjectorManager {
     private boolean isProjectorEnabled(int displayId) {
         try {
             if (displayId == maskDisplayId) {
-                return sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.getKey(), true);
+                return VirtualClusterPreferences.isEnabled(sharedPreferences);
             }
             if (displayId == hudDisplayId) {
                 // O HUD fica de fora desta regra no uso normal, de proposito. A pref tem default
@@ -124,8 +140,7 @@ public class ProjectorManager {
 
     /**
      * A pref caiu com a janela ja no ar: derruba agora, senao ela fica por cima do painel ate o
-     * proximo boot. Presentation.dismiss() exige a UI thread — os dois pontos que chamam
-     * initialize()/refresh() ja postam no main looper.
+     * proximo boot. initialize()/refresh() garantem a UI thread antes de chegar aqui.
      */
     private void dismissProjectorForDisplay(int displayId, String reason) {
         if (displayId == maskDisplayId && instrumentProjector2 != null) {
@@ -230,8 +245,16 @@ public class ProjectorManager {
     }
 
     public void initialize() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::initialize);
+            return;
+        }
         Log.w(TAG, "Initializing ProjectorManager");
         try {
+            if (!preferencesListenerRegistered) {
+                sharedPreferences.registerOnSharedPreferenceChangeListener(preferencesListener);
+                preferencesListenerRegistered = true;
+            }
             // Preferencia desligada = a janela nao pode existir. Se sobrou uma viva de antes
             // (a pref caiu com o app rodando), derruba antes de qualquer outra coisa.
             if (!isProjectorEnabled(maskDisplayId)) {
@@ -313,7 +336,16 @@ public class ProjectorManager {
     }
 
     public void stopProjectors() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::stopProjectors);
+            return;
+        }
         Log.w(TAG, "Stopping all projectors");
+        mainHandler.removeCallbacks(reconcilePreferences);
+        if (preferencesListenerRegistered) {
+            sharedPreferences.unregisterOnSharedPreferenceChangeListener(preferencesListener);
+            preferencesListenerRegistered = false;
+        }
         if (instrumentProjector != null) {
             try {
                 instrumentProjector.dismiss();
@@ -343,6 +375,10 @@ public class ProjectorManager {
     }
 
     public void refresh() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::refresh);
+            return;
+        }
         Log.w(TAG, "Refreshing ProjectorManager");
         stopProjectors();
 

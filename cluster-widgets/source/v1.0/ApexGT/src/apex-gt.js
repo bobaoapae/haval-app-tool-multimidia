@@ -170,6 +170,12 @@
 
     function update(key, value, allowAliases) {
         if (disposed) return;
+        // Host visibility is page-wide and independent of telemetry/projection.
+        // Do not subscribe or read a vehicle snapshot for this control signal.
+        if (key === "clusterEnabled") {
+            window.ApexShared.applyClusterVisibility(value);
+            return;
+        }
         if (display) display.update(key, value, allowAliases);
         if (menus) {
             if (menus.keys.indexOf(key) !== -1) receivedKeys[key] = true;

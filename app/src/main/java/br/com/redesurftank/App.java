@@ -35,6 +35,8 @@ public class App extends Application {
     public void onCreate() {
         super.onCreate();
         sApplication = this;
+        br.com.redesurftank.havalshisuku.utils.SessionApkCache.clear(
+                getCacheDir(), getExternalFilesDir(null));
         if (BuildConfig.DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true);
         }

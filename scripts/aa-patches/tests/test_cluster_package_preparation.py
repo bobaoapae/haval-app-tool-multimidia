@@ -120,8 +120,10 @@ class PackagePreparationTest(unittest.TestCase):
         self.assertEqual([], manifest["client_public_certificate_sha256"])
         self.assertFalse(manifest["handoff_enabled"])
         self.assertEqual(package.GATES, manifest["blocked_vehicle_gates"])
-        self.assertEqual("7be3a99482e3f2f7f4f411f0a5a571ac97a505e500f9e05863fa8574e00baeb0",
-                         manifest["provenance"]["profile"]["host_service_signer_sha256"])
+        self.assertEqual(list(build.HOST_SERVICE_SIGNERS_SHA256),
+                         manifest["provenance"]["profile"]["host_service_signers_sha256"])
+        self.assertEqual(2, manifest["schema"])
+        self.assertNotIn("host_service_signer_sha256", manifest["provenance"]["profile"])
         self.assertEqual(2, manifest["provenance"]["profile"]["protocol_version"])
         self.assertEqual("stock48ff-cluster-v2", manifest["provenance"]["profile"]["protocol_profile"])
         for key in ("deployment_ready", "signed", "vehicle_validated"):
@@ -162,6 +164,19 @@ class PackagePreparationTest(unittest.TestCase):
                 self.mutate = lambda report, work, k=key, v=value: report.update({k: v})
                 self.assert_clean_refusal()
 
+    def test_legacy_schema_and_single_pin_receipts_are_refused(self):
+        def singleton_key(report, work):
+            profile = report["provenance"]["profile"]
+            profile.pop("host_service_signers_sha256")
+            profile["host_service_signer_sha256"] = build.HOST_SERVICE_SIGNERS_SHA256[0]
+
+        for mutation in (lambda r, w: r.update(report_schema=1), singleton_key,
+                         lambda r, w: r["provenance"]["profile"].update(
+                             host_service_signers_sha256=[build.HOST_SERVICE_SIGNERS_SHA256[0]])):
+            with self.subTest(mutation=mutation):
+                self.mutate = mutation
+                self.assert_clean_refusal()
+
     def test_missing_report_and_missing_apk_do_not_publish(self):
         for name in (package.APK, package.REPORT):
             with self.subTest(name=name):
@@ -174,6 +189,7 @@ class PackagePreparationTest(unittest.TestCase):
     def test_hash_profile_tool_and_generated_trust_mismatches_refused(self):
         mutations = [lambda r, w: r["provenance"]["sources"].update(inventory_sha256="f" * 64),
             lambda r, w: r["provenance"]["profile"].update(smali_tree_sha256="f" * 64),
+            lambda r, w: r["provenance"]["profile"].update(host_service_signers_sha256=[build.HOST_SERVICE_SIGNERS_SHA256[0]]),
             lambda r, w: r["provenance"].update(generated_trust_sha256="f" * 64),
             lambda r, w: r.update(source_apk_sha256="f" * 64),
             lambda r, w: r["tool_sha256"].update(android="f" * 64),
@@ -352,16 +368,34 @@ class PackagePreparationTest(unittest.TestCase):
         with mock.patch.object(package.os, "link", side_effect=OSError("unsupported")):
             self.assert_clean_refusal(OSError)
 
-    def test_widened_service_pin_and_predicate_refused(self):
+    def test_changed_v9_service_allowlist_refused_before_build(self):
         java = self.root / "app/src/main/java/br/com/redesurftank/havalshisuku"
         path = java / "api/AaClusterProtocol.java"
         original = path.read_bytes()
-        path.write_bytes(original.replace(build.SERVICE_SIGNER_SHA256.encode(), b"f" * 64))
-        self.assert_clean_refusal()
+        first, second = [pin.encode() for pin in build.HOST_SERVICE_SIGNERS_SHA256]
+        altered = [original.replace(first, b"f" * 64),
+                   original.replace(second, b"f" * 64),
+                   original.replace(b'"' + second + b'",', b''),
+                   original.replace(b'"' + second + b'",', b'"' + second + b'", "' + b'f' * 64 + b'",'),
+                   original.replace(b'String[] OEM_SIGNER_SHA256', b'String OEM_SIGNER_SHA256')]
+        for content in altered:
+            with self.subTest(content=content):
+                path.write_bytes(content)
+                self.assert_clean_refusal()
         path.write_bytes(original)
-        client = java / "managers/AndroidAutoClusterClient.java"
-        client.write_bytes(client.read_bytes().replace(b"OEM_SIGNER_SHA256.equals", b"OEM_SIGNER_SHA256.contains"))
-        self.assert_clean_refusal()
+        self.builder.assert_not_called()
+
+    def test_changed_service_predicate_refused_before_build(self):
+        client = self.root / "app/src/main/java/br/com/redesurftank/havalshisuku/managers/AndroidAutoClusterClient.java"
+        original = client.read_bytes()
+        mutations = [(b').contains(hex.toString())', b').contains("anything")'),
+                     (b'if(!java.util.Arrays', b'if(java.util.Arrays'),
+                     (b'signers.length!=1', b'signers.length<1')]
+        for before, after in mutations:
+            with self.subTest(after=after):
+                self.assertIn(before, original)
+                client.write_bytes(original.replace(before, after))
+                self.assert_clean_refusal()
         self.builder.assert_not_called()
 
     def test_changed_protocol_version_or_profile_refused_before_build(self):
@@ -398,7 +432,8 @@ class PackagePreparationTest(unittest.TestCase):
                          lambda m: m.update(deployment_ready=True),
                          lambda m: m.update(blocked_vehicle_gates=[]),
                          lambda m: m["unsigned_service"].update(size_bytes=True),
-                         lambda m: m.update(schema=True)):
+                         lambda m: m.update(schema=True),
+                         lambda m: m.update(schema=1)):
             changed = copy.deepcopy(manifest)
             mutation(changed)
             with self.assertRaises(ValueError):

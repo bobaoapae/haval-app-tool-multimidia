@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.SurfaceTexture
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -28,6 +29,19 @@ object AaClusterVideoHost {
     private const val PANEL_HEIGHT = 720
     @Volatile private var nativeCardShown = false
 
+    /** Edge fades over the map (under the theme): hide Google's guidance card and logo. */
+    private const val RIGHT_FADE_LEFT = 1400
+    /**
+     * Google offsets its map focus left of its right-edge card: the vehicle sits at
+     * x≈785 of the 1920 band, not 960. Shift the stream right so the vehicle is
+     * centred; the card moves mostly past the panel edge and the uncovered left
+     * strip falls under the opaque part of the left fade.
+     */
+    private const val VEHICLE_CENTER_SHIFT = 175
+    private const val LEFT_FADE_WIDTH = 520
+    private var rightFade: View? = null
+    private var leftFade: View? = null
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /** Re-reads [mapBounds] (theme bounds changed). Any thread. */
@@ -48,6 +62,7 @@ object AaClusterVideoHost {
             if (nativeCardShown != shown) {
                 nativeCardShown = shown
                 refreshWindow(onBoundsApplied)
+                syncFades()
             }
         }
         if (Looper.myLooper() == Looper.getMainLooper()) update.run()
@@ -102,6 +117,10 @@ object AaClusterVideoHost {
         shown = false
         generation++
         if (oldView != null) parent?.removeView(oldView)
+        rightFade?.let { parent?.removeView(it) }
+        leftFade?.let { parent?.removeView(it) }
+        rightFade = null
+        leftFade = null
     }
 
     fun show(context: Context): Boolean {
@@ -111,6 +130,7 @@ object AaClusterVideoHost {
         applyStreamTransform(view)
         view.visibility = View.VISIBLE
         shown = true
+        syncFades()
         adoptPendingConsumer()
         return true
     }
@@ -118,6 +138,7 @@ object AaClusterVideoHost {
     fun hide() {
         textureView?.visibility = View.GONE
         shown = false
+        syncFades()
     }
     fun isShown(): Boolean = shown
     fun peekSurface(): Surface? = output?.takeIf { it.isAvailable }?.surface
@@ -194,9 +215,8 @@ object AaClusterVideoHost {
     /**
      * Maps the stream 1:1 onto the D3 panel (centre-crop, so the 1920x1080 frame's
      * margins fall off) and clips the view to [mapBounds]. Nothing outside the map
-     * window is ever drawn. The full-width window retains the stream's right edge;
-     * the native-card exclusion clips it only while that card is shown. The view
-     * itself always fills the panel: moving only
+     * window is ever drawn, so Google's edge card and logo stay hidden even under a
+     * translucent theme panel. The view itself always fills the panel: moving only
      * the clip keeps the SurfaceTexture size fixed, so a card change never restarts
      * the decoder.
      */
@@ -215,8 +235,25 @@ object AaClusterVideoHost {
         // TextureView stretches the buffer to the view; undo that per axis.
         val matrix = Matrix()
         matrix.setScale(sw * crop / panelW, sh * crop / panelH, panelW / 2f, panelH / 2f)
+        matrix.postTranslate(VEHICLE_CENTER_SHIFT.toFloat(), 0f)
         view.setTransform(matrix)
     }
+
+    /** On card 0 the clip already stops before Google's card; the right fade is not needed. */
+    private fun syncFades() {
+        leftFade?.visibility = if (shown) View.VISIBLE else View.GONE
+        rightFade?.visibility = if (shown && !nativeCardShown) View.VISIBLE else View.GONE
+    }
+
+    private fun fade(context: Context, left: Int, width: Int, colors: IntArray) =
+        View(context).apply {
+            layoutParams = FrameLayout.LayoutParams(width, FrameLayout.LayoutParams.MATCH_PARENT).apply {
+                leftMargin = left
+                gravity = Gravity.TOP or Gravity.START
+            }
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, colors)
+            visibility = View.GONE
+        }
 
     private fun ensureView(context: Context, parent: FrameLayout) {
         if (textureView != null) return
@@ -232,5 +269,10 @@ object AaClusterVideoHost {
         view.surfaceTextureListener = TextureOwner(view)
         textureView = view
         parent.addView(view, 0)
+        val black = 0xFF000000.toInt()
+        // Directly above the video, still under the theme WebView.
+        leftFade = fade(context, 0, LEFT_FADE_WIDTH, intArrayOf(black, black, 0)).also { parent.addView(it, 1) }
+        rightFade = fade(context, RIGHT_FADE_LEFT, PANEL_WIDTH - RIGHT_FADE_LEFT, intArrayOf(0, black, black))
+            .also { parent.addView(it, 2) }
     }
 }

@@ -15,5 +15,9 @@ function getAdjustedSpeed(rawSpeed, enableAdjustment = false, offsetPercent = 0.
 
     return String(Math.floor(finalSpeed));
 }
-window.ApexShared = { getAdjustedSpeed: getAdjustedSpeed };
+// ---- source/v1.0/shared/runtime/clusterVisibility.js (applyClusterVisibility) ----
+function applyClusterVisibility(enabled) {
+    document.documentElement.classList.toggle('cluster-disabled', enabled === false);
+}
+window.ApexShared = { getAdjustedSpeed: getAdjustedSpeed, applyClusterVisibility: applyClusterVisibility };
 })();

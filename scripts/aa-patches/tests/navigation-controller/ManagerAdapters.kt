@@ -12,6 +12,13 @@ object AndroidAutoTelemetryKeys {
 
 object AndroidAutoSessionTelemetry {
     const val LINK_STATUS_ACTIVATED = 1
+    // The test supplies stable link evidence; it does not test the vendor/session policy.
+    fun statusForPoll(linkStatus: Int?, dcmEvidenceRecent: Boolean, sessionActive: Boolean): Int? {
+        if (linkStatus != null) return linkStatus
+        if (dcmEvidenceRecent) return LINK_STATUS_ACTIVATED
+        if (sessionActive) return 0
+        return null
+    }
     class Debouncer {
         fun onStatus(status: Int?, nowMs: Long): String? = when (status) {
             null -> null
@@ -41,7 +48,8 @@ object AndroidAutoNavigationTelemetry {
 }
 
 object DisplayAppLauncher {
-    fun readAndroidAutoLinkStatusIfAlreadyBound(source: String): Int? = null
+    fun readAndroidAutoLinkStatusIfAlreadyBound(source: String): Int? =
+        if (AndroidAutoClusterController.isSessionActive()) AndroidAutoSessionTelemetry.LINK_STATUS_ACTIVATED else null
     fun hasRecentAndroidAutoDcmProjectionActiveEvidenceForSession() = false
 }
 

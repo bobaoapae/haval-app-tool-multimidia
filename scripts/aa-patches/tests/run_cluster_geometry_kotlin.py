@@ -54,7 +54,7 @@ def main():
     bridge = BRIDGE.read_text(encoding="utf-8")
     host_methods = "\n".join(method(host, signature) for signature in (
         "fun refreshWindow(", "fun setNativeCardShown(", "fun mapBounds()",
-        "internal fun parseBounds(", "private fun applyStreamTransform("))
+        "internal fun parseBounds(", "private fun applyStreamTransform(", "private fun syncFades("))
     projector_methods = "\n".join(method(projector, signature) for signature in (
         "private fun syncAaClusterMapWindow(", "private fun updateAaClusterAppHole(",
         "override fun refreshDisplayBounds()", "fun prepareDisplay3AppHole("))
@@ -78,6 +78,8 @@ data class Rect(val left: Int, val top: Int, val right: Int, val bottom: Int) {
 }
 class Matrix {
     var values = floatArrayOf()
+    var translation = floatArrayOf(0f, 0f)
+    fun postTranslate(x: Float, y: Float) { translation = floatArrayOf(x, y) }
     fun setScale(x: Float, y: Float, px: Float, py: Float) { values = floatArrayOf(x, y, px, py) }
 }
 ''',
@@ -130,6 +132,8 @@ import android.graphics.Rect
 import android.graphics.Matrix
 object Log { fun w(tag: String, message: String) {} }
 open class View {
+    companion object { const val VISIBLE = 0; const val GONE = 8 }
+    var visibility = GONE
     var width = 1920
     var height = 720
     var parent: Any? = null
@@ -158,6 +162,10 @@ object AaClusterVideoHost {
     private const val TAG = "test"
     private const val PANEL_WIDTH = 1920
     private const val PANEL_HEIGHT = 720
+    private const val VEHICLE_CENTER_SHIFT = 175
+    var shown = true
+    var rightFade: View? = View()
+    var leftFade: View? = View()
     val DEFAULT_MAP_BOUNDS = intArrayOf(0, 62, 1920, 658)
     private var nativeCardShown = false
     val mainHandler = Handler()
@@ -234,12 +242,15 @@ fun main() {
     window(p, Rect(0, 62, 1920, 658), "blank preference uses default")
     p.changeCard(ClusterCardIds.NATIVE_CARD)
     window(p, Rect(0, 62, 1344, 658), "blank default obeys card clamp")
+    expect(AaClusterVideoHost.leftFade!!.visibility == View.VISIBLE, "v9 left fade remains visible with native card")
+    expect(AaClusterVideoHost.rightFade!!.visibility == View.GONE, "v9 right fade is hidden with native card")
     p.changeCard(0)
     App.custom = "0,62,1920,658"
     p.changeCard(ClusterCardIds.NATIVE_CARD)
     window(p, Rect(0, 62, 1344, 658), "custom native card")
     p.changeCard(0)
     window(p, Rect(0, 62, 1920, 658), "custom card dismissed")
+    expect(AaClusterVideoHost.rightFade!!.visibility == View.VISIBLE, "v9 right fade returns after native card")
     App.custom = "1500,100,1900,500"
     p.changeCard(ClusterCardIds.NATIVE_CARD)
     window(p, Rect(0, 0, 0, 0), "fully excluded remains empty")
@@ -330,6 +341,9 @@ fun main() {
     expect(AaClusterVideoHost.mainHandler.queue.isEmpty(), "no queued feedback work")
     expect(AaClusterVideoHost.textureView!!.width == 1920 &&
         AaClusterVideoHost.textureView!!.height == 720, "clip updates never resize texture")
+    val matrix = AaClusterVideoHost.textureView!!.matrix!!
+    expect(matrix.translation.contentEquals(floatArrayOf(175f, 0f)), "v9 vehicle-center shift retained")
+    expect(matrix.values.contentEquals(floatArrayOf(1f, 1.5f, 960f, 360f)), "v9 stream center crop retained")
     println("PASS total=$checks actual Kotlin geometry/refresh checks")
 }
 ''',

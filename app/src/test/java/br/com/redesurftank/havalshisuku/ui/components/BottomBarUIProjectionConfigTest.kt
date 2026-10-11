@@ -7,6 +7,73 @@ import org.junit.Test
 class BottomBarUIProjectionConfigTest {
 
     @Test
+    fun resolveProjectionShortcutAction_idleOpensConnectivityEvenIfProjectionPackagesExist() {
+        assertEquals(
+            ProjectionShortcutAction.OPEN_CONNECTIVITY,
+            resolveProjectionShortcutAction(ProjectionType.NONE)
+        )
+        assertEquals(
+            ProjectionShortcutAction.OPEN_CARPLAY,
+            resolveProjectionShortcutAction(ProjectionType.CARPLAY)
+        )
+        assertEquals(
+            ProjectionShortcutAction.OPEN_ANDROID_AUTO,
+            resolveProjectionShortcutAction(ProjectionType.ANDROID_AUTO)
+        )
+        assertEquals("com.beantechs.settings", PHONE_CONNECT_PACKAGE)
+        assertEquals("com.beantechs.settings.ui.activity.MainActivity", PHONE_CONNECT_ACTIVITY)
+        assertEquals(0, PHONE_CONNECT_POSITION)
+    }
+
+    @Test
+    fun resolveDockProjectionType_linkedPhoneShowsIconWithoutAForegroundWindow() {
+        assertEquals(
+            ProjectionType.ANDROID_AUTO,
+            resolveDockProjectionType(
+                mainProjection = ProjectionType.NONE,
+                clusterProjection = ProjectionType.NONE,
+                androidAutoLinked = true,
+                carPlayLinked = false
+            )
+        )
+        assertEquals(
+            ProjectionType.CARPLAY,
+            resolveDockProjectionType(
+                mainProjection = ProjectionType.NONE,
+                clusterProjection = ProjectionType.NONE,
+                androidAutoLinked = false,
+                carPlayLinked = true
+            )
+        )
+    }
+
+    @Test
+    fun resolveDockProjectionType_windowOnScreenBeatsTheOtherLink() {
+        assertEquals(
+            ProjectionType.CARPLAY,
+            resolveDockProjectionType(
+                mainProjection = ProjectionType.CARPLAY,
+                clusterProjection = ProjectionType.NONE,
+                androidAutoLinked = true,
+                carPlayLinked = false
+            )
+        )
+    }
+
+    @Test
+    fun resolveDockProjectionType_staleAndroidAutoWindowDoesNotKeepTheIcon() {
+        assertEquals(
+            ProjectionType.NONE,
+            resolveDockProjectionType(
+                mainProjection = ProjectionType.ANDROID_AUTO,
+                clusterProjection = ProjectionType.ANDROID_AUTO,
+                androidAutoLinked = false,
+                carPlayLinked = false
+            )
+        )
+    }
+
+    @Test
     fun mergeBottomBarProjectionConfigs_appendsMissingProjectionDefaults() {
         val savedConfigs =
             listOf(

@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../src/apex-gt.js', import.meta.url), 'utf8');
+const visibilitySource = readFileSync(new URL('../../shared/runtime/clusterVisibility.js', import.meta.url), 'utf8')
+    .replace('export function ', 'function ');
 const K = {
     speed: 'car.basic.vehicle_speed', rpm: 'car.basic.engine_speed', odo: 'car.basic.total_odometer',
     gear: 'car.basic.gear_status', drive: 'car.drive_setting.drive_mode', prop: 'car.ev_setting.power_model_config',
@@ -70,8 +72,8 @@ function environment({ snapshot = {}, available = Object.values(K), initialPush,
     class FixedDate extends Date {
         constructor() { super(2026, 8, 19, 14, 38, 17, 250); }
     }
-    vm.runInNewContext(source, {
-        window, document: { getElementById: element }, Date: FixedDate,
+    vm.runInNewContext(visibilitySource + '\nwindow.ApexShared = { applyClusterVisibility };\n' + source, {
+        window, document: { getElementById: element, documentElement: element('html') }, Date: FixedDate,
         CustomEvent: class { constructor(type, options = {}) { this.type = type; this.detail = options.detail; } }
     }, { filename: 'apex-gt.js' });
     return {
@@ -296,6 +298,29 @@ test('subscribe filters available keys and synchronous initial push wins over sn
     assert.equal(e.snapshotReads.length, 0);
     const invalid = environment({ badAvailable: true }); invalid.flush(); assert.equal(invalid.subscriptions.length, 0);
     const offline = environment({ bridge: false }); offline.flush(); assert.equal(offline.text('speed-value'), '--');
+});
+
+test('clusterEnabled gates the page immediately and survives telemetry, cards and repeated toggles', () => {
+    const e = environment(); e.flush();
+    const hidden = () => e.nodes.get('html').classList.contains('cluster-disabled');
+    assert.equal(hidden(), false, 'old hosts omit the signal and stay visible');
+    const subscribed = JSON.stringify(e.subscriptions);
+    e.window.control('clusterEnabled', false);
+    assert.equal(hidden(), true, 'off is synchronous, without waiting for rAF');
+    assert.equal(e.frames.size, 0, 'visibility does not schedule rendering');
+    e.window.control('clusterEnabled', false);
+    e.feed({ [K.speed]: 93, [K.projection]: true }); e.window.onCardChanged(3); e.flush();
+    assert.equal(hidden(), true, 'later renders cannot expose the page');
+    assert.equal(e.text('speed-value'), '93', 'telemetry continues while hidden');
+    e.window.control('clusterEnabled', true);
+    assert.equal(hidden(), false);
+    assert.equal(e.text('speed-value'), '93');
+    assert.equal(e.root.classList.contains('projection-active'), true, 'projection state is preserved');
+    assert.equal(JSON.stringify(e.subscriptions), subscribed, 'visibility is not a telemetry subscription');
+    e.window.control('clusterEnabled', false); e.window.control('clusterEnabled', true);
+    assert.equal(hidden(), false);
+    e.window.cleanup(); e.window.control('clusterEnabled', false);
+    assert.equal(hidden(), false, 'disposed pages ignore controls');
 });
 
 test('cleanup cancels pending work, exact subscriptions, timers and pagehide listener once', () => {

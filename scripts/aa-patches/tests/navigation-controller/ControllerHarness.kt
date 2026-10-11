@@ -36,6 +36,7 @@ fun main() {
     Controller.onLinkStatus(1)
     shown(true, "existing pre-session guidance behavior preserved")
     expect(AndroidAutoClusterClient.outputs.last() != null, "controller delivers consumer with valid demand")
+    expect(br.com.redesurftank.havalshisuku.models.BottomBarState.linked == listOf(false, true), "v9 dock receives stopped and active session states")
 
     val firstInactive = TestQueue.now
     nav(false)
@@ -76,6 +77,7 @@ fun main() {
     Controller.onLinkStatus(0)
     shown(false, "disconnect cancels output immediately")
     expect(!Controller.isClusterRequested(), "disconnect clears theme request")
+    expect(br.com.redesurftank.havalshisuku.models.BottomBarState.linked.last() == false, "v9 dock disconnect publication retained")
     expect(Controller.currentSessionValue() == AndroidAutoTelemetryKeys.SESSION_STOPPED, "stopped baseline retained")
     expect(ServiceManager.getInstance().telemetry.last() == AndroidAutoTelemetryKeys.DIRECTIONS to Directions(false).toJson(), "disconnect publishes inactive directions")
     disconnected.callback.run()

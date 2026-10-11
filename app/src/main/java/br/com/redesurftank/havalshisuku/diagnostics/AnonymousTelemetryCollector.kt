@@ -9,6 +9,7 @@ import br.com.redesurftank.havalshisuku.BuildConfig
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
+import br.com.redesurftank.havalshisuku.utils.VirtualClusterPreferences
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import com.google.gson.Gson
 import java.io.IOException
@@ -116,11 +117,7 @@ object AnonymousTelemetryCollector {
                         theme = theme,
                         themeChanged = AnonymousTelemetryPayload.themeChanged(theme, lastTheme),
                         powerOnCount = nextPowerOn,
-                        virtualClusterEnabled =
-                                prefs.getBoolean(
-                                        SharedPreferencesKeys.ENABLE_VIRTUAL_CLUSTER.key,
-                                        false
-                                ),
+                        virtualClusterEnabled = VirtualClusterPreferences.isEnabled(prefs),
                         settings = settings,
                         appVersion = BuildConfig.VERSION_NAME,
                         versionCode = BuildConfig.VERSION_CODE

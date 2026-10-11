@@ -53,9 +53,20 @@ class PatchFileStatusTest(unittest.TestCase):
         for call in ("installPatches(context)", "applyMounts()", "removeMounts()"):
             self.assertRegex(card, r"aaPatchState = aaPatchState.reset\(\)\s+AndroidAutoPatchManager\." + re.escape(call))
 
-    def test_default_automount_is_still_app_only_and_diagnostics_do_not_claim_runtime(self):
+    def test_status_does_not_replace_v9_service_automount_controls(self):
+        source = SCREEN.read_text(encoding="utf-8")
+        self.assertIn('label = "Mapa no cluster"', source)
+        self.assertIn(".AA_CLUSTER_SERVICE_AUTO_MOUNT", source)
+        self.assertEqual(source.count("AndroidAutoPatchManager.ensureClusterServiceAutoMount()"), 1)
+        self.assertNotIn("Auto-montagem: somente App.", source)
         source = MANAGER.read_text(encoding="utf-8")
-        automount = source[source.index("    fun ensureMounted()"):source.index("    fun getDiagnostics()")]
+        legacy = source[source.index("    fun isServiceClusterPatchMounted()"):source.index("    fun applyServiceMountWithoutForceStop()")]
+        self.assertIn("installedPatchMd5(SERVICE_APK)", legacy)
+        self.assertNotIn("readComponentStatus", legacy)
+
+    def test_visual_automount_and_diagnostics_do_not_claim_runtime(self):
+        source = MANAGER.read_text(encoding="utf-8")
+        automount = source[source.index("    fun ensureMounted()"):source.index("    private fun isClusterServiceAutoMountEnabled()")]
         self.assertIn("installAppPatch(context)", automount)
         self.assertIn("applyAppMount()", automount)
         for forbidden in ("applyServiceMount", "applyMounts()", "installPatches("):
