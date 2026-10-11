@@ -1251,6 +1251,11 @@ object DisplayAppLauncher {
         lastAndroidAutoDcmProjectionActiveAtMs = SystemClock.elapsedRealtime()
     }
 
+    /** A fresh DCM snapshot said no Android Auto projection is active. */
+    private fun clearAndroidAutoDcmProjectionActiveEvidence() {
+        lastAndroidAutoDcmProjectionActiveAtMs = 0L
+    }
+
     private fun hasRecentAndroidAutoDcmProjectionActiveEvidence(
         nowMs: Long = SystemClock.elapsedRealtime()
     ): Boolean {
@@ -1842,6 +1847,14 @@ object DisplayAppLauncher {
         }
     }
 
+    /** Already-read CarPlay link status. Null means unread, not disconnected. */
+    private fun noteCarPlayLinkStatus(status: Int?) {
+        if (status == null) return
+        br.com.redesurftank.havalshisuku.models.BottomBarState.publishCarPlayLinked(
+            status == CARPLAY_LINK_STATUS_ACTIVATED
+        )
+    }
+
     private fun readCarPlayLinkStatus(reason: String): Int? {
         return transactCarPlayServiceInt(
             CARPLAY_SERVICE_GET_LINK_STATUS_TRANSACTION,
@@ -1857,6 +1870,7 @@ object DisplayAppLauncher {
         }
 
         val linkStatus = readCarPlayLinkStatus(reason)
+        noteCarPlayLinkStatus(linkStatus)
         if (linkStatus != CARPLAY_LINK_STATUS_ACTIVATED) {
             Log.w(TAG, "[$reason] Skipping CarPlay requestUi; linkStatus=${linkStatus ?: "UNKNOWN"}")
             return false
@@ -2477,6 +2491,9 @@ object DisplayAppLauncher {
                         "dcmDevices=${dcmDevices.joinToString(prefix = "[", postfix = "]")}"
             )
             return
+        }
+        if (dcmDevices.isNotEmpty()) {
+            clearAndroidAutoDcmProjectionActiveEvidence()
         }
 
         val tasks = findAllTasksForPackage(ANDROID_AUTO_PACKAGE)
@@ -3518,6 +3535,7 @@ object DisplayAppLauncher {
         val hasVisualTask = isCarPlayOnDisplay(0) || isCarPlayOnDisplay(3)
         val carPlayAppPid = sh("pidof $CARPLAY_PACKAGE 2>/dev/null || true").trim()
         val linkStatus = readCarPlayLinkStatus("CARPLAY_SYSTEM_UI_ICON_RELEVANCE")
+        noteCarPlayLinkStatus(linkStatus)
         val relevant =
             isCarPlaySystemUiIconRelevantForState(
                 hasVisualTask = hasVisualTask,
@@ -7805,6 +7823,27 @@ object DisplayAppLauncher {
         return out
     }
 
+    /**
+     * The active theme's default app rect on the cluster displays (1/3) as
+     * (x, y, width, height), or null when the theme declares none.
+     */
+    fun themeClusterAppBounds(): IntArray? {
+        val dynamicBounds = dynamicThemeBounds
+        if (dynamicBounds != null && dynamicBounds.size == 4) {
+            return dynamicBounds.copyOf()
+        }
+        val themeFolderName = getPrefs().getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Básico") ?: "Básico"
+        if (themeFolderName == "Default" || themeFolderName == "Básico" || themeFolderName == "Light") {
+            return intArrayOf(0, 62, 1920, 596)
+        }
+        val metadata = ThemeManager.getInstance(App.getContext()).getThemeMetadata(themeFolderName) ?: return null
+        val x = metadata.x ?: return null
+        val y = metadata.y ?: return null
+        val width = metadata.width ?: return null
+        val height = metadata.height ?: return null
+        return intArrayOf(x, y, width, height)
+    }
+
     fun getEffectiveBounds(config: DisplayAppConfig): IntArray {
         if (isCarPlayPackage(config.packageName)) {
             return getCarPlayDisplayBounds(config.displayId)
@@ -7828,29 +7867,11 @@ object DisplayAppLauncher {
         // opt-out for users who want their raw configured bounds.
         val onClusterDisplay = config.displayId == 1 || config.displayId == 3
         if (!config.overrideThemeDimensions && virtualClusterEnabled && onClusterDisplay) {
-            val dynamicBounds = dynamicThemeBounds
-            if (dynamicBounds != null && dynamicBounds.size == 4) {
-                x = dynamicBounds[0]
-                y = dynamicBounds[1]
-                width = dynamicBounds[2]
-                height = dynamicBounds[3]
-            } else {
-                val themeFolderName = prefs.getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Básico") ?: "Básico"
-                if (themeFolderName == "Default" || themeFolderName == "Básico" || themeFolderName == "Light") {
-                    x = 0
-                    y = 62
-                    width = 1920
-                    height = 596
-                } else {
-                    val themeManager = ThemeManager.getInstance(App.getContext())
-                    val metadata = themeManager.getThemeMetadata(themeFolderName)
-                    if (metadata != null && metadata.x != null && metadata.y != null && metadata.width != null && metadata.height != null) {
-                        x = metadata.x!!
-                        y = metadata.y!!
-                        width = metadata.width!!
-                        height = metadata.height!!
-                    }
-                }
+            themeClusterAppBounds()?.let {
+                x = it[0]
+                y = it[1]
+                width = it[2]
+                height = it[3]
             }
         }
 

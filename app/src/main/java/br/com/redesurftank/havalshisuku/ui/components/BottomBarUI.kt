@@ -1,6 +1,7 @@
 package br.com.redesurftank.havalshisuku.ui.components
 
 import br.com.redesurftank.havalshisuku.managers.UpdateNoticeManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
@@ -82,6 +83,13 @@ private const val recycleOut = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAD
 private const val BOTTOM_BAR_TAG = "BottomBarUI"
 private const val BOTTOM_BAR_CARPLAY_PACKAGE = "com.ts.carplay.app"
 private const val BOTTOM_BAR_ANDROID_AUTO_PACKAGE = "com.ts.androidauto.app"
+
+/** OEM settings activity. Extra `position=0` opens the phone "Conectar" page. */
+internal const val PHONE_CONNECT_PACKAGE = "com.beantechs.settings"
+internal const val PHONE_CONNECT_ACTIVITY = "com.beantechs.settings.ui.activity.MainActivity"
+internal const val PHONE_CONNECT_POSITION = 0
+private const val STOCK_SETTINGS_PACKAGE = "com.android.settings"
+private const val STOCK_SETTINGS_ACTIVITY = "com.android.settings.Settings"
 /**
  * When Android Auto owns display 0, leave this many pixels at the left of the bottom bar clear so
  * the AA rail icon that sits under the bar stays visible and tappable.
@@ -1551,31 +1559,115 @@ enum class ProjectionType {
 	ANDROID_AUTO
 }
 
+/**
+ * What the dock's phone-link tile does. An idle icon opens BeanTechs connectivity
+ * even when CarPlay and Android Auto are installed; those packages only launch
+ * while a session is already on screen.
+ */
+internal enum class ProjectionShortcutAction {
+	OPEN_CARPLAY,
+	OPEN_ANDROID_AUTO,
+	OPEN_CONNECTIVITY
+}
+
+internal fun resolveProjectionShortcutAction(active: ProjectionType): ProjectionShortcutAction =
+	when (active) {
+		ProjectionType.CARPLAY -> ProjectionShortcutAction.OPEN_CARPLAY
+		ProjectionType.ANDROID_AUTO -> ProjectionShortcutAction.OPEN_ANDROID_AUTO
+		ProjectionType.NONE -> ProjectionShortcutAction.OPEN_CONNECTIVITY
+	}
+
+internal fun buildPhoneConnectIntent(): Intent =
+	Intent().apply {
+		component = ComponentName(PHONE_CONNECT_PACKAGE, PHONE_CONNECT_ACTIVITY)
+		addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+		putExtra("position", PHONE_CONNECT_POSITION)
+	}
+
+/**
+ * Same path as Impulse Home: explicit BeanTechs settings activity on the Conectar tab,
+ * then that package's launcher activity, then the stock Settings root.
+ */
+internal fun launchPhoneConnectSettings(context: Context) {
+	val pm = context.packageManager
+	val beanInstalled = try {
+		pm.getLaunchIntentForPackage(PHONE_CONNECT_PACKAGE) != null
+	} catch (e: Exception) {
+		Log.w(BOTTOM_BAR_TAG, "Unable to resolve $PHONE_CONNECT_PACKAGE", e)
+		false
+	}
+	if (beanInstalled) {
+		try {
+			Log.w(BOTTOM_BAR_TAG, "Opening BeanTechs connectivity $PHONE_CONNECT_ACTIVITY position=$PHONE_CONNECT_POSITION")
+			context.startActivity(buildPhoneConnectIntent())
+			return
+		} catch (e: Exception) {
+			Log.w(BOTTOM_BAR_TAG, "Direct BeanTechs connectivity launch failed", e)
+			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+				.launchAnyAppDetached(context, PHONE_CONNECT_PACKAGE, PHONE_CONNECT_ACTIVITY)
+			return
+		}
+	}
+	try {
+		val intent = Intent(Intent.ACTION_MAIN).apply {
+			addCategory(Intent.CATEGORY_LAUNCHER)
+			component = ComponentName(STOCK_SETTINGS_PACKAGE, STOCK_SETTINGS_ACTIVITY)
+			setPackage(STOCK_SETTINGS_PACKAGE)
+			addFlags(
+				Intent.FLAG_ACTIVITY_NEW_TASK or
+					Intent.FLAG_ACTIVITY_CLEAR_TASK or
+					Intent.FLAG_ACTIVITY_CLEAR_TOP or
+					Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+			)
+		}
+		Log.w(BOTTOM_BAR_TAG, "BeanTechs settings missing; opening stock Settings root")
+		context.startActivity(intent)
+	} catch (e: Exception) {
+		Log.w(BOTTOM_BAR_TAG, "Stock Settings root launch failed", e)
+	}
+}
+
+/**
+ * Dock phone-link tile.
+ *
+ * Android Auto follows only the session flag. A leftover AA task after the phone
+ * drops must not keep the icon. CarPlay still trusts a window that is already
+ * in front, plus the link-status read the system-ui icon path already performs.
+ */
+internal fun resolveDockProjectionType(
+	mainProjection: ProjectionType,
+	clusterProjection: ProjectionType,
+	androidAutoLinked: Boolean,
+	carPlayLinked: Boolean
+): ProjectionType {
+	if (mainProjection == ProjectionType.CARPLAY || clusterProjection == ProjectionType.CARPLAY || carPlayLinked) {
+		return ProjectionType.CARPLAY
+	}
+	if (androidAutoLinked) return ProjectionType.ANDROID_AUTO
+	return ProjectionType.NONE
+}
+
+private fun projectionTypeForPackage(packageName: String): ProjectionType {
+	val normalized = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+		.resolveProjectionPackageOrNull(packageName)
+	return when (normalized) {
+		BOTTOM_BAR_CARPLAY_PACKAGE -> ProjectionType.CARPLAY
+		BOTTOM_BAR_ANDROID_AUTO_PACKAGE -> ProjectionType.ANDROID_AUTO
+		else -> ProjectionType.NONE
+	}
+}
+
 @Composable
 private fun rememberActiveProjection(activePkg: String): ProjectionType {
 	val activeClusterPkg = BottomBarState.activeClusterProjectionPackage
-	return remember(activePkg, activeClusterPkg) {
-		val projOnMain = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-			.resolveProjectionPackageOrNull(activePkg)
-		val projOnCluster = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-			.resolveProjectionPackageOrNull(activeClusterPkg)
-		when {
-			projOnMain == BOTTOM_BAR_CARPLAY_PACKAGE ||
-			projOnCluster == BOTTOM_BAR_CARPLAY_PACKAGE ||
-			activePkg.contains("carplay", ignoreCase = true) ||
-			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isCarPlayOnDisplay(0) ||
-			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isCarPlayOnDisplay(3) -> ProjectionType.CARPLAY
-
-			projOnMain == BOTTOM_BAR_ANDROID_AUTO_PACKAGE ||
-			projOnCluster == BOTTOM_BAR_ANDROID_AUTO_PACKAGE ||
-			activePkg.contains("androidauto", ignoreCase = true) ||
-			activePkg.contains("projection.gearhead", ignoreCase = true) ||
-			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAndroidAutoOnDisplay(0) ||
-			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAndroidAutoOnDisplay(3) -> ProjectionType.ANDROID_AUTO
-
-			else -> ProjectionType.NONE
-		}
-	}
+	val androidAutoLinked = BottomBarState.androidAutoLinked
+	val carPlayLinked = BottomBarState.carPlayLinked
+	return resolveDockProjectionType(
+		mainProjection = projectionTypeForPackage(activePkg),
+		clusterProjection = projectionTypeForPackage(activeClusterPkg),
+		androidAutoLinked = androidAutoLinked,
+		carPlayLinked = carPlayLinked
+	)
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -1704,33 +1796,21 @@ fun CenteredAppLauncherSection(
 							interactionSource = projInteraction,
 							indication = null,
 							onClick = {
-								scope.launch {
-									when (activeProjection) {
-										ProjectionType.CARPLAY -> {
+								when (resolveProjectionShortcutAction(activeProjection)) {
+									ProjectionShortcutAction.OPEN_CARPLAY -> {
+										scope.launch {
 											br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 												.launchAnyApp(context, BOTTOM_BAR_CARPLAY_PACKAGE)
 										}
-										ProjectionType.ANDROID_AUTO -> {
+									}
+									ProjectionShortcutAction.OPEN_ANDROID_AUTO -> {
+										scope.launch {
 											br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
 												.launchAnyApp(context, BOTTOM_BAR_ANDROID_AUTO_PACKAGE)
 										}
-										ProjectionType.NONE -> {
-											val pm = context.packageManager
-											val hasCarPlay = try { pm.getPackageInfo(BOTTOM_BAR_CARPLAY_PACKAGE, 0); true } catch (e: Exception) { false }
-											val hasAA = try { pm.getPackageInfo(BOTTOM_BAR_ANDROID_AUTO_PACKAGE, 0); true } catch (e: Exception) { false }
-											when {
-												hasCarPlay -> br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, BOTTOM_BAR_CARPLAY_PACKAGE)
-												hasAA -> br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, BOTTOM_BAR_ANDROID_AUTO_PACKAGE)
-												else -> {
-													try {
-														val intent = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
-															flags = Intent.FLAG_ACTIVITY_NEW_TASK
-														}
-														context.startActivity(intent)
-													} catch (_: Exception) {}
-												}
-											}
-										}
+									}
+									ProjectionShortcutAction.OPEN_CONNECTIVITY -> {
+										launchPhoneConnectSettings(context)
 									}
 								}
 							},

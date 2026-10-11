@@ -1,10 +1,38 @@
 # Handoff — Android Auto cluster map + TBT events (Impulse)
 
-**Status:** host + Minimalist **1.0.6** implemented 2026-09-11. Theme Lab `n` shows the TBT strip. CLUSTER video **unproven** on the car (`registerInner` still fail-closed). Do not implement the 3D viewer card here.
+**Status:** host + Minimalist **1.0.6** implemented 2026-09-11. Theme Lab `n` shows the TBT strip. CLUSTER video **unproven** on the car (patch generation disabled; see the 2026-10-04 correction below). Do not implement the 3D viewer card here.
 
 **Requester intent:** keep full Android Auto on display 0, put a second official Maps stream on display 3, notify themes and the 3D viewer when the AA session starts/stops, publish turn-by-turn as telemetry, and let the Minimalist theme request that D3 map and show TBT under the menu.
 
 This is **not** a pixel mirror of D0 and **not** a TBT-reconstructed map. D3 shows the phone’s CLUSTER video of the same trip. TBT is a separate structured overlay.
+
+---
+
+## 2026-10-04 correction and current implementation boundary (HAV-24)
+
+This update supersedes the older implementation assumptions below. Repository
+baseline: `preview` at `fac4a56062cf3417a73753bac6f72c0e49176b09`.
+
+- TBT is already supplied by `AndroidAutoNavigationMonitor` through OEM
+  `LinkCallback`, started by `ServiceManager`. Do not reimplement milestone 1.3
+  or make it depend on a new Service NAV patch
+- The old `registerInner` generated only logs. Its `VideoSink.setSurface` check
+  referred to a nonexistent method in historical stock 48ff. Bare patch mode now
+  fails before any mutation; `--check-contract` provides read-only exact API
+  subset checks and always reports `deployment_ready=false`
+- Surface entry points exist on `AapVideoManager`/`VideoPlayer`, not VideoSink.
+  They currently serve MAIN. An independent CLUSTER listener/decoder and Surface
+  handoff have not been implemented or validated. `AaClusterVideoHost` owning a
+  Surface or a mounted patch sentinel is not evidence of received CLUSTER frames
+- The 2026-09-07 vendor APK was inspected, not pulled from a car today. A current
+  installed APK and explicit vehicle access are still needed for physical proof
+- Preserve full AA on D0 and clean map-only D3. Maps and Waze need separate
+  validation; CarPlay TBT remains unproven and outside this AA-only change
+
+See [`DUMPS_V2_6_CLUSTER.md`](../../scripts/aa-patches/DUMPS_V2_6_CLUSTER.md)
+for exact verified signatures, artifact SHA-256, commands, 18 passing synthetic
+regression tests, Android build limitations and the remaining deployment gates.
+No OEM APK or runtime code was changed in this slice.
 
 ---
 

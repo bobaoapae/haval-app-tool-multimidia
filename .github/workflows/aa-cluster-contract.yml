@@ -1,0 +1,70 @@
+name: AA cluster source and contract validation
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/aa-patches/patch_android_auto_service_cluster.py'
+      - 'scripts/aa-patches/tests/**'
+      - 'scripts/aa-patches/prototype/**'
+      - 'scripts/aa-patches/integration/**'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/api/AaClusterProtocol.java'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/api/ClusterLeaseBarrier.java'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/api/ClusterReleaseLedger.java'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/managers/ClusterSurfaceOutput.java'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/managers/AndroidAutoCluster*'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/managers/AndroidAutoPatch*'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/ui/screens/InstallAppsScreen.kt'
+      - 'app/src/test/java/br/com/redesurftank/havalshisuku/managers/AndroidAutoPatch*'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/projectors/AaCluster*'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/projectors/InstrumentProjector2.kt'
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/bridge/ThemeBridgeImpl.kt'
+      - '.github/workflows/aa-cluster-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  preflight-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Run preflight and JVM prototype regression tests
+        run: python -m unittest discover -s scripts/aa-patches/tests -v
+
+  android-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile helper and client against pinned official Android 28 API
+        run: |
+          mkdir -p scripts/.build/ci-sdk
+          curl --fail --location --retry 2 https://dl.google.com/android/repository/platform-28_r04.zip -o scripts/.build/ci-sdk/platform.zip
+          unzip -q scripts/.build/ci-sdk/platform.zip -d scripts/.build/ci-sdk/platform
+          ANDROID_JAR="$(find scripts/.build/ci-sdk/platform -name android.jar -type f)"
+          python3 scripts/aa-patches/integration/build_unsigned.py --compile-only --android-jar "$ANDROID_JAR" --output scripts/.build/ci-cluster-source
+      - name: Build debug host and run JVM unit tests (no OEM Service signing)
+        run: bash gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon
+

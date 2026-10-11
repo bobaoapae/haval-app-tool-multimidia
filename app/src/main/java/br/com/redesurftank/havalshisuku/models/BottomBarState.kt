@@ -132,4 +132,28 @@ object BottomBarState {
     var resourceOverlayCorner by mutableStateOf(3) // 0=sup.esq 1=sup.dir 2=inf.esq 3=inf.dir
     var resourceOverlayX by mutableStateOf(12)
     var resourceOverlayY by mutableStateOf(90)
+
+    /**
+     * A phone is linked. Android Auto follows the session value the cluster monitor
+     * already publishes. CarPlay follows link-status reads that already run for the
+     * system-ui icon. The dock does not poll for either.
+     */
+    var androidAutoLinked by mutableStateOf(false)
+    var carPlayLinked by mutableStateOf(false)
+
+    fun publishAndroidAutoLinked(linked: Boolean) {
+        postOnMain { if (androidAutoLinked != linked) androidAutoLinked = linked }
+    }
+
+    fun publishCarPlayLinked(linked: Boolean) {
+        postOnMain { if (carPlayLinked != linked) carPlayLinked = linked }
+    }
+
+    private fun postOnMain(block: () -> Unit) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            block()
+        } else {
+            android.os.Handler(android.os.Looper.getMainLooper()).post(block)
+        }
+    }
 }

@@ -111,6 +111,10 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     // ===== Deslocamento do Android Auto no cluster (contorna o crop do menu lateral) =====
     ENABLE_AA_CLUSTER_OFFSET("enableAaClusterOffset", "Habilitar deslocamento do Android Auto no cluster"),
     AA_CLUSTER_LEFT_OFFSET("aaClusterLeftOffset", "Deslocamento horizontal do Android Auto no cluster (px)"),
+    AA_CLUSTER_MAP_CUSTOM_BOUNDS(
+            "aaClusterMapCustomBounds",
+            "Retângulo do mapa do Android Auto no D3 (\"esq,topo,dir,base\"); vazio = padrão do tema"
+    ),
     CAR_MONITOR_PROPERTIES("carMonitorProperties", "Propriedades do monitoramento do carro"),
     // ===== Modo Concessionária =====
     // Ao ENTRAR, o modo grava um retrato (JSON, com os tipos) de TODAS as preferências em
@@ -396,6 +400,12 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "Estado interno da suspensao do app de ar-condicionado do carro"
     ),
     AA_PATCH_AUTO_MOUNT("aaPatchAutoMount", "Habilitar montagem automática dos patches do Android Auto ao iniciar"),
+    // Separate from the visual App toggle. That one defaults on wherever Android Auto
+    // is installed; this one stays off until the user asks for the cluster map Service.
+    AA_CLUSTER_SERVICE_AUTO_MOUNT(
+            "aaClusterServiceAutoMount",
+            "Montar o Service do mapa do cluster ao ligar"
+    ),
     CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),
     AMBIENT_LIGHT_BLE_ENABLED("ambientLightBleEnabled", "Ativar Ambient Light BLE"),
     AMBIENT_LIGHT_BLE_DEVICE_MAC("ambientLightBleDeviceMac", "MAC do dispositivo Ambient Light BLE"),
