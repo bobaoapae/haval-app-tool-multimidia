@@ -23,7 +23,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            HavalShisukuTheme {
+            HavalShisukuTheme(readableText = true) {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     MainScreen(
                             modifier = Modifier.padding(innerPadding),

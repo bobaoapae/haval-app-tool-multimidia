@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -56,6 +57,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import br.com.redesurftank.havalshisuku.managers.TripConsistencyManager
 import br.com.redesurftank.havalshisuku.managers.TripConsistencyConfig
@@ -68,6 +70,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
 
 @Composable
 fun TripConsistencyScreen(onBackToFeatures: (() -> Unit)? = null) {
@@ -169,18 +172,18 @@ private fun TripScoreHeader(
                     Spacer(Modifier.width(12.dp))
                 }
                 Text(
-                    "Score de Consistência da Viagem",
+                    "Consistência da viagem",
                     color = AppColors.TextPrimary,
                     fontSize = 34.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
-            SecondaryButton(onClick = onShowRules, text = "Como funciona")
+            SecondaryButton(onClick = onShowRules, text = "Regras")
         }
         Text(
             "Avalia suavidade, estabilidade e eficiência usando a telemetria já monitorada pelo Impulse.",
             color = AppColors.TextSecondary,
-            fontSize = 18.sp
+            fontSize = ImpulseTextSizes.Body
         )
     }
 }
@@ -196,13 +199,13 @@ private fun IdleTripScoreView(
         Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Text("Nenhuma viagem em análise", color = AppColors.TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
             Text(
-                "Inicie uma viagem para acompanhar o score em tempo real. O cluster exibirá apenas um indicador discreto enquanto a análise estiver ativa.",
+                "Inicie uma viagem para acompanhar a avaliação em tempo real. O cluster exibirá apenas um indicador discreto enquanto a análise estiver ativa.",
                 color = AppColors.TextSecondary,
-                fontSize = 17.sp
+                fontSize = ImpulseTextSizes.Label
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PrimaryButton(onClick = onStart, text = "Iniciar análise de viagem")
-                SecondaryButton(onClick = onShowRules, text = "Entender score")
+                SecondaryButton(onClick = onShowRules, text = "Entender a avaliação")
                 if (reports.isNotEmpty()) {
                     SecondaryButton(onClick = { onOpenReport(reports.first()) }, text = "Ver último relatório")
                 }
@@ -239,18 +242,18 @@ private fun ActiveTripView(
                 }
                 if (!scoreReady || session.telemetryWarning) {
                     Text(
-                        "Aguardando telemetria para iniciar o score.",
+                        "Aguardando telemetria para iniciar a avaliação.",
                         color = Color(0xFFFFC857),
-                        fontSize = 14.sp
+                        fontSize = ImpulseTextSizes.Label
                     )
                 }
             }
         }
 
         StyledCard(modifier = Modifier.weight(1f)) {
-            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Prévia em tempo real", color = AppColors.TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                MetricsGrid(session.metrics, scoreReady = scoreReady)
+                MetricsGrid(session.metrics, scoreReady = scoreReady, compact = true)
                 OutlinedTextField(
                     value = note,
                     onValueChange = onNoteChange,
@@ -258,7 +261,7 @@ private fun ActiveTripView(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2
                 )
-                PrimaryButton(onClick = onFinish, text = "Encerrar viagem e gerar relatório", modifier = Modifier.fillMaxWidth())
+                PrimaryButton(onClick = onFinish, text = "Encerrar viagem e gerar relatório", modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
             }
         }
     }
@@ -279,7 +282,7 @@ private fun PausedTripView(
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text("Você ainda está em viagem?", color = AppColors.TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                    Text("O veículo foi desligado durante uma análise ativa.", color = AppColors.TextSecondary, fontSize = 17.sp)
+                    Text("O veículo foi desligado durante uma análise ativa.", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Label)
                 }
             }
             TripScoreGauge(
@@ -320,7 +323,7 @@ private fun TripReportView(
                 TripScoreGauge(report.score, report.classification, compact = true)
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(report.classificationLabel, color = Color(0xFF00D8FF), fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                    Text(report.summaryText, color = AppColors.TextSecondary, fontSize = 17.sp)
+                    Text(report.summaryText, color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Label)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         TripMetricPill(Icons.Default.Route, "Distância", formatDistance(report.distanceKm))
                         TripMetricPill(Icons.Default.Timeline, "Duração", formatDuration(report.durationSeconds))
@@ -345,12 +348,12 @@ private fun TripHistoryView(
                 Spacer(Modifier.width(10.dp))
                 Column {
                     Text("Histórico de viagens", color = AppColors.TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Últimas ${reports.size}/10 viagens finalizadas.", color = AppColors.TextSecondary, fontSize = 14.sp)
+                    Text("Últimas ${reports.size}/10 viagens finalizadas.", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Label)
                 }
             }
 
             if (reports.isEmpty()) {
-                Text("Nenhuma viagem finalizada ainda.", color = AppColors.TextSecondary, fontSize = 16.sp)
+                Text("Nenhuma viagem finalizada ainda.", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Label)
             } else {
                 reports.forEach { report ->
                     TripHistoryRow(report = report, onClick = { onOpenReport(report) })
@@ -379,11 +382,11 @@ private fun TripHistoryRow(report: TripConsistencyReport, onClick: () -> Unit) {
                 TripScoreMiniBadge(report.score)
                 Spacer(Modifier.width(14.dp))
                 Column {
-                    Text(report.classificationLabel, color = AppColors.TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Text("${formatInstant(report.startedAt)} - ${formatDistance(report.distanceKm)} - ${formatDuration(report.durationSeconds)}", color = AppColors.TextSecondary, fontSize = 14.sp)
+                    Text(report.classificationLabel, color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.Body, fontWeight = FontWeight.SemiBold)
+                    Text("${formatInstant(report.startedAt)} - ${formatDistance(report.distanceKm)} - ${formatDuration(report.durationSeconds)}", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Label)
                 }
             }
-            Text("Abrir", color = Color(0xFF00D8FF), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text("Abrir", color = Color(0xFF00D8FF), fontSize = ImpulseTextSizes.Label, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -409,8 +412,8 @@ private fun ScoreRulesView(onBack: () -> Unit) {
                     Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF00D8FF), modifier = Modifier.size(32.dp))
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("Como funciona o score", color = AppColors.TextPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                        Text("Regras implementadas usando dados reais já lidos pelo Impulse.", color = AppColors.TextSecondary, fontSize = 16.sp)
+                        Text("Como funciona a avaliação", color = AppColors.TextPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        Text("Baseado nos dados lidos pelo Impulse.", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Label)
                     }
                 }
                 SecondaryButton(onClick = onBack, text = "Voltar")
@@ -422,11 +425,11 @@ private fun ScoreRulesView(onBack: () -> Unit) {
                     "Velocidade, hodômetro e estado do veículo.",
                     "Consumo instantâneo de combustível e energia, quando disponíveis.",
                     "Nível/corrente de regeneração para detectar eventos relevantes.",
-                    "Sem GPS: o score não usa rota, localização ou mapas."
+                    "Sem GPS: a avaliação não usa rota, localização ou mapas."
                 )
             )
             ScoreRuleSection(
-                title = "Pesos do score",
+                title = "Pesos da avaliação",
                 lines = listOf(
                     "Variação de velocidade: 25%.",
                     "Aceleração controlada: 20%.",
@@ -439,7 +442,7 @@ private fun ScoreRulesView(onBack: () -> Unit) {
             ScoreRuleSection(
                 title = "Classificações",
                 lines = listOf(
-                    "Viagem suave: score alto, poucas variações bruscas e condução previsível.",
+                    "Viagem suave: nota alta, poucas variações bruscas e condução previsível.",
                     "Viagem esportiva: várias acelerações/frenagens fortes ou muitas variações de velocidade.",
                     "Trânsito pesado: baixa velocidade média, velocidade máxima baixa e padrão de anda-e-para."
                 )
@@ -461,7 +464,7 @@ private fun ScoreRuleSection(title: String, lines: List<String>) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, color = Color(0xFF00D8FF), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         lines.forEach { line ->
-            Text("- $line", color = AppColors.TextSecondary, fontSize = 16.sp)
+            Text("- $line", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Label)
         }
     }
 }
@@ -500,14 +503,14 @@ private fun TripScoreGauge(
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(score?.toString() ?: "--", color = AppColors.TextPrimary, fontSize = if (compact) 54.sp else 82.sp, fontWeight = FontWeight.Bold)
-            Text("/100", color = Color(0xFF4A9EFF), fontSize = if (compact) 18.sp else 24.sp)
+            Text("/100", color = Color(0xFF4A9EFF), fontSize = if (compact) ImpulseTextSizes.BodyCompact else 24.sp)
             Text(
                 formatGaugeClassificationLabel(classification),
                 color = Color(0xFF00D8FF),
-                fontSize = if (compact) 14.sp else 18.sp,
+                fontSize = if (compact) ImpulseTextSizes.BodyCompact else ImpulseTextSizes.Body,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
-                lineHeight = if (compact) 16.sp else 20.sp
+                lineHeight = 1.35.em
             )
         }
     }
@@ -564,8 +567,8 @@ private fun MetricProgress(label: String, score: Int?) {
     val progress = (score ?: 0).coerceIn(0, 100) / 100f
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, color = AppColors.TextSecondary, fontSize = 14.sp)
-            Text(score?.toString() ?: "--", color = AppColors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(label, color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.Label)
+            Text(score?.toString() ?: "--", color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.Label, fontWeight = FontWeight.SemiBold)
         }
         Box(
             modifier = Modifier
@@ -600,16 +603,18 @@ private fun TripMetricPill(icon: ImageVector, label: String, value: String, comp
             Icon(icon, contentDescription = null, tint = Color(0xFF00D8FF), modifier = Modifier.size(if (compact) 19.dp else 22.dp))
             Spacer(Modifier.width(if (compact) 6.dp else 8.dp))
             Column {
-                Text(label, color = AppColors.TextSecondary, fontSize = if (compact) 11.sp else 12.sp)
-                Text(value, color = AppColors.TextPrimary, fontSize = if (compact) 14.sp else 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(label, color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
+                Text(value, color = AppColors.TextPrimary, fontSize = if (compact) ImpulseTextSizes.BodyCompact else ImpulseTextSizes.Label, fontWeight = FontWeight.SemiBold)
             }
         }
     }
 }
 
-private fun formatDistance(value: Double?): String = value?.let { String.format(Locale.US, "%.1f km", it) } ?: "-- km"
+private val PT_BR: Locale = Locale.forLanguageTag("pt-BR")
 
-private fun formatKmh(value: Double?): String = value?.let { String.format(Locale.US, "%.0f km/h", it) } ?: "-- km/h"
+private fun formatDistance(value: Double?): String = value?.let { String.format(PT_BR, "%.1f km", it) } ?: "-- km"
+
+private fun formatKmh(value: Double?): String = value?.let { String.format(PT_BR, "%.0f km/h", it) } ?: "-- km/h"
 
 private fun formatDuration(seconds: Long): String {
     val hours = seconds / 3600

@@ -52,6 +52,9 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
+import br.com.redesurftank.havalshisuku.ui.components.ImpTokens
 
 // HotRouter: formata o epoch do statefile em HH:mm:ss.
 private fun formatHms(epochSeconds: Long): String {
@@ -149,7 +152,7 @@ private fun SteeringActionPicker(
         var expanded by remember { mutableStateOf(false) }
         var climateCommandExpanded by remember { mutableStateOf(false) }
         var showAppPicker by remember { mutableStateOf(false) }
-        Text(label, color = Color(0xFFB0B8C4), fontSize = 14.sp)
+        Text(label, color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.Label)
         ExposedDropdownMenuBox(
                 expanded = expanded,
                 onExpandedChange = { expanded = !expanded }
@@ -222,7 +225,7 @@ private fun SteeringActionPicker(
                                 Text(
                                         text = resolved?.label ?: "Selecionar aplicativo",
                                         color = Color.White,
-                                        fontSize = 14.sp,
+                                        fontSize = ImpulseTextSizes.Label,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                 )
@@ -230,8 +233,8 @@ private fun SteeringActionPicker(
                                         text =
                                                 if (packageName.isBlank()) "Nenhum app escolhido"
                                                 else packageName,
-                                        color = Color(0xFFB0B8C4),
-                                        fontSize = 11.sp,
+                                        color = ImpTokens.TextSecondary,
+                                        fontSize = ImpulseTextSizes.BodyCompact,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                 )
@@ -239,7 +242,7 @@ private fun SteeringActionPicker(
                         Text(
                                 "ESCOLHER",
                                 color = Color(0xFF4A9EFF),
-                                fontSize = 11.sp,
+                                fontSize = ImpulseTextSizes.BodyCompact,
                                 fontWeight = FontWeight.Bold
                         )
                 }
@@ -995,15 +998,9 @@ fun BasicSettingsTab() {
                 if (viewerStatus.supports(ViewerPresencePolicy.API_CLIMATE_HANDOFF)) {
                         settingsList.add(
                                 SettingItem(
-                                        title = "Ar-condicionado pelo Haval H6 3D",
+                                        title = "Clima no Launcher",
                                         group = SettingsGroups.CLIMATE,
-                                        description =
-                                                SharedPreferencesKeys.VIEWER_CLIMATE_HANDOFF
-                                                        .description +
-                                                        ". Os botoes fisicos continuam funcionando " +
-                                                        "normalmente; some so o popup do carro. O " +
-                                                        "app do carro volta sozinho se o viewer " +
-                                                        "fechar, travar ou for desinstalado.",
+                                        description = "Painel no Launcher; botões físicos mantidos.",
                                         checked = viewerClimateHandoff,
                                         onCheckedChange = {
                                                 viewerClimateHandoff = it
@@ -1028,15 +1025,9 @@ fun BasicSettingsTab() {
                                 group = SettingsGroups.FEATURES,
                                 description =
                                         if (viewerStatus.installedButDisabled)
-                                                "O app esta instalado, mas desativado neste " +
-                                                        "usuario. Reative-o para voltar a ver as " +
-                                                        "opcoes do Haval H6 3D aqui."
+                                                "Launcher desativado. Reative em Apps."
                                         else
-                                                "Nao instalado. As opcoes que dependem do app " +
-                                                        "(abrir no boot, controles de ar-" +
-                                                        "condicionado) aparecem aqui assim que " +
-                                                        "ele for instalado -- veja a aba " +
-                                                        "\"Instalar Apps\".",
+                                                "Instale o Launcher em Apps.",
                                 checked = false,
                                 onCheckedChange = {},
                                 enabled = false,
@@ -1092,9 +1083,9 @@ fun BasicSettingsTab() {
                                                 }
                                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                                         HorizontalDivider(color = Color(0xFF3A3F47), thickness = 1.dp)
-                                                        Text(text = "Status: $label", color = Color.White, fontSize = 16.sp)
+                                                        Text(text = "Status: $label", color = Color.White, fontSize = ImpulseTextSizes.Label)
                                                         if (statusEpoch > 0L) {
-                                                                Text(text = "atualizado ${formatHms(statusEpoch)}", color = Color(0xFFB0B8C4), fontSize = 12.sp)
+                                                                Text(text = "atualizado ${formatHms(statusEpoch)}", color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                                                         }
                                                 }
                                         }
@@ -1108,7 +1099,7 @@ fun BasicSettingsTab() {
                         title = "Controle de dados móveis",
                         group = SettingsGroups.FEATURES,
                         description =
-                                "Liga o gerenciamento do 4G da multimídia. Desligado, o app não altera o estado definido pelo carro; se ele próprio havia bloqueado, libera uma vez.",
+                                "Gerencia o 4G. Ao desligar, libera bloqueios feitos pelo Impulse.",
                         checked = mobileControlEnabled,
                         onCheckedChange = {
                                 mobileControlEnabled = it
@@ -1124,27 +1115,26 @@ fun BasicSettingsTab() {
                                                         else -> "4G agora: LIBERADO"
                                                 },
                                                 color = if (reason != null) Color(0xFFE53935) else Color(0xFF34C759),
-                                                fontSize = 15.sp
+                                                fontSize = ImpulseTextSizes.Label
                                         )
                                         Text(
                                                 String.format("Multimídia (esta tela): %.2f GB neste ciclo", mobileDataUsedMb / 1024f),
                                                 color = AppColors.TextSecondary,
-                                                fontSize = 13.sp,
+                                                fontSize = ImpulseTextSizes.BodyCompact,
                                                 modifier = Modifier.padding(top = 4.dp)
                                         )
                                         Row(
                                                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                                Text("Bloquear manualmente agora", color = AppColors.TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                                Text("Bloquear 4G agora", color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.Label, modifier = Modifier.weight(1f))
                                                 Switch(checked = mobileManualBlock, onCheckedChange = { mobileManualBlock = it; mdm.setManualBlock(it) })
                                         }
-                                        Text("Corta o 4G na hora, independente do resto.", color = AppColors.TextSecondary, fontSize = 12.sp)
                                         Row(
                                                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                                Text("Bloquear conforme o gasto", color = AppColors.TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                                Text("Bloquear conforme o gasto", color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.Label, modifier = Modifier.weight(1f))
                                                 Switch(checked = mobileAutoblock, onCheckedChange = { mobileAutoblock = it; mdm.setAutoblockEnabled(it) })
                                         }
                                         if (mobileAutoblock) {
@@ -1153,7 +1143,7 @@ fun BasicSettingsTab() {
                                                 val remainingGb = (capGb - usedGb).coerceAtLeast(0f)
                                                 Text(
                                                         String.format("Bloquear ao passar de %.1f GB — faltam %.2f GB", capGb, remainingGb),
-                                                        color = AppColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
+                                                        color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact, modifier = Modifier.padding(top = 2.dp)
                                                 )
                                                 Slider(
                                                         value = (mobileDataAutoblockCapMb / 1024f).coerceIn(0.5f, 8f),
@@ -1167,7 +1157,7 @@ fun BasicSettingsTab() {
                                                         valueRange = 0.5f..8f,
                                                         steps = 14
                                                 )
-                                                Text("Zera a contagem no dia $mobileDataCycleDay do mês", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                                Text("Zera a contagem no dia $mobileDataCycleDay do mês", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                                                 Slider(
                                                         value = mobileDataCycleDay.toFloat(),
                                                         onValueChange = { mobileDataCycleDay = it.toInt().coerceIn(1, 31) },
@@ -1178,28 +1168,28 @@ fun BasicSettingsTab() {
                                                         steps = 29
                                                 )
                                         } else {
-                                                Text("Bloqueia sozinho só quando a tela atinge o teto (GB) no ciclo.", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                                Text("Bloqueia sozinho só quando a tela atinge o teto (GB) no ciclo.", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                                         }
                                         Row(
                                                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                                Text("Bloquear quando conectado ao WiFi", color = AppColors.TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                                Text("Bloquear quando conectado ao WiFi", color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.Label, modifier = Modifier.weight(1f))
                                                 Switch(checked = mobileBlockOnWifi, onCheckedChange = { mobileBlockOnWifi = it; mdm.setBlockOnWifi(it) })
                                         }
-                                        Text("Com WiFi/Starlink no ar, desliga o 4G; volta quando o WiFi cai.", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                        Text("Com WiFi/Starlink no ar, desliga o 4G; volta quando o WiFi cai.", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                                         Row(
                                                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                                Text("Bloquear no Android Auto/CarPlay", color = AppColors.TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                                Text("Bloquear no Android Auto/CarPlay", color = AppColors.TextPrimary, fontSize = ImpulseTextSizes.Label, modifier = Modifier.weight(1f))
                                                 Switch(checked = mobileBlockOnProjection, onCheckedChange = { mobileBlockOnProjection = it; mdm.setBlockOnProjection(it) })
                                         }
-                                        Text("Enquanto o celular estiver projetando, o 4G do carro fica desligado.", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                        Text("Enquanto o celular estiver projetando, o 4G do carro fica desligado.", color = AppColors.TextSecondary, fontSize = ImpulseTextSizes.BodyCompact)
                                         Text(
                                                 "A fatura da linha é maior: inclui o TBOX (não passa pela tela e não é medido aqui).",
                                                 color = AppColors.TextSecondary,
-                                                fontSize = 12.sp,
+                                                fontSize = ImpulseTextSizes.BodyCompact,
                                                 modifier = Modifier.padding(top = 12.dp)
                                         )
                                 }
@@ -1225,7 +1215,7 @@ fun BasicSettingsTab() {
                                         Text(
                                                 "Salvar bateria em: $hevSocTarget%",
                                                 color = AppColors.TextPrimary,
-                                                fontSize = 14.sp
+                                                fontSize = ImpulseTextSizes.Label
                                         )
                                         Slider(
                                                 value = hevSocTarget.toFloat(),
@@ -1317,7 +1307,7 @@ fun BasicSettingsTab() {
                                 title = "Fechar janela ao trancar o carro",
                                 group = SettingsGroups.SHUTDOWN,
                                 description =
-                                        "Fecha os vidros quando o carro é trancado. Só age com o carro PARADO e DESLIGADO — o carro tranca sozinho ao atingir velocidade, e trancar com alguém dentro não pode fechar vidro na cara de ninguém.",
+                                        "Fecha ao trancar, somente com o carro parado e desligado.",
                                 checked = closeWindowOnLock,
                                 onCheckedChange = {
                                         closeWindowOnLock = it
@@ -1334,7 +1324,7 @@ fun BasicSettingsTab() {
                                 title = "Fechar teto solar ao trancar o carro",
                                 group = SettingsGroups.SHUTDOWN,
                                 description =
-                                        "Fecha o teto quando o carro é trancado, com as mesmas condições de segurança: parado e desligado.",
+                                        "Fecha ao trancar, somente com o carro parado e desligado.",
                                 checked = closeSunroofOnLock,
                                 onCheckedChange = {
                                         closeSunroofOnLock = it
@@ -1485,7 +1475,7 @@ fun BasicSettingsTab() {
                                                                         Text(
                                                                                 text =
                                                                                         "Temperatura alvo: ${maxAcTargetTemp.toInt()}°C",
-                                                                                fontSize = 14.sp,
+                                                                                fontSize = ImpulseTextSizes.Label,
                                                                                 color = Color.White
                                                                         )
                                                                         Slider(
@@ -1533,7 +1523,7 @@ fun BasicSettingsTab() {
                                                                                         SharedPreferencesKeys
                                                                                                 .MAX_AC_TIMEOUT
                                                                                                 .description,
-                                                                                fontSize = 14.sp,
+                                                                                fontSize = ImpulseTextSizes.Label,
                                                                                 color = Color.White
                                                                         )
                                                                         Spacer(
@@ -1553,7 +1543,7 @@ fun BasicSettingsTab() {
                                                                                                         0xFF4A9EFF
                                                                                                 ),
                                                                                         fontSize =
-                                                                                                16.sp,
+                                                                                                ImpulseTextSizes.Label,
                                                                                         modifier =
                                                                                                 Modifier.background(
                                                                                                                 Color(
@@ -1632,10 +1622,7 @@ fun BasicSettingsTab() {
                                                 .description,
                                 group = SettingsGroups.COMFORT,
                                 description =
-                                        "Com a opção acima ligada, a cortina abre uma vez por " +
-                                                "entrada na faixa de horário. Numa faixa larga, " +
-                                                "isso acaba sendo uma vez só. Ligue aqui para ela " +
-                                                "abrir toda vez que o carro ligar.",
+                                        "Abre a cortina em toda partida, não só uma vez por faixa de horário.",
                                 enabled = enableOpenSunroofCurtainOnStart,
                                 checked = openCurtainEveryIgnition,
                                 onCheckedChange = { checked ->
@@ -1828,7 +1815,7 @@ fun BasicSettingsTab() {
                                                                                                 color =
                                                                                                         Color.White,
                                                                                                 fontSize =
-                                                                                                        14.sp
+                                                                                                        ImpulseTextSizes.Label
                                                                                         )
                                                                                         Spacer(
                                                                                                 modifier =
@@ -1843,7 +1830,7 @@ fun BasicSettingsTab() {
                                                                                                                 0xFF4A9EFF
                                                                                                         ),
                                                                                                 fontSize =
-                                                                                                        18.sp,
+                                                                                                        ImpulseTextSizes.Body,
                                                                                                 fontWeight =
                                                                                                         FontWeight
                                                                                                                 .Medium
@@ -1890,7 +1877,7 @@ fun BasicSettingsTab() {
                                                                                                 color =
                                                                                                         Color.White,
                                                                                                 fontSize =
-                                                                                                        14.sp
+                                                                                                        ImpulseTextSizes.Label
                                                                                         )
                                                                                         Spacer(
                                                                                                 modifier =
@@ -1905,7 +1892,7 @@ fun BasicSettingsTab() {
                                                                                                                 0xFF4A9EFF
                                                                                                         ),
                                                                                                 fontSize =
-                                                                                                        18.sp,
+                                                                                                        ImpulseTextSizes.Body,
                                                                                                 fontWeight =
                                                                                                         FontWeight
                                                                                                                 .Medium
@@ -1922,7 +1909,7 @@ fun BasicSettingsTab() {
                                                                         Text(
                                                                                 "Temp. Máxima:",
                                                                                 color = Color.White,
-                                                                                fontSize = 14.sp,
+                                                                                fontSize = ImpulseTextSizes.Label,
                                                                                 modifier =
                                                                                         Modifier.padding(
                                                                                                 end =
@@ -1940,7 +1927,7 @@ fun BasicSettingsTab() {
                                                                                                         0xFF4A9EFF
                                                                                                 ),
                                                                                         fontSize =
-                                                                                                16.sp,
+                                                                                                ImpulseTextSizes.Label,
                                                                                         modifier =
                                                                                                 Modifier.background(
                                                                                                                 Color(
@@ -2154,7 +2141,7 @@ fun BasicSettingsTab() {
                                                                                         Text(
                                                                                                 "Início",
                                                                                                 color = Color.White,
-                                                                                                fontSize = 14.sp
+                                                                                                fontSize = ImpulseTextSizes.Label
                                                                                         )
                                                                                         Spacer(
                                                                                                 modifier =
@@ -2163,7 +2150,7 @@ fun BasicSettingsTab() {
                                                                                         Text(
                                                                                                 "${String.format("%02d", closeCurtainStartHour)}:${String.format("%02d", closeCurtainStartMinute)}",
                                                                                                 color = Color(0xFF4A9EFF),
-                                                                                                fontSize = 18.sp,
+                                                                                                fontSize = ImpulseTextSizes.Body,
                                                                                                 fontWeight =
                                                                                                         FontWeight.Medium
                                                                                         )
@@ -2196,7 +2183,7 @@ fun BasicSettingsTab() {
                                                                                         Text(
                                                                                                 "Fim",
                                                                                                 color = Color.White,
-                                                                                                fontSize = 14.sp
+                                                                                                fontSize = ImpulseTextSizes.Label
                                                                                         )
                                                                                         Spacer(
                                                                                                 modifier =
@@ -2205,7 +2192,7 @@ fun BasicSettingsTab() {
                                                                                         Text(
                                                                                                 "${String.format("%02d", closeCurtainEndHour)}:${String.format("%02d", closeCurtainEndMinute)}",
                                                                                                 color = Color(0xFF4A9EFF),
-                                                                                                fontSize = 18.sp,
+                                                                                                fontSize = ImpulseTextSizes.Body,
                                                                                                 fontWeight =
                                                                                                         FontWeight.Medium
                                                                                         )
@@ -2370,14 +2357,14 @@ fun BasicSettingsTab() {
                                                                                         color =
                                                                                                 Color.White,
                                                                                         fontSize =
-                                                                                                16.sp
+                                                                                                ImpulseTextSizes.Label
                                                                                 )
                                                                                 Text(
                                                                                         "Esconde após 30s de inatividade",
                                                                                         color =
-                                                                                                Color.Gray,
+                                                                                                ImpTokens.TextMuted,
                                                                                         fontSize =
-                                                                                                12.sp
+                                                                                                ImpulseTextSizes.BodyCompact
                                                                                 )
                                                                         }
                                                                         Switch(
@@ -2473,14 +2460,14 @@ fun BasicSettingsTab() {
                                                                                         color =
                                                                                                 Color.White,
                                                                                         fontSize =
-                                                                                                16.sp
+                                                                                                ImpulseTextSizes.Label
                                                                                 )
                                                                                 Text(
                                                                                         "O painel fica oculto e libera os 128px da esquerda para a barra. Deslize da borda esquerda para trazê-lo de volta; ele se esconde de novo após 5s.\n\nAtenção: o botão home nativo fica nesse painel, então ele sai junto. Para usá-lo, deslize o painel de volta — ou configure o deslizar para cima da barra como \"Ir para a Home Haval\".",
                                                                                         color =
-                                                                                                Color.Gray,
+                                                                                                ImpTokens.TextMuted,
                                                                                         fontSize =
-                                                                                                12.sp
+                                                                                                ImpulseTextSizes.BodyCompact
                                                                                 )
                                                                         }
                                                                         Switch(
@@ -2542,7 +2529,7 @@ fun BasicSettingsTab() {
                                                                 Text(
                                                                         "Versão da barra inferior",
                                                                         color = Color.White,
-                                                                        fontSize = 16.sp
+                                                                        fontSize = ImpulseTextSizes.Label
                                                                 )
                                                                 Spacer(
                                                                         modifier =
@@ -2552,8 +2539,8 @@ fun BasicSettingsTab() {
                                                                 )
                                                                 Text(
                                                                         "Escolha entre o layout original ou a nova experiência com doca de aplicativos e menu de climatização Haval H6 3D",
-                                                                        color = Color.Gray,
-                                                                        fontSize = 12.sp
+                                                                        color = ImpTokens.TextMuted,
+                                                                        fontSize = ImpulseTextSizes.BodyCompact
                                                                 )
                                                                 Spacer(
                                                                         modifier =
@@ -2593,12 +2580,12 @@ fun BasicSettingsTab() {
                                                                                         Text(
                                                                                                 text = option.label,
                                                                                                 color = Color.White,
-                                                                                                fontSize = 14.sp
+                                                                                                fontSize = ImpulseTextSizes.Label
                                                                                         )
                                                                                         Text(
                                                                                                 text = option.description,
-                                                                                                color = Color.Gray,
-                                                                                                fontSize = 12.sp
+                                                                                                color = ImpTokens.TextMuted,
+                                                                                                fontSize = ImpulseTextSizes.BodyCompact
                                                                                         )
                                                                                 }
                                                                         }
@@ -2615,7 +2602,7 @@ fun BasicSettingsTab() {
                                                                 Text(
                                                                         "Ao deslizar a barra para cima",
                                                                         color = Color.White,
-                                                                        fontSize = 16.sp
+                                                                        fontSize = ImpulseTextSizes.Label
                                                                 )
                                                                 Spacer(
                                                                         modifier =
@@ -2690,7 +2677,7 @@ fun BasicSettingsTab() {
                                                                                                         color =
                                                                                                                 Color.White,
                                                                                                         fontSize =
-                                                                                                                14.sp
+                                                                                                                ImpulseTextSizes.Label
                                                                                                 )
                                                                                                 if (option ==
                                                                                                                 BottomBarState
@@ -2709,7 +2696,7 @@ fun BasicSettingsTab() {
                                                                                                                         AppColors
                                                                                                                                 .Primary,
                                                                                                                 fontSize =
-                                                                                                                        12.sp
+                                                                                                                        ImpulseTextSizes.BodyCompact
                                                                                                         )
                                                                                                 }
                                                                                         }
@@ -2749,7 +2736,7 @@ fun BasicSettingsTab() {
                         SettingItem(
                                 title = "Mover navegação para o cluster ao iniciar",
                                 description =
-                                        "Enviar Android Auto ou CarPlay automaticamente para o cluster ao iniciar (só se AA/CarPlay estiver selecionado como app inicial na tela Telas)",
+                                        "Envia Android Auto ou CarPlay ao cluster. Selecione antes em Telas.",
                                 checked = autoMoveProjectionToCluster,
                                 onCheckedChange = { checked ->
                                         autoMoveProjectionToCluster = checked
@@ -2793,16 +2780,20 @@ fun BasicSettingsTab() {
                                                                 Text(
                                                                         "Abrir Impulse Drive na projeção do cluster",
                                                                         color =
-                                                                                Color.White,
+                                                                                ImpTokens.TextPrimary,
                                                                         fontSize =
-                                                                                16.sp
+                                                                                ImpulseTextSizes.Body,
+                                                                        fontWeight =
+                                                                                ImpulseTextWeights.Label
                                                                 )
                                                                 Text(
                                                                         "Ao iniciar Android Auto ou CarPlay no cluster",
                                                                         color =
-                                                                                Color.Gray,
+                                                                                ImpTokens.TextSecondary,
                                                                         fontSize =
-                                                                                12.sp
+                                                                                ImpulseTextSizes.Label,
+                                                                        fontWeight =
+                                                                                ImpulseTextWeights.Body
                                                                 )
                                                         }
                                                         Switch(
@@ -2852,7 +2843,7 @@ fun BasicSettingsTab() {
                         SettingItem(
                                 title = "Desativar AVAS",
                                 group = SettingsGroups.SAFETY,
-                                description = "Sistema de alerta de veículo silencioso",
+                                description = "Desliga o alerta sonoro para pedestres.",
                                 checked = disableAvas,
                                 onCheckedChange = {
                                         disableAvas = it
@@ -2884,7 +2875,7 @@ fun BasicSettingsTab() {
                                 }
                         ),
                         SettingItem(
-                                title = "Ligar ventilação do banco do motorista com A/C ligado",
+                                title = "Ventilar banco com A/C",
                                 group = SettingsGroups.CLIMATE,
                                 description =
                                         SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON
@@ -2982,7 +2973,7 @@ fun BasicSettingsTab() {
                                 title = "Ativar Ambient Light BLE",
                                 group = SettingsGroups.FEATURES,
                                 description =
-                                        "Exibe o recurso opcional para LEDs externos instalados pelo usuario",
+                                        "Exibe o recurso opcional para LEDs externos instalados pelo usuário",
                                 checked = ambientLightBleEnabled,
                                 onCheckedChange = {
                                         ambientLightBleEnabled = it
@@ -3002,7 +2993,7 @@ fun BasicSettingsTab() {
                                 }
                         ),
                         SettingItem(
-                                title = "Habilitar botões personalizados no volante",
+                                title = "Personalizar botões do volante",
                                 group = SettingsGroups.FEATURES,
                                 description =
                                         SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS
@@ -3035,7 +3026,7 @@ fun BasicSettingsTab() {
                                                                 Text(
                                                                         "Botão 1",
                                                                         color = Color.White,
-                                                                        fontSize = 16.sp
+                                                                        fontSize = ImpulseTextSizes.Label
                                                                 )
                                                                 SteeringActionPicker(
                                                                         label = "Toque curto",
@@ -3168,7 +3159,7 @@ fun BasicSettingsTab() {
                                                                 Text(
                                                                         "Botão 2",
                                                                         color = Color.White,
-                                                                        fontSize = 16.sp
+                                                                        fontSize = ImpulseTextSizes.Label
                                                                 )
                                                                 SteeringActionPicker(
                                                                         label = "Toque curto",
@@ -3298,9 +3289,9 @@ fun BasicSettingsTab() {
                                         } else null
                         ),
                         SettingItem(
-                                title = "Ajustar brilho automaticamente",
+                                title = "Brilho automático",
                                 group = SettingsGroups.DISPLAY,
-                                description = "Ajusta o brilho da tela automaticamente",
+                                description = "",
                                 checked = enableAutoBrightness,
                                 onCheckedChange = {
                                         enableAutoBrightness = it
@@ -3334,13 +3325,13 @@ fun BasicSettingsTab() {
                                                                                 Text(
                                                                                         "Transição por nascer/pôr do sol",
                                                                                         color = Color.White,
-                                                                                        fontSize = 15.sp,
+                                                                                        fontSize = ImpulseTextSizes.Label,
                                                                                         fontWeight = FontWeight.Medium
                                                                                 )
                                                                                 Text(
                                                                                         "Usa o GPS pra escurecer/clarear suave (1 nível a cada 5 min) no pôr/nascer do sol. Substitui os horários fixos.",
-                                                                                        color = Color(0xFFB0B8C4),
-                                                                                        fontSize = 12.sp
+                                                                                        color = ImpTokens.TextSecondary,
+                                                                                        fontSize = ImpulseTextSizes.BodyCompact
                                                                                 )
                                                                         }
                                                                         Switch(
@@ -3380,13 +3371,13 @@ fun BasicSettingsTab() {
                                                                                 Text(
                                                                                         "Referência (GPS): ${sunInfo?.city ?: "obtendo localização..."}",
                                                                                         color = Color.White,
-                                                                                        fontSize = 14.sp
+                                                                                        fontSize = ImpulseTextSizes.Label
                                                                                 )
                                                                                 sunInfo?.let {
                                                                                         Text(
                                                                                                 "Nascer ${it.sunrise}  ·  Pôr ${it.sunset}",
-                                                                                                color = Color(0xFFB0B8C4),
-                                                                                                fontSize = 13.sp
+                                                                                                color = ImpTokens.TextSecondary,
+                                                                                                fontSize = ImpulseTextSizes.BodyCompact
                                                                                         )
                                                                                 }
                                                                         }
@@ -3435,7 +3426,7 @@ fun BasicSettingsTab() {
                                                                                                 color =
                                                                                                         Color.White,
                                                                                                 fontSize =
-                                                                                                        14.sp
+                                                                                                        ImpulseTextSizes.Label
                                                                                         )
                                                                                         Spacer(
                                                                                                 modifier =
@@ -3450,7 +3441,7 @@ fun BasicSettingsTab() {
                                                                                                                 0xFF4A9EFF
                                                                                                         ),
                                                                                                 fontSize =
-                                                                                                        18.sp,
+                                                                                                        ImpulseTextSizes.Body,
                                                                                                 fontWeight =
                                                                                                         FontWeight
                                                                                                                 .Medium
@@ -3500,7 +3491,7 @@ fun BasicSettingsTab() {
                                                                                                 color =
                                                                                                         Color.White,
                                                                                                 fontSize =
-                                                                                                        14.sp
+                                                                                                        ImpulseTextSizes.Label
                                                                                         )
                                                                                         Spacer(
                                                                                                 modifier =
@@ -3515,7 +3506,7 @@ fun BasicSettingsTab() {
                                                                                                                 0xFF4A9EFF
                                                                                                         ),
                                                                                                 fontSize =
-                                                                                                        18.sp,
+                                                                                                        ImpulseTextSizes.Body,
                                                                                                 fontWeight =
                                                                                                         FontWeight
                                                                                                                 .Medium
@@ -3531,7 +3522,7 @@ fun BasicSettingsTab() {
                                                                         Text(
                                                                                 "Nível de brilho diurno: $dayBrightnessLevel",
                                                                                 color = Color.White,
-                                                                                fontSize = 14.sp
+                                                                                fontSize = ImpulseTextSizes.Label
                                                                         )
                                                                         Slider(
                                                                                 value =
@@ -3590,7 +3581,7 @@ fun BasicSettingsTab() {
                                                                         Text(
                                                                                 "Nível de brilho noturno: $nightBrightnessLevel",
                                                                                 color = Color.White,
-                                                                                fontSize = 14.sp
+                                                                                fontSize = ImpulseTextSizes.Label
                                                                         )
                                                                         Slider(
                                                                                 value =
@@ -3732,7 +3723,7 @@ fun BasicSettingsTab() {
                                                 Text(
                                                         "Deslocamento: $aaClusterOffset px",
                                                         color = AppColors.TextPrimary,
-                                                        fontSize = 14.sp
+                                                        fontSize = ImpulseTextSizes.Label
                                                 )
                                                 Slider(
                                                         value = aaClusterOffset.toFloat(),

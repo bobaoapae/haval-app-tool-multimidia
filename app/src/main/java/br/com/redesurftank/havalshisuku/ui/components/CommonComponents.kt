@@ -20,7 +20,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import br.com.redesurftank.havalshisuku.ui.theme.DarkImpulseTextColors
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextWeights
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
 
 // Data class compartilhado para settings
 data class SettingItem(
@@ -47,15 +51,29 @@ object AppColors {
     val CardBackground = Color(0xFF13151A)
     val BorderColor = Color(0xFF1D2430)
     val Primary = Color(0xFF4A9EFF)
-    val TextPrimary = Color.White
-    val TextSecondary = Color(0xFFB0B8C4)
-    val TextDisabled = Color(0xFF808080)
+    // Aliases da paleta semântica de texto (ui/theme/Color.kt) — ver contrastes lá.
+    val TextPrimary = DarkImpulseTextColors.primary
+    val TextSecondary = DarkImpulseTextColors.secondary
+    val TextDisabled = DarkImpulseTextColors.disabled
     val SurfaceVariant = Color(0xFF2A2F37)
     val ButtonSecondary = Color(0xFF3A3F47)
     val MenuSelectedIcon = Color(0xFF4A9EFF)
-    val MenuUnselectedIcon = Color(0xFF8A93A6)
-    val MenuUnselectedText = Color(0xFFB0B8C4)
+    val MenuUnselectedIcon = DarkImpulseTextColors.tertiary
+    val MenuUnselectedText = DarkImpulseTextColors.secondary
 }
+
+/**
+ * Cores de botão preenchido com texto/ícone de contraste garantido (>= 4,5:1) e estado desativado
+ * opaco (nada de alpha em texto). Sobre o Accent o conteúdo é escuro, nunca branco.
+ */
+@Composable
+fun impButtonColors(container: Color = ImpTokens.Accent): ButtonColors =
+    ButtonDefaults.buttonColors(
+        containerColor = container,
+        contentColor = ImpTokens.contentOn(container),
+        disabledContainerColor = ImpTokens.TrackOff,
+        disabledContentColor = ImpTokens.TextDisabled
+    )
 
 // Dimensões padrão
 object AppDimensions {
@@ -120,7 +138,7 @@ fun SettingCard(
             ) {
                 Text(
                     text = title,
-                    fontSize = 18.sp,
+                    fontSize = ImpulseTextSizes.Section,
                     fontWeight = FontWeight.Medium,
                     color = if (enabled) AppColors.TextPrimary else AppColors.TextDisabled,
                     modifier = Modifier.weight(1f).padding(end = 12.dp),
@@ -147,9 +165,10 @@ fun SettingCard(
             Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = description,
-                fontSize = 12.sp,
-                color = if (enabled) AppColors.TextSecondary else Color(0xFF606060),
-                lineHeight = 14.sp,
+                fontSize = ImpulseTextSizes.Body,
+                fontWeight = ImpulseTextWeights.Body,
+                color = if (enabled) AppColors.TextSecondary else ImpTokens.TextDisabled,
+                lineHeight = 1.35.em,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
@@ -161,7 +180,7 @@ fun SettingCard(
                     if (sliderLabel != null) {
                         Text(
                             text = sliderLabel,
-                            fontSize = 14.sp,
+                            fontSize = ImpulseTextSizes.Label,
                             color = AppColors.TextPrimary,
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
@@ -388,12 +407,10 @@ fun PrimaryButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = AppColors.Primary
-        ),
+        colors = impButtonColors(AppColors.Primary),
         shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius)
     ) {
-        Text(text, color = AppColors.TextPrimary)
+        Text(text)
     }
 }
 
@@ -458,7 +475,7 @@ fun DiagnosticsDialog(showDiagnostics: Boolean, onDismiss: () -> Unit, diagnosti
             title = { Text("Diagnóstico de Estabilidade") },
             text = {
                 Box(modifier = Modifier.height(400.dp).verticalScroll(rememberScrollState())) {
-                    Text(diagnosticsText, fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.White)
+                    Text(diagnosticsText, fontSize = ImpulseTextSizes.BodyCompact, fontFamily = FontFamily.Monospace, color = Color.White)
                 }
             },
             confirmButton = {
@@ -480,12 +497,10 @@ fun AppActionButton(
     Button(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (isPrimary) AppColors.Primary else AppColors.ButtonSecondary
-        ),
+        colors = impButtonColors(if (isPrimary) AppColors.Primary else AppColors.ButtonSecondary),
         shape = RoundedCornerShape(8.dp),
         contentPadding = PaddingValues(vertical = 8.dp)
     ) {
-        Text(text, color = Color.White, fontSize = 14.sp)
+        Text(text, fontSize = ImpulseTextSizes.Label, fontWeight = ImpulseTextWeights.Label)
     }
 }

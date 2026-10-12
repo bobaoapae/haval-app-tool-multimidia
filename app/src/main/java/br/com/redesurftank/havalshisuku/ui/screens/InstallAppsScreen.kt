@@ -69,6 +69,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import rikka.shizuku.Shizuku
+import br.com.redesurftank.havalshisuku.ui.theme.ImpulseTextSizes
 
 /** O viewer 3D, distribuido pelo catalogo como qualquer outro app. */
 const val IMPULSE_HOME_PACKAGE = "com.havalh6.viewer"
@@ -481,11 +482,11 @@ fun InstallAppsTab() {
         item(span = { GridItemSpan(4) }) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                        "INSTALAR APPS",
+                        "Instalar apps",
                         fontFamily = Michroma,
-                        fontSize = 15.sp,
-                        letterSpacing = 1.8.sp,
-                        color = ImpTokens.TextSecondary,
+                        fontSize = ImpulseTextSizes.Title,
+                        letterSpacing = 0.5.sp,
+                        color = ImpTokens.TextPrimary,
                         modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp)
                 )
                 SectionHeader("Aplicativos Nativos")
@@ -500,12 +501,12 @@ fun InstallAppsTab() {
                     iconTint = if (isMounted) ImpTokens.Accent else Color.White,
                     highlighted = isMounted,
                     title = "Android Auto Patch",
-                    subtitle = "Melhora a projeção do Android Auto no cluster do carro, evitando interrupções e garantindo a melhor visualização do mapa na navegação.",
+                    subtitle = "Melhora a projeção do Android Auto no cluster.",
                     status =
                             when {
                                 isMounted -> "Ativo"
                                 isPatchInstalled -> "Instalado"
-                                else -> "Nao instalado"
+                                else -> "Não instalado"
                             },
                     statusTint = if (isMounted) ImpTokens.Accent else ImpTokens.TextSecondary,
                     subtitleBelowTitle = true,
@@ -568,7 +569,7 @@ fun InstallAppsTab() {
                         ) {
                             Icon(
                                     Icons.Default.BugReport,
-                                    contentDescription = "Diagnostico",
+                                    contentDescription = "Diagnóstico",
                                     tint = ImpTokens.TextMuted
                             )
                         }
@@ -583,12 +584,12 @@ fun InstallAppsTab() {
                     iconTint = if (isCarPlayMounted) ImpTokens.Accent else Color.White,
                     highlighted = isCarPlayMounted,
                     title = "Apple CarPlay Patch",
-                    subtitle = "Melhora a projeção do CarPlay no cluster do carro, evitando interrupções e garantindo a melhor visualização do mapa na navegação.",
+                    subtitle = "Melhora a projeção do CarPlay no cluster.",
                     status =
                             when {
                                 isCarPlayMounted -> "Ativo"
                                 isCarPlayPatchInstalled -> "Instalado"
-                                else -> "Nao instalado"
+                                else -> "Não instalado"
                             },
                     statusTint =
                             if (isCarPlayMounted) ImpTokens.Accent else ImpTokens.TextSecondary,
@@ -653,7 +654,7 @@ fun InstallAppsTab() {
                         ) {
                             Icon(
                                     Icons.Default.BugReport,
-                                    contentDescription = "Diagnostico",
+                                    contentDescription = "Diagnóstico",
                                     tint = ImpTokens.TextMuted
                             )
                         }
@@ -690,18 +691,18 @@ fun InstallAppsTab() {
                     iconTint = if (homeInstalled != null) ImpTokens.Accent else Color.White,
                     highlighted = homeInstalled != null,
                     title = "Impulse Launcher",
-                    subtitle = "Painel 3D do carro, com os widgets e os controles",
+                    subtitle = "Painel 3D com widgets e controles",
                     previewRes = R.drawable.impulse_home_preview,
                     status =
                             when {
                                 homeProgress != null ->
                                         "Baixando " + (homeProgress * 100).toInt() + "%"
                                 homeVerifyError != null -> homeVerifyError!!
-                                homeBadSigner -> "Assinatura invalida"
-                                homeUpdate -> "Atualizacao disponivel"
+                                homeBadSigner -> "Assinatura inválida"
+                                homeUpdate -> "Atualização disponível"
                                 homeInstalled != null -> "v" + homeInstalled
-                                homeAvailable -> "Nao instalado"
-                                else -> "Indisponivel no catalogo"
+                                homeAvailable -> "Não instalado"
+                                else -> "Indisponível no catálogo"
                             },
                     statusTint =
                             if (homeInstalled != null) ImpTokens.Accent else ImpTokens.TextSecondary
@@ -762,7 +763,7 @@ fun InstallAppsTab() {
                             else Color.White,
                     highlighted = mainPkg.isNotEmpty() || secondaryPkg.isNotEmpty(),
                     title = "Abrir ao ligar",
-                    subtitle = "Um app por tela quando o carro liga",
+                    subtitle = "Um app por tela ao ligar",
                     status = null,
                     extra = {
                         // Lado a lado: empilhadas, as duas linhas empurravam o botao para fora
@@ -772,7 +773,7 @@ fun InstallAppsTab() {
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             StartupSlotRow("Principal", mainPkg, Modifier.weight(1f))
-                            StartupSlotRow("Secundaria", secondaryPkg, Modifier.weight(1f))
+                            StartupSlotRow("Secundária", secondaryPkg, Modifier.weight(1f))
                         }
                     }
             ) { CardButton("Alterar", ImpTokens.Accent) { showStartupApps = true } }
@@ -808,12 +809,10 @@ fun InstallAppsTab() {
                                     if (urlInput.isNotEmpty()) startDownloadFromUrl(urlInput)
                                 },
                                 colors =
-                                        ButtonDefaults.buttonColors(
-                                                containerColor = ImpTokens.Accent
-                                        ),
+                                        impButtonColors(ImpTokens.Accent),
                                 modifier = Modifier.height(56.dp),
                                 shape = RoundedCornerShape(8.dp)
-                        ) { Text("Instalar via URL", color = Color.White) }
+                        ) { Text("Instalar via URL") }
                     }
                 }
                 if (downloadingUrl) {
@@ -932,7 +931,7 @@ fun InstallAppsTab() {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                     app.name,
-                                    fontSize = 15.sp,
+                                    fontSize = ImpulseTextSizes.Label,
                                     fontWeight = FontWeight.Medium,
                                     color = Color.White,
                                     maxLines = 1,
@@ -940,7 +939,7 @@ fun InstallAppsTab() {
                             )
                             val displayVersion = installedVersion ?: app.version
                             if (displayVersion.isNotEmpty()) {
-                                Text("v$displayVersion", fontSize = 12.sp, color = ImpTokens.TextSecondary, maxLines = 1)
+                                Text("v$displayVersion", fontSize = ImpulseTextSizes.BodyCompact, color = ImpTokens.TextSecondary, maxLines = 1)
                             }
                         }
                         if (downloadingApp == app.packageName) {
@@ -1019,12 +1018,12 @@ fun InstallAppsTab() {
     if (showHomeSignatureDialog) {
         AlertDialog(
                 onDismissRequest = { showHomeSignatureDialog = false },
-                title = { Text("Assinatura invalida") },
+                title = { Text("Assinatura inválida") },
                 text = {
                     Text(
-                            "Identificamos uma assinatura invalida no app ja instalado. " +
-                                    "Remova o app e entao instale a partir do nosso link para " +
-                                    "que venha de uma fonte confiavel."
+                            "Identificamos uma assinatura inválida no app já instalado. " +
+                                    "Remova o app e então instale a partir do nosso link para " +
+                                    "que venha de uma fonte confiável."
                     )
                 },
                 confirmButton = {
@@ -1088,7 +1087,7 @@ fun InstallAppsTab() {
             },
             containerColor = ImpTokens.Container,
             title = { Text(titleText, color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text(messageText, color = ImpTokens.TextSecondary, fontSize = 14.sp) },
+            text = { Text(messageText, color = ImpTokens.TextSecondary, fontSize = ImpulseTextSizes.Label) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -1151,7 +1150,7 @@ private fun SectionHeader(title: String) {
     Text(
         text = title,
         color = Color.White,
-        fontSize = 17.sp,
+        fontSize = ImpulseTextSizes.Label,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp)
     )

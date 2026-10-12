@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.roborazzi)
 }
 
 val appVersionCode = providers.gradleProperty("appVersionCode")
@@ -134,6 +135,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    testOptions {
+        unitTests {
+            // Roborazzi/Robolectric precisam dos recursos do app (fontes, drawables) no classpath.
+            isIncludeAndroidResources = true
+        }
+    }
     buildFeatures {
         aidl = true
         buildConfig = true
@@ -173,6 +180,13 @@ dependencies {
     compileOnly(libs.annotation)
     testImplementation(libs.junit)
     testImplementation("org.json:json:20231013")
+    // Snapshots JVM de legibilidade (Roborazzi + Robolectric + Compose) — só testes, sem runtime.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.roborazzi.junit.rule)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.ui.test.junit4)
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
 }
