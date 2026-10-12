@@ -1,0 +1,33 @@
+name: Starlight development study
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/starlight-study.yml'
+      - 'cluster-widgets/dev/studies/Starlight/**'
+      - 'cluster-widgets/dev/theme-catalog.mjs'
+      - 'cluster-widgets/index.html'
+
+permissions:
+  contents: read
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cluster-widgets/dev/studies/Starlight
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cluster-widgets/dev/studies/Starlight/package-lock.json
+      - run: npm ci
+      - name: Design, contract fixtures and no-OTA boundary
+        run: npm test
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+      - name: Browser flows and host guards
+        run: npm run test:browser
