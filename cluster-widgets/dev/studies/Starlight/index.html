@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Starlight · estudo de desenvolvimento</title>
+  <style>
+    @font-face{font-family:'Speed Digits';src:url('assets/SpeedDigits.ttf')}
+    @font-face{font-family:'Scale Digits';src:url('assets/ScaleDigits.ttf')}
+    @font-face{font-family:'Header Sans';src:url('assets/HeaderSans.ttf')}
+    @font-face{font-family:'Panel Sans';src:url('assets/PanelSans.ttf')}
+    @font-face{font-family:'Label Sans';src:url('assets/LabelSans.ttf')}
+    :root{color-scheme:dark;font:14px Arial,sans-serif;background:#03070b;color:#d5dfe9}
+    *{box-sizing:border-box}body{margin:0}main{max-width:1920px;margin:auto}
+    button,input,select{font:inherit}button,select{padding:11px 16px;border:1px solid #344a5e;background:#0b1621;color:#dce7f1;border-radius:6px}button{cursor:pointer;min-height:44px}button:hover:not(:disabled){background:#122435;border-color:#7193af}button:disabled{cursor:not-allowed;color:#8493a2;border-color:#283642}button[aria-pressed="true"],button[aria-current="true"]{background:#1b3247;border-color:#aac8e2;color:#fff}button:focus-visible,select:focus-visible,input:focus-visible,canvas:focus-visible,summary:focus-visible{outline:3px solid #a7cef0;outline-offset:3px}
+    button[aria-disabled="true"]{color:#8493a2;border-color:#283642;cursor:not-allowed}
+    [hidden]{display:none!important}#panel{display:block;width:100%;height:auto;background:#000;touch-action:manipulation}#panel:focus-visible{outline-offset:-4px}.controls{max-width:1280px;margin:0 auto;padding:24px clamp(18px,3vw,44px) 40px}.intro{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:18px}.intro h1{font-size:17px;font-weight:normal;margin:0;color:#e6eef5}.simulation{display:inline-block;color:#a9bdcf;border:1px solid #334859;border-radius:99px;padding:6px 10px;font-size:11px;letter-spacing:.1em}.muted,.hint{color:#a4b2bf;line-height:1.65}.hint{font-size:12px;margin:12px 0}.toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.toolbar label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#a9baca}.menu-toolbar{margin-bottom:14px}.menu-toolbar .spacer{flex:1}.menu-shell{margin:18px 0 26px;padding:20px;border:1px solid #2b4054;border-radius:10px;background:linear-gradient(135deg,#0b1723,#071018)}.menu-shell h2{margin:0 0 16px;font:18px 'Label Sans',Arial,sans-serif;letter-spacing:.06em}.menu-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.option{display:flex;text-align:left;justify-content:space-between;align-items:center;gap:20px;min-width:0;min-height:68px}.option span{display:block}.option strong{display:block;font-weight:normal;letter-spacing:.04em}.option small{display:block;margin-top:7px;color:#a6b7c7;font-size:12px;line-height:1.4}.option .value{font-family:'Scale Digits',Arial,sans-serif;font-size:23px;white-space:nowrap}.tabs{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px}.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}.stat{margin:0;padding:14px 16px;border:1px solid #23394b;border-radius:6px;background:#091622}.stat dt{font-size:11px;letter-spacing:.05em;color:#98adc0}.stat dd{margin:8px 0 0;font:25px 'Scale Digits',Arial,sans-serif;color:#e3edf6}.stat small{display:block;color:#b4c4d2;margin-top:8px}.ac-actions{margin-top:16px;gap:10px}.ac-adjust{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:16px 0}.ac-adjust span{color:#b4c6d6;margin-right:4px}.key-controls{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 0}.key-controls button{font-size:12px;min-width:72px}.status{min-height:1.5em;color:#bed9ef;margin:12px 0 0;font-size:13px}.playback{border-top:1px solid #263b4d;padding-top:22px}.playback h2{font-size:14px;font-weight:normal;color:#a9bbcb;margin:0 0 14px}.playback-controls{display:flex;align-items:end;gap:10px;flex-wrap:wrap}.timeline{display:flex;align-items:center;gap:14px;margin-top:18px}.timeline input{width:100%;min-width:0;accent-color:#adcde9}.timeline output{min-width:115px;text-align:right;font-variant-numeric:tabular-nums;color:#a9bbcb}.note{font-size:12px;line-height:1.8;color:#96a5b4}.note a{color:#b0cce4}.support{margin-top:26px;border-top:1px solid #213547;padding-top:18px}.support summary{cursor:pointer;color:#adc0d1}.graph-reading{font:42px 'Scale Digits',Arial,sans-serif;color:#e3edf6}.graph-reading small{font:14px Arial,sans-serif;color:#9cb0c3;margin-left:8px}.graph-history{font-size:12px;color:#a4b8ca;line-height:1.8;overflow-wrap:anywhere}.fatal{margin:20px;color:#ffb9b9}
+    html:not(.starlight-browser-lab),html:not(.starlight-browser-lab) body{background:transparent!important}
+    html:not(.starlight-browser-lab) main{display:none}
+    @media(max-width:640px){.controls{padding-top:18px}.menu-options,.stats{grid-template-columns:1fr}.menu-shell{padding:16px}.menu-toolbar .spacer{display:none}.toolbar button{flex:1}.menu-toolbar button{white-space:nowrap}.playback-controls label{width:100%}.playback-controls select{width:100%}.option{min-height:62px}.timeline{gap:8px}.timeline output{min-width:105px;font-size:12px}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
+  </style>
+</head>
+<body>
+<main>
+  <canvas id="panel" width="1920" height="720" tabindex="0" aria-label="Prévia visual do painel Impulse e seus menus" aria-describedby="keyboard-help simulation-note">Os mesmos menus e leituras estão disponíveis nos controles abaixo.</canvas>
+  <div class="controls">
+    <div class="intro"><h1>Painel e menus</h1><span class="simulation">SIMULAÇÃO LOCAL</span></div>
+    <p id="simulation-note" class="hint">Ajustes e climatização alteram apenas esta prévia. Nenhum comando é enviado ao carro.</p>
+    <p class="hint">Estudo em desenvolvimento, sem pacote instalável. A cobertura do centro ADAS é intencional; a visibilidade de avisos e indicadores nativos ainda precisa de validação. <a href="contract-lab.html">Laboratório de dados do contrato</a></p>
+    <nav class="toolbar menu-toolbar" aria-label="Abrir menus do painel">
+      <button id="open-main" type="button" aria-controls="menu-shell" aria-expanded="false">Menu principal</button>
+      <button id="open-ac" type="button" aria-controls="menu-shell" aria-expanded="false">Climatização · AC</button>
+      <span class="spacer" aria-hidden="true"></span>
+      <button id="menu-back" type="button" disabled>Voltar</button>
+      <button id="menu-close" type="button" disabled>Fechar menu</button>
+    </nav>
+    <p id="keyboard-help" class="hint">No painel ou nos itens do menu: ↑ ↓ para navegar ou ajustar, ← → para alternar abas ou o foco do AC, Enter para selecionar, Esc para voltar e fechar. Shift+Enter simula OK longo no AC e no Trip B. Tab percorre os controles. Selects, botões de reprodução e a linha do tempo mantêm seus atalhos normais.</p>
+    <section id="menu-shell" class="menu-shell" aria-labelledby="menu-title" hidden>
+      <h2 id="menu-title">Menu principal</h2>
+      <div id="menu-main" class="menu-options" data-menu-view="menu"></div>
+      <div id="menu-settings" class="menu-options" data-menu-view="settings" hidden></div>
+      <section id="menu-info" data-menu-view="info" hidden><div id="tabs-info" class="tabs" aria-label="Informações"></div><dl id="stats-info" class="stats"></dl></section>
+      <section id="menu-graphs" data-menu-view="graphs" hidden><div id="tabs-graph" class="tabs" aria-label="Gráfico"></div><div id="graph-reading" class="graph-reading"></div><p id="graph-history" class="graph-history"></p><p id="graph-range" class="hint"></p></section>
+      <section id="menu-trips" data-menu-view="trips" hidden><div id="tabs-trip" class="tabs" aria-label="Viagem"></div><dl id="stats-trip" class="stats"></dl><p id="trip-reset-hint" class="hint"></p><button id="trip-reset" type="button" hidden>Simular reinício do Trip B</button></section>
+      <section id="menu-ac" data-menu-view="ac" hidden>
+        <div id="ac-fields" class="menu-options"></div>
+        <div class="ac-adjust"><span id="ac-adjust-label">Ajustar ventilação</span><button id="ac-decrease" type="button">− Diminuir</button><button id="ac-increase" type="button">+ Aumentar</button></div>
+        <dl id="stats-ac" class="stats"></dl>
+        <div class="toolbar ac-actions"><button id="ac-auto" type="button">Alternar Auto</button><button id="ac-recycle" type="button">Alternar recirculação</button></div>
+      </section>
+      <p id="menu-hint" class="hint"></p>
+      <div class="key-controls" aria-label="Simular teclas do painel"><button id="key-up" type="button">↑ Cima</button><button id="key-down" type="button">↓ Baixo</button><button id="key-enter" type="button">OK</button></div>
+    </section>
+    <p id="menu-status" class="status" role="status" aria-live="polite" aria-atomic="true">Menus fechados</p>
+    <section class="playback" aria-labelledby="playback-title">
+      <h2 id="playback-title">Reprodução da prévia</h2>
+      <div class="playback-controls toolbar">
+        <label for="mode">Sequência<select id="mode"><option value="city">Escalas urbanas · 0 a 200 km/h</option><option value="motion">Sequência curta · até 200 km/h</option><option value="drive">Condução e fluxo da bateria</option><option value="accel">Aceleração</option><option value="regen">Regeneração</option></select></label>
+        <label for="data">Dados<select id="data"><option value="demo">Dados simulados</option><option value="unavailable">Testar dados indisponíveis</option></select></label>
+        <button id="toggle" type="button">Pausar</button><button id="restart" type="button">Reiniciar</button>
+      </div>
+      <div class="timeline"><input id="time" type="range" min="0" max="16" value="0" step="0.0166667" aria-label="Tempo da animação"><output id="clock" for="time">0,00 / 16,00 s</output></div>
+      <p id="motion-note" class="hint"></p>
+      <p id="font-warning" class="hint" role="status" hidden></p>
+    </section>
+    <details class="support"><summary>Origem dos dados e limites da prévia</summary>
+      <p class="note">Menu principal, informações, pneus, gráficos, ajustes, Trip A / Trip B e climatização seguem os itens observados no Apex GT. As mudanças ficam na memória desta página; recarregar restaura os valores simulados. A opção Display (Contour / Vector) pertence ao desenho original e fica indisponível nesta adaptação, que mantém o modelo 3 escolhido.</p>
+      <p class="note">Dados ausentes aparecem como “--” e não habilitam ajustes. Combustível em litros usa um tanque ilustrativo de 55 L. Velocidade limitada a 200 km/h conforme solicitado. Tração 0–160 kW e bateria −80 a +80 kW são faixas visuais, não especificações do veículo. Potência positiva da bateria é azul e negativa é verde; a polaridade real não foi validada no veículo.</p>
+      <p class="note">Protótipo Canvas 2D que funciona com arquivos locais, sem ligação com o carro. Navegador/WebView e composição com ADAS e indicadores nativos ainda não validados. Referências: <a href="https://github.com/bobaoapae/haval-app-tool-multimidia/tree/preview/cluster-widgets/source/v1.0/ApexGT">Apex GT</a> e <a href="https://dribbble.com/shots/24751128-Automotive-HMI-Rolls-Royce-Car-Cluster">AmazingUI / Dribbble</a></p>
+    </details>
+  </div>
+  <p id="fatal-error" class="fatal" role="alert" hidden></p>
+</main>
+<script src="apex-data.js"></script>
+<script src="scales.js"></script>
+<script src="galaxy-stars.js"></script>
+<script src="glass-smoke.js"></script>
+<script src="menu-state.js"></script>
+<script src="renderer.js"></script>
+<script src="theme-menus.js"></script>
+<script src="preview-controller.js"></script>
+<script>
+try {
+  // This study is never an Android theme. Do not paint over native content even
+  // if someone opens this development entry in a host exposing the bridge.
+  if (!('Android' in window)) {
+    document.documentElement.classList.add('starlight-browser-lab');
+    window.impulsePreview = PreviewController.create({ window: window, document: document });
+    window.addEventListener('pagehide', function () { window.impulsePreview.destroy(); }, { once: true });
+    // A BFCache restore must not leave a disposed controller painted on screen.
+    // This local study intentionally resets simulated values on page reload.
+    window.addEventListener('pageshow', function (event) { if (event.persisted) window.location.reload(); });
+  }
+}
+catch (error) { var notice = document.getElementById('fatal-error'); notice.hidden = false; notice.textContent = 'Não foi possível iniciar a prévia. Extraia todos os arquivos do pacote na mesma pasta e abra index.html novamente. ' + error.message; }
+</script>
+</body>
+</html>

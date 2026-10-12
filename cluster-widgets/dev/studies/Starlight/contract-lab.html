@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Starlight · laboratório de contrato</title>
+  <style>
+    @font-face{font-family:'Scale Digits';src:url('assets/ScaleDigits.ttf')}
+    @font-face{font-family:'Speed Digits';src:url('assets/SpeedDigits.ttf')}
+    @font-face{font-family:'Panel Sans';src:url('assets/PanelSans.ttf')}
+    @font-face{font-family:'Label Sans';src:url('assets/LabelSans.ttf')}
+    @font-face{font-family:'Header Sans';src:url('assets/HeaderSans.ttf')}
+    html,body{margin:0;background:transparent;color:#d5dfe9;font:16px Arial,sans-serif}
+    main{display:none}html.starlight-browser-lab{background:#03070b}
+    html.starlight-browser-lab main{display:block}canvas{display:block;width:100%;height:auto}
+    section{max-width:1000px;padding:24px;margin:auto;line-height:1.6}a{color:#b0cce4}
+    select,button{font:inherit;padding:10px;margin:6px;background:#152637;color:#fff;border:1px solid #849bb0}
+    :focus-visible{outline:3px solid #a7cef0}#contract-reading{white-space:pre-wrap}
+  </style>
+</head>
+<body><main>
+  <canvas id="panel" width="1920" height="720" aria-label="Dados sintéticos do contrato, não conectado ao carro"></canvas>
+  <section><h1>Starlight · laboratório de contrato</h1>
+    <p>Somente desenvolvimento. Os dados abaixo vêm de fixtures explícitas do contrato v1.0; não são leituras de um carro. Nenhum comando ou preferência é enviado. Menus e AC continuam apenas na <a href="index.html">prévia simulada</a>.</p>
+    <p>Velocidade CAN bruta, sem calibração do HUD. A cobertura do centro ADAS é intencional. Visibilidade de avisos e zonas TSR/ESP ainda sem validação na central; sem pacote OTA.</p>
+    <label for="contract-scenario">Dados de teste</label>
+    <select id="contract-scenario">
+      <option value="missing">Sem dados</option><option value="zero">Zeros válidos</option>
+      <option value="drive">83 km/h · +40 kW</option><option value="regen">83 km/h · −40 kW</option>
+      <option value="missing-current">83 km/h · corrente ausente</option>
+      <option value="above-scale">231 km/h · acima da escala</option>
+    </select><button id="contract-apply" type="button">Aplicar fixture</button>
+    <pre id="contract-reading" role="status" aria-live="polite">Carregando…</pre>
+    <p><a href="../../../index.html">Voltar ao Theme Lab</a></p>
+  </section>
+</main>
+<script src="apex-data.js"></script><script src="scales.js"></script>
+<script src="galaxy-stars.js"></script><script src="glass-smoke.js"></script>
+<script src="renderer.js"></script><script src="contract-renderer.js"></script>
+<script src="contract-adapter.js"></script><script src="contract-lab.js"></script>
+</body></html>
