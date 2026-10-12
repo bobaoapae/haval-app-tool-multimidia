@@ -50,6 +50,8 @@ assert.equal(nativeReads,0);
 assert.equal(nativeWindow.impulsePreview,undefined);
 assert.equal(nativeWindow.starlightContractLab,undefined);
 import(path.join(root,'dev/theme-catalog.mjs')).then(({createThemeCatalog})=>{
-  assert.equal(createThemeCatalog(root).some(t=>/Starlight|Obsidian/i.test(t.folder)),false);
+  // Obsidian is a separate installable theme and may land independently. This
+  // boundary applies only to our development study, not the rest of the catalog.
+  assert.equal(createThemeCatalog(root).some(t=>/Starlight/i.test(t.folder)),false);
   console.log('Development boundary passed: frozen visual modules, no OTA/manifest/catalog entry; known native overlaps detected');
 });
