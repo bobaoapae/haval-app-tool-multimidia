@@ -109,7 +109,46 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
             isVisible = false
         }
 
-        val wv = WebView(context).apply {
+        rootLayout.addView(imageView)
+        setContentView(rootLayout)
+
+        isAnyAppOnDisplay1 = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAnyAppOnDisplay(1)
+
+        ClusterBackgroundSync.markD1Attached()
+        ClusterBackgroundSync.addListener(backgroundSyncListener)
+        sharedPreferences.registerOnSharedPreferenceChangeListener(prefsListener)
+        ServiceManager.getInstance().addServiceManagerEventListener(eventListener)
+
+        updateBackgroundVisibility()
+        Log.d(TAG, "InstrumentProjector (Display 1 Refresh Layer) created")
+    }
+
+    /**
+     * The WebView is built only for the WEB_URL wallpaper, never in onCreate. This projector is
+     * the first one built at boot, and the first WebView of the process fails there while the
+     * WebView provider is not ready yet (AndroidRuntimeException): the car's logs showed D1 lost
+     * on 6 of 8 boots (2026-10-11..13) while D3 built its WebView a moment later in the same pass.
+     * Returns null when the provider is still unavailable; the next apply retries.
+     */
+    private fun ensureWebView(): WebView? {
+        webView?.let { return it }
+        val wv = try {
+            createWebView()
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "WebView unavailable for the D1 wallpaper", e)
+            ClusterPersistentEventLogger.log(
+                    "d1_webview_unavailable",
+                    mapOf("detail" to "${e.javaClass.name}: ${e.message}")
+            )
+            return null
+        }
+        rootLayout.addView(wv)
+        webView = wv
+        return wv
+    }
+
+    private fun createWebView(): WebView {
+        return WebView(context).apply {
             layoutParams = RelativeLayout.LayoutParams(
                 RelativeLayout.LayoutParams.MATCH_PARENT,
                 RelativeLayout.LayoutParams.MATCH_PARENT
@@ -157,22 +196,6 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
             setBackgroundColor(Color.TRANSPARENT)
             isVisible = false
         }
-
-        webView = wv
-
-        rootLayout.addView(imageView)
-        rootLayout.addView(wv)
-        setContentView(rootLayout)
-
-        isAnyAppOnDisplay1 = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAnyAppOnDisplay(1)
-
-        ClusterBackgroundSync.markD1Attached()
-        ClusterBackgroundSync.addListener(backgroundSyncListener)
-        sharedPreferences.registerOnSharedPreferenceChangeListener(prefsListener)
-        ServiceManager.getInstance().addServiceManagerEventListener(eventListener)
-
-        updateBackgroundVisibility()
-        Log.d(TAG, "InstrumentProjector (Display 1 Refresh Layer) created")
     }
 
     private fun currentIdentity(): String = ClusterBackgroundSync.identityFromPrefs(sharedPreferences)
@@ -267,7 +290,10 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
             }
             "WEB_URL" -> {
                 imageView.isVisible = false
-                webView?.let { wv ->
+                val wv = ensureWebView()
+                if (wv == null) {
+                    ClusterBackgroundSync.markD1NotReady(identity)
+                } else {
                     wv.isVisible = true
                     if (value.isNotEmpty() && wv.url != value) {
                         ClusterBackgroundSync.markD1NotReady(identity)
