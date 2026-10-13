@@ -232,7 +232,7 @@ object AndroidAutoPatchManager {
         }
     }
 
-    private fun applyAppMount(): Boolean {
+    private fun applyAppMount(refreshed: Boolean = false): Boolean {
         if (!isAppPatchInstalled()) {
             Log.e(TAG, "Cannot apply Android Auto visual mount: App patch not installed")
             return false
@@ -245,7 +245,10 @@ object AndroidAutoPatchManager {
             // mount until 2026-10-13. Without the restart a running App keeps the
             // stock dex, so AA on D0 ignores the bar fit (patch v2.8). The projection
             // service is left running.
-            if (verdict == "mounted") {
+            // A refreshed stage is copied over the file that is already bind-mounted, so the
+            // script reports "already-mounted" while the running App still has the old dex
+            // (2026-10-13 18:33: v2.9 staged, App kept v2.8 until restarted by hand).
+            if (verdict == "mounted" || (refreshed && verdict == "already-mounted")) {
                 sh("am force-stop $APP_PACKAGE || true")
             }
             val success = verdict == "mounted" || verdict == "already-mounted"
@@ -422,7 +425,7 @@ object AndroidAutoPatchManager {
                     TAG,
                     "Android Auto visual patch auto-mounting. bundledApp=$bundledAppMd5 installedApp=$installedAppMd5 refreshed=$needsInstall"
                 )
-                val success = applyAppMount()
+                val success = applyAppMount(refreshed = needsInstall)
                 Log.i(TAG, "Visual auto-mount result: $success")
             } else {
                 Log.d(TAG, "Android Auto visual patch already mounted, nothing to do")
