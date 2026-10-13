@@ -312,6 +312,34 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
         backgroundHandler = new Handler(handlerThread.getLooper());
     }
 
+    private void scheduleAndroidAutoPatchAutoMount(String reason) {
+        if (backgroundHandler == null) {
+            Log.e(TAG, "Cannot schedule Android Auto patch auto-mount: backgroundHandler is null");
+            return;
+        }
+        backgroundHandler.post(() -> {
+                try {
+                    var prefs = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
+                    if (!prefs.contains(SharedPreferencesKeys.AA_PATCH_AUTO_MOUNT.getKey())) {
+                        boolean aaInstalled = false;
+                        try {
+                            getPackageManager().getPackageInfo("com.ts.androidauto.app", 0);
+                            aaInstalled = true;
+                        } catch (Exception ignored) {}
+                        prefs.edit().putBoolean(SharedPreferencesKeys.AA_PATCH_AUTO_MOUNT.getKey(), aaInstalled).apply();
+                    }
+                    if (!prefs.getBoolean(SharedPreferencesKeys.AA_PATCH_AUTO_MOUNT.getKey(), false)) {
+                        Log.d(TAG, "AA patch auto-mount is disabled (" + reason + ").");
+                        return;
+                    }
+                    Log.w(TAG, "Android Auto patch auto-mount (" + reason + ")");
+                    AndroidAutoPatchManager.INSTANCE.ensureMountedWithService();
+                } catch (Exception e) {
+                Log.e(TAG, "Android Auto patch auto-mount failed (" + reason + "): " + e.getMessage(), e);
+            }
+        });
+    }
+
     private void scheduleCarPlayPatchAutoMount(String reason) {
         if (backgroundHandler == null) {
             Log.e(TAG, "Cannot schedule CarPlay patch auto-mount: backgroundHandler is null");
@@ -576,6 +604,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
         }
 
         Log.w(TAG, "Shizuku initialized/bypassed, starting services...");
+        scheduleAndroidAutoPatchAutoMount("shizuku-ready");
         scheduleCarPlayPatchAutoMount("shizuku-ready");
 
         // Start SSH check and start in background with retry
@@ -718,13 +747,9 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                 boolean shouldAutoMount = prefs.getBoolean(SharedPreferencesKeys.AA_PATCH_AUTO_MOUNT.getKey(), false);
                 if (shouldAutoMount) {
                     Log.i(TAG, "Checking Android Auto patch auto-mount...");
-                    AndroidAutoPatchManager.INSTANCE.ensureMounted();
+                    AndroidAutoPatchManager.INSTANCE.ensureMountedWithService();
                 } else {
                     Log.d(TAG, "AA patch auto-mount is disabled in settings.");
-                }
-                if (prefs.getBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.getKey(), false)) {
-                    Log.w(TAG, "Checking Android Auto cluster Service auto-mount...");
-                    AndroidAutoPatchManager.INSTANCE.ensureClusterServiceAutoMount();
                 }
 
             } catch (Exception e) {
