@@ -47,6 +47,11 @@ object AaClusterVideoHost {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    /** Map fade in once frames flow, and out before it hides; matches the D3 mask crossfade. */
+    private const val MAP_FADE_MS = 300L
+    /** True once the remote side renders frames; until then the shown map stays transparent. */
+    private var live = false
+
     /** Re-reads [mapBounds] (theme bounds changed). Any thread. */
     fun refreshWindow() {
         mainHandler.post { textureView?.let { applyStreamTransform(it) } }
@@ -121,6 +126,7 @@ object AaClusterVideoHost {
         output = null
         parentRef = null
         shown = false
+        live = false
         generation++
         if (oldView != null) parent?.removeView(oldView)
         rightFade?.let { parent?.removeView(it) }
@@ -134,6 +140,9 @@ object AaClusterVideoHost {
         ensureView(context, parent)
         val view = textureView ?: return false
         applyStreamTransform(view)
+        val wasShown = shown
+        layerViews().forEach { it.animate().cancel() }
+        if (!wasShown) setLayerAlpha(if (live) 1f else 0f)
         view.visibility = View.VISIBLE
         shown = true
         syncFades()
@@ -141,10 +150,48 @@ object AaClusterVideoHost {
         return true
     }
 
+    /**
+     * Shown before the first frame, the map view is an empty transparent layer while its edge
+     * fades are opaque black, which flashed dark bands before the map arrived. It now stays
+     * transparent until the stream is live, then fades in. Any thread.
+     */
+    fun setLive(isLive: Boolean) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { setLive(isLive) }
+            return
+        }
+        if (live == isLive) return
+        live = isLive
+        if (isLive && shown) {
+            layerViews().forEach { it.animate().alpha(1f).setDuration(MAP_FADE_MS).withLayer().start() }
+        }
+    }
+
     fun hide() {
-        textureView?.visibility = View.GONE
+        val wasShown = shown
         shown = false
-        syncFades()
+        live = false
+        val view = textureView
+        if (!wasShown || view == null || view.visibility != View.VISIBLE) {
+            view?.visibility = View.GONE
+            syncFades()
+            return
+        }
+        // Fade the last frame out, then drop the views; show() cancels this if it comes back.
+        layerViews().forEach { layer ->
+            layer.animate().alpha(0f).setDuration(MAP_FADE_MS).withLayer().withEndAction {
+                if (!shown) {
+                    layer.visibility = View.GONE
+                    layer.alpha = 1f
+                }
+            }.start()
+        }
+    }
+
+    private fun layerViews(): List<View> = listOfNotNull(textureView, leftFade, rightFade)
+
+    private fun setLayerAlpha(alpha: Float) {
+        layerViews().forEach { it.alpha = alpha }
     }
     fun isShown(): Boolean = shown
     fun peekSurface(): Surface? = output?.takeIf { it.isAvailable }?.surface

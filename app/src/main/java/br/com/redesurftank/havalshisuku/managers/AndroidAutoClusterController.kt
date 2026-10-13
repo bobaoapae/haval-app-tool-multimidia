@@ -39,6 +39,7 @@ object AndroidAutoClusterController {
             val live = state == AaClusterProtocol.LIVE && wantsOutput() &&
                 AaClusterVideoHost.peekSurface()?.isValid == true
             surfaceAttached.set(live)
+            AaClusterVideoHost.setLive(live)
             notifyHostProjectionFlag(live)
             Log.w(TAG, "CLUSTER state=$state live=$live reason=$reason")
         }

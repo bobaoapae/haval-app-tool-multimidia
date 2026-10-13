@@ -31,6 +31,11 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
 
     private var isAnyAppOnDisplay1 = false
 
+    /** Wallpaper fade when an app arrives on / leaves D1; same length as the D3 mask crossfade. */
+    private val WALLPAPER_FADE_MS = 300L
+    /** The wallpaper is down because an app is on D1, so bringing it back should fade too. */
+    private var hiddenForApp = false
+
     private val sharedPreferences by lazy {
         App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
     }
@@ -463,7 +468,9 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
         // wallpaper-composited insets while D1 stays hidden (power-on ACC window):
         // ready stayed true after carMainScreenOff, hold opened, page_finished re-showed D3.
         if (isAnyAppOnDisplay1 || !isScreenOn || !isEnabled) {
-            rootLayout.isVisible = false
+            val forApp = isAnyAppOnDisplay1 && isScreenOn && isEnabled
+            setWallpaperShown(false, animate = forApp)
+            hiddenForApp = forApp
             webView?.onPause()
             if (!isEnabled) {
                 clearD1Ready("bg_disabled")
@@ -471,15 +478,43 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
                 clearD1Ready("screen_off")
             }
         } else {
-            rootLayout.isVisible = true
+            setWallpaperShown(true, animate = hiddenForApp)
+            hiddenForApp = false
             webView?.onResume()
             applyCustomBackground()
         }
     }
 
+    /**
+     * Hiding the wallpaper for an app on D1 used to cut in one frame, before the app had drawn;
+     * now it dissolves into the app and back. Screen off / disabled stay instant.
+     */
+    private fun setWallpaperShown(shown: Boolean, animate: Boolean) {
+        rootLayout.animate().cancel()
+        if (shown) {
+            if (!rootLayout.isVisible) {
+                rootLayout.alpha = if (animate) 0f else 1f
+                rootLayout.isVisible = true
+            }
+            if (animate) {
+                rootLayout.animate().alpha(1f).setDuration(WALLPAPER_FADE_MS).withLayer().start()
+            } else {
+                rootLayout.alpha = 1f
+            }
+        } else if (rootLayout.isVisible) {
+            if (animate) {
+                rootLayout.animate().alpha(0f).setDuration(WALLPAPER_FADE_MS).withLayer()
+                        .withEndAction { rootLayout.isVisible = false }.start()
+            } else {
+                rootLayout.isVisible = false
+            }
+        }
+    }
+
     override fun carMainScreenOff() {
         ensureUi {
-            rootLayout.isVisible = false
+            setWallpaperShown(false, animate = false)
+            hiddenForApp = false
             webView?.onPause()
             // Keep ClusterBackgroundSync honest: hidden wallpaper is not "ready" for D3 insets.
             clearD1Ready("car_main_screen_off")
