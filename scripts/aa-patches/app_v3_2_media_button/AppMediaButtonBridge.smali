@@ -379,7 +379,14 @@
 
     if-nez v2, :cond_handled
 
-    invoke-static {v1}, Lcom/ts/androidauto/app/display/AppMediaButtonBridge;->dispatchHardKey(I)V
+    # v3.5: absorb only. The car's native route already sends the wheel key to Android
+    # Auto (as on a stock head unit); forwarding a hardkey as well toggled twice and
+    # skipped two tracks. This session exists so YouTube does not get Android's copy.
+    const-string v0, "ImpulseAAMedia"
+
+    const-string v2, "media button absorbed; native route drives AA"
+
+    invoke-static {v0, v2}, Landroid/util/Log;->w(Ljava/lang/String;Ljava/lang/String;)I
 
     :cond_handled
     const/4 v0, 0x1

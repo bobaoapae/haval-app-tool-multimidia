@@ -1,4 +1,4 @@
-# AA App v3.4 — media-button bridge (bundled md5 `e764a545`; v3.3 `ddf91b57`, v3.2 `a8865d2b`)
+# AA App v3.5 — media-button sink (bundled md5 `4d412a62`; v3.4 `e764a545`, v3.3 `ddf91b57`, v3.2 `a8865d2b`)
 
 **Problem.** Android Auto registers no Android `MediaSession`, so a paused local app (YouTube)
 stays the OS media-button session. The car's native route delivers steering-wheel
@@ -56,3 +56,10 @@ sends `AA_MEDIA_COMMAND` with `mediaButton=claim` when it becomes Android Auto a
 it becomes any other app. `ImpulseHardKeyDispatcher.dispatch` hands such intents to
 `AppMediaButtonBridge.onImpulseCommand`; claim sets `FLAG_EXCLUSIVE_GLOBAL_PRIORITY` (system uid,
 falls back to a plain claim if refused), release clears it and deactivates the session.
+
+## v3.5 — absorb, don't forward
+The car's native route already delivers the wheel key to Android Auto, exactly as on a stock head
+unit. What broke things is that Android also hands a copy to its media-button session, which is
+YouTube once it has played. Forwarding a hardkey from the bridge as well toggled play/pause twice
+and skipped two tracks (car, 20:1x). v3.5 only absorbs Android's copy while Impulse says AA owns
+the wheel; it sends nothing to the phone (`dispatchHardKey` is no longer called).
