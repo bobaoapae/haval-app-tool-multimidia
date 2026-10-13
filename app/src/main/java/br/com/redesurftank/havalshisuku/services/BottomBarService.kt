@@ -3672,6 +3672,14 @@ class BottomBarService : LifecycleService() {
                 // Force recompute touchable regions
                 composeView?.requestLayout()
                 menuComposeView?.requestLayout()
+                if (lastPackage == ANDROID_AUTO_MEDIA_APP_PACKAGE) {
+                    // AA was fitted to the bar's edge on foreground: follow the bar when it
+                    // hides (back to full height) or returns. collectLatest cancels this wait,
+                    // so a quick hide/show resizes the stack once.
+                    delay(300)
+                    br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                            .fitAndroidAutoAboveBottomBarAsync("bar_visibility")
+                }
             }
         }
         // Periodic invalidation to keep touchable regions in sync
