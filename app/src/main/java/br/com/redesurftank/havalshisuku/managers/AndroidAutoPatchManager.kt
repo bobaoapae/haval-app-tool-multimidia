@@ -240,9 +240,11 @@ object AndroidAutoPatchManager {
         return try {
             val verdict = bindMountLikeAutoPanel(APP_APK, VENDOR_APP_PATH)
             // The visual package is an activity. AutoPanel's own note is that
-            // restarting it does not drop the GAL link. The projection service
-            // is left running.
-            if (verdict == "mounted" && sh("pidof com.ts.androidauto 2>/dev/null || true").trim().isEmpty()) {
+            // restarting it does not drop the GAL link, and v9 restarted it on every
+            // mount until 2026-10-13. Without the restart a running App keeps the
+            // stock dex, so AA on D0 ignores the bar fit (patch v2.8). The projection
+            // service is left running.
+            if (verdict == "mounted") {
                 sh("am force-stop $APP_PACKAGE || true")
             }
             val success = verdict == "mounted" || verdict == "already-mounted"

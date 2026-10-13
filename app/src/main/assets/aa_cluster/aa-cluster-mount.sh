@@ -39,11 +39,17 @@ hash_of() {
 [ -f "$SRC" ] || report "no-source" 1
 [ -f "$VENDOR" ] || report "no-vendor-apk" 1
 
-# Swapping the APK under a process that already opened it makes startGal read
-# the new file with the old handshake and fail the client certificate.
-if pidof com.ts.androidauto >/dev/null 2>&1; then
-    report "process-running" 0
-fi
+# Swapping the Service APK under a process that already opened it makes
+# startGal read the new file with the old handshake and fail the client
+# certificate. The visual App holds no GAL state: it is remounted and
+# restarted while the projection service keeps running.
+case "$VENDOR" in
+    */AndroidAutoService/*)
+        if pidof com.ts.androidauto >/dev/null 2>&1; then
+            report "process-running" 0
+        fi
+        ;;
+esac
 
 mkdir -p "$STAGE/empty_oat" || report "stage-mkdir-failed" 1
 chmod 755 "$STAGE" "$STAGE/empty_oat"
