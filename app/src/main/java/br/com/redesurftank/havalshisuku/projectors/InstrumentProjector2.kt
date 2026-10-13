@@ -732,6 +732,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         }
     }
 
+    /** The AA map steps aside while an app is on D1 or D3 (it would draw over the app). */
+    private fun syncAaClusterMapForSecondaryApps(source: String) {
+        AndroidAutoClusterController.setSecondaryDisplayAppActive(
+                isAnyAppOnDisplay1 || isAnyAppOnDisplay3,
+                source
+        )
+    }
+
     private fun isAaClusterInDash(): Boolean {
         return AndroidAutoClusterController.isSurfaceAttached()
     }
@@ -1355,6 +1363,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             if (!isAnyAppOnDisplay3) {
                                 lastAppliedConfigs.clear()
                             }
+                            syncAaClusterMapForSecondaryApps("display3_app_state")
                             // Force hole refresh even when the rect object compares equal:
                             // the flag flip is the authoritative "app arrived/left" signal.
                             updateVirtualClusterVisibility(
@@ -1374,6 +1383,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     "display1_app_state",
                                     mapOf("active" to isAnyAppOnDisplay1)
                             )
+                            syncAaClusterMapForSecondaryApps("display1_app_state")
                             updateVirtualClusterVisibility(reason = "DISPLAY_1_APP_STATE_CHANGED")
                             pushVirtualDisplayState(1)
                         }
@@ -1463,6 +1473,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAnyAppOnDisplay(3)
         isAnyAppOnDisplay1 =
                 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAnyAppOnDisplay(1)
+        syncAaClusterMapForSecondaryApps("on_create")
         updateValuesWebView() // Queue initial values for state sync
         syncInitialWarnings() // Fresh JS state on init — warnings need to be primed
         refreshNativeProjectionPanelStateFromCache()

@@ -27,6 +27,8 @@ object AndroidAutoClusterController {
     private val started = AtomicBoolean(false)
     private val clusterRequested = AtomicBoolean(false)
     private val navigationActive = AtomicBoolean(false)
+    /** An app sent to D1/D3 gets the cluster; the map steps aside until it leaves. */
+    private val secondaryAppActive = AtomicBoolean(false)
     private val demandEpoch = AtomicLong()
     private val surfaceAttached = AtomicBoolean(false)
     private var deliveredGeneration = -1L // main-thread Surface lifecycle token
@@ -83,9 +85,14 @@ object AndroidAutoClusterController {
 
     fun isClusterRequested(): Boolean = clusterRequested.get()
 
-    /** The map shows only while the theme asked for it, AA is linked and Maps is guiding. */
+    /**
+     * The map shows only while the theme asked for it, AA is linked, Maps is guiding and no app
+     * is on D1/D3. The map is drawn inside D3's Presentation, above anything on D1/D3, so it
+     * would otherwise cover the app.
+     */
     private fun wantsOutput(): Boolean =
-        clusterRequested.get() && isSessionActive() && navigationActive.get()
+        clusterRequested.get() && isSessionActive() && navigationActive.get() &&
+            !secondaryAppActive.get()
 
     fun isSurfaceAttached(): Boolean = surfaceAttached.get()
 
@@ -105,6 +112,13 @@ object AndroidAutoClusterController {
             return
         }
         attachIfSessionAllows(source)
+    }
+
+    /** D3 projector: whether any app is on D1 or D3 right now. Any thread. */
+    fun setSecondaryDisplayAppActive(active: Boolean, source: String) {
+        if (secondaryAppActive.getAndSet(active) == active) return
+        Log.w(TAG, "CLUSTER secondary-display app active=$active source=$source")
+        attachIfSessionAllows(if (active) "secondary_app_arrived" else "secondary_app_left")
     }
 
     fun onNavigationUpdate(update: AndroidAutoNavigationTelemetry.Directions, nowMs: Long = SystemClock.elapsedRealtime()) {
