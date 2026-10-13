@@ -134,6 +134,9 @@ fun InstallAppsTab() {
     var aaPatchAutoMount by remember {
         mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.AA_PATCH_AUTO_MOUNT.key, false))
     }
+    var aaClusterServiceAutoMount by remember {
+        mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.key, false))
+    }
     var carPlayPatchAutoMount by remember {
         mutableStateOf(
                 prefs.getBoolean(SharedPreferencesKeys.CARPLAY_PATCH_AUTO_MOUNT.key, false)
@@ -526,25 +529,53 @@ fun InstallAppsTab() {
                     extra =
                             if (isPatchInstalled) {
                                 {
-                                    AutoMountRow(
-                                            checked = aaPatchAutoMount,
-                                            onCheckedChange = { enabled ->
-                                                aaPatchAutoMount = enabled
-                                                prefs.edit()
-                                                        .putBoolean(
-                                                                SharedPreferencesKeys
-                                                                        .AA_PATCH_AUTO_MOUNT
-                                                                        .key,
-                                                                enabled
-                                                        )
-                                                        .apply()
-                                                if (enabled) {
-                                                    scope.launch(Dispatchers.IO) {
-                                                        AndroidAutoPatchManager.ensureMountedWithService()
+                                    // One row, like the other cards: stacked switches pushed the
+                                    // Ativar/Desativar row out of the fixed-height card.
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        AutoMountRow(
+                                                checked = aaPatchAutoMount,
+                                                onCheckedChange = { enabled ->
+                                                    aaPatchAutoMount = enabled
+                                                    prefs.edit()
+                                                            .putBoolean(
+                                                                    SharedPreferencesKeys
+                                                                            .AA_PATCH_AUTO_MOUNT
+                                                                            .key,
+                                                                    enabled
+                                                            )
+                                                            .apply()
+                                                    if (enabled) {
+                                                        scope.launch(Dispatchers.IO) {
+                                                            val mounted = AndroidAutoPatchManager.applyMounts()
+                                                            withContext(Dispatchers.Main) { isMounted = mounted }
+                                                        }
                                                     }
                                                 }
-                                            }
-                                    )
+                                        )
+                                        // Map Service: mounted only while Android Auto is not running
+                                        // (a swap under it breaks the phone certificate), so turning
+                                        // this on mid-drive takes effect at the next car start.
+                                        AutoMountRow(
+                                                checked = aaClusterServiceAutoMount,
+                                                label = "Mapa no cluster",
+                                                onCheckedChange = { enabled ->
+                                                    aaClusterServiceAutoMount = enabled
+                                                    prefs.edit()
+                                                            .putBoolean(
+                                                                    SharedPreferencesKeys
+                                                                            .AA_CLUSTER_SERVICE_AUTO_MOUNT
+                                                                            .key,
+                                                                    enabled
+                                                            )
+                                                            .apply()
+                                                    if (enabled) {
+                                                        scope.launch(Dispatchers.IO) {
+                                                            AndroidAutoPatchManager.mountClusterServiceIfEnabled()
+                                                        }
+                                                    }
+                                                }
+                                        )
+                                    }
                                 }
                             } else null
             ) {

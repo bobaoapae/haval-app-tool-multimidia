@@ -3,6 +3,7 @@ package br.com.redesurftank.havalshisuku.managers
 import android.content.Context
 import android.util.Log
 import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import java.io.File
 import java.io.FileOutputStream
@@ -271,6 +272,7 @@ object AndroidAutoPatchManager {
         Log.w(TAG, "Applying Android Auto visual App and Service mounts")
         ensureVisualMounted()
         val appMounted = isAppPatchMounted()
+        if (!isClusterServiceEnabled()) return appMounted
         val serviceMounted = mountServiceWithApp("USER_MOUNT")
         return appMounted && serviceMounted
     }
@@ -372,7 +374,24 @@ object AndroidAutoPatchManager {
     fun ensureMountedWithService() {
         synchronized(this) {
             ensureVisualMounted()
-            mountServiceWithApp("BOOT_WITH_AA_PATCH")
+            if (isClusterServiceEnabled()) mountServiceWithApp("BOOT_WITH_AA_PATCH")
+        }
+    }
+
+    /** "Mapa no cluster": whether the map Service patch is mounted along with the App. */
+    fun isClusterServiceEnabled(): Boolean =
+        App.getDeviceProtectedContext()
+            .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+            .getBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.key, false)
+
+    /**
+     * "Mapa no cluster" turned on. Mounts the Service only if Android Auto is not running
+     * (the script refuses otherwise); a running session picks it up at the next car start.
+     */
+    fun mountClusterServiceIfEnabled(): Boolean {
+        if (!isClusterServiceEnabled()) return false
+        synchronized(this) {
+            return mountServiceWithApp("CLUSTER_SWITCH")
         }
     }
 

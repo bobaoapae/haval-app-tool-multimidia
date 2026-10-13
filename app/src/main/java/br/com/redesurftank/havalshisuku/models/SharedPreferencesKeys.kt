@@ -400,11 +400,11 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "Estado interno da suspensao do app de ar-condicionado do carro"
     ),
     AA_PATCH_AUTO_MOUNT("aaPatchAutoMount", "Habilitar montagem automática dos patches do Android Auto ao iniciar"),
-    // Kept so an older prefs file still parses. The Service now mounts with
-    // AA_PATCH_AUTO_MOUNT. This switch no longer bind-mounts anything.
+    // The cluster map Service. Mounted with the App patch only while Android Auto is
+    // not running yet (boot), never by restarting it. Off by default.
     AA_CLUSTER_SERVICE_AUTO_MOUNT(
             "aaClusterServiceAutoMount",
-            "Legado: o Service monta junto com o patch principal do Android Auto"
+            "Montar o Service do mapa do cluster ao ligar"
     ),
     CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),
     AMBIENT_LIGHT_BLE_ENABLED("ambientLightBleEnabled", "Ativar Ambient Light BLE"),

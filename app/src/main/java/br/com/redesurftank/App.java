@@ -104,7 +104,10 @@ public class App extends Application {
                 new br.com.redesurftank.havalshisuku.utils.TelnetClientWrapper();
         try {
             telnet.connect("127.0.0.1", 23, 400);
-            String output = telnet.executeCommand("sh " + script.getAbsolutePath(), 3000);
+            // "app-only" while "Mapa no cluster" is off: the D0 fit needs the App patch,
+            // the map Service is opt-in.
+            String mode = clusterServiceEnabled() ? "" : " app-only";
+            String output = telnet.executeCommand("sh " + script.getAbsolutePath() + mode, 3000);
             if (output == null) return 0;
             if (output.contains("MOUNT_EARLY")) return 1;
             if (output.contains("MOUNT_LATE")) return 2;
@@ -132,6 +135,12 @@ public class App extends Application {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    private boolean clusterServiceEnabled() {
+        return getDeviceProtectedContext()
+                .getSharedPreferences("haval_prefs", MODE_PRIVATE)
+                .getBoolean("aaClusterServiceAutoMount", false);
     }
 
     private boolean autoMountEnabled() {
