@@ -1733,6 +1733,7 @@ fun CenteredAppLauncherSection(
 	}
 	val isProjectionShortcutEnabled = BottomBarState.isProjectionShortcutEnabled
 	val activeProjection = rememberActiveProjection(activePkg)
+	val openPackages = BottomBarState.openPackages
 
 	Row(
 		verticalAlignment = Alignment.CenterVertically,
@@ -1803,100 +1804,108 @@ fun CenteredAppLauncherSection(
 				 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.resolveProjectionPackageOrNull(activePkg) != null)
 
 			val projJiggle = rememberDockJiggle(isDockEditMode, phaseMs = 0)
-			Box(
-				modifier = Modifier
-					.size(50.dp)
-					.onGloballyPositioned { coordinates ->
-						BottomBarState.projectionSlotCenterX = coordinates.positionInRoot().x + coordinates.size.width / 2f
-					}
-					.graphicsLayer {
-						rotationZ = projJiggle.value
-					},
-				contentAlignment = Alignment.Center
-			) {
+			val isProjectionOpenBehind = !isProjectionOnMain &&
+				activeProjection != ProjectionType.NONE &&
+				openPackages.any {
+					br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isProjectionLikePackage(it)
+				}
+			// Full-height wrapper: the underline is drawn flush with the bottom edge of the bar.
+			Box(modifier = Modifier.width(50.dp).fillMaxHeight()) {
 				Box(
-					contentAlignment = Alignment.Center,
 					modifier = Modifier
-						.dockPressScale(projPressed)
-						.size(44.dp)
-						.clip(RoundedCornerShape(11.dp))
-						.background(projColor)
-						.combinedClickable(
-							interactionSource = projInteraction,
-							indication = null,
-							onClick = {
-								when (resolveProjectionShortcutAction(activeProjection)) {
-									ProjectionShortcutAction.OPEN_CARPLAY -> {
-										scope.launch {
-											br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-												.launchAnyApp(context, BOTTOM_BAR_CARPLAY_PACKAGE)
-										}
-									}
-									ProjectionShortcutAction.OPEN_ANDROID_AUTO -> {
-										scope.launch {
-											br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-												.launchAnyApp(context, BOTTOM_BAR_ANDROID_AUTO_PACKAGE)
-										}
-									}
-									ProjectionShortcutAction.OPEN_CONNECTIVITY -> {
-										launchPhoneConnectSettings(context)
-									}
-								}
-							},
-							onLongClick = {
-								BottomBarState.isDockEditMode = true
-							}
-						)
+						.align(Alignment.Center)
+						.size(50.dp)
+						.onGloballyPositioned { coordinates ->
+							BottomBarState.projectionSlotCenterX = coordinates.positionInRoot().x + coordinates.size.width / 2f
+						}
+						.graphicsLayer {
+							rotationZ = projJiggle.value
+						},
+					contentAlignment = Alignment.Center
 				) {
-					when (activeProjection) {
-						ProjectionType.CARPLAY -> {
-							Image(
-								painter = painterResource(id = R.drawable.ic_carplay_default),
-								contentDescription = "Apple CarPlay",
-								modifier = Modifier.size(36.dp)
+					Box(
+						contentAlignment = Alignment.Center,
+						modifier = Modifier
+							.dockPressScale(projPressed)
+							.size(44.dp)
+							.clip(RoundedCornerShape(11.dp))
+							.background(projColor)
+							.combinedClickable(
+								interactionSource = projInteraction,
+								indication = null,
+								onClick = {
+									when (resolveProjectionShortcutAction(activeProjection)) {
+										ProjectionShortcutAction.OPEN_CARPLAY -> {
+											scope.launch {
+												br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+													.launchAnyApp(context, BOTTOM_BAR_CARPLAY_PACKAGE)
+											}
+										}
+										ProjectionShortcutAction.OPEN_ANDROID_AUTO -> {
+											scope.launch {
+												br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+													.launchAnyApp(context, BOTTOM_BAR_ANDROID_AUTO_PACKAGE)
+											}
+										}
+										ProjectionShortcutAction.OPEN_CONNECTIVITY -> {
+											launchPhoneConnectSettings(context)
+										}
+									}
+								},
+								onLongClick = {
+									BottomBarState.isDockEditMode = true
+								}
 							)
+					) {
+						when (activeProjection) {
+							ProjectionType.CARPLAY -> {
+								Image(
+									painter = painterResource(id = R.drawable.ic_carplay_default),
+									contentDescription = "Apple CarPlay",
+									modifier = Modifier.size(36.dp)
+								)
+							}
+							ProjectionType.ANDROID_AUTO -> {
+								Image(
+									painter = painterResource(id = R.drawable.ic_android_auto_default),
+									contentDescription = "Android Auto",
+									modifier = Modifier.size(36.dp)
+								)
+							}
+							ProjectionType.NONE -> {
+								Icon(
+									painter = painterResource(id = R.drawable.ic_phone_link),
+									contentDescription = "Conectividade",
+									tint = Color.Unspecified,
+									modifier = Modifier.size(36.dp)
+								)
+							}
 						}
-						ProjectionType.ANDROID_AUTO -> {
-							Image(
-								painter = painterResource(id = R.drawable.ic_android_auto_default),
-								contentDescription = "Android Auto",
-								modifier = Modifier.size(36.dp)
-							)
-						}
-						ProjectionType.NONE -> {
-							Icon(
-								painter = painterResource(id = R.drawable.ic_phone_link),
-								contentDescription = "Conectividade",
-								tint = Color.Unspecified,
-								modifier = Modifier.size(36.dp)
-							)
-						}
+
 					}
 
-					DockActiveIndicator(
-						active = isProjectionOnMain,
-						modifier = Modifier
-							.align(Alignment.BottomCenter)
-							.padding(bottom = 2.dp)
+					// Badge de remoção no modo de edição (UNCROPPED)
+					DockEditBadge(
+						visible = isDockEditMode,
+						color = Color(0xFFE53935),
+						icon = Icons.Default.Close,
+						contentDescription = "Desabilitar Atalho de Projeção",
+						modifier = Modifier.align(Alignment.TopEnd),
+						onClick = {
+							BottomBarState.isProjectionShortcutEnabled = false
+							prefs.edit()
+								.putBoolean(
+									SharedPreferencesKeys.BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT.key,
+									false
+								)
+								.apply()
+						}
 					)
 				}
-
-				// Badge de remoção no modo de edição (UNCROPPED)
-				DockEditBadge(
-					visible = isDockEditMode,
-					color = Color(0xFFE53935),
-					icon = Icons.Default.Close,
-					contentDescription = "Desabilitar Atalho de Projeção",
-					modifier = Modifier.align(Alignment.TopEnd),
-					onClick = {
-						BottomBarState.isProjectionShortcutEnabled = false
-						prefs.edit()
-							.putBoolean(
-								SharedPreferencesKeys.BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT.key,
-								false
-							)
-							.apply()
-					}
+				DockAppIndicator(
+					active = isProjectionOnMain,
+					open = isProjectionOpenBehind,
+					modifier = Modifier.align(Alignment.BottomCenter)
 				)
 			}
 		} else if (isDockEditMode) {
@@ -1978,6 +1987,8 @@ fun CenteredAppLauncherSection(
 		for ((index, config) in validDockConfigs.withIndex()) {
 			val pkg = config.packageName
 			val isCurrentApp = pkg == activePkg
+			val isOpenApp = pkg in openPackages
+			val canCloseApp = isOpenApp && !isDockEditMode
 			val isBeingDragged = draggedPkg == pkg
 			val subIcon = config.substituteIcon
 			val substituteIconVector = getSubstituteIconVector(subIcon)
@@ -2043,74 +2054,86 @@ fun CenteredAppLauncherSection(
 
 			Box(
 				modifier = Modifier
-					.size(50.dp)
-					.graphicsLayer {
-						rotationZ = if (isBeingDragged) 0f else appJiggle.value
-						translationX = if (isBeingDragged) dragAccumulatedX else 0f
-						scaleX = if (isBeingDragged) 1.1f else 1f
-						scaleY = if (isBeingDragged) 1.1f else 1f
-					}
-					.zIndex(if (isBeingDragged) 10f else 1f),
-				contentAlignment = Alignment.Center
-			) {
-				Box(
-					contentAlignment = Alignment.Center,
-					modifier = Modifier
-						.dockPressScale(appPressed)
-						.size(44.dp)
-						.clip(RoundedCornerShape(11.dp))
-						.background(appColor)
-						.then(gestureModifier)
-				) {
-					if (subIcon == "youtube" || subIcon == "youtube_music" || subIcon == "gwm") {
-						Image(
-							painter = painterResource(
-								id = when (subIcon) {
-									"youtube" -> R.drawable.ic_youtube_default
-									"youtube_music" -> R.drawable.ic_youtube_music_default
-									"gwm" -> R.drawable.ic_gwm
-									else -> R.drawable.ic_youtube_default
-								}
-							),
-							contentDescription = displayName,
-							modifier = Modifier.size(36.dp)
-						)
-					} else if (substituteIconVector != null) {
-						Icon(
-							imageVector = substituteIconVector,
-							contentDescription = displayName,
-							tint = iconTint,
-							modifier = Modifier.size(36.dp)
-						)
-					} else {
-						AsyncImage(
-							model = ImageRequest.Builder(context).data(appInfo.icon).build(),
-							contentDescription = displayName,
-							modifier = Modifier.size(36.dp)
-						)
-					}
-
-					DockActiveIndicator(
-						active = isCurrentApp,
-						modifier = Modifier
-							.align(Alignment.BottomCenter)
-							.padding(bottom = 2.dp)
-					)
-				}
-
-				// Badge de remoção no modo de edição (UNCROPPED)
-				DockEditBadge(
-					visible = isDockEditMode,
-					color = Color(0xFFE53935),
-					icon = Icons.Default.Close,
-					contentDescription = "Remover",
-					modifier = Modifier.align(Alignment.TopEnd),
-					onClick = {
+					.zIndex(if (isBeingDragged) 10f else 1f)
+					.dockSwipeUpToClose(enabled = canCloseApp) {
 						scope.launch {
-							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.deleteConfig(pkg)
-							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.configsVersion++
+							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.closeFromDock(context, pkg)
 						}
 					}
+					.width(50.dp)
+					.fillMaxHeight()
+			) {
+				Box(
+					modifier = Modifier
+						.align(Alignment.Center)
+						.size(50.dp)
+						.graphicsLayer {
+							rotationZ = if (isBeingDragged) 0f else appJiggle.value
+							translationX = if (isBeingDragged) dragAccumulatedX else 0f
+							scaleX = if (isBeingDragged) 1.1f else 1f
+							scaleY = if (isBeingDragged) 1.1f else 1f
+						}
+						.zIndex(if (isBeingDragged) 10f else 1f),
+					contentAlignment = Alignment.Center
+				) {
+					Box(
+						contentAlignment = Alignment.Center,
+						modifier = Modifier
+							.dockPressScale(appPressed)
+							.size(44.dp)
+							.clip(RoundedCornerShape(11.dp))
+							.background(appColor)
+							.then(gestureModifier)
+					) {
+						if (subIcon == "youtube" || subIcon == "youtube_music" || subIcon == "gwm") {
+							Image(
+								painter = painterResource(
+									id = when (subIcon) {
+										"youtube" -> R.drawable.ic_youtube_default
+										"youtube_music" -> R.drawable.ic_youtube_music_default
+										"gwm" -> R.drawable.ic_gwm
+										else -> R.drawable.ic_youtube_default
+									}
+								),
+								contentDescription = displayName,
+								modifier = Modifier.size(36.dp)
+							)
+						} else if (substituteIconVector != null) {
+							Icon(
+								imageVector = substituteIconVector,
+								contentDescription = displayName,
+								tint = iconTint,
+								modifier = Modifier.size(36.dp)
+							)
+						} else {
+							AsyncImage(
+								model = ImageRequest.Builder(context).data(appInfo.icon).build(),
+								contentDescription = displayName,
+								modifier = Modifier.size(36.dp)
+							)
+						}
+
+					}
+
+					// Badge de remoção no modo de edição (UNCROPPED)
+					DockEditBadge(
+						visible = isDockEditMode,
+						color = Color(0xFFE53935),
+						icon = Icons.Default.Close,
+						contentDescription = "Remover",
+						modifier = Modifier.align(Alignment.TopEnd),
+						onClick = {
+							scope.launch {
+								br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.deleteConfig(pkg)
+								br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.configsVersion++
+							}
+						}
+					)
+				}
+				DockAppIndicator(
+					active = isCurrentApp,
+					open = isOpenApp,
+					modifier = Modifier.align(Alignment.BottomCenter)
 				)
 			}
 		}
@@ -2201,82 +2224,92 @@ fun CenteredAppLauncherSection(
 			)
 
 			Box(
-				modifier = Modifier.dockAppear().size(50.dp),
-				contentAlignment = Alignment.Center
-			) {
-				Box(
-					contentAlignment = Alignment.Center,
-					modifier = Modifier
-						.dockPressScale(dynamicPressed)
-						.size(44.dp)
-						.clip(RoundedCornerShape(11.dp))
-						.background(dynamicColor)
-						.combinedClickable(
-							interactionSource = dynamicInteraction,
-							indication = null,
-							onClick = {
-								RecentAppsManager.recordAppLaunch(activePkg)
-								scope.launch {
-									br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, activePkg)
-								}
-							},
-							onLongClick = {
-								BottomBarState.isDockEditMode = true
-							}
-						)
-				) {
-					if (dynamicSubIcon == "youtube" || dynamicSubIcon == "youtube_music" || dynamicSubIcon == "gwm") {
-						Image(
-							painter = painterResource(
-								id = when (dynamicSubIcon) {
-									"youtube" -> R.drawable.ic_youtube_default
-									"youtube_music" -> R.drawable.ic_youtube_music_default
-									"gwm" -> R.drawable.ic_gwm
-									else -> R.drawable.ic_youtube_default
-								}
-							),
-							contentDescription = dynamicDisplayName,
-							modifier = Modifier.size(36.dp)
-						)
-					} else if (dynamicSubVector != null) {
-						Icon(
-							imageVector = dynamicSubVector,
-							contentDescription = dynamicDisplayName,
-							tint = dynamicIconTint,
-							modifier = Modifier.size(36.dp)
-						)
-					} else {
-						AsyncImage(
-							model = ImageRequest.Builder(context).data(dynamicAppInfo.icon).build(),
-							contentDescription = dynamicDisplayName,
-							modifier = Modifier.size(36.dp)
-						)
-					}
-
-					// Barra azul de app ativo
-					DockActiveIndicator(
-						active = true,
-						modifier = Modifier
-							.align(Alignment.BottomCenter)
-							.padding(bottom = 2.dp)
-					)
-				}
-
-				// Badge [ 📌 ] no modo de edição para fixar direto no dock (UNCROPPED)
-				DockEditBadge(
-					visible = isDockEditMode,
-					color = Color(0xFF4CAF50),
-					icon = Icons.Default.PushPin,
-					contentDescription = "Fixar no Dock",
-					modifier = Modifier.align(Alignment.TopEnd),
-					onClick = {
+				modifier = Modifier
+					.dockAppear()
+					.dockSwipeUpToClose(enabled = !isDockEditMode) {
 						scope.launch {
-							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-								.getOrCreateDefaultConfig(context, activePkg)
-							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-								.configsVersion++
+							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.closeFromDock(context, activePkg)
 						}
 					}
+					.width(50.dp)
+					.fillMaxHeight(),
+			) {
+				Box(
+					modifier = Modifier.align(Alignment.Center).size(50.dp),
+					contentAlignment = Alignment.Center
+				) {
+					Box(
+						contentAlignment = Alignment.Center,
+						modifier = Modifier
+							.dockPressScale(dynamicPressed)
+							.size(44.dp)
+							.clip(RoundedCornerShape(11.dp))
+							.background(dynamicColor)
+							.combinedClickable(
+								interactionSource = dynamicInteraction,
+								indication = null,
+								onClick = {
+									RecentAppsManager.recordAppLaunch(activePkg)
+									scope.launch {
+										br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, activePkg)
+									}
+								},
+								onLongClick = {
+									BottomBarState.isDockEditMode = true
+								}
+							)
+					) {
+						if (dynamicSubIcon == "youtube" || dynamicSubIcon == "youtube_music" || dynamicSubIcon == "gwm") {
+							Image(
+								painter = painterResource(
+									id = when (dynamicSubIcon) {
+										"youtube" -> R.drawable.ic_youtube_default
+										"youtube_music" -> R.drawable.ic_youtube_music_default
+										"gwm" -> R.drawable.ic_gwm
+										else -> R.drawable.ic_youtube_default
+									}
+								),
+								contentDescription = dynamicDisplayName,
+								modifier = Modifier.size(36.dp)
+							)
+						} else if (dynamicSubVector != null) {
+							Icon(
+								imageVector = dynamicSubVector,
+								contentDescription = dynamicDisplayName,
+								tint = dynamicIconTint,
+								modifier = Modifier.size(36.dp)
+							)
+						} else {
+							AsyncImage(
+								model = ImageRequest.Builder(context).data(dynamicAppInfo.icon).build(),
+								contentDescription = dynamicDisplayName,
+								modifier = Modifier.size(36.dp)
+							)
+						}
+
+					}
+
+					// Badge [ 📌 ] no modo de edição para fixar direto no dock (UNCROPPED)
+					DockEditBadge(
+						visible = isDockEditMode,
+						color = Color(0xFF4CAF50),
+						icon = Icons.Default.PushPin,
+						contentDescription = "Fixar no Dock",
+						modifier = Modifier.align(Alignment.TopEnd),
+						onClick = {
+							scope.launch {
+								br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+									.getOrCreateDefaultConfig(context, activePkg)
+								br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+									.configsVersion++
+							}
+						}
+					)
+				}
+				DockAppIndicator(
+					active = true,
+					open = false,
+					modifier = Modifier.align(Alignment.BottomCenter)
 				)
 			}
 		}

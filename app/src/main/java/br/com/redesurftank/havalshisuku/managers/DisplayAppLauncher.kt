@@ -8120,6 +8120,41 @@ object DisplayAppLauncher {
     }
 
     /**
+     * Dock swipe-up close. Normal apps are force-stopped ([killApp]). The Impulse apps are not:
+     * this package hosts the bottom bar, and Impulse Home is the launcher, so a force-stop would
+     * take the bar with it. They only lose their task, and the process keeps running.
+     */
+    suspend fun closeFromDock(context: Context, packageName: String) = withContext(Dispatchers.IO) {
+        try {
+            when (packageName) {
+                context.packageName -> {
+                    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                    am.appTasks.forEach { it.finishAndRemoveTask() }
+                    Log.w(TAG, "Dock: closed own task without killing the process")
+                }
+                IMPULSE_HOME_PACKAGE_NAME -> {
+                    val task = findTaskForPackageOnDisplay(packageName, 0)
+                    if (task == null) {
+                        Log.w(TAG, "Dock: $packageName has no task on display 0 to close")
+                    } else if (countTasksInStack(task.stackId) > 1) {
+                        // A shared stack would take the other apps with it.
+                        Log.w(TAG, "Dock: $packageName shares stack ${task.stackId}; not removing it")
+                    } else {
+                        Log.w(TAG, "Dock: removing stack ${task.stackId} of $packageName (no force-stop)")
+                        sh("am stack remove ${task.stackId}")
+                        notifyBottomBarUpdate()
+                    }
+                }
+                else -> killApp(packageName)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing $packageName from the dock", e)
+        }
+    }
+
+    private const val IMPULSE_HOME_PACKAGE_NAME = "com.havalh6.viewer"
+
+    /**
      * Kills an app via am force-stop.
      */
     suspend fun killApp(packageName: String) = withContext(Dispatchers.IO) {
@@ -8775,6 +8810,36 @@ object DisplayAppLauncher {
     fun resizeStackForClient(stackId: Int, left: Int, top: Int, right: Int, bottom: Int) {
         if (stackId < 0 || right <= left || bottom <= top) return
         sh("am stack resize $stackId $left $top $right $bottom")
+    }
+
+    /**
+     * Every package that owns a task on [displayId] (the dock's "open apps"), top or not. Reads the
+     * same cached `am stack list` as [getTopPackageOnDisplay], so it costs no extra shell command.
+     */
+    fun openPackagesOnDisplay(displayId: Int): Set<String> =
+        try {
+            packagesFromStackList(getStackList(), displayId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error listing open packages for display $displayId", e)
+            emptySet()
+        }
+
+    internal fun packagesFromStackList(stackList: String, displayId: Int): Set<String> {
+        val packages = linkedSetOf<String>()
+        var currentDisplayId: Int? = null
+        val stackRegex = Regex("""Stack id=\d+.*displayId=(\d+)""")
+        val taskRegex = Regex("""taskId=\d+:\s*([a-zA-Z0-9._]+)/""")
+        for (line in stackList.lines()) {
+            val stackMatch = stackRegex.find(line)
+            if (stackMatch != null) {
+                currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
+                continue
+            }
+            if (currentDisplayId == displayId) {
+                taskRegex.find(line)?.let { packages.add(it.groupValues[1]) }
+            }
+        }
+        return packages
     }
 
     fun getTopPackageOnDisplay(displayId: Int): String? {

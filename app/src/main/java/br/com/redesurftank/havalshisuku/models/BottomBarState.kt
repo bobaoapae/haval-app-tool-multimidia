@@ -101,6 +101,8 @@ object BottomBarState {
     var isOverrideMenuExpanded by mutableStateOf(false)
     var selectedPackage by mutableStateOf("")
     var currentPackage by mutableStateOf("")
+    /** Packages with a task on display 0 (open, foreground or not); drives the dock's gray underline. */
+    var openPackages by mutableStateOf<Set<String>>(emptySet())
     var activeClusterProjectionPackage by mutableStateOf("")
     var mediaTitle by mutableStateOf<String?>(null)
     var mediaArtist by mutableStateOf<String?>(null)

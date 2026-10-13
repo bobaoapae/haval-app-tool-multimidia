@@ -925,6 +925,12 @@ class BottomBarService : LifecycleService() {
                             val currentPackage = getTopPackageOnDisplay(0)
                             val activeClusterProjectionPackage =
                                     DisplayAppLauncher.resolveActiveProjectionPackageForDisplay(3)
+                            val openPackages = DisplayAppLauncher.openPackagesOnDisplay(0)
+                            if (openPackages != BottomBarState.openPackages) {
+                                withContext(Dispatchers.Main) {
+                                    BottomBarState.openPackages = openPackages
+                                }
+                            }
                             if (currentPackage != null) {
                                 withContext(Dispatchers.Main) {
                                     // Published for the projection logic, but deliberately not fed
