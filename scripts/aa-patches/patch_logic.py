@@ -1070,6 +1070,52 @@ V28_TOUCH_SCALE_CODE = """    # V28_TOUCH_SCALE: the phone expects touches in th
 """
 
 
+V29_FULLSCREEN_SENTINEL = "# V29_FULLSCREEN"
+
+V29_FULLSCREEN_CODE = """    invoke-super {p0, p1}, Landroid/app/Activity;->onCreate(Landroid/os/Bundle;)V
+
+    # V29_FULLSCREEN: keep the status bar hidden while AA is in front. Stock only
+    # sets sticky immersive flags in onWindowFocusChanged(true); system UI clears
+    # them and the bar then stays over AA's top 60 px until AA regains focus.
+    # The window flag is persistent.
+    invoke-virtual {p0}, Lcom/ts/androidauto/app/display/AapActivity;->getWindow()Landroid/view/Window;
+
+    move-result-object v0
+
+    const/16 v1, 0x400
+
+    invoke-virtual {v0, v1}, Landroid/view/Window;->addFlags(I)V
+"""
+
+
+def apply_v29_fullscreen_patch(content):
+    """v2.9: FLAG_FULLSCREEN on AapActivity's window, set once in onCreate."""
+    print("[v2.9] AapActivity.onCreate: persistent FLAG_FULLSCREEN:")
+    if V29_FULLSCREEN_SENTINEL in content:
+        print("  [SKIP] already injected")
+        return content, 0
+    nl = chr(10)
+    on_create = ".method protected onCreate(Landroid/os/Bundle;)V" + nl
+    start = content.find(on_create)
+    if start < 0:
+        print("  [WARN] onCreate not found; not patched")
+        return content, 0
+    end = content.find(".end method", start)
+    body = content[start:end]
+    super_call = (
+        "    invoke-super {p0, p1}, Landroid/app/Activity;->onCreate(Landroid/os/Bundle;)V" + nl
+    )
+    if body.count(super_call) != 1 or (
+        "    .locals 2" + nl not in body and "    .locals 3" + nl not in body
+        and "    .locals 4" + nl not in body and "    .locals 5" + nl not in body
+    ):
+        print("  [WARN] unexpected onCreate layout; not patched")
+        return content, 0
+    body = body.replace(super_call, V29_FULLSCREEN_CODE, 1)
+    print("  [OK] AapActivity.onCreate")
+    return content[:start] + body + content[end:], 1
+
+
 def apply_v28_touch_scale_patch(smali_base):
     """v2.8: keep touches aligned when AA's D0 window is shorter than 720."""
     print("[v2.8] AapActivity touch listener: rescale touches for a shortened window:")
@@ -1228,6 +1274,9 @@ def main():
         total += n
 
     content, n = apply_v25_diag_patch(content)
+    total += n
+
+    content, n = apply_v29_fullscreen_patch(content)
     total += n
 
     write_file(AAP_ACTIVITY, content)
