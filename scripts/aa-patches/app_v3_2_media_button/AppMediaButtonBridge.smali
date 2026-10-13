@@ -16,6 +16,11 @@
 
 .field private static sSession:Landroid/media/session/MediaSession;
 
+# Echo guard: HardKeyPolicyManager feeds the injected hardkey back into Android as a new
+# media key ~10 ms later; without this the bridge re-sent it forever (2026-10-13 19:46,
+# ~14 hardkeys/s cycling play/next/previous).
+.field private static sLastSentMs:J
+
 
 # direct methods
 .method public constructor <init>()V
@@ -248,6 +253,12 @@
 
     if-eqz v0, :cond_0
 
+    invoke-static {}, Landroid/os/SystemClock;->uptimeMillis()J
+
+    move-result-wide v2
+
+    sput-wide v2, Lcom/ts/androidauto/app/display/AppMediaButtonBridge;->sLastSentMs:J
+
     new-instance v1, Landroid/content/Intent;
 
     const-string v2, "br.com.redesurftank.havalshisuku.AA_MEDIA_COMMAND"
@@ -273,6 +284,12 @@
     invoke-static {v0, v1}, Lcom/ts/androidauto/app/ImpulseHardKeyDispatcher;->dispatch(Landroid/content/Context;Landroid/content/Intent;)Z
 
     move-result v4
+
+    invoke-static {}, Landroid/os/SystemClock;->uptimeMillis()J
+
+    move-result-wide v2
+
+    sput-wide v2, Lcom/ts/androidauto/app/display/AppMediaButtonBridge;->sLastSentMs:J
 
     const-string v2, "ImpulseAAMedia"
 
@@ -305,8 +322,28 @@
 
 # virtual methods
 .method public onMediaButtonEvent(Landroid/content/Intent;)Z
-    .locals 3
+    .locals 4
 
+    # Swallow everything within 500 ms of our own hardkey: that is the echo.
+    invoke-static {}, Landroid/os/SystemClock;->uptimeMillis()J
+
+    move-result-wide v0
+
+    sget-wide v2, Lcom/ts/androidauto/app/display/AppMediaButtonBridge;->sLastSentMs:J
+
+    sub-long/2addr v0, v2
+
+    const-wide/16 v2, 0x1f4
+
+    cmp-long v0, v0, v2
+
+    if-gez v0, :cond_not_echo
+
+    const/4 v0, 0x1
+
+    return v0
+
+    :cond_not_echo
     const-string v0, "android.intent.extra.KEY_EVENT"
 
     invoke-virtual {p1, v0}, Landroid/content/Intent;->getParcelableExtra(Ljava/lang/String;)Landroid/os/Parcelable;

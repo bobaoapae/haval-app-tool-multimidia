@@ -1,4 +1,4 @@
-# AA App v3.2 — media-button bridge (bundled md5 `a8865d2b`)
+# AA App v3.3 — media-button bridge (bundled md5 `ddf91b57`; v3.2 was `a8865d2b`)
 
 **Problem.** Android Auto registers no Android `MediaSession`, so a paused local app (YouTube)
 stays the OS media-button session. The car's native route delivers steering-wheel
@@ -41,3 +41,9 @@ Never copy over the bind-mounted file in place (a restarting App reads it half-w
 - v3.2 dex-only: no crash; PLAY/PAUSE drives only AA (YouTube stays paused).
 - With the old Impulse fallback still active, PREVIOUS skipped two songs and NEXT also moved
   YouTube. The fallback removal ships with this change — **not yet verified on the car**.
+
+## v3.3 — echo guard
+`HardKeyPolicyManager.processHardKeyFromPolicy` feeds the injected hardkey back into Android as a
+new media key ~10 ms later. v3.2 re-sent each echo, looping play/next/previous at ~14 Hz until the
+App was stopped (2026-10-13 19:46). v3.3 ignores media-button events for 500 ms after its own
+hardkey (`sLastSentMs`), set before and after each dispatch.
