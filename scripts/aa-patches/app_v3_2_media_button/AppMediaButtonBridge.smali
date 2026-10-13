@@ -393,3 +393,121 @@
 
     return v0
 .end method
+
+# v3.4: Impulse decides which source owns the wheel. Android picks the media-button
+# session from the app that last played through an Android player; AA's audio is not
+# one here, so after YouTube played Android never gave the button back. Impulse sends
+# AA_MEDIA_COMMAND with mediaButton=claim when AA becomes the current media and
+# mediaButton=release when another app does. Claim uses FLAG_EXCLUSIVE_GLOBAL_PRIORITY
+# (system uid only), which takes every media button while active.
+.method public static onImpulseCommand(Landroid/content/Context;Landroid/content/Intent;)Z
+    .locals 3
+
+    const-string v0, "mediaButton"
+
+    invoke-virtual {p1, v0}, Landroid/content/Intent;->getStringExtra(Ljava/lang/String;)Ljava/lang/String;
+
+    move-result-object v0
+
+    if-nez v0, :cond_has
+
+    const/4 v1, 0x0
+
+    return v1
+
+    :cond_has
+    invoke-static {p0}, Lcom/ts/androidauto/app/display/AppMediaButtonBridge;->install(Landroid/content/Context;)V
+
+    const-string v1, "claim"
+
+    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+
+    move-result v1
+
+    if-eqz v1, :cond_release
+
+    invoke-static {}, Lcom/ts/androidauto/app/display/AppMediaButtonBridge;->claimExclusive()V
+
+    goto :goto_log
+
+    :cond_release
+    invoke-static {}, Lcom/ts/androidauto/app/display/AppMediaButtonBridge;->releaseExclusive()V
+
+    :goto_log
+    const-string v1, "ImpulseAAMedia"
+
+    new-instance v2, Ljava/lang/StringBuilder;
+
+    invoke-direct {v2}, Ljava/lang/StringBuilder;-><init>()V
+
+    const-string p0, "media button ownership: "
+
+    invoke-virtual {v2, p0}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    invoke-virtual {v2, v0}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    invoke-virtual {v2}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+
+    move-result-object v2
+
+    invoke-static {v1, v2}, Landroid/util/Log;->w(Ljava/lang/String;Ljava/lang/String;)I
+
+    const/4 v1, 0x1
+
+    return v1
+.end method
+
+.method public static claimExclusive()V
+    .locals 3
+
+    sget-object v0, Lcom/ts/androidauto/app/display/AppMediaButtonBridge;->sSession:Landroid/media/session/MediaSession;
+
+    if-eqz v0, :cond_0
+
+    :try_start_0
+    const v1, 0x10003
+
+    invoke-virtual {v0, v1}, Landroid/media/session/MediaSession;->setFlags(I)V
+    :try_end_0
+    .catch Ljava/lang/Throwable; {:try_start_0 .. :try_end_0} :catch_0
+
+    goto :goto_0
+
+    :catch_0
+    move-exception v1
+
+    const-string v2, "ImpulseAAMedia"
+
+    const-string v1, "exclusive media button refused; plain claim"
+
+    invoke-static {v2, v1}, Landroid/util/Log;->w(Ljava/lang/String;Ljava/lang/String;)I
+
+    :goto_0
+    invoke-static {}, Lcom/ts/androidauto/app/display/AppMediaButtonBridge;->claim()V
+
+    :cond_0
+    return-void
+.end method
+
+.method public static releaseExclusive()V
+    .locals 2
+
+    sget-object v0, Lcom/ts/androidauto/app/display/AppMediaButtonBridge;->sSession:Landroid/media/session/MediaSession;
+
+    if-eqz v0, :cond_0
+
+    :try_start_0
+    const/4 v1, 0x3
+
+    invoke-virtual {v0, v1}, Landroid/media/session/MediaSession;->setFlags(I)V
+
+    const/4 v1, 0x0
+
+    invoke-virtual {v0, v1}, Landroid/media/session/MediaSession;->setActive(Z)V
+    :try_end_0
+    .catch Ljava/lang/Throwable; {:try_start_0 .. :try_end_0} :catch_0
+
+    :cond_0
+    :catch_0
+    return-void
+.end method

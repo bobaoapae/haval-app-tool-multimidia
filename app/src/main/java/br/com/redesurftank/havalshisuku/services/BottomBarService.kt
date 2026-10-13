@@ -559,6 +559,7 @@ class BottomBarService : LifecycleService() {
         observeMenuState()
         observeDashboardActivityState()
         observeVisibility()
+        observeMediaButtonOwnership()
         observeAutoHide()
         observeResourceOverlay()
         registerUpdateReceiver()
@@ -3667,6 +3668,27 @@ class BottomBarService : LifecycleService() {
                             e
                     )
                 }
+            }
+        }
+    }
+
+    /**
+     * The steering-wheel media buttons follow the source the bar shows as current media: AA
+     * claims them, any other media app releases them (AA App patch v3.4).
+     */
+    private fun observeMediaButtonOwnership() {
+        lifecycleScope.launch {
+            var aaOwns: Boolean? = null
+            snapshotFlow { BottomBarState.mediaPackageName }.collectLatest { pkg ->
+                if (pkg == null) return@collectLatest
+                val isAndroidAuto =
+                    pkg == ANDROID_AUTO_MEDIA_PACKAGE ||
+                        pkg == ANDROID_AUTO_MEDIA_APP_PACKAGE ||
+                        pkg == ANDROID_AUTO_MEDIA_SERVICE_PACKAGE
+                if (aaOwns == isAndroidAuto) return@collectLatest
+                aaOwns = isAndroidAuto
+                br.com.redesurftank.havalshisuku.managers.AndroidAutoHardKeyPolicyBridge
+                    .sendMediaButtonOwnership(this@BottomBarService, isAndroidAuto, "media_source=$pkg")
             }
         }
     }
