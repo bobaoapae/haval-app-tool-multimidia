@@ -10,6 +10,24 @@ import org.junit.Test
  * looked absent (native-mask hole closed).
  */
 class DisplayAppLauncherTopPackageParseTest {
+    /** Car 2026-10-09: tasks inside a stack are listed bottom to top; AA was resumed on top. */
+    @Test
+    fun topTaskIsLastInTheFirstStackOfTheDisplay() {
+        val stackList =
+            """
+            Stack id=3 bounds=[0,0][1920,660] displayId=0 userId=0
+              taskId=24150: com.havalh6.viewer/com.havalh6.viewer.MainActivity bounds=[0,0][1920,660] userId=0 visible=true
+              taskId=24151: com.ts.androidauto.app/com.ts.androidauto.app.display.AapActivity bounds=[0,0][1920,660] userId=0 visible=true
+            Stack id=1 bounds=[0,0][1920,720] displayId=0 userId=0
+              taskId=36: com.beantechs.mediacenter/com.beantechs.mediacenter.MediaCenterActivity bounds=[0,0][1920,720] userId=0 visible=false
+            """.trimIndent()
+
+        assertEquals(
+            "com.ts.androidauto.app",
+            DisplayAppLauncher.topPackageFromStackListForTest(stackList, 0)
+        )
+    }
+
     @Test
     fun stackHeaderDisplayIdIgnoresConfigurationLines() {
         val stackList =

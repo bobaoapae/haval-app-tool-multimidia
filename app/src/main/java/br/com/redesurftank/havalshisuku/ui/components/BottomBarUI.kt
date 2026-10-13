@@ -1354,6 +1354,35 @@ private fun AcQuickMenuItem(
         }
 }
 
+/** Horizontal travel before a swipe on fan/temp/volume counts as a drag (and shows the HUD). */
+internal const val SWIPE_DRAG_SLOP_DP = 4f
+
+/** Fan swipe travel per level. Wider than temp/volume so a small movement does not skip levels. */
+internal const val FAN_DRAG_STEP_DP = 40f
+
+/**
+ * Applies the accumulated horizontal swipe [accumulatedPx] to the fan [speed] (0..7).
+ * Dropping from level 1 to OFF needs two steps of travel, so a sloppy swipe cannot shut the fan off.
+ * Returns the new speed and the travel left over for the next call.
+ */
+internal fun resolveFanDrag(accumulatedPx: Float, stepPx: Float, speed: Int): Pair<Int, Float> {
+        var acc = accumulatedPx
+        var current = speed
+        while (true) {
+                val direction = if (acc > 0f) 1 else -1
+                val needed = if (current == 1 && direction < 0) stepPx * 2f else stepPx
+                if (kotlin.math.abs(acc) < needed) break
+                acc -= direction * needed
+                current = (current + direction).coerceIn(0, 7)
+                // Pinned at either end: drop the leftover so reversing is immediate.
+                if ((direction < 0 && current == 0) || (direction > 0 && current == 7)) {
+                        acc = 0f
+                        break
+                }
+        }
+        return current to acc
+}
+
 @Composable
 fun FanButton(
 	fanSpeed: Int,
@@ -3539,7 +3568,7 @@ fun AllAppsGridItem(
         val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
         val isPressed by interactionSource.collectIsPressedAsState()
         val bgColor by animateColorAsState(
-                targetValue = if (isPressed) Color(0xFF2196F3).copy(alpha = 0.25f) else Color(0x08FFFFFF),
+                targetValue = if (isPressed) Color(0xFF2196F3).copy(alpha = 0.25f) else Color.Transparent,
                 animationSpec = tween(50),
                 label = "appGridBg"
         )
@@ -3565,26 +3594,23 @@ fun AllAppsGridItem(
                         .padding(vertical = 10.dp, horizontal = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
         ) {
+                // No card behind the icon: the launcher icon is drawn on its own, larger.
                 Box(
-                        modifier = Modifier
-                                .size(50.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0x14FFFFFF))
-                                .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(12.dp)),
+                        modifier = Modifier.size(60.dp),
                         contentAlignment = Alignment.Center
                 ) {
                         if (app.icon != null) {
                                 AsyncImage(
                                         model = ImageRequest.Builder(context).data(app.icon).build(),
                                         contentDescription = app.label,
-                                        modifier = Modifier.size(36.dp)
+                                        modifier = Modifier.size(56.dp)
                                 )
                         } else {
                                 Icon(
                                         imageVector = Icons.Default.Apps,
                                         contentDescription = app.label,
                                         tint = Color.White.copy(alpha = 0.7f),
-                                        modifier = Modifier.size(28.dp)
+                                        modifier = Modifier.size(40.dp)
                                 )
                         }
                 }
@@ -3651,12 +3677,12 @@ fun AppMenuContent() {
                         )
                         .border(1.dp, Color(0xFF262C38), RoundedCornerShape(16.dp))
                         .width(580.dp)
-                        .heightIn(max = 440.dp)
+                        .heightIn(max = 500.dp)
                         .padding(16.dp)
         ) {
                 Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                         // Header
                         Row(
@@ -3785,12 +3811,14 @@ fun AppMenuContent() {
                                         )
                                 }
                         } else {
+                                // weight(fill = false): the grid takes what is left under the
+                                // fixed shortcut row instead of a hard-coded height.
                                 LazyVerticalGrid(
                                         columns = GridCells.Fixed(4),
                                         modifier = Modifier
                                                 .fillMaxWidth()
-                                                .heightIn(max = 350.dp),
-                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                                .weight(1f, fill = false),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                         items(systemApps, key = { it.packageName }) { app ->
@@ -3808,6 +3836,115 @@ fun AppMenuContent() {
                                                 )
                                         }
                                 }
+                        }
+
+                        HorizontalDivider(color = Color(0xFF1F2530), thickness = 1.dp)
+
+                        AppMenuFixedShortcuts(context = context, scope = scope)
+                }
+        }
+}
+
+private data class FixedShortcut(
+        val id: String,
+        val label: String,
+        val packageName: String?
+)
+
+// Same GWM hub as the Impulse Home launcher (vehicle center, settings, energy, GWM Home) plus a
+// head-unit reboot. Package names mirror Impulse Home's PINNED_PACKAGES.
+private val APP_MENU_FIXED_SHORTCUTS = listOf(
+        FixedShortcut("vehicle", "Veículo", "com.beantechs.vehiclecenter"),
+        FixedShortcut("settings", "Ajustes", "com.beantechs.settings"),
+        FixedShortcut("energy", "Energia", "com.beantechs.energyassistant"),
+        FixedShortcut("home", "Início GWM", "com.beantechs.launcher"),
+        FixedShortcut("reboot", "Reiniciar", null)
+)
+
+@Composable
+private fun AppMenuFixedShortcuts(context: Context, scope: CoroutineScope) {
+        var rebootArmed by remember { mutableStateOf(false) }
+        // A reboot is one stray tap away in a moving car: it needs a second tap within 3s.
+        LaunchedEffect(rebootArmed) {
+                if (rebootArmed) {
+                        delay(3000)
+                        rebootArmed = false
+                }
+        }
+
+        Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+        ) {
+                for (item in APP_MENU_FIXED_SHORTCUTS) {
+                        val isReboot = item.id == "reboot"
+                        val armed = isReboot && rebootArmed
+                        val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        val pressed by interaction.collectIsPressedAsState()
+                        val bg by animateColorAsState(
+                                targetValue = when {
+                                        armed -> Color(0xFFE05252).copy(alpha = 0.28f)
+                                        pressed -> Color(0xFF2196F3).copy(alpha = 0.25f)
+                                        else -> Color.Transparent
+                                },
+                                animationSpec = tween(50),
+                                label = "fixedShortcutBg"
+                        )
+                        val tint = if (armed) Color(0xFFFF8A80) else Color.White.copy(alpha = 0.9f)
+                        Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                        .width(96.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(bg)
+                                        .clickable(interactionSource = interaction, indication = null) {
+                                                if (isReboot) {
+                                                        if (rebootArmed) {
+                                                                rebootArmed = false
+                                                                BottomBarState.isMenuExpanded = false
+                                                                scope.launch(Dispatchers.IO) {
+                                                                        ShizukuUtils.runCommandAndGetOutput(arrayOf("svc", "power", "reboot"))
+                                                                }
+                                                        } else {
+                                                                rebootArmed = true
+                                                        }
+                                                } else {
+                                                        item.packageName?.let {
+                                                                DisplayAppLauncher.launchAnyAppDetached(context, it)
+                                                        }
+                                                        BottomBarState.isMenuExpanded = false
+                                                }
+                                        }
+                                        .padding(vertical = 6.dp)
+                        ) {
+                                Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                                        when (item.id) {
+                                                "vehicle", "home" -> Icon(
+                                                        painter = painterResource(R.drawable.ic_gwm),
+                                                        contentDescription = item.label,
+                                                        tint = Color.Unspecified,
+                                                        modifier = Modifier.size(40.dp)
+                                                )
+                                                else -> Icon(
+                                                        imageVector = when (item.id) {
+                                                                "settings" -> Icons.Default.Settings
+                                                                "energy" -> Icons.Default.Bolt
+                                                                else -> Icons.Default.RestartAlt
+                                                        },
+                                                        contentDescription = item.label,
+                                                        tint = tint,
+                                                        modifier = Modifier.size(30.dp)
+                                                )
+                                        }
+                                }
+                                Text(
+                                        text = if (armed) "Confirmar?" else item.label,
+                                        color = if (armed) Color(0xFFFF8A80) else Color(0xFFE0E4EC),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1
+                                )
                         }
                 }
         }
@@ -4663,10 +4800,17 @@ fun BottomBarMenus() {
                         BottomBarState.activeSliderType != null ||
                         (isModern && BottomBarState.activeSwipeHud != null) ||
                         isFloatingProjOnly
+        // The swipe HUD (fan/temp/volume) is a small non-modal popup with no scrim: it must snap in,
+        // so only the real menus keep the fade that hides the scrim appearing.
+        val hudOnly = anyExpanded && isModern && BottomBarState.activeSwipeHud != null &&
+                !dashboardExpanded && !BottomBarState.isMenuExpanded &&
+                !BottomBarState.isSettingsMenuExpanded && !BottomBarState.isOverrideMenuExpanded &&
+                !BottomBarState.isAcMenuExpanded && BottomBarState.dockAddSlotIndex == null &&
+                BottomBarState.activeSliderType == null && !isFloatingProjOnly
         val contentAlpha by
                 animateFloatAsState(
                         targetValue = if (anyExpanded) 1f else 0f,
-                        animationSpec = tween(durationMillis = 120),
+                        animationSpec = tween(durationMillis = if (hudOnly) 0 else 120),
                         label = "menuFade"
                 )
 
@@ -9255,6 +9399,8 @@ fun TempControlSection(
                                                         var isDragging = false
                                                         var accumulatedDragX = 0f
                                                         var activeTemp = currentTempRef.toFloatOrNull() ?: 22.0f
+                                                        // Show the popup on touch-down, not after the drag starts.
+                                                        postHud(activeTemp, autoDismiss = false)
 
                                                         do {
                                                                 val event = awaitPointerEvent()
@@ -9264,7 +9410,7 @@ fun TempControlSection(
                                                                 val deltaX = change.position.x - change.previousPosition.x
                                                                 totalDragX += deltaX
 
-                                                                if (!isDragging && kotlin.math.abs(totalDragX) > 10.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(change.position.y - startY)) {
+                                                                if (!isDragging && kotlin.math.abs(totalDragX) > SWIPE_DRAG_SLOP_DP.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(change.position.y - startY)) {
                                                                         isDragging = true
                                                                         activeTemp = currentTempRef.toFloatOrNull() ?: 22.0f
                                                                         postHud(activeTemp, autoDismiss = false)
@@ -9462,7 +9608,7 @@ fun FanControlSection(
                                                                 val deltaY = change.position.y - change.previousPosition.y
                                                                 totalDragX += deltaX
 
-                                                                if (!isDragging && abs(totalDragX) > 10.dp.toPx() && abs(totalDragX) > abs(change.position.y - startY)) {
+                                                                if (!isDragging && abs(totalDragX) > SWIPE_DRAG_SLOP_DP.dp.toPx() && abs(totalDragX) > abs(change.position.y - startY)) {
                                                                         isDragging = true
                                                                         activeSpeed = currentSpeedRef
                                                                         postHud(activeSpeed, autoDismiss = false)
@@ -9471,17 +9617,12 @@ fun FanControlSection(
                                                                 if (isDragging) {
                                                                         change.consume()
                                                                         accumulatedDragX += deltaX
-                                                                        val stepPx = 27.dp.toPx()
-                                                                        if (abs(accumulatedDragX) >= stepPx) {
-                                                                                val numSteps = (abs(accumulatedDragX) / stepPx).toInt()
-                                                                                val stepDirection = if (accumulatedDragX > 0) 1 else -1
-                                                                                accumulatedDragX -= stepDirection * numSteps * stepPx
-                                                                                val next = (activeSpeed + stepDirection * numSteps).coerceIn(0, 7)
-                                                                                if (next != activeSpeed) {
-                                                                                        activeSpeed = next
-                                                                                        currentOnSpeedChange(next)
-                                                                                        postHud(next, autoDismiss = false)
-                                                                                }
+                                                                        val (next, remaining) = resolveFanDrag(accumulatedDragX, FAN_DRAG_STEP_DP.dp.toPx(), activeSpeed)
+                                                                        accumulatedDragX = remaining
+                                                                        if (next != activeSpeed) {
+                                                                                activeSpeed = next
+                                                                                currentOnSpeedChange(next)
+                                                                                postHud(next, autoDismiss = false)
                                                                         }
                                                                 }
                                                         } while (change.pressed)
@@ -9606,6 +9747,8 @@ fun VolumeControlSection(
                                                         var isDragging = false
                                                         var accumulatedDragX = 0f
                                                         var activeVol = currentVolRef
+                                                        // Show the popup on touch-down, not after the drag starts.
+                                                        postHud(activeVol, autoDismiss = false)
 
                                                         do {
                                                                 val event = awaitPointerEvent()
@@ -9616,7 +9759,7 @@ fun VolumeControlSection(
                                                                 val deltaY = change.position.y - change.previousPosition.y
                                                                 totalDragX += deltaX
 
-                                                                if (!isDragging && kotlin.math.abs(totalDragX) > 10.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(deltaY)) {
+                                                                if (!isDragging && kotlin.math.abs(totalDragX) > SWIPE_DRAG_SLOP_DP.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(deltaY)) {
                                                                         isDragging = true
                                                                         activeVol = currentVolRef
                                                                         postHud(activeVol, autoDismiss = false)

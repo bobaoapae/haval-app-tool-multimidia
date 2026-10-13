@@ -137,6 +137,8 @@ object DisplayAppLauncher {
     private const val ANDROID_AUTO_MEDIA_PACKAGE = "com.ts.androidauto"
     private const val ANDROID_AUTO_SERVICE_PACKAGE = "com.ts.androidauto.projectionservice"
     private const val ANDROID_AUTO_ACTIVITY = "com.ts.androidauto.app.display.AapActivity"
+    /** LinkCommand$Stub showMirrorHmi (read from the MMI's AndroidAutoService.apk by Impulse Home). */
+    private const val ANDROID_AUTO_LINK_SHOW_MIRROR_HMI = 0x17
     private const val ANDROID_AUTO_SERVICE = "com.ts.androidauto.projectionservice/.AndroidAutoService"
     private const val ANDROID_AUTO_REMOTE_SERVICE = "com.ts.androidauto.app/.AndroidAutoRemoteUiService"
     private const val ANDROID_AUTO_LINK_SERVICE_ACTION = "com.ts.androidauto.action.AndroidAutoService"
@@ -8178,8 +8180,46 @@ object DisplayAppLauncher {
     /**
      * More robust launch for the main display using package manager intents.
      */
+    /**
+     * Dock tap on a projection that already has a task on display 0: just raise it. The full
+     * start paths restart or re-focus the session but never reorder it above the app in front,
+     * and CarPlay's returns early as "idempotent D0". Returns false when the projection is not
+     * on display 0 or is already in front, so the caller falls through to the normal start path.
+     */
+    private fun raiseProjectionOnMain(packageName: String): Boolean {
+        val task = findTaskForPackageOnDisplay(packageName, 0)
+        if (task == null) {
+            Log.w(TAG, "Dock: $packageName has no task on display 0; normal start path")
+            return false
+        }
+        // Already in front: keep the existing start/focus behavior for the tap.
+        val top = getTopPackageOnDisplay(0)
+        if (top == packageName) {
+            Log.w(TAG, "Dock: $packageName already top on display 0; normal start path")
+            return false
+        }
+        Log.w(TAG, "Dock: raising $packageName (task ${task.taskId}, top=$top) to front on display 0")
+        sh("am stack move-task-to-front ${task.taskId}")
+        if (getTopPackageOnDisplay(0) != packageName) {
+            // move-task-to-front is not honored on every build; REORDER_TO_FRONT start is the
+            // path launchAnyApp already relies on for a task that exists.
+            val activity = if (isCarPlayPackage(packageName)) CARPLAY_ACTIVITY else ANDROID_AUTO_ACTIVITY
+            sh("am start -n $packageName/${activity.replace("$", "\\$")} --display 0 --windowingMode 1 -f 0x14000000")
+        }
+        val raised = getTopPackageOnDisplay(0) == packageName
+        Log.w(TAG, "Dock: raise $packageName on display 0 raised=$raised")
+        notifyBottomBarUpdate()
+        // Not raised: let the normal start path handle the tap instead of swallowing it.
+        return raised
+    }
+
     suspend fun launchAnyApp(context: Context, packageName: String, activityName: String? = null) = withContext(Dispatchers.IO) {
         try {
+            if ((isCarPlayPackage(packageName) || isAndroidAutoPackage(packageName)) &&
+                raiseProjectionOnMain(packageName)
+            ) {
+                return@withContext
+            }
             if (isCarPlayPackage(packageName)) {
                 CarPlayDisplayOrchestrator.openOnMain(
                     getCarPlayConfigForDisplay(0),
@@ -8188,6 +8228,13 @@ object DisplayAppLauncher {
                 return@withContext
             }
             if (isAndroidAutoPackage(packageName)) {
+                if (findTaskForPackage(ANDROID_AUTO_PACKAGE) == null) {
+                    // Same "show" request Impulse Home sends for its AA icon: AapActivity is owned
+                    // by the projection service, so ask the service to bring its HMI up first.
+                    sh("am broadcast -a ts.car.androidauto.view_state --ei state 1")
+                    transactAndroidAutoLinkCommand(ANDROID_AUTO_LINK_SHOW_MIRROR_HMI, "LAUNCH_MAIN_ICON_SHOW_HMI") {}
+                    Thread.sleep(400)
+                }
                 startAndroidAutoOnDisplay(getAndroidAutoConfigForDisplay(0), "LAUNCH_MAIN_ICON")
                 return@withContext
             }
@@ -8805,24 +8852,32 @@ object DisplayAppLauncher {
      * Parse [am stack list] for the first task package on [displayId].
      * Only stack-header `displayId=` counts — configuration lines also embed
      * displayId and must be ignored.
+     *
+     * Stacks are listed top to bottom, but the tasks inside one stack are listed bottom to top
+     * (measured on the car 2026-10-09: AA was resumed and focused while a second task listed
+     * before it in the same stack was reported as "top"). So the top task of the first
+     * non-empty stack on the display is the last task line of that stack.
      */
     internal fun topPackageFromStackListForTest(stackList: String, displayId: Int): String? {
         var currentDisplayId: Int? = null
+        var lastInStack: String? = null
         val regex = Regex("""taskId=\d+:\s*([a-zA-Z0-9._]+)/""")
         for (line in stackList.lines()) {
             val stackMatch = Regex("""Stack id=\d+.*displayId=(\d+)""").find(line)
             if (stackMatch != null) {
+                if (currentDisplayId == displayId && lastInStack != null) return lastInStack
                 currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
+                lastInStack = null
                 continue
             }
             if (currentDisplayId == displayId) {
                 val match = regex.find(line)
                 if (match != null) {
-                    return match.groupValues[1]
+                    lastInStack = match.groupValues[1]
                 }
             }
         }
-        return null
+        return if (currentDisplayId == displayId) lastInStack else null
     }
 
     /**
