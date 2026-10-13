@@ -55,3 +55,13 @@ Host the AA map on D1 (the wallpaper layer) instead of D3, behind a setting: D3'
 - Recovery done: Impulse stopped, `aaClusterServiceAutoMount` set to false in `haval_prefs.xml`, reboot 08:37. AA connected 08:40 on the stock Service (`48ffded6`), App v2.8 (`cdaae63d`), no cert errors. **Cluster map is off until the boot path is fixed.**
 - Fix ideas: watch for the cert crash for ~60-90 s (or until a session is LIVE) and roll back on the first hit; or only mount at a natural AA start (never SIGTERM mid-uptime).
 - D1 cold boots after the fix: 08:28 (D1 at 24.2 s) and 08:37 (D1 at 21.6 s — inside the old 18–23 s failure window), both first try.
+
+## Update 2026-10-13 09:46 — cluster map restored (boot-time mount, no AA restarts)
+
+- The weekend build (10-09 20:33, 135 720 657 bytes) came from **uncommitted** work in `haval-streams-build`: `App.attachBaseContext` binds the AA patches over local root telnet (`assets/aa_cluster/aa-cluster-mount-early.sh`) before Android Auto opens its APKs. v9 had instead `a10b61d`'s mount-then-SIGTERM, which broke AA's GAL certificate every time it ran. Saved as `wip/aa-cluster-early-mount-weekend-build`, ported in `44245f1`.
+- `7209922`: `.gitattributes` `*.sh text eol=lf` — Windows checkouts packaged the scripts with CRLF and `sh` rejected them.
+- `33d0c43`: only the Service is guarded against a running AA; the App patch (D0 bar fit) is remounted with an App restart, as before.
+- `b48c66f`: two-switch card again — "Auto-montar" (App patch) + "Mapa no cluster" (Service at boot only, never a restart).
+- `38874fb`: BootReceiver priority 999 (did not change the start time on its own).
+- **Root cause of MOUNT_LATE after installs:** Impulse starts ~14 s, AA ~16 s; a freshly installed Impulse (`status=verify`) reached the mount ~7 s late. After `cmd package compile -m speed -f br.com.redesurftank.havalshisuku` the next boot logged `MOUNT_EARLY all` at 16 s and the map went LIVE (09:46:30), D0 at 1920×660, no cert errors.
+- **Deploy rule:** after every Impulse install on the car, AOT-compile it before the next boot. Check the outcome in `/data/local/tmp/aa-cluster-early.log` (root, via telnet).
