@@ -35,7 +35,14 @@ object AndroidAutoPatchManager {
     private const val EXPECTED_STOCK_SERVICE_MD5 = "48ffded64e9b485521e3174dcd70db27"
     private const val CLUSTER_MOUNT_POLL_MS = 3_000L
     private const val CLUSTER_SESSION_SETTLE_MS = 15_000L
-    private const val CLUSTER_CERT_CHECK_DELAY_MS = 8_000L
+    /**
+     * The restarted Service's GAL cert crash shows only when the phone reconnects, well after
+     * 8 s (2026-10-13 08:28: first crash beyond the single 8 s check, rollback never fired, AA
+     * crash-looped until a reboot). Poll the log every few seconds for this long instead, so the
+     * first crash rolls back while ActivityManager's restart backoff is still short.
+     */
+    private const val CLUSTER_CERT_CHECK_DELAY_MS = 3_000L
+    private const val CLUSTER_CERT_WATCH_MS = 120_000L
 
     private val clusterWatchArmed = AtomicBoolean(false)
     private val clusterMountThread = HandlerThread("aa-cluster-mount").apply { start() }
@@ -510,7 +517,11 @@ object AndroidAutoPatchManager {
             if (!mounted) return
             val since = SimpleDateFormat("MM-dd HH:mm:ss.000", Locale.US).format(Date())
             reloadAndroidAutoServiceProcess("CLUSTER_AFTER_SESSION")
-            clusterMountHandler.postDelayed({ rollbackClusterMountIfCertFailed(since) }, CLUSTER_CERT_CHECK_DELAY_MS)
+            val watchUntil = SystemClock.elapsedRealtime() + CLUSTER_CERT_WATCH_MS
+            clusterMountHandler.postDelayed(
+                { rollbackClusterMountIfCertFailed(since, watchUntil) },
+                CLUSTER_CERT_CHECK_DELAY_MS
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Android Auto Service CLUSTER auto-mount failed", e)
         }
@@ -531,12 +542,19 @@ object AndroidAutoPatchManager {
         return pid?.takeIf { it.toIntOrNull() != null }
     }
 
-    private fun rollbackClusterMountIfCertFailed(sinceLogTimestamp: String) {
+    private fun rollbackClusterMountIfCertFailed(sinceLogTimestamp: String, watchUntilElapsedMs: Long) {
         val crash = sh(
             "logcat -d -t '$sinceLogTimestamp' 2>/dev/null | grep -E 'Failed to set client certificate|SSL initialization failed' | tail -n 3"
         ).trim()
         if (crash.isEmpty()) {
-            Log.w(TAG, "CLUSTER service reload stayed up; certificate crash not seen")
+            if (SystemClock.elapsedRealtime() < watchUntilElapsedMs) {
+                clusterMountHandler.postDelayed(
+                    { rollbackClusterMountIfCertFailed(sinceLogTimestamp, watchUntilElapsedMs) },
+                    CLUSTER_CERT_CHECK_DELAY_MS
+                )
+                return
+            }
+            Log.w(TAG, "CLUSTER service reload stayed up; no certificate crash in ${CLUSTER_CERT_WATCH_MS}ms")
             return
         }
         Log.w(TAG, "CLUSTER mount rolled back after certificate crash: $crash")
