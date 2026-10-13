@@ -7,6 +7,7 @@ import {
     formatTripEta,
     resolveTurnIcon
 } from './tbtTurnIcons.js';
+import { laneSvg, readLanes } from './tbtLanes.js';
 
 /**
  * Turn-by-turn card shared by the v1.0 contract themes (minimalist, default).
@@ -23,6 +24,11 @@ export function createTbtCard() {
     const turnDistance = span({ className: 'dashboard-tbt-distance' });
     const text = div({ className: 'dashboard-tbt-text' });
     const street = span({ className: 'dashboard-tbt-street' });
+    // Lane guidance rides in a sub-card behind the bottom edge (tbtCard.css),
+    // hidden when Google sends none, so the main card never resizes.
+    const lanesRow = div({ className: 'dashboard-tbt-lanes' });
+    lanesRow.style.display = 'none';
+    let lanesKey = '';
     const remaining = div({ className: 'dashboard-tbt-remaining' });
 
     // Each figure is a fixed-width column with a small caption underneath, so
@@ -49,6 +55,7 @@ export function createTbtCard() {
     text.appendChild(remaining);
     strip.appendChild(maneuver);
     strip.appendChild(text);
+    strip.appendChild(lanesRow);
     strip.style.display = 'none';
 
     const applyTurnGlyph = (rawTurn) => {
@@ -64,6 +71,25 @@ export function createTbtCard() {
         glyph.textContent = TBT_TURN_GLYPHS[turn] || '➤';
     };
 
+    // ~1 Hz updates repeat the same lanes; only touch the DOM when they change.
+    const applyLanes = (lanes) => {
+        const key = lanes.length ? JSON.stringify(lanes) : '';
+        if (key === lanesKey) return;
+        lanesKey = key;
+        if (!key) {
+            lanesRow.style.display = 'none';
+            lanesRow.innerHTML = '';
+            return;
+        }
+        lanesRow.innerHTML = lanes
+            .map((lane) => {
+                const used = lane.some((a) => a && a.h);
+                return `<span class="dashboard-tbt-lane${used ? ' is-used' : ''}">${laneSvg(lane)}</span>`;
+            })
+            .join('');
+        lanesRow.style.display = 'flex';
+    };
+
     const update = (directions) => {
         const d = directions || {};
         const active = d.active === true || d.active === 'true';
@@ -71,21 +97,23 @@ export function createTbtCard() {
         if (!active) return;
         applyTurnGlyph(String(d.turn || '').toUpperCase());
         street.textContent = d.street || '';
+        applyLanes(readLanes(d));
         const distanceM = d.distance_m;
         const hasDistanceM = distanceM != null && distanceM !== '' && Number.isFinite(Number(distanceM));
         turnDistance.textContent = d.distance ||
             (hasDistanceM ? `${Math.round(Number(distanceM))} m` : '');
-        // A missing figure hides its whole column, caption included.
+        // A missing figure hides its whole column, caption included, but keeps
+        // its third so the others stay anchored left / centre / right.
         const remainingDist = formatRemainingDistance(d.remaining_m);
         dist.value.textContent = remainingDist;
-        dist.cell.style.display = remainingDist ? '' : 'none';
+        dist.cell.style.visibility = remainingDist ? '' : 'hidden';
         // Host normalizes AA/Waze into remaining_s + eta; theme only formats.
         const remainingTime = formatTripEta(d.remaining_s, d.remaining_m);
         eta.value.textContent = remainingTime;
-        eta.cell.style.display = remainingTime ? '' : 'none';
+        eta.cell.style.visibility = remainingTime ? '' : 'hidden';
         const arrivalClock = formatArrivalClock(d.remaining_s, new Date(), d.eta);
         arrival.value.textContent = arrivalClock;
-        arrival.cell.style.display = arrivalClock ? '' : 'none';
+        arrival.cell.style.visibility = arrivalClock ? '' : 'hidden';
     };
 
     return { element: strip, update };

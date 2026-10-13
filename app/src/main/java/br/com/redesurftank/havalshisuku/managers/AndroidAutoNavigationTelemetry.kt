@@ -20,7 +20,8 @@ object AndroidAutoNavigationTelemetry {
         val nextTurn: String? = null,
         val remainingM: Int? = null,
         val remainingS: Int? = null,
-        val eta: String = ""
+        val eta: String = "",
+        val lanes: List<List<LaneDirection>> = emptyList()
     ) {
         fun identityChanged(other: Directions): Boolean {
             return active != other.active ||
@@ -28,7 +29,8 @@ object AndroidAutoNavigationTelemetry {
                 turn != other.turn ||
                 turnId != other.turnId ||
                 nextStreet != other.nextStreet ||
-                nextTurn != other.nextTurn
+                nextTurn != other.nextTurn ||
+                lanes != other.lanes
         }
 
         /** `v` is the payload schema; bump only for a breaking change (see themes-contract-v1.md). */
@@ -51,12 +53,95 @@ object AndroidAutoNavigationTelemetry {
                 append(",\"remaining_m\":").append(jsonNumber(remainingM))
                 append(",\"remaining_s\":").append(jsonNumber(remainingS))
                 append(",\"eta\":").append(jsonString(eta))
+                append(",\"lanes\":")
+                appendLanes(lanes)
                 append('}')
             }
         }
     }
 
     const val SCHEMA_VERSION = 1
+
+    /**
+     * One arrow of a lane. [shape] is Google's `LaneDirection.Shape` number,
+     * passed through unmapped by the stock Service: 0 UNKNOWN, 1 STRAIGHT,
+     * 2/3 SLIGHT_L/R, 4/5 NORMAL_L/R, 6/7 SHARP_L/R, 8/9 U_TURN_L/R.
+     * [highlighted] marks the arrows the route uses.
+     */
+    data class LaneDirection(val shape: Int, val highlighted: Boolean)
+
+    /** The two `Parcel` reads the step walk needs, so it is testable off-device. */
+    interface ParcelReader {
+        fun readInt(): Int
+        fun readString(): String?
+    }
+
+    /** What follows step 0's road/event/angle/number in `IfNavigationStateData`. */
+    data class StepTail(
+        val lanes: List<List<LaneDirection>>,
+        val cues: List<String>,
+        val nextRoad: String?,
+        val nextEvent: Int?
+    )
+
+    // Real roads top out well below this; a larger count means a desynced read.
+    private const val MAX_PARCEL_LIST = 32
+
+    /**
+     * Walks the rest of step 0 in `IfNavigationStepData(Parcel)` order: cue
+     * count + string list, lane count + typed list of `IfNavigationLaneData`
+     * (direction count + typed list of `shape`, `highlighted`). Then the road
+     * and event of step 1 when the step list has one. Every list repeats its own
+     * size, and each typed item starts with a non-null flag. Car-proven
+     * 2026-10-13: a right turn sent `[[STRAIGHT], [NORMAL_RIGHT*, STRAIGHT]]`.
+     *
+     * Throws on an implausible size; callers treat that as "no lanes".
+     */
+    fun readStepTail(reader: ParcelReader, stepListSize: Int): StepTail {
+        val cues = ArrayList<String>()
+        if (reader.readInt() > 0) {
+            val n = checkedSize(reader.readInt(), "cue")
+            for (i in 0 until n) {
+                reader.readString()?.let { cues.add(it) }
+            }
+        }
+        val lanes = ArrayList<List<LaneDirection>>()
+        if (reader.readInt() > 0) {
+            val laneListSize = checkedSize(reader.readInt(), "lane")
+            for (i in 0 until laneListSize) {
+                if (reader.readInt() == 0) continue
+                val directions = ArrayList<LaneDirection>()
+                if (reader.readInt() > 0) {
+                    val dirListSize = checkedSize(reader.readInt(), "direction")
+                    for (j in 0 until dirListSize) {
+                        if (reader.readInt() == 0) continue
+                        val shape = reader.readInt()
+                        val highlighted = reader.readInt() != 0
+                        directions.add(LaneDirection(shape, highlighted))
+                    }
+                }
+                lanes.add(directions)
+            }
+        }
+        var nextRoad: String? = null
+        var nextEvent: Int? = null
+        if (stepListSize > 1 && reader.readInt() != 0) {
+            nextRoad = reader.readString()
+            nextEvent = reader.readInt()
+        }
+        return StepTail(lanes, cues, nextRoad, nextEvent)
+    }
+
+    private fun checkedSize(size: Int, what: String): Int {
+        check(size in 0..MAX_PARCEL_LIST) { "implausible $what list size $size" }
+        return size
+    }
+
+    /** `|`-separated lanes of `,`-separated shapes, `*` = highlighted. For logs. */
+    fun describeLanes(lanes: List<List<LaneDirection>>): String =
+        lanes.joinToString("|") { lane ->
+            lane.joinToString(",") { if (it.highlighted) "${it.shape}*" else "${it.shape}" }
+        }
 
     fun inactive(): Directions = Directions(active = false)
 
@@ -272,6 +357,7 @@ object AndroidAutoNavigationTelemetry {
         private var remainingM: Int? = null
         private var remainingS: Int? = null
         private var eta: String = ""
+        private var lanes: List<List<LaneDirection>> = emptyList()
         private var active: Boolean = false
 
         @Synchronized
@@ -280,6 +366,8 @@ object AndroidAutoNavigationTelemetry {
             street = road?.trim().orEmpty()
             turn = turnFromManeuver(event)
             turnId = event
+            // Code 8 carries no lane data.
+            lanes = emptyList()
             return current()
         }
 
@@ -317,10 +405,16 @@ object AndroidAutoNavigationTelemetry {
         /**
          * LinkCallback code 10, `onNavigationState`. This is what the car
          * actually sends — codes 7/8/9 never fire on this head unit. A route
-         * with no steps means guidance is off.
+         * with no steps means guidance is off. [stepLanes] is step 0's lane
+         * guidance, empty where Google has none for the junction.
          */
         @Synchronized
-        fun onRouteStep(road: String?, event: Int, hasRoute: Boolean): Directions {
+        fun onRouteStep(
+            road: String?,
+            event: Int,
+            hasRoute: Boolean,
+            stepLanes: List<List<LaneDirection>> = emptyList()
+        ): Directions {
             if (!hasRoute) {
                 reset()
                 return current()
@@ -329,6 +423,7 @@ object AndroidAutoNavigationTelemetry {
             street = road?.trim().orEmpty()
             turn = turnFromManeuver(event)
             turnId = event
+            lanes = stepLanes
             return current()
         }
 
@@ -398,6 +493,7 @@ object AndroidAutoNavigationTelemetry {
             remainingM = null
             remainingS = null
             eta = ""
+            lanes = emptyList()
             active = false
         }
 
@@ -413,7 +509,8 @@ object AndroidAutoNavigationTelemetry {
                 turnId = turnId,
                 remainingM = remainingM,
                 remainingS = remainingS,
-                eta = eta
+                eta = eta,
+                lanes = lanes
             )
         }
     }
@@ -465,6 +562,23 @@ object AndroidAutoNavigationTelemetry {
     }
 
     private fun jsonNumber(value: Int?): String = value?.toString() ?: "null"
+
+    /** `[[{"s":1,"h":false}],[{"s":5,"h":true},{"s":1,"h":false}]]` */
+    private fun StringBuilder.appendLanes(lanes: List<List<LaneDirection>>) {
+        append('[')
+        lanes.forEachIndexed { i, lane ->
+            if (i > 0) append(',')
+            append('[')
+            lane.forEachIndexed { j, direction ->
+                if (j > 0) append(',')
+                append("{\"s\":").append(direction.shape)
+                append(",\"h\":").append(direction.highlighted)
+                append('}')
+            }
+            append(']')
+        }
+        append(']')
+    }
 
     private fun jsonString(value: String): String {
         val escaped = value

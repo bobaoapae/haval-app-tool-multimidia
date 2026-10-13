@@ -9,27 +9,40 @@
   left: 50%;
   top: 80px;
   transform: translateX(-50%);
-  /* 20 pad + 72 glyph + 20 gap + 278 text + 20 pad. The text column is exactly
-     the three equal 146px metric columns plus their two 10px gaps. 146 is the
-     widest value any column can show ("12 h 34 min") at 38px, so the figures
-     line up evenly and nothing reflows as values change length. The glyph
-     column carries 10px of its own padding on each side. */
-  width: 610px;
+  /* 20 pad + 120 maneuver + 20 gap + 345 text + 44 pad = 549, 10% under the
+     original 610. The maneuver column is 30% wider than its original 92; the
+     wider right pad keeps the arrival clock off the card edge. */
+  width: 549px;
   min-height: 152px;
   display: none;
   flex-direction: row;
   align-items: center;
   justify-content: flex-start;
   gap: 20px;
-  padding: 20px;
+  padding: 20px 44px 20px 20px;
   box-sizing: border-box;
   z-index: 40;
   pointer-events: none;
   color: #f4f7fb;
+  border-radius: 22px;
+}
+
+/* The card's surface is a layer of its own (z-index -1 inside the strip's
+   stacking context) so the lane sub-card (-2) can tuck behind it. A theme
+   that recolours the card overrides this rule, not .dashboard-tbt-strip. */
+.dashboard-tbt-strip::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: -1;
+  box-sizing: border-box;
+  border-radius: inherit;
   background: rgba(8, 12, 20, 0.62);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
 }
@@ -41,19 +54,19 @@
   justify-content: center;
   gap: 6px;
   flex: 0 0 auto;
-  /* 72px of glyph plus a little air on each side, so the indicator is not
+  /* 88px of glyph plus a little air on each side, so the indicator is not
      pressed against the card edge or the street name. */
   box-sizing: border-box;
-  width: 92px;
+  width: 120px;
   padding: 0 10px;
 }
 
 .dashboard-tbt-glyph {
-  font-size: 68px;
+  font-size: 88px;
   line-height: 1;
   flex: 0 0 auto;
-  width: 68px;
-  height: 68px;
+  width: 88px;
+  height: 88px;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
   display: flex;
   justify-content: center;
@@ -65,8 +78,8 @@
 }
 
 .dashboard-tbt-glyph svg {
-  width: 68px;
-  height: 68px;
+  width: 88px;
+  height: 88px;
   display: block;
   fill: currentColor;
   filter: drop-shadow(0 2px 12px rgba(0, 0, 0, 0.55));
@@ -79,7 +92,7 @@
   justify-content: center;
   gap: 8px;
   /* Fixed, so a long street name can never widen the card. */
-  width: 458px;
+  width: 345px;
   min-width: 0;
 }
 
@@ -108,9 +121,60 @@
   flex-direction: row;
   align-items: flex-start;
   flex-wrap: nowrap;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   min-width: 0;
+}
+
+/* Lane guidance: a sub-card that slides out from behind the bottom of the
+   main card, only while Google sends lanes. Absolutely placed, so the main
+   card never changes size. Its top 20px sit under the main card's rounded
+   bottom edge; one cell per lane, left to right. The route's arrows are full
+   white, the others dimmed. */
+.dashboard-tbt-lanes {
+  position: absolute;
+  top: calc(100% - 20px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: -2;
+  display: none;
+  flex-direction: row;
+  align-items: center;
+  box-sizing: border-box;
+  max-width: calc(100% - 64px);
+  padding: 28px 18px 10px;
+  overflow: hidden;
+  background: rgba(8, 12, 20, 0.62);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: none;
+  border-radius: 0 0 18px 18px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.dashboard-tbt-lane {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 60px;
+  height: 54px;
+  color: #f4f7fb;
+}
+
+.dashboard-tbt-lane + .dashboard-tbt-lane {
+  border-left: 1px solid rgba(244, 247, 251, 0.18);
+}
+
+.dashboard-tbt-lane svg {
+  width: 46px;
+  height: 46px;
+  display: block;
+}
+
+.dashboard-tbt-lane .is-off {
+  opacity: 0.3;
 }
 
 .dashboard-tbt-metric {
@@ -122,18 +186,36 @@
   min-width: 0;
 }
 
-/* All three columns share one fixed width so the figures and their captions
-   line up as an even grid. The width is the widest value any column can show,
-   "12 h 34 min" from formatTripEta on a long trip. */
+/* Three equal thirds of the text column, so nothing reflows as values change
+   length. Distance hugs the left edge, time the centre, arrival the right.
+   At 32px every value fits a third except a 10 h+ trip's "12 h 34 min". */
 .dashboard-tbt-metric.is-dist,
 .dashboard-tbt-metric.is-eta,
 .dashboard-tbt-metric.is-arrival {
-  flex: 0 0 146px;
-  width: 146px;
+  flex: 1 1 0;
+  width: 0;
+}
+
+.dashboard-tbt-metric.is-eta {
+  align-items: center;
+}
+
+.dashboard-tbt-metric.is-arrival {
+  align-items: flex-end;
+}
+
+.dashboard-tbt-metric.is-eta .dashboard-tbt-metric-value,
+.dashboard-tbt-metric.is-eta .dashboard-tbt-metric-label {
+  text-align: center;
+}
+
+.dashboard-tbt-metric.is-arrival .dashboard-tbt-metric-value,
+.dashboard-tbt-metric.is-arrival .dashboard-tbt-metric-label {
+  text-align: right;
 }
 
 .dashboard-tbt-metric-value {
-  font-size: 38px;
+  font-size: 32px;
   font-weight: 300;
   line-height: 1.05;
   white-space: nowrap;

@@ -295,7 +295,7 @@ Theme interactions occur via the global `window.Android` namespace and standard 
 Additive Android Auto CLUSTER telemetry (v1.0, no contract bump):
 
 - `app.androidauto.session` — `stopped` \| `active` from Autolink GET_LINK_STATUS 3/7/8.
-- `app.navigation.directions` — JSON; keep `street` / `distance` / `turn`. Additive `remaining_s` (seconds) and `remaining_m` (metres). Inactive = `{"active":false}`.
+- `app.navigation.directions` — JSON; keep `street` / `distance` / `turn`. Additive `remaining_s` (seconds) and `remaining_m` (metres). Additive `lanes`: one array per lane, left to right, of `{"s":shape,"h":bool}` arrows (`s` = Google `LaneDirection.Shape` 0–9, `h` = arrow the route uses); `[]` or missing means no lane guidance. The shared card renders it with `shared/tbt/tbtLanes.js`. Inactive = `{"active":false}`.
 - `aaClusterInDash` — `control()` flag for the D3 CLUSTER Surface. Treat like `projectionMirrorInDash` for masks. Do not rewrite persisted `display`.
 - On disconnect (`session=stopped`) the host tears the Surface down. Call `setAaClusterMapEnabled(true)` again when the next session is `active`. Check the method exists before calling.
 
