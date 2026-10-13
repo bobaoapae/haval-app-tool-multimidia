@@ -149,7 +149,9 @@
             android:directBootAware="true"
             android:enabled="true"
             android:exported="true">
-            <intent-filter>
+            <!-- Highest receiver priority: the boot broadcast is delivered in priority order, and
+                 App.attachBaseContext must bind the AA patches before Android Auto opens its APKs. -->
+            <intent-filter android:priority="999">
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
