@@ -40,3 +40,10 @@ Branch `fix/v9-d0-fit-d1-boot-map-hide`, based on `origin/feature/new-screen-enh
 ## Next (proposed)
 
 Host the AA map on D1 (the wallpaper layer) instead of D3, behind a setting: D3's mask already cuts a hole for D1 apps, and apps on D3 would cover the map by layering. Depends on this D1 fix holding on the car.
+
+## Update 2026-10-13 08:30 — map black after reinstalls
+
+- 08:10 another session installed a build from the stale main checkout (old local v9 + uncommitted edits): it lacked all of the above and the 1080p host while bundling the 1080p Service → black map. v9 `113c35c` (this work + the bottom-bar v2 port) was reinstalled at 08:23.
+- After that the map still did not show: the AA Service (alive since boot) had quarantined its CLUSTER decoder slot when the killed Impulse's codec could not be released (`Previous CLUSTER codec has not released its slot` → `queue capacity exceeded` → controller `state=6 request failed`). By design this lasts until the Service process restarts; the controller does not retry. **Recovery: next car start / head-unit reboot.** Avoid reinstalling Impulse while the cluster map is streaming.
+- Open: Service could reclaim the slot once the dead host's codec is released; controller could report "map needs restart" instead of failing silently.
+- Rule for all sessions: build for the car only from `origin/feature/new-screen-enhancements-v9`, never from the main checkout's stale local v9.
