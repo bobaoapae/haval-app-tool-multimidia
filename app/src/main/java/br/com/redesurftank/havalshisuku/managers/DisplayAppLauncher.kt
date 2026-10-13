@@ -6421,12 +6421,10 @@ object DisplayAppLauncher {
             BottomBarService.markAndroidAutoTrackCommandProgressReset(
                 "Android Auto steering ${androidAutoTrackCommandName(keyCode)}"
             )
-            skipFallbackScheduled = true
-            scheduleAndroidAutoSteeringSkipFallbackIfUnchanged(
-                keyCode = keyCode,
-                initialSignature = androidAutoSteeringMediaSignature(),
-                reason = "AA_STEERING_MEDIA_${keyCode}_ACTION_${action}"
-            )
+            // No delayed LinkCommand fallback: the AA App patch (v3.2 media button bridge)
+            // owns the OS media button while AA plays and sends next/previous to the phone
+            // itself. A second send 0.9 s later skipped AA twice on PREVIOUS and reached
+            // YouTube on NEXT (2026-10-13). skipFallbackScheduled stays false.
         }
         if (shouldSuppressAndroidAutoSteeringMediaInjection(source) && !useAppCommandRoute) {
             val routeDescription =
