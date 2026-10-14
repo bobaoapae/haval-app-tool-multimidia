@@ -2,6 +2,12 @@ package br.com.redesurftank.havalshisuku.projectors
 
 import android.content.Context
 import android.graphics.Matrix
+import android.graphics.Canvas
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.Shader
 import android.graphics.Rect
 import android.graphics.SurfaceTexture
 import android.graphics.drawable.GradientDrawable
@@ -44,6 +50,14 @@ object AaClusterVideoHost {
     private const val LEFT_FADE_WIDTH = 520
     private var rightFade: View? = null
     private var leftFade: View? = null
+
+    /**
+     * While the native card is up the map stops at the 70% line. Instead of a hard edge there,
+     * the last [CARD_EDGE_FADE_WIDTH] px fade the map to fully transparent, so it dissolves into
+     * the car's card. Purely visual: the stream, its clip and the D3 mask hole are unchanged.
+     */
+    internal const val CARD_EDGE_FADE_WIDTH = 154
+    private var mapLayer: MapLayer? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -118,7 +132,6 @@ object AaClusterVideoHost {
 
     fun detachParent() {
         AndroidAutoClusterController.onSurfaceDestroyed()
-        val oldView = textureView
         val parent = parentRef?.get()
         // Keep the per-view listener/owner alive. Its destruction callback must
         // return false even when this global current-view pointer has moved on.
@@ -128,9 +141,8 @@ object AaClusterVideoHost {
         shown = false
         live = false
         generation++
-        if (oldView != null) parent?.removeView(oldView)
-        rightFade?.let { parent?.removeView(it) }
-        leftFade?.let { parent?.removeView(it) }
+        mapLayer?.let { parent?.removeView(it) }
+        mapLayer = null
         rightFade = null
         leftFade = null
     }
@@ -297,6 +309,53 @@ object AaClusterVideoHost {
     private fun syncFades() {
         leftFade?.visibility = if (shown) View.VISIBLE else View.GONE
         rightFade?.visibility = if (shown && !nativeCardShown) View.VISIBLE else View.GONE
+        val edge = textureView?.clipBounds?.right ?: NATIVE_CARD_LEFT
+        mapLayer?.setEdgeFade(if (shown && nativeCardShown) edge else -1)
+    }
+
+    /** Fade band [end - CARD_EDGE_FADE_WIDTH, end] for a map edge at [end]. */
+    internal fun cardEdgeFadeBand(end: Int): Pair<Int, Int> =
+        (end - CARD_EDGE_FADE_WIDTH).coerceAtLeast(0) to end
+
+    /**
+     * Holds the map and its edge fades. With an edge set it renders through a hardware layer
+     * and erases the band before the edge with a transparent gradient (DST_OUT); the layer
+     * exists only while that fade is on (card 0).
+     */
+    private class MapLayer(context: Context) : FrameLayout(context) {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT)
+        }
+        private var fadeEnd = -1
+
+        init {
+            setWillNotDraw(false)
+        }
+
+        fun setEdgeFade(end: Int) {
+            if (fadeEnd == end) return
+            fadeEnd = end
+            if (end >= 0) {
+                val (start, stop) = cardEdgeFadeBand(end)
+                paint.shader = LinearGradient(
+                    start.toFloat(), 0f, stop.toFloat(), 0f,
+                    0x00000000, 0xFF000000.toInt(), Shader.TileMode.CLAMP
+                )
+                setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            } else {
+                paint.shader = null
+                setLayerType(View.LAYER_TYPE_NONE, null)
+            }
+            invalidate()
+        }
+
+        override fun dispatchDraw(canvas: Canvas) {
+            super.dispatchDraw(canvas)
+            if (fadeEnd < 0) return
+            val (start, _) = cardEdgeFadeBand(fadeEnd)
+            // Clamped shader: fully erased from the edge onwards.
+            canvas.drawRect(start.toFloat(), 0f, width.toFloat(), height.toFloat(), paint)
+        }
     }
 
     private fun fade(context: Context, left: Int, width: Int, colors: IntArray) =
@@ -322,11 +381,20 @@ object AaClusterVideoHost {
         }
         view.surfaceTextureListener = TextureOwner(view)
         textureView = view
-        parent.addView(view, 0)
+        // The container takes the video's old slot: lowest child, under the masks and the
+        // theme WebView. The edge fades sit directly above the video inside it.
+        val layer = MapLayer(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        mapLayer = layer
+        layer.addView(view)
         val black = 0xFF000000.toInt()
-        // Directly above the video, still under the theme WebView.
-        leftFade = fade(context, 0, LEFT_FADE_WIDTH, intArrayOf(black, black, 0)).also { parent.addView(it, 1) }
+        leftFade = fade(context, 0, LEFT_FADE_WIDTH, intArrayOf(black, black, 0)).also { layer.addView(it) }
         rightFade = fade(context, RIGHT_FADE_LEFT, PANEL_WIDTH - RIGHT_FADE_LEFT, intArrayOf(0, black, black))
-            .also { parent.addView(it, 2) }
+            .also { layer.addView(it) }
+        parent.addView(layer, 0)
     }
 }
