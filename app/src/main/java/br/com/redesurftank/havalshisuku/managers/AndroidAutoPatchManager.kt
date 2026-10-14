@@ -243,8 +243,8 @@ object AndroidAutoPatchManager {
         }
 
         return try {
-            val verdict = bindMountLikeAutoPanel(APP_APK, VENDOR_APP_PATH)
-            // The visual package is an activity. AutoPanel's own note is that
+            val verdict = bindMountStaged(APP_APK, VENDOR_APP_PATH)
+            // The visual package is an activity. Measured on the car:
             // restarting it does not drop the GAL link, and v9 restarted it on every
             // mount until 2026-10-13. Without the restart a running App keeps the
             // stock dex, so AA on D0 ignores the bar fit (patch v2.8). The projection
@@ -292,7 +292,7 @@ object AndroidAutoPatchManager {
     }
 
     /**
-     * Bind-mount the patched Service APK the way AutoPanel does.
+     * Bind-mount the patched Service APK with the stock mtime, without restarting it.
      * Does not umount a live bind, does not wipe dalvik when the vendor MD5
      * already matches, and does not restart projectionservice.
      */
@@ -302,7 +302,7 @@ object AndroidAutoPatchManager {
             return false
         }
         return try {
-            val verdict = bindMountLikeAutoPanel(SERVICE_APK, VENDOR_SERVICE_PATH)
+            val verdict = bindMountStaged(SERVICE_APK, VENDOR_SERVICE_PATH)
             val success = verdict == "mounted" || verdict == "already-mounted"
             if (success) {
                 Log.w(TAG, "Android Auto Service patch $verdict; running process is left as-is")
@@ -317,10 +317,10 @@ object AndroidAutoPatchManager {
     }
 
     /**
-     * AutoPanel's aa-cluster-mount.sh. A matching vendor MD5 returns
+     * assets/aa_cluster/aa-cluster-mount.sh. A matching vendor MD5 returns
      * already-mounted and does not touch the running dex.
      */
-    private fun bindMountLikeAutoPanel(stageName: String, vendorPath: String): String {
+    private fun bindMountStaged(stageName: String, vendorPath: String): String {
         val script = File(App.getDeviceProtectedContext().filesDir, "aa-cluster-mount.sh")
         App.getContext().assets.open("aa_cluster/aa-cluster-mount.sh").use { input ->
             FileOutputStream(script).use { output -> input.copyTo(output) }
@@ -440,7 +440,7 @@ object AndroidAutoPatchManager {
     }
 
     /**
-     * Bind the Service together with the visual patch. AutoPanel's rule: the
+     * Bind the Service together with the visual patch. Rule: the
      * script mounts and stops. It does not SIGTERM `com.ts.androidauto` and
      * does not `am force-stop` the projection service. A process that already
      * opened the stock dex keeps it until Android Auto starts on its own.

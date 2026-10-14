@@ -1,7 +1,7 @@
 #!/system/bin/sh
 #
 # Bind-mount a patched Android Auto APK over the OEM file, as uid 0.
-# Same rules as AutoPanel assets/aa_cluster/aa-cluster-mount.sh (v1.18.9):
+# Rules measured on this head unit:
 # capture the stock mtime before the bind, skip the copy when the stage is
 # already current, and stop when the vendor MD5 already matches.
 #
