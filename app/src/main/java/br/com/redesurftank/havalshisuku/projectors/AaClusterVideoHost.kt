@@ -105,7 +105,10 @@ object AaClusterVideoHost {
         } else {
             DEFAULT_MAP_BOUNDS[1] to DEFAULT_MAP_BOUNDS[3]
         }
-        return intArrayOf(0, top, if (nativeCardShown) NATIVE_CARD_LEFT else PANEL_WIDTH, bottom)
+        // With the native card up the map runs past the 70% line and fades out over the
+        // card's left edge ([CARD_EDGE_FADE_WIDTH] px from the line).
+        val right = if (nativeCardShown) NATIVE_CARD_LEFT + CARD_EDGE_FADE_WIDTH else PANEL_WIDTH
+        return intArrayOf(0, top, right, bottom)
     }
 
     internal fun parseBounds(value: String?): IntArray? {

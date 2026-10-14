@@ -967,7 +967,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
      * before the activity is moved/started — avoids a frame of the app buried under
      * the opaque mask.
      */
-    fun prepareDisplay3AppHole(bounds: IntArray, reason: String = "PREPARE_DISPLAY3_APP_HOLE") {
+    fun prepareDisplay3AppHole(
+            bounds: IntArray,
+            reason: String = "PREPARE_DISPLAY3_APP_HOLE",
+            clampToNativeCard: Boolean = true
+    ) {
         if (bounds.size < 4) return
         ensureUi {
             val res =
@@ -979,8 +983,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             val baseRight = bounds[2]
             val baseBottom = bounds[3]
             val baseWidth = baseRight - baseX
+            // The AA map sizes itself for the native card (it fades out over the card's left
+            // edge), so its hole is taken as given; apps still stop at the 70% line.
             val actualWidth =
-                    if (fullWidth > 0 &&
+                    if (clampToNativeCard &&
+                                    fullWidth > 0 &&
                                     !isWarningDismissed &&
                                     (currentCard == ClusterCardIds.NATIVE_CARD || isWarningActive)
                     ) {
@@ -1433,7 +1440,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             if (enabled) {
                                 prepareDisplay3AppHole(
                                         AaClusterVideoHost.mapBounds(),
-                                        reason = "AA_CLUSTER_SURFACE"
+                                        reason = "AA_CLUSTER_SURFACE",
+                                        clampToNativeCard = false
                                 )
                             }
                         }
@@ -2396,10 +2404,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         warningClearRunnable = null
     }
 
-    /** Same predicate as the D3 app clamp in [prepareDisplay3AppHole]. */
+    /**
+     * The native card is up on card 0, or while an undismissed warning shows. A dismissed
+     * warning only cancels the warning case: it used to drop card 0 too, so after any
+     * warning was dismissed the map went full width (and lost its fade) while still on
+     * card 0 (car, 2026-10-14 19:13).
+     */
     private fun syncAaClusterMapWindow() {
         AaClusterVideoHost.setNativeCardShown(
-                !isWarningDismissed && (currentCard == ClusterCardIds.NATIVE_CARD || isWarningActive)
+                currentCard == ClusterCardIds.NATIVE_CARD || (isWarningActive && !isWarningDismissed)
         )
     }
 
