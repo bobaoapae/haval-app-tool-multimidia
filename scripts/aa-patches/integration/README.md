@@ -402,19 +402,23 @@ Independent review found and corrected failed-disposal record loss, the terminal
 retirement-state race and stale texture callback ownership. Full host Kotlin/Java
 and existing JVM unit tasks are checked by the PR's exact-head CI after publication.
 
-## Shipped build on v9 (`app/src/main/assets/aa_patches/AndroidAutoService.apk`, md5 `79adcdb3`)
+## Shipped build on v9 (`app/src/main/assets/aa_patches/AndroidAutoService.apk`)
 
-Read back from its dex on 2026-10-14 (the build command was not recorded):
+**Current: md5 `05fd3775` — package-only trust (2026-10-14).** Built with
+`--enable-handoff --package-trust-only` from the pinned stock Service (sha256 `a9cfb4c0…`), signed
+v3 with the OEM projection key (`bin/debug.keystore`, alias `debug`, SHA-256 `3c7d7030…`, same as
+before). `ClusterAuthorization` still requires the caller to be the single app installed as
+`br.com.redesurftank.havalshisuku` (UID match) but no longer pins its signer, so any Impulse build
+(any developer's debug key, CI, release) can use the CLUSTER binder. A shared debug key in this
+public repo would have given no protection and would have let anyone sign an Impulse update.
 
-- `GeneratedTrust.CLIENT_CERTIFICATES` — the Impulse signers allowed to use the CLUSTER binder:
-  - `7e00ad11a25d1e24c7ea609123510b332b663cf0a3f655219666c2209533ee2a` — the debug keystore that
-    built the car's Impulse (one developer's `~/.android/debug.keystore`; also signs the AA App patch).
-  - `16a09e667f3bcc908b2fb1366ea957d3e3adec17512775099da2f590b0667322` — presumably the release key
-    (`app/release.keystore`, CI); confirm against a release APK.
-- Also present: `7be3a99482e3…baeb0` (platform) and `3c7d703011f1…0f65` (OEM projection key) — the
-  host-side `AaClusterProtocol.OEM_SIGNER_SHA256` that Impulse uses to verify the *Service*.
+Windows build: apktool writes CRLF and the reviewed profile hashes LF, so run the builder with a
+`java` wrapper that adds `-Dline.separator="
+"` through an @argfile for every call except the
+`-XshowSettings:properties` version probe (the test suite deliberately refuses CRLF normalization).
 
-Consequence: an Impulse debug build signed with any other developer's debug key is refused
-("Untrusted CLUSTER client signing certificate", controller state 6) and gets no cluster map.
-Rebuilding with another `--client-cert-sha256` changes this list; the APK must then be signed
-with the OEM projection key and loaded at boot (see `docs/handoff/HANDOFF-V9-…-2026-10-13.md`).
+**Previous: md5 `79adcdb3`.** Its only client pin was `7e00ad11a25d1e24…` (one developer's
+`~/.android/debug.keystore`): every other Impulse build — other developers' debug builds and
+release — was refused ("Untrusted CLUSTER client signing certificate", controller state 6).
+`16a09e667f3b…`, `7be3a99482e3…` and `3c7d703011f1…` in its dex are not client pins: the first
+comes from the stock Service itself, the other two are the host-side `OEM_SIGNER_SHA256`.

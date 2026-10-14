@@ -51,11 +51,16 @@ def pinned(path: Path, expected: str) -> Path:
     return path
 
 
-def trust_source(certificates: list[str], enabled: bool) -> str:
+def trust_source(certificates: list[str], enabled: bool, package_only: bool = False) -> str:
     certificates = sorted(set(certificates))
     if any(not re.fullmatch(r"[0-9a-f]{64}", x) or x == "0" * 64 for x in certificates):
         raise ValueError("Use explicit lowercase public SHA-256 certificate fingerprints, never keys")
-    if enabled != bool(certificates):
+    if package_only:
+        # The caller is still required to be the one installed Impulse package (UID check);
+        # only the signer pin is dropped, so any Impulse build (any developer's key) works.
+        if not enabled or certificates:
+            raise ValueError("Package-only trust requires enabled handoff and no client pins")
+    elif enabled != bool(certificates):
         raise ValueError("Enabled handoff requires explicit client pins; validation-only must have none")
     pins = ",".join(json.dumps(x) for x in certificates)
     # Not a javac constant: compile the real registration/authentication branches
@@ -65,6 +70,7 @@ def trust_source(certificates: list[str], enabled: bool) -> str:
             "public final class GeneratedTrust {\n"
             f" public static final boolean HANDOFF_ENABLED = Boolean.parseBoolean(\"{str(enabled).lower()}\");\n"
             f" public static final String[] CLIENT_CERTIFICATES = new String[]{{{pins}}};\n"
+            f" public static final boolean PACKAGE_TRUST_ONLY = Boolean.parseBoolean(\"{str(package_only).lower()}\");\n"
             "}\n")
 
 
@@ -445,9 +451,11 @@ def main(argv=None) -> int:
     parser.add_argument("--zipalign", type=Path)
     parser.add_argument("--enable-handoff", action="store_true")
     parser.add_argument("--client-cert-sha256", action="append", default=[])
+    parser.add_argument("--package-trust-only", action="store_true",
+                        help="Trust the installed Impulse package by UID, without a signer pin")
     args = parser.parse_args(argv)
     try:
-        trust = trust_source(args.client_cert_sha256, args.enable_handoff)
+        trust = trust_source(args.client_cert_sha256, args.enable_handoff, args.package_trust_only)
         android = pinned(args.android_jar, TOOL_HASHES["android"])
         source = apktool = r8 = zipalign = None
         if not args.compile_only:
@@ -471,6 +479,7 @@ def main(argv=None) -> int:
             report = {"android_api": 28, "java_compile": True, "host_java_compile": True,
                       "host_kotlin_compile": False, "handoff_enabled": args.enable_handoff,
                       "client_public_certificate_sha256": sorted(set(args.client_cert_sha256)),
+                      "package_trust_only": args.package_trust_only,
                       "deployment_ready": False, "signed": False, "vehicle_validated": False,
                       "tool_sha256": dict(TOOL_HASHES), "unsigned_assembly": False}
             if not args.compile_only:

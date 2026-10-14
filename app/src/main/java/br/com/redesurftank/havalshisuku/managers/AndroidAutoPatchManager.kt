@@ -216,11 +216,15 @@ object AndroidAutoPatchManager {
                 }
             }
 
+            // Stage beside the old file and rename over it: a fresh inode. Copying in place
+            // would rewrite the APK under a running Android Auto that has it bind-mounted.
             val destPath = "$PATCH_DIR/$SERVICE_APK"
-            val cpOut = sh("cp '${tempFile.absolutePath}' '$destPath'")
+            val newPath = "$destPath.new"
+            val cpOut = sh("cp '${tempFile.absolutePath}' '$newPath'")
             Log.d(TAG, "Copy output for service patch $SERVICE_APK: $cpOut")
-            sh("chmod 644 '$destPath'")
-            sh("chcon u:object_r:vendor_app_file:s0 '$destPath'")
+            sh("chmod 644 '$newPath'")
+            sh("chcon u:object_r:vendor_app_file:s0 '$newPath'")
+            sh("mv -f '$newPath' '$destPath'")
             tempFile.delete()
 
             val success = isServicePatchInstalled()
@@ -445,6 +449,18 @@ object AndroidAutoPatchManager {
      */
     private fun mountServiceWithApp(reason: String): Boolean {
         try {
+            // A newer bundled Service while the old one is mounted: stage it for the next boot
+            // and stop. The boot-time early mount binds the staged file before Android Auto
+            // starts; the running process is never swapped or restarted.
+            val bundledNow = bundledPatchMd5(App.getContext(), SERVICE_APK)
+            if (bundledNow != null && isServicePatchInstalled() &&
+                    bundledNow != installedPatchMd5(SERVICE_APK) &&
+                    sh("grep -F ' $VENDOR_SERVICE_PATH ' /proc/mounts 2>/dev/null").isNotBlank()
+            ) {
+                val staged = installServicePatch(App.getContext())
+                Log.w(TAG, "[$reason] New Service staged=$staged; loads at the next boot, running process left as-is")
+                return staged
+            }
             if (isServiceClusterPatchMounted()) {
                 Log.w(TAG, "[$reason] Service already mounted; running process left as-is")
                 return true

@@ -48,7 +48,8 @@ public final class ClusterIntegration {
     /** Exact pre-session hook. Failure leaves the existing OEM services intact. */
     public static void register(GalReceiver receiver, int viewingDistance) {
         Log.w(TAG, "V2DIAG register hook entered handoff=" + GeneratedTrust.HANDOFF_ENABLED + " pins=" + GeneratedTrust.CLIENT_CERTIFICATES.length + " viewingDistance=" + viewingDistance);
-        if (!GeneratedTrust.HANDOFF_ENABLED || GeneratedTrust.CLIENT_CERTIFICATES.length == 0) return;
+        if (!GeneratedTrust.HANDOFF_ENABLED ||
+                (GeneratedTrust.CLIENT_CERTIFICATES.length == 0 && !GeneratedTrust.PACKAGE_TRUST_ONLY)) return;
         Session created = null;
         try {
             synchronized (LOCK) {

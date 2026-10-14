@@ -15,7 +15,8 @@ public final class ClusterAuthorization {
     public static int requireTrustedClient(Context context) {
         int caller = Binder.getCallingUid();
         try {
-            if (!GeneratedTrust.HANDOFF_ENABLED || GeneratedTrust.CLIENT_CERTIFICATES.length == 0) {
+            if (!GeneratedTrust.HANDOFF_ENABLED ||
+                    (GeneratedTrust.CLIENT_CERTIFICATES.length == 0 && !GeneratedTrust.PACKAGE_TRUST_ONLY)) {
                 throw new SecurityException("CLUSTER caller trust is not configured");
             }
             PackageManager pm = context.getPackageManager();
@@ -25,6 +26,10 @@ public final class ClusterAuthorization {
                     !AaClusterProtocol.CLIENT_PACKAGE.equals(packages[0])) {
                 throw new SecurityException("Unexpected or ambiguous CLUSTER caller UID");
             }
+            // Package-only trust: the caller is the single app installed as Impulse. Android keeps
+            // one app per package and refuses updates under another signer, so with Impulse
+            // installed nothing else can pass. Any Impulse build is accepted, whoever signed it.
+            if (GeneratedTrust.CLIENT_CERTIFICATES.length == 0) return caller;
             PackageInfo info = pm.getPackageInfo(AaClusterProtocol.CLIENT_PACKAGE, PackageManager.GET_SIGNING_CERTIFICATES);
             Signature[] signatures = info.signingInfo == null ? null : info.signingInfo.getApkContentsSigners();
             if (signatures == null || signatures.length != 1) throw new SecurityException("Single current client signer required");

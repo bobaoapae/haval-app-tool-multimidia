@@ -74,6 +74,15 @@ class UnsignedBuildGates(unittest.TestCase):
         self.assertEqual(source.count('a'*64), 1)
         self.assertIn('Boolean.parseBoolean("true")', source)
 
+    def test_package_only_trust_needs_handoff_and_no_pins(self):
+        for pins, enabled in [([], False), (['a'*64], True)]:
+            with self.subTest(pins=pins, enabled=enabled), self.assertRaises(ValueError):
+                build.trust_source(pins, enabled, True)
+        source = build.trust_source([], True, True)
+        self.assertIn('PACKAGE_TRUST_ONLY = Boolean.parseBoolean("true")', source)
+        self.assertIn('new String[]{}', source)
+        self.assertIn('PACKAGE_TRUST_ONLY = Boolean.parseBoolean("false")', build.trust_source([], False))
+
     def test_tool_hash_mismatch_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)/'tool.jar'
