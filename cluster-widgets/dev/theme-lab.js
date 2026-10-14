@@ -4,6 +4,7 @@ import { installFixedClusterForeground } from './fixed-cluster-foreground.js';
 import { installSportGaugePolish } from './sport-gauge-polish.js';
 import { installProjectionSimulator } from './projection-simulator.js';
 import { installApexGtSimulator } from './apex-gt-simulator.js';
+import { installStarlightSimulator } from './starlight-simulator.js';
 
 const CLUSTER_WIDTH = 1920;
 const CLUSTER_HEIGHT = 720;
@@ -198,6 +199,9 @@ function syncHarnessPanels() {
 
 function prepareThemeDocument() {
   const childDocument = elements.frame.contentWindow.document;
+  // Match the child scheme so transparent pixels remain transparent.
+  elements.frame.style.colorScheme = elements.frame.contentWindow
+    .getComputedStyle(childDocument.documentElement).colorScheme;
   let resetStyle = childDocument.getElementById('theme-lab-document-reset');
   if (!resetStyle) {
     resetStyle = childDocument.createElement('style');
@@ -270,7 +274,9 @@ function onThemeFrameLoaded() {
       activeTheme,
       (state) => setStatus(formatLegacyStatus(state)),
     );
-    apexGtSimulatorAdapter = installApexGtSimulator(elements.frame.contentWindow);
+    apexGtSimulatorAdapter = activeTheme.folder === 'source/v1.0/Starlight'
+      ? installStarlightSimulator(elements.frame.contentWindow)
+      : installApexGtSimulator(elements.frame.contentWindow);
     legacyTelemetryAdapter = installLegacyTelemetryHarness(
       elements.frame.contentWindow,
       activeTheme,

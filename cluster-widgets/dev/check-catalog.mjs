@@ -8,6 +8,7 @@ const requiredFolders = [
   'source/v1.0/default',
   'source/v1.0/minimalist',
   'source/v1.0/ApexGT',
+  'source/v1.0/Starlight',
   'Themes/SportRed',
   'Themes/SportRedLite',
 ];
@@ -16,10 +17,15 @@ const missingFolders = requiredFolders.filter(
   (requiredFolder) => !themes.some((theme) => theme.folder === requiredFolder),
 );
 
+const starlight = themes.find((theme) => theme.folder === 'source/v1.0/Starlight');
 const apexGT = themes.find((theme) => theme.folder === 'source/v1.0/ApexGT');
 
-if (missingFolders.length > 0 || apexGT?.keyboard !== 'none' || apexGT?.telemetry !== 'injected') {
+if (missingFolders.length > 0 || apexGT?.keyboard !== 'none' || apexGT?.telemetry !== 'injected'
+  || starlight?.keyboard !== 'none' || starlight?.telemetry !== 'injected') {
   console.error(`Catálogo inválido. Pastas ausentes: ${missingFolders.join(', ')}`);
+  if (starlight?.keyboard !== 'none' || starlight?.telemetry !== 'injected') {
+    console.error('Starlight deve usar a bridge simulada apenas no Theme Lab.');
+  }
   if (apexGT?.keyboard !== 'none' || apexGT?.telemetry !== 'injected') {
     console.error('Apex GT deve usar telemetria injetada sem navegação duplicada no Theme Lab.');
   }

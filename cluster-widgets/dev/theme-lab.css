@@ -358,6 +358,7 @@ kbd {
   display: block;
   border: 0;
   background: #000000;
+  color-scheme: normal;
   transform-origin: top left;
 }
 

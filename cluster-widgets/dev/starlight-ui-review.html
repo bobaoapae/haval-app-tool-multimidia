@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920,initial-scale=1">
+<title>Starlight · revisão visual</title>
+<style>
+  *{box-sizing:border-box}body{margin:0;background:#101722;color:#d9e4ee;font:16px system-ui}
+  #stage{width:1920px;height:720px;background-color:#101722;background-image:conic-gradient(#18212c 25%,#101722 0 50%,#18212c 0 75%,#101722 0);background-size:32px 32px}
+  iframe{display:block;width:1920px;height:720px;border:0;background:transparent}
+  nav{display:flex;align-items:center;gap:16px;padding:16px}button{font:inherit;padding:9px 18px;background:#263549;color:inherit;border:1px solid #56708d;border-radius:6px;cursor:pointer}
+  button[aria-pressed=true]{border-color:#b7d9ff;background:#38516b}output{font-variant-numeric:tabular-nums}
+</style>
+<main id="stage"><iframe id="theme" title="Prévia do Starlight" src="/Themes/v1.0/Starlight/app.html"></iframe></main>
+<nav aria-label="Cenários da prévia">
+  <button type="button" data-mode="drive" aria-pressed="true">Aceleração</button>
+  <button type="button" data-mode="regen" aria-pressed="false">Regeneração</button>
+  <button type="button" data-mode="marked" aria-pressed="false">Ponta · 109 km/h</button>
+  <button type="button" data-mode="zero" aria-pressed="false">Parado</button>
+  <button type="button" data-mode="absent" aria-pressed="false">Sem dados</button>
+  <output id="status" aria-live="polite">Carregando prévia…</output>
+  <span>Dados fictícios. O quadriculado mostra a transparência.</span>
+</nav>
+<nav aria-label="Menus da prévia">
+  <button type="button" data-card="0" aria-pressed="true">Sem menu</button>
+  <button type="button" data-card="1" aria-pressed="false">Menu principal</button>
+  <button type="button" data-card="3" aria-pressed="false">Ar-condicionado</button>
+</nav>
+<script type="module">
+  // Local review only. This file is not included in the OTA package.
+  import {installStarlightSimulator} from './starlight-simulator.js';
+  import {installFixedClusterForeground} from './fixed-cluster-foreground.js';
+  const frame=document.getElementById('theme'), status=document.getElementById('status');
+  let adapter=null, foregroundAdapter=null, selected='drive', selectedCard=0, checkTimer=null;
+  const fixtures={drive:{rawSpeed:60,power:32},regen:{rawSpeed:45,power:-18},marked:{rawSpeed:102,power:-15},zero:{rawSpeed:0,power:0},absent:{rawSpeed:null,power:null}};
+  const basic={'car.basic.engine_speed':0,'car.basic.gear_status':2,'car.basic.total_odometer':18426,'car.basic.inside_temp':22.5,'car.basic.outside_temp':27,'car.configure.default_temp_unit':0,'car.drive_setting.drive_mode':0,'car.ev_setting.power_model_config':1,'car.basic.remain_fuel_percentage':64,'car.ev_info.cur_battery_power_percentage':82,'car.ev_info.fuel_mode_remain_odometer':412,'car.ev_info.electric_mode_remain_odometer':126,'car.basic.cur_journey_odometer':18.6,'car.basic.cur_journey_avg_fuel_consume':7.1};
+  Object.assign(basic,{'car.hvac.power_mode':1,'car.hvac.fan_speed':3,'car.hvac.driver_temperature':22,'car.hvac.auto_enable':0,'car.hvac.cycle_mode':0});
+  function reflectReady(attempt=0){
+    const w=frame.contentWindow, runtime=w.starlightRuntime, view=runtime?.getState(), diagnostics=runtime?.getStatus();
+    const shown=view?.decoded, ready=diagnostics?.renderMode==='workers'||diagnostics?.renderMode==='fallback';
+    status.textContent=shown?`${shown.speed??'--'} km/h · ${shown.powerKw===null?'--':shown.powerKw>0?'+'+shown.powerKw:shown.powerKw} kW · ${ready?'pronto':'carregando camadas'}`:'Carregando prévia…';
+    status.dataset.ready=String(ready);status.dataset.mode=selected;
+    if(!ready&&attempt<30)checkTimer=setTimeout(()=>reflectReady(attempt+1),100);
+  }
+  function apply(mode){
+    selected=mode;clearTimeout(checkTimer);
+    const w=frame.contentWindow, data=fixtures[mode];
+    if(typeof w.control!=='function')return;
+    for(const [key,value] of Object.entries(basic))w.control(key,value);
+    w.control('car.basic.vehicle_speed',data.rawSpeed);
+    w.control('car.ev_info.power_battery_voltage',data.power===null?null:400);
+    w.control('car.ev_info.cur_charge_current',data.power===null?null:data.power*2.5);
+    w.onCardChanged?.(selectedCard);
+    for(const button of document.querySelectorAll('[data-mode]'))button.setAttribute('aria-pressed',String(button.dataset.mode===mode));
+    status.dataset.ready='false';checkTimer=setTimeout(()=>reflectReady(),120);
+  }
+  frame.addEventListener('load',async()=>{
+    adapter?.cleanup();adapter=installStarlightSimulator(frame.contentWindow);
+    foregroundAdapter?.cleanup();foregroundAdapter=installFixedClusterForeground(frame.contentWindow);
+    await frame.contentWindow.document.fonts.ready;apply(selected);
+  });
+  for(const button of document.querySelectorAll('[data-mode]'))button.addEventListener('click',()=>apply(button.dataset.mode));
+  for(const button of document.querySelectorAll('[data-card]'))button.addEventListener('click',()=>{
+    selectedCard=Number(button.dataset.card);
+    frame.contentWindow.onCardChanged?.(selectedCard);
+    for(const b of document.querySelectorAll('[data-card]'))b.setAttribute('aria-pressed',String(Number(b.dataset.card)===selectedCard));
+  });
+  window.addEventListener('pagehide',()=>{clearTimeout(checkTimer);adapter?.cleanup();foregroundAdapter?.cleanup();});
+</script>
+</html>

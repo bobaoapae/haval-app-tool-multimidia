@@ -1,0 +1,14 @@
+{
+  "name": "haval-starlight",
+  "version": "1.0.8",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check-package.mjs && node scripts/check-menus.cjs && node scripts/check-runtime.cjs && node scripts/check-material-pipeline.cjs && node scripts/check-renderer.cjs",
+    "thumbnail": "node scripts/thumbnail.cjs"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "0.1.100",
+    "esbuild": "0.28.2"
+  }
+}
