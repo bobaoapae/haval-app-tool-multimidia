@@ -401,3 +401,20 @@ execute a real forced display teardown or Android Binder/MediaCodec.
 Independent review found and corrected failed-disposal record loss, the terminal
 retirement-state race and stale texture callback ownership. Full host Kotlin/Java
 and existing JVM unit tasks are checked by the PR's exact-head CI after publication.
+
+## Shipped build on v9 (`app/src/main/assets/aa_patches/AndroidAutoService.apk`, md5 `79adcdb3`)
+
+Read back from its dex on 2026-10-14 (the build command was not recorded):
+
+- `GeneratedTrust.CLIENT_CERTIFICATES` — the Impulse signers allowed to use the CLUSTER binder:
+  - `7e00ad11a25d1e24c7ea609123510b332b663cf0a3f655219666c2209533ee2a` — the debug keystore that
+    built the car's Impulse (one developer's `~/.android/debug.keystore`; also signs the AA App patch).
+  - `16a09e667f3bcc908b2fb1366ea957d3e3adec17512775099da2f590b0667322` — presumably the release key
+    (`app/release.keystore`, CI); confirm against a release APK.
+- Also present: `7be3a99482e3…baeb0` (platform) and `3c7d703011f1…0f65` (OEM projection key) — the
+  host-side `AaClusterProtocol.OEM_SIGNER_SHA256` that Impulse uses to verify the *Service*.
+
+Consequence: an Impulse debug build signed with any other developer's debug key is refused
+("Untrusted CLUSTER client signing certificate", controller state 6) and gets no cluster map.
+Rebuilding with another `--client-cert-sha256` changes this list; the APK must then be signed
+with the OEM projection key and loaded at boot (see `docs/handoff/HANDOFF-V9-…-2026-10-13.md`).
