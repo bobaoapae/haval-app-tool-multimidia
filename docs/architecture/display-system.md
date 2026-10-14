@@ -88,10 +88,25 @@ Feito no carro do dono com um APK descartável (`br.com.marcel.hudtest`, uma Act
   visível. É o modo a usar.
 - **Área visível:** só a faixa `y=40..200` dos 480x240 (480x160, centralizada). 40 px de cima e
   40 px de baixo ficam fora da óptica. Bordas laterais não foram medidas (a confirmar).
-- **Foco:** `mCurrentFocus`/`mFocusedStack` continuaram no app do D0 antes e depois do launch. Uma
-  Activity não-focável no 4096 não roubou foco nesse teste.
+- **Foco:** no primeiro teste o foco continuou no D0, mas depois o foco foi para o 4096 (AA pausado no D0). Ver "Overlay do Impulse no HUD" abaixo.
 - O `pm install` de um pacote novo é barrado pelo Bean (`beantechs disallow apk`), mas
   `pm install -i com.android.vending -r -t <apk>` pelo shell passou.
+
+### Overlay do Impulse no HUD (`hud/HudOverlay*`)
+
+- Opt-in em Ajustes > "HUD do Impulse" (`hudOverlayEnabled`, desligado por padrão).
+- Desenha só no canto livre (x 10..168, y 58..195): barra de potência/regeneração sempre, barra de
+  RPM só com o motor ligado (`haval.power.ice`), TBT do Android Auto enquanto houver guia.
+- **Uma Activity parada no 4096 dá ANR.** Ela vira o app focado com uma janela não-focável, e a
+  próxima tecla espera "no window has focus" por 5 s (dropbox `data_app_anr`, 2026-10-14). Por
+  isso a `HudOverlayActivity` só abre a porta: o controller adiciona uma janela
+  `TYPE_APPLICATION_OVERLAY` no Display dela (o WindowManager aceita janelas do nosso uid num
+  display privado enquanto há uma Activity nossa nele) e a Activity termina na hora. O overlay
+  continua depois que ela sai, e o foco fica no D0 sem precisar devolver.
+- Se o overlay falhar, a Activity hospeda a view e o controller devolve o foco ao topo do D0
+  (`moveTaskToFront`, permissão `REORDER_TASKS`).
+- O HUD congela o último quadro quando a janela some: antes de remover, pinta um quadro vazio.
+- Escalas das barras (100 kW tração, 50 kW regeneração, 5000 rpm): a confirmar no carro.
 
 ## A Confirmar
 

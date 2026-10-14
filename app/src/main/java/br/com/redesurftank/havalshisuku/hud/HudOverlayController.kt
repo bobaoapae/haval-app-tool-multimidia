@@ -2,10 +2,12 @@ package br.com.redesurftank.havalshisuku.hud
 
 import android.app.ActivityManager
 import android.content.Context
+import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.view.WindowManager
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.listeners.IDataChanged
@@ -49,9 +51,16 @@ object HudOverlayController {
     private val main = Handler(Looper.getMainLooper())
     private val shell = Executors.newSingleThreadExecutor { r -> Thread(r, "HudOverlayShell") }
 
+    /** Time for one empty frame to reach the HUD before a window goes (it latches the last). */
+    internal const val CLEAR_FRAME_DELAY_MS = 150L
+
     // Main thread.
     private var tbt: HudOverlayModel.Tbt? = null
     private var demoTbt: HudOverlayModel.Tbt? = null
+    /** Normal host: a window-manager overlay on the HUD display, no activity behind it. */
+    private var overlay: HudOverlayView? = null
+    private var overlayWm: WindowManager? = null
+    /** Fallback host when the overlay can't be added. */
     private var activity: HudOverlayActivity? = null
     private var launchStartedMs = 0L
     private var launchBlockedUntilMs = 0L
@@ -92,7 +101,7 @@ object HudOverlayController {
     fun setEnabled(enabled: Boolean) {
         main.post {
             enabledCache = enabled
-            if (enabled) publish() else activity?.dismiss()
+            if (enabled) publish() else closeHosts()
         }
     }
 
@@ -163,10 +172,16 @@ object HudOverlayController {
 
     /** Main thread. Push the frame, or bring the window up if it should exist and doesn't. */
     private fun publish() {
-        if (!wanted()) return
-        val host = activity
-        if (host != null) {
-            host.show(currentFrame())
+        if (!wanted()) {
+            closeHosts()
+            return
+        }
+        overlay?.let {
+            it.show(currentFrame())
+            return
+        }
+        activity?.let {
+            it.show(currentFrame())
             return
         }
         if (startedAtMs == 0L || SystemClock.elapsedRealtime() - startedAtMs < BOOT_GRACE_MS) {
@@ -259,10 +274,74 @@ object HudOverlayController {
         demoTbt = if (mode == "on" || mode == "nolanes") HudOverlayModel.tbtFor(turn) else null
     }
 
-    /** Activity created (or re-intented). Main thread. */
+    /**
+     * The door activity is up on the HUD display: add our overlay window there. While one of
+     * our activities is on a private display the WindowManager accepts windows from our uid on
+     * it, and the overlay outlives the activity, which then finishes. Returns false when the
+     * overlay can't be added, so the activity hosts the view itself. Main thread.
+     */
+    internal fun adoptDisplay(host: HudOverlayActivity): Boolean {
+        launchStartedMs = 0L
+        if (!wanted()) {
+            // Nothing to show (e.g. demo off with the toggle off): close what's up, shut the door.
+            closeHosts()
+            return true
+        }
+        overlay?.let {
+            it.show(currentFrame())
+            return true
+        }
+        return try {
+            val display = host.windowManager.defaultDisplay
+            val ctx = host.applicationContext.createDisplayContext(display)
+            val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val view = HudOverlayView(ctx)
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply { title = "ImpulseHudOverlay" }
+            wm.addView(view, params)
+            overlay = view
+            overlayWm = wm
+            view.show(currentFrame())
+            Log.w(TAG, "overlay added on display=${display.displayId}")
+            ClusterPersistentEventLogger.log("hud_overlay_window", mapOf("ok" to true, "display" to display.displayId))
+            true
+        } catch (t: Throwable) {
+            Log.w(TAG, "overlay add failed; activity hosts the view", t)
+            ClusterPersistentEventLogger.log(
+                "hud_overlay_window",
+                mapOf("ok" to false, "error" to (t.message ?: t.javaClass.simpleName).take(160))
+            )
+            false
+        }
+    }
+
+    /** Toggle off (or nothing wanted): clear the HUD, then remove whatever hosts the view. */
+    private fun closeHosts() {
+        val v = overlay
+        val wm = overlayWm
+        overlay = null
+        overlayWm = null
+        if (v != null && wm != null) {
+            v.show(null)
+            // The HUD latches its last frame, so let the empty one land before the window goes.
+            v.postOnAnimation {
+                v.postDelayed({ runCatching { wm.removeViewImmediate(v) } }, CLEAR_FRAME_DELAY_MS)
+            }
+            ClusterPersistentEventLogger.log("hud_overlay_closed", mapOf("host" to "overlay"))
+        }
+        activity?.dismiss()
+    }
+
+    /** Fallback host activity created (or re-intented). Main thread. */
     internal fun attach(host: HudOverlayActivity) {
         launchStartedMs = 0L
-        val fresh = activity !== host
         activity = host
         if (!wanted()) {
             // Toggle went off while the launch was in flight, or someone else started us.
@@ -270,7 +349,9 @@ object HudOverlayController {
             return
         }
         host.show(currentFrame())
-        if (fresh) restoreFocus(host)
+        // Every start, new window or not: a repeat `am start` brings our task to the front and
+        // takes focus again (seen on the car).
+        restoreFocus(host)
     }
 
     /** Activity destroyed. Main thread. */
