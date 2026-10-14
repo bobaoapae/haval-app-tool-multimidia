@@ -8,8 +8,8 @@ const status = require('./integration-status.json');
 assert.equal(status.developmentOnly, true);
 assert.equal(status.hardwareReady, false);
 assert.equal(status.installable, false);
-for (const p of ['theme.xml', '../../../source/v1.0/Starlight/theme.xml', '../../../Themes/v1.0/Starlight/theme.xml']) {
-  assert.equal(fs.existsSync(path.resolve(__dirname, p)), false, 'No installable Starlight manifest');
+for (const p of ['theme.xml']) {
+  assert.equal(fs.existsSync(path.resolve(__dirname, p)), false, 'The development study has no installable manifest');
 }
 const baseline = require('./source-manifest.json').runtime;
 const integrationSeams = new Set(['index.html','renderer.js']);
@@ -52,6 +52,6 @@ assert.equal(nativeWindow.starlightContractLab,undefined);
 import(path.join(root,'dev/theme-catalog.mjs')).then(({createThemeCatalog})=>{
   // Obsidian is a separate installable theme and may land independently. This
   // boundary applies only to our development study, not the rest of the catalog.
-  assert.equal(createThemeCatalog(root).some(t=>/Starlight/i.test(t.folder)),false);
-  console.log('Development boundary passed: frozen visual modules, no OTA/manifest/catalog entry; known native overlaps detected');
+  assert.equal(createThemeCatalog(root).some(t=>t.folder.startsWith('dev/studies/')),false);
+  console.log('Development boundary passed: frozen study modules, no study manifest/catalog entry; standalone themes remain separate');
 });

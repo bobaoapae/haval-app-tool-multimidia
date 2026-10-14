@@ -22,6 +22,7 @@ function listDirectories(parentPath) {
 }
 
 const themeLabOverrides = new Map([
+  ['source/v1.0/Starlight', { keyboard: 'none', telemetry: 'injected' }],
   ['source/v1.0/ApexGT', { keyboard: 'none', telemetry: 'injected' }],
 ]);
 

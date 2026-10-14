@@ -1,0 +1,16 @@
+<theme>
+    <name>Starlight</name>
+    <description>Painel estelar com escalas de velocidade e potencia, menus e climatizacao. O desenho normal cobre o ADAS; validacao fisica da composicao permanece pendente.</description>
+    <version>1.0.8</version>
+    <thumbnail>thumbnail.png</thumbnail>
+    <mainFile>app.html</mainFile>
+    <decentralized>true</decentralized>
+    <minBridgeVersion>1.0.1</minBridgeVersion>
+    <contractVersion>v1.0</contractVersion>
+    <AppDefaultPosition>
+        <x>0</x>
+        <y>0</y>
+        <width>1920</width>
+        <height>720</height>
+    </AppDefaultPosition>
+</theme>

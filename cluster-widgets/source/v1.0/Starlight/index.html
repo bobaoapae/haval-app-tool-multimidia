@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920,height=720,initial-scale=1">
+  <title>Starlight</title>
+  <style>
+    @font-face{font-family:'Speed Digits';src:url('assets/SpeedDigits.ttf')}
+    @font-face{font-family:'Scale Digits';src:url('assets/ScaleDigits.ttf')}
+    @font-face{font-family:'Header Sans';src:url('assets/HeaderSans.ttf')}
+    @font-face{font-family:'Panel Sans';src:url('assets/PanelSans.ttf')}
+    @font-face{font-family:'Label Sans';src:url('assets/LabelSans.ttf')}
+    *{box-sizing:border-box}html,body{margin:0;width:1920px;height:720px;overflow:hidden;background:transparent;color:#d5e1ea}
+    [hidden]{display:none!important}#starlight{position:relative;width:1920px;height:720px;background:transparent;pointer-events:none}
+    #starlight-canvas,#starlight-background,#starlight-material{position:absolute;left:0;top:0;display:block;width:1920px;height:720px;background:transparent}
+    #native-readouts{position:absolute;left:0;top:0;width:1920px;height:720px;pointer-events:none;font-family:'Scale Digits',sans-serif}
+    .native-group{position:absolute;width:410px;margin:0;padding:12px 16px;background:rgba(0,0,0,.68);border-radius:5px}
+    .native-left{left:65px;top:42px}.native-right{right:65px;top:42px}
+    .native-bottom-left{left:65px;top:574px}.native-bottom-right{right:65px;top:530px}
+    .native-bottom-left,.native-bottom-right{background:transparent;text-shadow:1px 2px 0 #000}
+    .native-reading{display:flex;align-items:baseline;justify-content:space-between;gap:14px;height:44px}
+    .native-reading dt{font:12px 'Label Sans',sans-serif;color:#a2b2c0;white-space:nowrap}
+    .native-reading dd{margin:0;font-size:25px;font-variant-numeric:tabular-nums;white-space:nowrap}
+    #native-power{font-size:20px}#native-speed{font-size:33px}
+  </style>
+</head>
+<body>
+<main id="starlight" aria-label="Painel Starlight">
+  <canvas id="starlight-background" width="1920" height="720" aria-hidden="true" hidden></canvas>
+  <canvas id="starlight-material" width="1920" height="720" aria-hidden="true" hidden></canvas>
+  <canvas id="starlight-canvas" width="1920" height="720" aria-label="Dados do veículo e menus do painel"></canvas>
+  <section id="native-readouts" aria-label="Dados do veículo durante projeção" hidden>
+    <dl class="native-group native-left">
+      <div class="native-reading"><dt>VELOCIDADE</dt><dd id="native-speed">--</dd></div>
+      <div class="native-reading"><dt>MARCHA</dt><dd id="native-gear">--</dd></div>
+      <div class="native-reading"><dt>CONDUÇÃO</dt><dd id="native-drive-mode">--</dd></div>
+      <div class="native-reading"><dt>PROPULSÃO</dt><dd id="native-propulsion-mode">--</dd></div>
+    </dl>
+    <dl class="native-group native-right">
+      <div class="native-reading"><dt>POTÊNCIA</dt><dd id="native-power">--</dd></div>
+      <div class="native-reading"><dt>MOTOR</dt><dd id="native-rpm">--</dd></div>
+      <div class="native-reading"><dt>TEMP. INTERNA</dt><dd id="native-inside-temp">--</dd></div>
+      <div class="native-reading"><dt>TEMP. EXTERNA</dt><dd id="native-outside-temp">--</dd></div>
+    </dl>
+    <dl class="native-group native-bottom-left">
+      <div class="native-reading"><dt>COMBUSTÍVEL</dt><dd id="native-fuel">--</dd></div>
+      <div class="native-reading"><dt>VOLUME EST.</dt><dd id="native-fuel-liters">--</dd></div>
+    </dl>
+    <dl class="native-group native-bottom-right">
+      <div class="native-reading"><dt>BATERIA</dt><dd id="native-battery">--</dd></div>
+      <div class="native-reading"><dt>HODÔMETRO</dt><dd id="native-odometer">--</dd></div>
+      <div class="native-reading"><dt>HORA</dt><dd id="native-clock">--:--</dd></div>
+    </dl>
+  </section>
+</main>
+<script src="src/apex-data.js"></script>
+<script src="src/scales.js"></script>
+<script src="src/galaxy-stars.js"></script>
+<script src="src/glass-smoke.js"></script>
+<script src="src/menu-state.js"></script>
+<script src="src/renderer.js"></script>
+<script src="src/theme-menus.js"></script>
+<script src="src/contract-adapter.js"></script>
+<script src="src/material-pipeline.js"></script>
+<script src="src/host-runtime.js"></script>
+</body>
+</html>

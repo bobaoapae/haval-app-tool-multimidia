@@ -89,9 +89,11 @@ function canonicalValueFor(alias, value) {
   return value;
 }
 
-export function installApexGtSimulator(frameWindow) {
+export function installApexGtSimulator(frameWindow, options = {}) {
+  const rootId = options.rootId || 'apex-gt';
+  const cleanupEvent = options.cleanupEvent || 'apex-cleanup';
   installedAdapters.get(frameWindow)?.cleanup();
-  if (!frameWindow?.document?.getElementById('apex-gt') || typeof frameWindow.control !== 'function') {
+  if (!frameWindow?.document?.getElementById(rootId) || typeof frameWindow.control !== 'function') {
     return { cleanup() {} };
   }
 
@@ -130,7 +132,7 @@ export function installApexGtSimulator(frameWindow) {
     cleanup() {
       if (cleanedUp) return;
       cleanedUp = true;
-      frameWindow.removeEventListener?.('apex-cleanup', adapter.cleanup);
+      frameWindow.removeEventListener?.(cleanupEvent, adapter.cleanup);
       if (frameWindow.control === wrappedControl) frameWindow.control = originalControl;
       if (mockBridge && frameWindow.Android === mockBridge) {
         if (previousAndroid) Object.defineProperty(frameWindow, 'Android', previousAndroid);
@@ -168,7 +170,7 @@ export function installApexGtSimulator(frameWindow) {
       send(key, value);
     };
     mockBridge = Object.freeze({
-      __themeLabMock: 'ApexGT',
+      __themeLabMock: options.mockName || 'ApexGT',
       getPreference(key, defaultValue) {
         assertActive();
         return DISPLAY_PREFERENCE_KEYS.has(key) ? displayPreference : defaultValue;
@@ -229,7 +231,7 @@ export function installApexGtSimulator(frameWindow) {
     });
     frameWindow.Android = mockBridge;
   }
-  frameWindow.addEventListener?.('apex-cleanup', adapter.cleanup);
+  frameWindow.addEventListener?.(cleanupEvent, adapter.cleanup);
   installedAdapters.set(frameWindow, adapter);
   // Seed fields absent from the legacy harness before its first snapshot. Later
   // user controls (including inside_temp) remain authoritative.
