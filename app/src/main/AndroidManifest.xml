@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- HudOverlayController hands focus back to D0 after the HUD window opens (moveTaskToFront). -->
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
@@ -78,6 +80,18 @@
             android:label="@string/android_settings_shortcut_label"
             android:noHistory="true"
             android:theme="@android:style/Theme.NoDisplay" />
+
+        <!-- HUD (display 4096) turn-by-turn overlay. Launched via Shizuku `am start`, which runs
+             as shell, so it must be exported; started by anyone else it has no frame and closes. -->
+        <activity
+            android:name=".hud.HudOverlayActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|density"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:launchMode="singleInstance"
+            android:resizeableActivity="true"
+            android:taskAffinity="br.com.redesurftank.havalshisuku.hud"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen" />
 
         <service
             android:name=".services.ForegroundService"

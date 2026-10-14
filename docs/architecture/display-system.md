@@ -77,9 +77,25 @@ Activity fullscreen pode cobrir/substituir visualmente a projeção nativa do HU
 - Como o HUD nativo não aparece em `screencap`, a coexistência overlay + HUD nativo precisa de
   validação visual/manual no carro.
 
+## HUD 4096: Teste Físico (2026-10-14)
+
+Feito no carro do dono com um APK descartável (`br.com.marcel.hudtest`, uma Activity com
+`Theme.Translucent.NoTitleBar.Fullscreen` e `FLAG_NOT_FOCUSABLE | FLAG_NOT_TOUCHABLE`), aberto por
+`am start --display 4096`. Confirmado visualmente pelo dono:
+
+- **Fundo preto opaco:** a seta e o texto aparecem, mas o HUD nativo (velocidade etc.) some.
+- **Fundo transparente:** a seta e o texto aparecem **por cima** do HUD nativo, que continua
+  visível. É o modo a usar.
+- **Área visível:** só a faixa `y=40..200` dos 480x240 (480x160, centralizada). 40 px de cima e
+  40 px de baixo ficam fora da óptica. Bordas laterais não foram medidas (a confirmar).
+- **Foco:** `mCurrentFocus`/`mFocusedStack` continuaram no app do D0 antes e depois do launch. Uma
+  Activity não-focável no 4096 não roubou foco nesse teste.
+- O `pm install` de um pacote novo é barrado pelo Bean (`beantechs disallow apk`), mas
+  `pm install -i com.android.vending -r -t <apk>` pelo shell passou.
+
 ## A Confirmar
 
 - Mapeamento completo dos displays em todas as versões da central.
 - Comportamento do display 1 além da camada de refresh descrita no código.
-- Se uma Activity Android translucida no display 4096 realmente compõe por cima do HUD nativo sem
-  apagá-lo no hardware óptico.
+- Limites laterais visíveis do HUD 4096.
+- Se o foco continua no D0 quando o launch acontece com teclado/IME ativo ou durante CarPlay/AA.

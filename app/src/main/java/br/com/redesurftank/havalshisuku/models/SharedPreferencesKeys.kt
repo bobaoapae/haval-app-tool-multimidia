@@ -406,6 +406,8 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "aaClusterServiceAutoMount",
             "Montar o Service do mapa do cluster ao ligar"
     ),
+    // Impulse overlay on the physical HUD (display 4096): AA turn-by-turn + power/RPM bars. Off by default.
+    HUD_OVERLAY_ENABLED("hudOverlayEnabled", "Mostrar navegação do Android Auto e potência no HUD"),
     CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),
     AMBIENT_LIGHT_BLE_ENABLED("ambientLightBleEnabled", "Ativar Ambient Light BLE"),
     AMBIENT_LIGHT_BLE_DEVICE_MAC("ambientLightBleDeviceMac", "MAC do dispositivo Ambient Light BLE"),
