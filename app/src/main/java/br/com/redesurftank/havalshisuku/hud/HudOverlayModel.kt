@@ -12,8 +12,9 @@ import kotlin.math.roundToInt
  * keeping) uses everything right of x=180. The overlay lives in the free cells A1..C4
  * (x 0..180, y 40..200) minus a gap on every side.
  *
- * Two parts: turn-by-turn (only while Android Auto guides) on top, and two dotted bars at the
- * bottom that are always on: power/regen, and engine RPM while the engine runs.
+ * Two parts: turn-by-turn (only while Android Auto guides) in the free box, and two bars on the
+ * bottom row: power/regen at the left edge (always) and engine RPM at the right edge (while the
+ * engine runs).
  */
 object HudOverlayModel {
     const val DISPLAY_ID = 4096
@@ -25,7 +26,7 @@ object HudOverlayModel {
 
     // Turn-by-turn sits in the top part, centred vertically in it.
     const val TBT_TOP = 58f
-    const val TBT_BOTTOM = 168f
+    const val TBT_BOTTOM = 170f
 
     // With lanes: arrow and "250 m" shrink to one row centred over the lane row.
     const val COMPACT_GLYPH = 32f
@@ -52,46 +53,82 @@ object HudOverlayModel {
     /** Top of the hero arrow, so arrow + text sit centred in the TBT area. */
     const val HERO_TOP = TBT_TOP + (TBT_BOTTOM - TBT_TOP - (HERO_GLYPH + HERO_TEXT_GAP)) / 2
 
-    // Dotted bars under the TBT area (owner gave up ~15 px of the bottom margin for them).
-    const val BAR_DOTS = 20
-    const val BAR_DOT_RADIUS = 1.8f
-    const val POWER_BAR_Y = 180f
-    const val RPM_BAR_Y = 190f
+    // Bars on the bottom row: power at the HUD's left edge, RPM at its right edge (the native
+    // HUD leaves the bottom of its right side empty). Layout approved in the browser simulator.
+    const val BAR_Y = 192f
+    const val BAR_LABEL_BASELINE = 184f
+    const val BAR_LABEL_SIZE = 11f
 
-    /** Bar full scale. A confirmar against the car's real limits; tune by eye. */
+    // Power: centre-zero, one dot per 10 % each side of a subtle zero tick.
+    const val POWER_LEFT = 10f
+    const val POWER_RIGHT = 118f
+    const val POWER_DOTS_PER_SIDE = 10
+    const val POWER_DOT_RADIUS = 1.5f
+    const val POWER_ZERO_GAP = 4f
+    const val POWER_ZERO_TICK = 3f
+
+    // RPM: one segment per 1000 rpm, the 5-6k one red.
+    const val RPM_LEFT = 416f
+    const val RPM_RIGHT = 470f
+    const val RPM_SEGMENTS = 6
+    const val RPM_SEGMENT_GAP = 2f
+    const val RPM_SEGMENT_HEIGHT = 3f
+    const val RPM_RED = 5_000
+
+    /** Power full scale. A confirmar against the car's real limits; tune on a drive. */
     const val DRIVE_MAX_KW = 100.0
     const val REGEN_MAX_KW = 50.0
-    const val RPM_MAX = 5_000.0
-    /** Below this the power bar shows nothing, so idle noise doesn't flicker a dot. */
+    /** Below this power reads 0 %, so idle noise doesn't flicker a dot. */
     const val POWER_DEADBAND_KW = 0.5
 
-    /** x of dot [i] (0..BAR_DOTS-1), spread edge to edge of the box. */
-    fun barDotX(i: Int): Float {
-        val left = BOX_LEFT + BAR_DOT_RADIUS
-        val right = BOX_RIGHT - BAR_DOT_RADIUS
-        return left + (right - left) * i / (BAR_DOTS - 1)
-    }
-
     /**
-     * Lit power dots, signed from the bar's centre: positive = drive (right half), negative =
-     * regen (left half), each half [BAR_DOTS]/2 dots. Matches PowerFlowMapper's sign: battery
-     * V x I > 0 is discharge.
+     * Signed power share: drive as % of [DRIVE_MAX_KW], regen as -% of [REGEN_MAX_KW]. Matches
+     * PowerFlowMapper's sign: battery V x I > 0 is discharge (drive).
      */
-    fun powerDots(kw: Double): Int {
+    fun powerPercent(kw: Double): Int {
         if (!kw.isFinite() || kw > -POWER_DEADBAND_KW && kw < POWER_DEADBAND_KW) return 0
-        val half = BAR_DOTS / 2
         return if (kw > 0) {
-            (kw / DRIVE_MAX_KW * half).roundToInt().coerceIn(1, half)
+            (kw / DRIVE_MAX_KW * 100).roundToInt().coerceAtMost(100)
         } else {
-            -(-kw / REGEN_MAX_KW * half).roundToInt().coerceIn(1, half)
+            -(-kw / REGEN_MAX_KW * 100).roundToInt().coerceAtMost(100)
         }
     }
 
-    /** Lit RPM dots, left to right; null hides the bar (engine off or reading invalid). */
-    fun rpmDots(rpm: Double, engineOn: Boolean): Int? {
-        if (!engineOn || !rpm.isFinite() || rpm < 0 || rpm > 8_000) return null
-        return (rpm / RPM_MAX * BAR_DOTS).roundToInt().coerceIn(0, BAR_DOTS)
+    /** Lit power dots from [powerPercent], signed: one per 10 %, at least one past the deadband. */
+    fun powerDots(percent: Int): Int {
+        if (percent == 0) return 0
+        val n = ((kotlin.math.abs(percent) + 5) / 10).coerceIn(1, POWER_DOTS_PER_SIDE)
+        return if (percent > 0) n else -n
     }
+
+    /** Distance of power dot [i] (0 = nearest the zero tick) from the bar's centre. */
+    fun powerDotOffset(i: Int): Float {
+        val mid = (POWER_LEFT + POWER_RIGHT) / 2
+        val first = POWER_ZERO_GAP + POWER_DOT_RADIUS
+        val step = (mid - POWER_LEFT - POWER_DOT_RADIUS - first) / (POWER_DOTS_PER_SIDE - 1)
+        return first + i * step
+    }
+
+    /**
+     * RPM in tenths of a thousand (32 = 3.2k), the unit of the "3.2 kRPM" label; null hides the
+     * bar (engine off, or a sentinel like 65535).
+     */
+    fun rpmTenths(rpm: Double, engineOn: Boolean): Int? {
+        if (!engineOn || !rpm.isFinite() || rpm < 0 || rpm > 8_000) return null
+        return (rpm / 100).roundToInt()
+    }
+
+    /** Lit RPM segments: one per 1000 rpm, rounded, at least one while the engine turns. */
+    fun rpmSegments(tenths: Int): Int {
+        if (tenths <= 0) return 0
+        return ((tenths + 5) / 10).coerceIn(1, RPM_SEGMENTS)
+    }
+
+    /** Whether segment [i] (0-based, 1000 rpm each) sits in the red zone. */
+    fun rpmSegmentIsRed(i: Int): Boolean = (i + 1) * 1000 > RPM_RED
+
+    /** "3.2 kRPM". */
+    fun rpmLabel(tenths: Int): String = "${tenths / 10}.${tenths % 10} kRPM"
 
     /**
      * Same fold as `resolveTurnIcon` in cluster-widgets/source/v1.0/shared/tbt/tbtTurnIcons.js,
@@ -198,10 +235,10 @@ object HudOverlayModel {
     )
 
     /**
-     * Everything the view draws. Bars are quantised to dots, so equal frames are skipped and the
-     * high-rate CAN feed only redraws when a dot actually changes.
+     * Everything the view draws. Bars are quantised to what their labels show (whole %, 0.1k
+     * rpm), so equal frames are skipped and the high-rate CAN feed only redraws on a visible change.
      */
-    data class Frame(val tbt: Tbt?, val powerDots: Int, val rpmDots: Int?)
+    data class Frame(val tbt: Tbt?, val powerPercent: Int, val rpmTenths: Int?)
 
     fun tbtFor(d: AndroidAutoNavigationTelemetry.Directions): Tbt? {
         if (!d.active) return null

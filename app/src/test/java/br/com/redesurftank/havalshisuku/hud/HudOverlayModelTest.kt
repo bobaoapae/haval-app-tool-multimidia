@@ -70,44 +70,62 @@ class HudOverlayModelTest {
         val m = HudOverlayModel
         assertTrue(m.BOX_LEFT > 0f && m.BOX_RIGHT < 180f)
         assertTrue(m.TBT_TOP > 40f)
-        // Compact: row, then lanes, all above the bars.
+        // Compact: row, then lanes, all above the bar labels.
         assertTrue(m.COMPACT_TOP >= m.TBT_TOP)
         assertTrue(m.COMPACT_TOP + m.COMPACT_GLYPH < m.LANES_TOP)
         assertTrue(m.LANES_TOP + m.LANE_ROW_HEIGHT <= m.TBT_BOTTOM)
-        // Hero: big arrow and its text above the bars.
+        // Hero: big arrow and its text above the bar labels.
         assertTrue(m.HERO_TOP >= m.TBT_TOP)
         assertTrue(m.HERO_TOP + m.HERO_GLYPH + m.HERO_TEXT_GAP <= m.TBT_BOTTOM)
         assertTrue(m.HERO_GLYPH > m.COMPACT_GLYPH)
-        // Bars below the TBT area, inside the visible band with room for the dots.
-        assertTrue(m.TBT_BOTTOM < m.POWER_BAR_Y - m.BAR_DOT_RADIUS)
-        assertTrue(m.POWER_BAR_Y < m.RPM_BAR_Y)
-        assertTrue(m.RPM_BAR_Y + m.BAR_DOT_RADIUS < 200f)
-        assertTrue(m.barDotX(0) - m.BAR_DOT_RADIUS >= m.BOX_LEFT - 0.01f)
-        assertTrue(m.barDotX(m.BAR_DOTS - 1) + m.BAR_DOT_RADIUS <= m.BOX_RIGHT + 0.01f)
+        // Bars: labels clear of the turn-by-turn, dots inside the visible band.
+        assertTrue(m.TBT_BOTTOM < m.BAR_LABEL_BASELINE - m.BAR_LABEL_SIZE)
+        assertTrue(m.BAR_LABEL_BASELINE < m.BAR_Y - m.POWER_DOT_RADIUS)
+        assertTrue(m.BAR_Y + m.RPM_SEGMENT_HEIGHT < 200f)
+        // Power at the left edge, inside the free cells; RPM at the right edge of the panel.
+        val mid = (m.POWER_LEFT + m.POWER_RIGHT) / 2
+        assertTrue(mid - m.powerDotOffset(m.POWER_DOTS_PER_SIDE - 1) - m.POWER_DOT_RADIUS >= m.POWER_LEFT - 0.01f)
+        assertTrue(mid + m.powerDotOffset(m.POWER_DOTS_PER_SIDE - 1) + m.POWER_DOT_RADIUS <= m.POWER_RIGHT + 0.01f)
+        assertTrue(m.powerDotOffset(0) - m.POWER_DOT_RADIUS > 0f)
+        assertTrue(m.POWER_RIGHT < 180f)
+        assertTrue(m.RPM_LEFT > 180f && m.RPM_RIGHT < 480f)
     }
 
     @Test
-    fun `power lights dots from the centre, regen left and drive right`() {
-        val half = HudOverlayModel.BAR_DOTS / 2
-        assertEquals(0, HudOverlayModel.powerDots(0.2))
-        assertEquals(0, HudOverlayModel.powerDots(-0.2))
-        assertEquals(0, HudOverlayModel.powerDots(Double.NaN))
-        assertEquals(1, HudOverlayModel.powerDots(1.0))
-        assertEquals(-1, HudOverlayModel.powerDots(-1.0))
-        assertEquals(half / 2, HudOverlayModel.powerDots(HudOverlayModel.DRIVE_MAX_KW / 2))
-        assertEquals(-half / 2, HudOverlayModel.powerDots(-HudOverlayModel.REGEN_MAX_KW / 2))
-        assertEquals(half, HudOverlayModel.powerDots(1_000.0))
-        assertEquals(-half, HudOverlayModel.powerDots(-1_000.0))
+    fun `power percent and one dot per 10 percent, nothing lit at zero`() {
+        assertEquals(0, HudOverlayModel.powerPercent(0.2))
+        assertEquals(0, HudOverlayModel.powerPercent(-0.2))
+        assertEquals(0, HudOverlayModel.powerPercent(Double.NaN))
+        assertEquals(35, HudOverlayModel.powerPercent(HudOverlayModel.DRIVE_MAX_KW * 0.35))
+        assertEquals(-56, HudOverlayModel.powerPercent(-HudOverlayModel.REGEN_MAX_KW * 0.56))
+        assertEquals(100, HudOverlayModel.powerPercent(1_000.0))
+        assertEquals(-100, HudOverlayModel.powerPercent(-1_000.0))
+
+        assertEquals(0, HudOverlayModel.powerDots(0))
+        assertEquals(1, HudOverlayModel.powerDots(1))
+        assertEquals(-1, HudOverlayModel.powerDots(-4))
+        assertEquals(4, HudOverlayModel.powerDots(35))
+        assertEquals(-6, HudOverlayModel.powerDots(-56))
+        assertEquals(10, HudOverlayModel.powerDots(100))
     }
 
     @Test
-    fun `rpm bar only while the engine runs and the reading is sane`() {
-        assertNull(HudOverlayModel.rpmDots(1_500.0, engineOn = false))
-        assertNull(HudOverlayModel.rpmDots(65_535.0, engineOn = true))
-        assertNull(HudOverlayModel.rpmDots(Double.NaN, engineOn = true))
-        assertEquals(0, HudOverlayModel.rpmDots(0.0, engineOn = true))
-        assertEquals(HudOverlayModel.BAR_DOTS / 2, HudOverlayModel.rpmDots(HudOverlayModel.RPM_MAX / 2, engineOn = true))
-        assertEquals(HudOverlayModel.BAR_DOTS, HudOverlayModel.rpmDots(7_000.0, engineOn = true))
+    fun `rpm shows only while the engine runs, one segment per 1000 rpm`() {
+        assertNull(HudOverlayModel.rpmTenths(1_500.0, engineOn = false))
+        assertNull(HudOverlayModel.rpmTenths(65_535.0, engineOn = true))
+        assertNull(HudOverlayModel.rpmTenths(Double.NaN, engineOn = true))
+        assertEquals(32, HudOverlayModel.rpmTenths(3_249.0, engineOn = true))
+        assertEquals("3.2 kRPM", HudOverlayModel.rpmLabel(32))
+        assertEquals("0.8 kRPM", HudOverlayModel.rpmLabel(8))
+
+        assertEquals(0, HudOverlayModel.rpmSegments(0))
+        assertEquals(1, HudOverlayModel.rpmSegments(8))   // idle still lights one
+        assertEquals(1, HudOverlayModel.rpmSegments(11))
+        assertEquals(3, HudOverlayModel.rpmSegments(32))
+        assertEquals(6, HudOverlayModel.rpmSegments(56))
+        assertEquals(6, HudOverlayModel.rpmSegments(75))
+        assertTrue(HudOverlayModel.rpmSegmentIsRed(5))
+        assertTrue(!HudOverlayModel.rpmSegmentIsRed(4))
     }
 
     @Test

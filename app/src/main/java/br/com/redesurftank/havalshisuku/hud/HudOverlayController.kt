@@ -72,8 +72,8 @@ object HudOverlayController {
     @Volatile private var current = Double.NaN
     @Volatile private var rpm = Double.NaN
     @Volatile private var engineOn = false
-    private val powerDots = AtomicInteger(0)
-    private val rpmDots = AtomicInteger(NO_RPM)
+    private val powerPercent = AtomicInteger(0)
+    private val rpmTenths = AtomicInteger(NO_RPM)
     private const val NO_RPM = Int.MIN_VALUE
 
     private var tbtHidePending = false
@@ -142,7 +142,7 @@ object HudOverlayController {
         sm.getData(KEY_RPM)?.let { onCarData(KEY_RPM, it) }
     }
 
-    /** CAN callback thread. Cheap: posts to main only when a dot changes. */
+    /** CAN callback thread. Cheap: posts to main only when a shown value (%, 0.1k rpm) changes. */
     private fun onCarData(key: String?, value: String?) {
         when (key) {
             KEY_VOLTAGE -> voltage = PowerFlowMapper.parseNumber(value)
@@ -153,11 +153,11 @@ object HudOverlayController {
         }
         val changed = if (key == KEY_VOLTAGE || key == KEY_CURRENT) {
             val kw = if (voltage.isFinite() && current.isFinite()) voltage * current / 1000.0 else 0.0
-            val dots = HudOverlayModel.powerDots(kw)
-            powerDots.getAndSet(dots) != dots
+            val percent = HudOverlayModel.powerPercent(kw)
+            powerPercent.getAndSet(percent) != percent
         } else {
-            val dots = HudOverlayModel.rpmDots(rpm, engineOn) ?: NO_RPM
-            rpmDots.getAndSet(dots) != dots
+            val tenths = HudOverlayModel.rpmTenths(rpm, engineOn) ?: NO_RPM
+            rpmTenths.getAndSet(tenths) != tenths
         }
         if (changed) main.post { publish() }
     }
@@ -166,8 +166,8 @@ object HudOverlayController {
 
     private fun currentFrame() = HudOverlayModel.Frame(
         tbt = demoTbt ?: tbt,
-        powerDots = powerDots.get(),
-        rpmDots = rpmDots.get().takeIf { it != NO_RPM }
+        powerPercent = powerPercent.get(),
+        rpmTenths = rpmTenths.get().takeIf { it != NO_RPM }
     )
 
     /** Main thread. Push the frame, or bring the window up if it should exist and doesn't. */

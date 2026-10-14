@@ -15,6 +15,12 @@ import br.com.redesurftank.havalshisuku.hud.HudOverlayModel as M
  * HUD show through (proven on the car), so nothing outside the free box is ever painted.
  */
 class HudOverlayView(context: Context) : View(context) {
+    private companion object {
+        val DRIVE = Color.rgb(63, 169, 255)
+        val REGEN = Color.rgb(80, 230, 120)
+        val RED = Color.rgb(255, 64, 64)
+    }
+
     private var frame: M.Frame? = null
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -41,10 +47,21 @@ class HudOverlayView(context: Context) : View(context) {
         color = Color.argb(110, 255, 255, 255)
         strokeWidth = 2f
     }
-    private val dotOff = dotPaint(Color.argb(60, 255, 255, 255))
-    private val dotDrive = dotPaint(Color.WHITE)
-    private val dotRegen = dotPaint(Color.rgb(80, 230, 120))
-    private val dotRpm = dotPaint(Color.rgb(255, 190, 60))
+    private val dotOff = dotPaint(Color.argb(61, 255, 255, 255))
+    private val dotDrive = dotPaint(DRIVE)
+    private val dotRegen = dotPaint(REGEN)
+    private val segOn = dotPaint(Color.WHITE)
+    private val segRed = dotPaint(RED)
+    private val segRedOff = dotPaint(Color.argb(77, 255, 64, 64))
+    private val zeroTick = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(115, 255, 255, 255)
+        strokeWidth = 1f
+    }
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = M.BAR_LABEL_SIZE
+        textAlign = Paint.Align.CENTER
+    }
+    private val segRect = RectF()
     private val laneBounds = RectF()
     private val arrowBounds = RectF()
 
@@ -72,8 +89,8 @@ class HudOverlayView(context: Context) : View(context) {
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         val f = frame ?: return
         f.tbt?.let { if (it.lanes.isEmpty()) drawHero(canvas, it) else drawCompact(canvas, it) }
-        drawPowerBar(canvas, f.powerDots)
-        f.rpmDots?.let { drawRpmBar(canvas, it) }
+        drawPowerBar(canvas, f.powerPercent)
+        f.rpmTenths?.let { drawRpmBar(canvas, it) }
     }
 
     // ---- turn-by-turn ----
@@ -190,27 +207,41 @@ class HudOverlayView(context: Context) : View(context) {
 
     // ---- bars ----
 
-    /** Centre-zero: drive lights dots right of centre, regen lights dots left of it. */
-    private fun drawPowerBar(canvas: Canvas, dots: Int) {
-        val half = M.BAR_DOTS / 2
-        for (i in 0 until M.BAR_DOTS) {
-            val lit = when {
-                dots > 0 -> i >= half && i < half + dots
-                dots < 0 -> i < half && i >= half + dots
-                else -> false
-            }
-            val paint = when {
-                !lit -> dotOff
-                dots > 0 -> dotDrive
-                else -> dotRegen
-            }
-            canvas.drawCircle(M.barDotX(i), M.POWER_BAR_Y, M.BAR_DOT_RADIUS, paint)
+    /** Centre-zero at the HUD's left edge: regen dots left (green), drive dots right (blue). */
+    private fun drawPowerBar(canvas: Canvas, percent: Int) {
+        val mid = (M.POWER_LEFT + M.POWER_RIGHT) / 2
+        val lit = M.powerDots(percent)
+        for (i in 0 until M.POWER_DOTS_PER_SIDE) {
+            val off = M.powerDotOffset(i)
+            canvas.drawCircle(mid + off, M.BAR_Y, M.POWER_DOT_RADIUS, if (lit > 0 && i < lit) dotDrive else dotOff)
+            canvas.drawCircle(mid - off, M.BAR_Y, M.POWER_DOT_RADIUS, if (lit < 0 && i < -lit) dotRegen else dotOff)
         }
+        canvas.drawLine(mid, M.BAR_Y - M.POWER_ZERO_TICK, mid, M.BAR_Y + M.POWER_ZERO_TICK, zeroTick)
+        labelPaint.color = when {
+            percent > 0 -> DRIVE
+            percent < 0 -> REGEN
+            else -> Color.WHITE
+        }
+        canvas.drawText("$percent%", mid, M.BAR_LABEL_BASELINE, labelPaint)
     }
 
-    private fun drawRpmBar(canvas: Canvas, dots: Int) {
-        for (i in 0 until M.BAR_DOTS) {
-            canvas.drawCircle(M.barDotX(i), M.RPM_BAR_Y, M.BAR_DOT_RADIUS, if (i < dots) dotRpm else dotOff)
+    /** At the HUD's right edge, one segment per 1000 rpm; the 5-6k segment is red. */
+    private fun drawRpmBar(canvas: Canvas, tenths: Int) {
+        val n = M.RPM_SEGMENTS
+        val w = (M.RPM_RIGHT - M.RPM_LEFT - M.RPM_SEGMENT_GAP * (n - 1)) / n
+        val h = M.RPM_SEGMENT_HEIGHT
+        val lit = M.rpmSegments(tenths)
+        for (i in 0 until n) {
+            val red = M.rpmSegmentIsRed(i)
+            val paint = when {
+                i < lit -> if (red) segRed else segOn
+                else -> if (red) segRedOff else dotOff
+            }
+            val x = M.RPM_LEFT + i * (w + M.RPM_SEGMENT_GAP)
+            segRect.set(x, M.BAR_Y - h / 2, x + w, M.BAR_Y + h / 2)
+            canvas.drawRoundRect(segRect, h / 2, h / 2, paint)
         }
+        labelPaint.color = if (tenths * 100 > M.RPM_RED) RED else Color.WHITE
+        canvas.drawText(M.rpmLabel(tenths), (M.RPM_LEFT + M.RPM_RIGHT) / 2, M.BAR_LABEL_BASELINE, labelPaint)
     }
 }

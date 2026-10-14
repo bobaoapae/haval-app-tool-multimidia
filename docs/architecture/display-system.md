@@ -95,8 +95,14 @@ Feito no carro do dono com um APK descartável (`br.com.marcel.hudtest`, uma Act
 ### Overlay do Impulse no HUD (`hud/HudOverlay*`)
 
 - Opt-in em Ajustes > "HUD do Impulse" (`hudOverlayEnabled`, desligado por padrão).
-- Desenha só no canto livre (x 10..168, y 58..195): barra de potência/regeneração sempre, barra de
-  RPM só com o motor ligado (`haval.power.ice`), TBT do Android Auto enquanto houver guia.
+- TBT do Android Auto (só com guia) no canto livre x 10..168, y 58..170: seta grande + distância
+  pequena sem faixas, ou seta + "250 m" numa linha centrada sobre as faixas.
+- Linha de baixo (y≈184..195), que o HUD nativo deixa livre dos dois lados: potência na borda
+  esquerda (x 10..118, centro-zero, 1 ponto por 10 %, tração azul / regen verde, % acima do zero)
+  e RPM na borda direita (x 416..470, 1 segmento por 1000 rpm, o de 5-6k vermelho, "3.2 kRPM"
+  acima; some com o motor desligado, `haval.power.ice`).
+- Layout aprovado no simulador `scripts/hud-simulator/` (port do `HudOverlayView`); mudanças de
+  layout passam por lá antes do Kotlin.
 - **Uma Activity parada no 4096 dá ANR.** Ela vira o app focado com uma janela não-focável, e a
   próxima tecla espera "no window has focus" por 5 s (dropbox `data_app_anr`, 2026-10-14). Por
   isso a `HudOverlayActivity` só abre a porta: o controller adiciona uma janela
@@ -106,7 +112,7 @@ Feito no carro do dono com um APK descartável (`br.com.marcel.hudtest`, uma Act
 - Se o overlay falhar, a Activity hospeda a view e o controller devolve o foco ao topo do D0
   (`moveTaskToFront`, permissão `REORDER_TASKS`).
 - O HUD congela o último quadro quando a janela some: antes de remover, pinta um quadro vazio.
-- Escalas das barras (100 kW tração, 50 kW regeneração, 5000 rpm): a confirmar no carro.
+- Escalas das barras (100 kW tração, 50 kW regeneração = 100 %): a confirmar no carro.
 
 ## A Confirmar
 
