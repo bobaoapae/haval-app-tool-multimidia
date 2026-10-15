@@ -51,6 +51,8 @@ object HudOverlayController {
     private val main = Handler(Looper.getMainLooper())
     private val shell = Executors.newSingleThreadExecutor { r -> Thread(r, "HudOverlayShell") }
 
+    /** A debug demo frame clears itself after this long. */
+    private const val DEMO_TIMEOUT_MS = 60_000L
     /** Time for one empty frame to reach the HUD before a window goes (it latches the last). */
     internal const val CLEAR_FRAME_DELAY_MS = 150L
 
@@ -101,6 +103,8 @@ object HudOverlayController {
     fun setEnabled(enabled: Boolean) {
         main.post {
             enabledCache = enabled
+            // The toggle is the owner's word: a debug demo must not keep the HUD up past "off".
+            endDemo()
             if (enabled) publish() else closeHosts()
         }
     }
@@ -255,7 +259,8 @@ object HudOverlayController {
     /**
      * Debug-only layout check, from HudOverlayActivity's `hudDemo` extra: `on` = right turn at
      * 250 m with three lanes (the R. Nóbrega shape measured on the car), `nolanes` = the same
-     * turn without lanes, `off` = back to live data. Ignores the settings toggle.
+     * turn without lanes, `off` = back to live data. Shows even with the toggle off, so it ends
+     * after [DEMO_TIMEOUT_MS] or as soon as the toggle is touched.
      */
     internal fun demo(mode: String) {
         val turn = AndroidAutoNavigationTelemetry.Directions(
@@ -271,7 +276,21 @@ object HudOverlayController {
                 )
             )
         )
+        main.removeCallbacks(demoExpiry)
         demoTbt = if (mode == "on" || mode == "nolanes") HudOverlayModel.tbtFor(turn) else null
+        // A demo left up looks like a live route with the toggle off (owner hit this): expire it.
+        if (demoTbt != null) main.postDelayed(demoExpiry, DEMO_TIMEOUT_MS)
+    }
+
+    private val demoExpiry = Runnable {
+        if (demoTbt == null) return@Runnable
+        demoTbt = null
+        publish()
+    }
+
+    private fun endDemo() {
+        main.removeCallbacks(demoExpiry)
+        demoTbt = null
     }
 
     /**

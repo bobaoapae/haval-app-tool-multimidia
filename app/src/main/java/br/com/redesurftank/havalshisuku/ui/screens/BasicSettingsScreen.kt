@@ -961,9 +961,6 @@ fun BasicSettingsTab() {
         var enableAaClusterOffset by remember {
                 mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_AA_CLUSTER_OFFSET.key, false))
         }
-        var hudOverlayEnabled by remember {
-                mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.HUD_OVERLAY_ENABLED.key, false))
-        }
         var aaClusterOffset by remember {
                 mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.AA_CLUSTER_LEFT_OFFSET.key, 145))
         }
@@ -3714,23 +3711,6 @@ fun BasicSettingsTab() {
                 )
         )
 
-
-        // HUD do Impulse (display 4096), num canto livre do HUD nativo — opt-in.
-        settingsList.add(
-                SettingItem(
-                        title = "HUD do Impulse",
-                        description = "Mostra no canto esquerdo do HUD, sem cobrir a velocidade, a barra de potência/regeneração e a de rotação do motor (só com o motor ligado). Enquanto o Android Auto estiver guiando, mostra também a próxima manobra, a distância e as faixas.",
-                        group = SettingsGroups.DRIVE,
-                        checked = hudOverlayEnabled,
-                        onCheckedChange = {
-                                hudOverlayEnabled = it
-                                prefs.edit {
-                                        putBoolean(SharedPreferencesKeys.HUD_OVERLAY_ENABLED.key, it)
-                                }
-                                br.com.redesurftank.havalshisuku.hud.HudOverlayController.setEnabled(it)
-                        }
-                )
-        )
 
         // Deslocamento do Android Auto no cluster (contorna o crop do menu lateral) — opt-in + slider ao vivo.
         settingsList.add(
