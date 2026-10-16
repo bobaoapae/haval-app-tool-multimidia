@@ -3942,6 +3942,19 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             return
         }
 
+        // AA map owns display 3: the stream is an opaque video covering the whole cluster, so the
+        // native masks (wallpaper-composited insets that hide the D1 gauge bleed behind the theme)
+        // are not needed — and painting them over the map is exactly the "insets showing on top of
+        // the map" bug when the per-rect app hole (display3AppRect) doesn't cover/settle in time
+        // across a mask rebuild (e.g. D1 wallpaper lands -> backgroundSyncListener re-runs this).
+        // Take the masks fully down while the map streams; the per-rect hole still serves normal
+        // apps on D3. When the map leaves, the AA_CLUSTER_SURFACE handler re-runs the mask pass.
+        if (isAaClusterInDash()) {
+            nativeMaskContainer?.isVisible = false
+            setDisplayedGlobalMask(null)
+            return
+        }
+
         if (!isThemeLiveOnDisplay3()) {
             // Re-runs on its own: onPageFinished calls back into this method once the theme
             // is up, so the masks appear together with the content they belong to.
