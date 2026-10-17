@@ -308,11 +308,12 @@ object HudOverlayModel {
     const val AR_LANES_TRIP_SIZE = 14f
 
     // ---- AR layout: power / RPM arcs round the native speed readout ----
-    // Centre and radii follow the native speed's position on the owner's photo (mock in the
-    // simulator); a confirmar on the windshield, tune here.
-
-    const val ARC_CX = 268f
-    const val ARC_CY = 98f
+    // Centred on the native speed readout. Measured on the car (2026-10-17): with the car parked
+    // the native "0" sat under the 2nd outer segment (~175°, the arc's leftmost point) when the
+    // centre was at x 268, so the speed's centre is at about (222, 100). Radii a confirmar for
+    // 3-digit speeds.
+    const val ARC_CX = 222f
+    const val ARC_CY = 100f
     /** Outer arc: power. */
     const val ARC_POWER_R = 46f
     /** Inner arc: RPM. */

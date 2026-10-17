@@ -169,8 +169,9 @@ class HudArArrowTest {
         // Top of the arc is 270° in canvas angles: the boundary between segments 4 and 5.
         val (s5, _) = HudOverlayModel.arcSegment(5, 10)
         assertEquals(270f, s5 - HudOverlayModel.ARC_GAP_DEG / 2, 0.01f)
-        // Inside the visible band.
+        // Inside the visible band, and clear of the left column.
         assertTrue(HudOverlayModel.ARC_CY - HudOverlayModel.ARC_POWER_R - HudOverlayModel.ARC_THICKNESS > 40f)
+        assertTrue(HudOverlayModel.ARC_CX - HudOverlayModel.ARC_POWER_R - HudOverlayModel.ARC_THICKNESS / 2 > HudOverlayModel.BOX_RIGHT)
     }
 
     @Test
