@@ -68,7 +68,9 @@ export function createTbtCard() {
         const turn = resolveTurnIcon(rawTurn);
         // With turn_angle the roundabout is drawn with its real exit; without
         // it (older host, or AA sent none) the static icon stays.
-        const dynamic = turn === 'ROUNDABOUT' ? roundaboutSvg(exitAngle, clockwise === true) : '';
+        const dynamic = turn === 'ROUNDABOUT'
+            ? roundaboutSvg(exitAngle, clockwise === true, readExitNumber(exitNumber))
+            : '';
         const svg = dynamic || TBT_TURN_SVGS[turn];
         if (svg) {
             glyph.classList.add('is-svg');

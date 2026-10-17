@@ -63,6 +63,10 @@ object HudOverlayModel {
     const val RB_EXIT_TIP = 11f
     const val RB_HEAD_LENGTH = 4f
     const val RB_HEAD_HALF_WIDTH = 3.2f
+    // Exits passed before ours: short dim stubs off the ring, as far out as this.
+    const val RB_STUB_END = 7.8f
+    // Closer than this the stubs read as noise, so none are drawn.
+    const val RB_STUB_MIN_GAP = 25f
 
     const val HERO_EXIT_SIZE = 18f
     const val HERO_EXIT_SIZE_2DIGITS = 13f
@@ -333,9 +337,26 @@ object HudOverlayModel {
      * on screen for right-hand traffic (90 = right exit, 180 = straight, 270 = left), clockwise
      * for left-hand traffic. A confirmar against a real drive (see aa_nav_roundabout).
      */
-    fun roundaboutExitDegrees(angle: Int, clockwise: Boolean): Float {
-        val deg = if (clockwise) 270 - angle else 270 + angle
-        return (((deg % 360) + 360) % 360).toFloat()
+    fun roundaboutExitDegrees(angle: Int, clockwise: Boolean): Float =
+        roundaboutExitDegrees(angle.toFloat(), clockwise)
+
+    fun roundaboutExitDegrees(angle: Float, clockwise: Boolean): Float {
+        val deg = if (clockwise) 270f - angle else 270f + angle
+        return ((deg % 360f) + 360f) % 360f
+    }
+
+    /**
+     * Travel angles (as [angle]) of the exits passed before ours, for the dim stubs. AA sends
+     * only our exit, so the count is real (exit 3 passes two) but the positions are not: they
+     * are spread evenly between the entry and our exit. Empty for the first exit, without an
+     * exit number, or when they would sit closer than [RB_STUB_MIN_GAP].
+     */
+    fun passedExitAngles(angle: Int, exitNumber: Int?): List<Float> {
+        val n = exitNumber ?: return emptyList()
+        if (n < 2) return emptyList()
+        val step = angle.toFloat() / n
+        if (step < RB_STUB_MIN_GAP) return emptyList()
+        return (1 until n).map { step * it }
     }
 
     /** Exit angle the dynamic icon can draw: 1..360, else null (static icon). */

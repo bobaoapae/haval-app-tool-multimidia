@@ -277,4 +277,16 @@ class HudOverlayModelTest {
         val inner = 2 * (HudOverlayModel.RB_R - HudOverlayModel.RB_STROKE / 2) / 24f * HudOverlayModel.HERO_GLYPH
         assertTrue(inner >= HudOverlayModel.HERO_EXIT_SIZE)
     }
+
+    @Test
+    fun `passed exits are spread between the entry and our exit`() {
+        assertEquals(emptyList<Float>(), HudOverlayModel.passedExitAngles(90, 1))
+        assertEquals(emptyList<Float>(), HudOverlayModel.passedExitAngles(180, null))
+        assertEquals(listOf(90f), HudOverlayModel.passedExitAngles(180, 2))
+        assertEquals(listOf(90f, 180f), HudOverlayModel.passedExitAngles(270, 3))
+        // Too crowded to read: none.
+        assertEquals(emptyList<Float>(), HudOverlayModel.passedExitAngles(90, 5))
+        // Stubs stay inside the ring's own box.
+        assertTrue(HudOverlayModel.RB_STUB_END < HudOverlayModel.RB_EXIT_TIP)
+    }
 }

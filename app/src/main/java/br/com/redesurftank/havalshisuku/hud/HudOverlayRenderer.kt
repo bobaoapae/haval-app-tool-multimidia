@@ -158,7 +158,7 @@ class HudOverlayRenderer {
         if (icon.isEmpty()) return top + size
         val exitAngle = tbt.exitAngle
         if (tbt.dynamicRoundabout && exitAngle != null) {
-            drawRoundabout(canvas, left, top, size, exitAngle, tbt.roundaboutClockwise)
+            drawRoundabout(canvas, left, top, size, exitAngle, tbt.roundaboutClockwise, tbt.exitNumber)
             return top + (M.RB_ENTRY_BOTTOM + M.RB_STROKE / 2) / 24f * size
         }
         val path = HudTbtIcons.turnPath(icon, size)
@@ -177,13 +177,30 @@ class HudOverlayRenderer {
         return baseline
     }
 
-    /** Ring with the entry at the bottom and an arrow at the exit [angle] degrees around it. */
-    private fun drawRoundabout(canvas: Canvas, left: Float, top: Float, size: Float, angle: Int, clockwise: Boolean) {
+    /**
+     * Ring with the entry at the bottom and an arrow at the exit [angle] degrees around it; the
+     * exits passed before it are short dim stubs (positions approximate, see passedExitAngles).
+     */
+    private fun drawRoundabout(
+        canvas: Canvas,
+        left: Float,
+        top: Float,
+        size: Float,
+        angle: Int,
+        clockwise: Boolean,
+        exitNumber: Int?
+    ) {
         val scale = size / 24f
         canvas.save()
         canvas.translate(left, top)
         canvas.scale(scale, scale)
         canvas.drawCircle(M.RB_CX, M.RB_CY, M.RB_R, ringOff)
+        for (passed in M.passedExitAngles(angle, exitNumber)) {
+            val r = Math.toRadians(M.roundaboutExitDegrees(passed, clockwise).toDouble())
+            val sx = kotlin.math.cos(r).toFloat()
+            val sy = -kotlin.math.sin(r).toFloat()
+            canvas.drawLine(M.RB_CX + sx * M.RB_R, M.RB_CY + sy * M.RB_R, M.RB_CX + sx * M.RB_STUB_END, M.RB_CY + sy * M.RB_STUB_END, ringOff)
+        }
         // Canvas arcs run clockwise from 3 o'clock; the entry is at 6 o'clock (90).
         canvas.drawArc(ringOval, 90f, if (clockwise) angle.toFloat() else -angle.toFloat(), false, ringOn)
         canvas.drawLine(M.RB_CX, M.RB_ENTRY_BOTTOM, M.RB_CX, M.RB_CY + M.RB_R, ringOn)
