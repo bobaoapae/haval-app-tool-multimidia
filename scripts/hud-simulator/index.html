@@ -371,177 +371,122 @@ function drawNativeMock(speed) {
 // turn-by-turn area towards a vanishing point; the turn sits at a depth set by the remaining
 // distance, so far away it is past the fade (no tip) and it slides down as the car closes in.
 // ---------------------------------------------------------------------------
+// Port of HudArArrow (Kotlin): keep the two in step.
 const P3 = {
-  TOP: 58, BOTTOM: 200,        // from the top of the free box to the bottom of the visible band:
-                               // the arrow runs under the trip line and the power bar
-  HORIZON: 26,                 // camera pitched down: the horizon sits above the viewport
-  Z_NEAR: 4,                   // depth of the bottom edge
-  Z_END: 7,                    // corner depth at 0 m: stops at mid-height so the turn has room
-  Z_CAP: 12.5,                 // corner depth while far: a straight arrow, head still visible
-  K: 0.055,                    // depth per metre between Z_END and Z_CAP (~100 m of travel)
-  F_X: 117,                    // lateral scale (px per world unit at depth 1)
-  RIBBON_W: 1.5,               // plain-perspective thickness, sizes the head
-  BASE_W: 100, WIDTH_EXP: 1.7, // on-screen thickness: wide base, falls off faster than perspective
-  MAX_W: 110,
-  TURN_R: 1.4, TURN_LEN: 2.0,  // corner radius, length after it
-  HEAD_W: 2.4, HEAD_L: 1.0,
-  RING_R: 1.5,                 // roundabout radius
-  BEND_START: 180, BEND_FULL: 40, // straight -> full turn between these distances (m)
-  FADE_FROM: 70,               // fully drawn below this row, fading out up to TOP
-  NEAR_RGB: [30, 123, 255],    // gradient: deep blue at the base ...
-  FAR_RGB: [150, 218, 255],    // ... light blue towards the top
+  CX: 240,                     // middle of the HUD, under the native speed readout
+  TOP: 126, BOTTOM: 200,       // strip under the speed digits down to the bottom of the band
+  APEX: 118,                   // the stem's straight sides meet here (thin far end)
+  BASE_W: 200,                 // stem width at the bottom
+  HORIZON: 118, Z_NEAR: 4, Z_END: 7, Z_CAP: 15, K: 0.08,
+  F_X: 199,                    // lateral scale for the arm
+  ARM_W: 30,                   // arm thickness at the 0 m corner depth
+  TURN_R: 1.4, TURN_LEN: 2.0,
+  HEAD_W_RATIO: 2.0, HEAD_L_RATIO: 1.1,
+  BEND_START: 180, BEND_FULL: 40,
+  FADE_FROM: 138,
+  OPACITY: 0.3,                // ~70 % transparent
+  HALF_ROOM: 128,
+  NEAR_RGB: [30, 123, 255], FAR_RGB: [150, 218, 255],
 };
 
-function project(x, z) {
-  return [M.BOX_CENTER_X + P3.F_X * x / z, P3.HORIZON + (P3.BOTTOM - P3.HORIZON) * P3.Z_NEAR / z];
-}
-
-function rowAlpha(y) {
-  if (y >= P3.FADE_FROM) return 1;
-  return Math.max(0, (y - P3.TOP) / (P3.FADE_FROM - P3.TOP));
-}
-
+const smooth = (t) => t * t * (3 - 2 * t);
+const bendAmount = (m) => smooth(Math.min(1, Math.max(0, (P3.BEND_START - m) / (P3.BEND_START - P3.BEND_FULL))));
+const cornerDepth = (m) => Math.min(P3.Z_CAP, P3.Z_END + P3.K * Math.max(0, m));
+const project = (x, z) => [P3.CX + P3.F_X * x / z, P3.HORIZON + (P3.BOTTOM - P3.HORIZON) * P3.Z_NEAR / z];
+const stemWidthAt = (y) => P3.BASE_W * Math.max(0, (y - P3.APEX) / (P3.BOTTOM - P3.APEX));
+const rowAlpha = (y) => y >= P3.FADE_FROM ? 1 : Math.max(0, Math.min(1, (y - P3.TOP) / (P3.FADE_FROM - P3.TOP)));
 function rowColor(y, alpha) {
   const t = Math.min(1, Math.max(0, (P3.BOTTOM - y) / (P3.BOTTOM - P3.TOP)));
   const c = P3.NEAR_RGB.map((v, i) => Math.round(v + (P3.FAR_RGB[i] - v) * t));
   return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`;
 }
 
-const smooth = (t) => t * t * (3 - 2 * t);
-
-/** 0 = straight arrow, 1 = the full turn; eases in between BEND_START and BEND_FULL. */
-function bendAmount(meters) {
-  return smooth(Math.min(1, Math.max(0, (P3.BEND_START - meters) / (P3.BEND_START - P3.BEND_FULL))));
-}
-
-function cornerDepth(meters) {
-  return Math.min(P3.Z_CAP, P3.Z_END + P3.K * meters);
-}
-
-/** Straight part from below the bottom edge up to depth zc. */
-function straightTo(zc) {
-  const pts = [], zStart = P3.Z_NEAR * 0.8, n = 40;
-  for (let i = 0; i <= n; i++) pts.push({ x: 0, z: zStart + (zc - zStart) * i / n });
-  return pts;
-}
-
-/** Turn of `angle` degrees (+ right): arc then a short tail. */
-function turnCenterline(zc, angle) {
-  const pts = straightTo(zc);
+function arShape(meters, angleDeg) {
+  const bend = bendAmount(meters), zc = cornerDepth(meters);
+  const cornerY = project(0, zc)[1];
+  const stemTop = P3.TOP + (cornerY - P3.TOP) * bend;
+  if (bend <= 0.02) return { stemTop: P3.TOP, arm: [], head: null, armAlpha: 0 };
+  const world = [[0, zc]];
   let x = 0, z = zc, h = 0;
-  const target = angle * Math.PI / 180, sign = Math.sign(target) || 1, ds = 0.06;
-  const arc = Math.abs(target) * P3.TURN_R;
-  for (let d = ds; d <= arc + 1e-6; d += ds) {
-    h += sign * ds / P3.TURN_R;
-    x += Math.sin(h) * ds; z += Math.cos(h) * ds;
-    pts.push({ x, z });
+  const target = angleDeg * bend * Math.PI / 180, sgn = Math.sign(target) || 1, ds = 0.06;
+  for (let i = 0, n = Math.round(Math.abs(target) * P3.TURN_R / ds); i < n; i++) {
+    h += sgn * ds / P3.TURN_R; x += Math.sin(h) * ds; z += Math.cos(h) * ds; world.push([x, z]);
   }
-  for (let d = ds; d <= P3.TURN_LEN + 1e-6; d += ds) {
-    x += Math.sin(h) * ds; z += Math.cos(h) * ds;
-    pts.push({ x, z });
+  for (let i = 0, n = Math.round(P3.TURN_LEN / ds); i < n; i++) {
+    x += Math.sin(h) * ds; z += Math.cos(h) * ds; world.push([x, z]);
   }
-  return pts;
-}
-
-/**
- * Roundabout, right-hand traffic: enter at the ring's south point, go counter-clockwise (seen
- * from above: east, north, west) for `travel` degrees, then leave outwards. travel 90 = first
- * exit on the right, 180 = straight on, 270 = left.
- */
-function roundaboutCenterline(zc, travel) {
-  const pts = straightTo(zc);
-  const cz = zc + P3.RING_R, ds = 0.06;
-  const steps = Math.max(1, Math.round(travel * Math.PI / 180 * P3.RING_R / ds));
-  for (let i = 1; i <= steps; i++) {
-    const psi = (travel * Math.PI / 180) * i / steps;
-    pts.push({ x: P3.RING_R * Math.sin(psi), z: cz - P3.RING_R * Math.cos(psi) });
-  }
-  const psi = travel * Math.PI / 180, out = [Math.sin(psi), -Math.cos(psi)];
-  const e = pts[pts.length - 1];
-  for (let d = ds; d <= P3.TURN_LEN + 1e-6; d += ds) pts.push({ x: e.x + out[0] * d, z: e.z + out[1] * d });
-  return pts;
-}
-
-function toScreen(pts, widthScale = 1) {
-  return pts.filter(q => q.z > 0.4).map(q => {
-    const [x, y] = project(q.x, q.z);
-    return { x, y, z: q.z, w: Math.min(P3.MAX_W, P3.BASE_W * widthScale * Math.pow(P3.Z_NEAR / q.z, P3.WIDTH_EXP)) };
+  let arm = world.filter(q => q[1] > 0.4).map(([wx, wz]) => {
+    const [sx, sy] = project(wx, wz);
+    return { x: sx, y: sy, w: Math.min(P3.ARM_W, P3.ARM_W * P3.Z_END / wz) };
   });
+  const e = arm[arm.length - 1], prev = arm[Math.max(0, arm.length - 4)];
+  const len = Math.hypot(e.x - prev.x, e.y - prev.y) || 1, dx = (e.x - prev.x) / len, dy = (e.y - prev.y) / len;
+  const hw = e.w * P3.HEAD_W_RATIO, hl = e.w * P3.HEAD_L_RATIO;
+  let head = [e.x + dx * hl, e.y + dy * hl, e.x - dy * hw / 2, e.y + dx * hw / 2, e.x + dy * hw / 2, e.y - dx * hw / 2];
+  let squeeze = 1;
+  for (const p of arm) { const d = Math.abs(p.x - P3.CX); if (d > 0.01) squeeze = Math.min(squeeze, Math.max(0, (P3.HALF_ROOM - p.w / 2) / d)); }
+  for (let k = 0; k < 3; k++) { const d = Math.abs(head[2 * k] - P3.CX); if (d > 0.01) squeeze = Math.min(squeeze, P3.HALF_ROOM / d); }
+  if (squeeze < 1) {
+    arm = arm.map(p => ({ ...p, x: P3.CX + (p.x - P3.CX) * squeeze }));
+    head = head.map((v, i) => i % 2 === 0 ? P3.CX + (v - P3.CX) * squeeze : v);
+  }
+  return { stemTop, arm, head, armAlpha: bend };
 }
 
-/** Thick polyline in screen space, gradient + top fade per segment. */
-function strokeRibbon(scr, alphaScale = 1) {
+/** Wide see-through wedge in the middle; the arm grows out of it as the car arrives. */
+function draw3dArrow(tbt, meters) {
+  const shape = arShape(meters, tbt.angle);
+  const left = P3.CX - P3.HALF_ROOM - 2, right = P3.CX + P3.HALF_ROOM + 2;
+  // Opaque into a layer, composited once at OPACITY (no stripes at the seams).
+  const layer = document.createElement('canvas');
+  layer.width = canvas.width; layer.height = canvas.height;
+  const lc = layer.getContext('2d');
+  lc.setTransform(S, 0, 0, S, 0, 0);
+  lc.beginPath(); lc.rect(left, P3.TOP, right - left, P3.BOTTOM - P3.TOP); lc.clip();
+  const g = lc.createLinearGradient(0, P3.BOTTOM, 0, P3.TOP);
+  g.addColorStop(0, 'rgba(30,123,255,1)');
+  g.addColorStop((P3.BOTTOM - P3.FADE_FROM) / (P3.BOTTOM - P3.TOP), 'rgba(120,200,255,1)');
+  g.addColorStop(1, 'rgba(150,218,255,0)');
+  const ht = stemWidthAt(shape.stemTop) / 2, hb = P3.BASE_W / 2;
+  lc.fillStyle = g;
+  lc.beginPath();
+  lc.moveTo(P3.CX - hb, P3.BOTTOM); lc.lineTo(P3.CX + hb, P3.BOTTOM);
+  lc.lineTo(P3.CX + ht, shape.stemTop); lc.lineTo(P3.CX - ht, shape.stemTop);
+  lc.closePath(); lc.fill();
+  const pts = shape.arm;
   const normal = (i) => {
-    const a = scr[Math.max(0, i - 1)], b = scr[Math.min(scr.length - 1, i + 1)];
-    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
-    return [-dy / len, dx / len];
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    return [-(b.y - a.y) / len, (b.x - a.x) / len];
   };
-  for (let i = 0; i + 1 < scr.length; i++) {
-    const a = scr[i], b = scr[i + 1];
-    const alpha = rowAlpha(Math.min(a.y, b.y)) * alphaScale;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const alpha = rowAlpha(Math.min(a.y, b.y)) * shape.armAlpha;
     if (alpha <= 0) continue;
     const na = normal(i), nb = normal(i + 1);
-    ctx.fillStyle = rowColor((a.y + b.y) / 2, alpha);
-    ctx.beginPath();
-    ctx.moveTo(a.x + na[0] * a.w / 2, a.y + na[1] * a.w / 2);
-    ctx.lineTo(b.x + nb[0] * b.w / 2, b.y + nb[1] * b.w / 2);
-    ctx.lineTo(b.x - nb[0] * b.w / 2, b.y - nb[1] * b.w / 2);
-    ctx.lineTo(a.x - na[0] * a.w / 2, a.y - na[1] * a.w / 2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 0.6; ctx.stroke(); // hide seams
+    lc.fillStyle = rowColor((a.y + b.y) / 2, alpha);
+    lc.beginPath();
+    lc.moveTo(a.x + na[0] * a.w / 2, a.y + na[1] * a.w / 2);
+    lc.lineTo(b.x + nb[0] * b.w / 2, b.y + nb[1] * b.w / 2);
+    lc.lineTo(b.x - nb[0] * b.w / 2, b.y - nb[1] * b.w / 2);
+    lc.lineTo(a.x - na[0] * a.w / 2, a.y - na[1] * a.w / 2);
+    lc.closePath(); lc.fill();
+    lc.strokeStyle = lc.fillStyle; lc.lineWidth = 0.6; lc.stroke();
   }
-}
-
-function drawHead(scr) {
-  const e = scr[scr.length - 1], prev = scr[Math.max(0, scr.length - 4)];
-  const alpha = rowAlpha(e.y);
-  if (alpha <= 0) return;
-  const dx = e.x - prev.x, dy = e.y - prev.y, len = Math.hypot(dx, dy) || 1;
-  const d = [dx / len, dy / len], n = [-d[1], d[0]];
-  const scale = P3.F_X / e.z;
-  const hl = P3.HEAD_L * scale, hw = Math.min(P3.MAX_W * 2, P3.HEAD_W * scale);
-  ctx.fillStyle = rowColor(e.y, alpha);
-  ctx.beginPath();
-  ctx.moveTo(e.x + d[0] * hl, e.y + d[1] * hl);
-  ctx.lineTo(e.x + n[0] * hw / 2, e.y + n[1] * hw / 2);
-  ctx.lineTo(e.x - n[0] * hw / 2, e.y - n[1] * hw / 2);
-  ctx.closePath();
-  ctx.fill();
-}
-
-/**
- * Always a straight arrow that morphs into the maneuver as the car arrives: the bend (or the
- * way round the roundabout) eases in between BEND_START and BEND_FULL while the corner comes
- * down from Z_CAP to Z_END. Path in perspective, thickness in screen space.
- */
-function draw3dArrow(tbt, meters) {
-  const bend = bendAmount(meters);
-  const zc = cornerDepth(meters);
+  if (shape.head) {
+    const alpha = rowAlpha(pts[pts.length - 1].y) * shape.armAlpha;
+    const h = shape.head;
+    lc.fillStyle = rowColor(pts[pts.length - 1].y, alpha);
+    lc.beginPath(); lc.moveTo(h[0], h[1]); lc.lineTo(h[2], h[3]); lc.lineTo(h[4], h[5]); lc.closePath(); lc.fill();
+  }
   ctx.save();
-  ctx.beginPath();
-  ctx.rect(M.BOX_LEFT, P3.TOP, M.BOX_RIGHT - M.BOX_LEFT, P3.BOTTOM - P3.TOP);
-  ctx.clip();
-  let scr;
-  if (tbt.ring) {
-    // Faint full ring fades in with the bend, the route round it on top.
-    const ring = [];
-    for (let i = 0; i <= 72; i++) {
-      const psi = i / 72 * Math.PI * 2;
-      ring.push({ x: P3.RING_R * Math.sin(psi), z: zc + P3.RING_R - P3.RING_R * Math.cos(psi) });
-    }
-    strokeRibbon(toScreen(ring, 0.35), 0.45 * bend);
-    scr = toScreen(roundaboutCenterline(zc, tbt.ring * bend));
-  } else {
-    scr = toScreen(turnCenterline(zc, tbt.angle * bend));
-  }
-  strokeRibbon(scr);
-  drawHead(scr);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = P3.OPACITY;
+  ctx.drawImage(layer, 0, 0);
   ctx.restore();
-  // Distance (and exit number) above the trip line, over the arrow.
-  const label = tbt.exitNumber ? { ...tbt, unit: `${tbt.unit} · ${tbt.exitNumber}ª saída` } : tbt;
-  const w2 = distanceWidth(label, M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE);
-  drawDistance(label, M.BOX_CENTER_X - w2 / 2, 166, M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE);
+  // Distance alone in the left box, a bit larger.
+  const w2 = distanceWidth(tbt, 30, 18);
+  drawDistance(tbt, M.BOX_CENTER_X - w2 / 2, 128, 30, 18);
 }
 
 function formatDistance(m) {
@@ -558,7 +503,7 @@ function render() {
   const meters = base ? (state.dist ?? base.meters) : 0;
   const tbt = base && (state.dist == null ? base : { ...base, meters, ...formatDistance(meters) });
   if (tbt) {
-    if (opt.d3.checked && !tbt.lanes.length && tbt.angle !== undefined) draw3dArrow(tbt, meters);
+    if (opt.d3.checked && !tbt.lanes.length && tbt.angle !== undefined && !tbt.ring) draw3dArrow(tbt, meters); // roundabouts: flat icon until exit data lands
     else if (tbt.lanes.length) drawCompact(tbt);
     else if (opt.far.checked && tbt.meters >= M.FAR_THRESHOLD_M) drawRow(tbt, M.FAR_TOP);
     else drawHero(tbt);
