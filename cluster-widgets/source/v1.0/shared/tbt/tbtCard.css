@@ -16,7 +16,9 @@
   min-height: 152px;
   display: none;
   flex-direction: row;
-  align-items: center;
+  /* Both columns run full height: the glyph sits at the top, and the turn
+     distance bottoms out level with the metric captions. */
+  align-items: stretch;
   justify-content: flex-start;
   gap: 20px;
   padding: 20px 44px 20px 20px;
@@ -51,11 +53,12 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 6px;
   flex: 0 0 auto;
   /* 88px of glyph plus a little air on each side, so the indicator is not
-     pressed against the card edge or the street name. */
+     pressed against the card edge or the street name. Content sits at the
+     bottom so the turn distance lines up with the metric captions. */
   box-sizing: border-box;
   width: 120px;
   padding: 0 10px;
@@ -89,7 +92,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  justify-content: center;
+  justify-content: space-between;
   gap: 8px;
   /* Fixed, so a long street name can never widen the card. */
   width: 345px;
@@ -97,6 +100,9 @@
 }
 
 .dashboard-tbt-street {
+  /* Centred in the space above the metrics (auto margins), which is where it
+     sat before the metrics were pinned to the bottom. */
+  margin: auto 0;
   font-size: 42px;
   font-weight: 400;
   line-height: 1.05;
@@ -114,6 +120,11 @@
   line-height: 1;
   white-space: nowrap;
   text-align: center;
+  /* Its line box already ends level with the 17px metric captions, but Khand
+     at 32px sits its baseline 3px higher in that box (measured: 219 vs 222).
+     Drop it so the visible text bottoms line up. */
+  position: relative;
+  top: 3px;
 }
 
 .dashboard-tbt-remaining {
@@ -217,7 +228,7 @@
 .dashboard-tbt-metric-value {
   font-size: 32px;
   font-weight: 300;
-  line-height: 1.05;
+  line-height: 1;
   white-space: nowrap;
   text-align: left;
   width: 100%;
