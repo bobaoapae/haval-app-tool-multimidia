@@ -66,7 +66,7 @@ Grey shading = outside the optics; the native HUD on the right is a rough mock f
 
     <h2 style="margin-top:12px">3D arrow (prototype)</h2>
     <div class="checks">
-      <label><input type="checkbox" id="opt3d" checked> perspective arrow when there are no lanes</label>
+      <label><input type="checkbox" id="opt3d" checked> perspective arrow (blue, morphs into the turn) when there are no lanes</label>
     </div>
     <label class="row">Distance <input type="range" id="dist" min="0" max="1500" step="10"><output id="distOut"></output></label>
     <div class="scen"><button id="play">▶ Play approach<small>1.2 km down to 0 m, ~12 s</small></button></div>
@@ -372,17 +372,23 @@ function drawNativeMock(speed) {
 // distance, so far away it is past the fade (no tip) and it slides down as the car closes in.
 // ---------------------------------------------------------------------------
 const P3 = {
-  TOP: 60, BOTTOM: 154,        // viewport rows inside the turn-by-turn area (distance text under it)
-  HORIZON: 20,                 // camera pitched down: the horizon sits above the viewport
+  TOP: 58, BOTTOM: 200,        // from the top of the free box to the bottom of the visible band:
+                               // the arrow runs under the trip line and the power bar
+  HORIZON: 26,                 // camera pitched down: the horizon sits above the viewport
   Z_NEAR: 4,                   // depth of the bottom edge
-  K: 0.06,                     // depth per metre: 0 m at the bottom, ~150 m reaches the top edge
-  F_X: 62,                    // lateral scale: the whole turn + head fits the box even at 0 m
-  RIBBON_W: 1.35,              // ribbon thickness in world units, drawn in screen space
-  TURN_R: 1.3,                 // corner radius
-  TURN_LEN: 2.2,               // length after the corner
-  HEAD_W: 2.9, HEAD_L: 1.3,    // arrow head
-  FADE_FROM: 84,               // fully drawn below this row, fading out up to TOP
-  MAX_W: 34,                   // cap the near thickness so it stays an arrow, not a road
+  Z_END: 7,                    // corner depth at 0 m: stops at mid-height so the turn has room
+  Z_CAP: 12.5,                 // corner depth while far: a straight arrow, head still visible
+  K: 0.055,                    // depth per metre between Z_END and Z_CAP (~100 m of travel)
+  F_X: 117,                    // lateral scale (px per world unit at depth 1)
+  RIBBON_W: 1.5,               // thickness in world units, drawn in screen space (44 px at the base)
+  MAX_W: 50,
+  TURN_R: 1.4, TURN_LEN: 2.0,  // corner radius, length after it
+  HEAD_W: 2.4, HEAD_L: 1.0,
+  RING_R: 1.5,                 // roundabout radius
+  BEND_START: 180, BEND_FULL: 40, // straight -> full turn between these distances (m)
+  FADE_FROM: 70,               // fully drawn below this row, fading out up to TOP
+  NEAR_RGB: [30, 123, 255],    // gradient: deep blue at the base ...
+  FAR_RGB: [150, 218, 255],    // ... light blue towards the top
 };
 
 function project(x, z) {
@@ -394,49 +400,76 @@ function rowAlpha(y) {
   return Math.max(0, (y - P3.TOP) / (P3.FADE_FROM - P3.TOP));
 }
 
-/** Centreline in world space: straight to the corner, an arc of `angle` degrees, a short tail. */
-function arrowCenterline(meters, angle) {
-  const pts = [];
-  const zc = P3.Z_NEAR + P3.K * meters;
-  const zStart = P3.Z_NEAR * 0.8;
-  const n = 40;
-  for (let i = 0; i <= n; i++) {
-    const t = i / n;
-    pts.push({ x: 0, z: zStart + (zc - zStart) * t });
-  }
+function rowColor(y, alpha) {
+  const t = Math.min(1, Math.max(0, (P3.BOTTOM - y) / (P3.BOTTOM - P3.TOP)));
+  const c = P3.NEAR_RGB.map((v, i) => Math.round(v + (P3.FAR_RGB[i] - v) * t));
+  return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`;
+}
+
+const smooth = (t) => t * t * (3 - 2 * t);
+
+/** 0 = straight arrow, 1 = the full turn; eases in between BEND_START and BEND_FULL. */
+function bendAmount(meters) {
+  return smooth(Math.min(1, Math.max(0, (P3.BEND_START - meters) / (P3.BEND_START - P3.BEND_FULL))));
+}
+
+function cornerDepth(meters) {
+  return Math.min(P3.Z_CAP, P3.Z_END + P3.K * meters);
+}
+
+/** Straight part from below the bottom edge up to depth zc. */
+function straightTo(zc) {
+  const pts = [], zStart = P3.Z_NEAR * 0.8, n = 40;
+  for (let i = 0; i <= n; i++) pts.push({ x: 0, z: zStart + (zc - zStart) * i / n });
+  return pts;
+}
+
+/** Turn of `angle` degrees (+ right): arc then a short tail. */
+function turnCenterline(zc, angle) {
+  const pts = straightTo(zc);
   let x = 0, z = zc, h = 0;
-  const target = angle * Math.PI / 180, sign = Math.sign(target) || 1;
-  const ds = 0.08;
-  if (angle !== 0) {
-    const arc = Math.abs(target) * P3.TURN_R;
-    for (let d = ds; d <= arc + 1e-6; d += ds) {
-      h += sign * ds / P3.TURN_R;
-      x += Math.sin(h) * ds; z += Math.cos(h) * ds;
-      pts.push({ x, z });
-    }
+  const target = angle * Math.PI / 180, sign = Math.sign(target) || 1, ds = 0.06;
+  const arc = Math.abs(target) * P3.TURN_R;
+  for (let d = ds; d <= arc + 1e-6; d += ds) {
+    h += sign * ds / P3.TURN_R;
+    x += Math.sin(h) * ds; z += Math.cos(h) * ds;
+    pts.push({ x, z });
   }
   for (let d = ds; d <= P3.TURN_LEN + 1e-6; d += ds) {
     x += Math.sin(h) * ds; z += Math.cos(h) * ds;
     pts.push({ x, z });
   }
-  return pts.filter(q => q.z > 0.4);
+  return pts;
 }
 
 /**
- * Path in perspective, thickness in screen space: each point's width is the perspective size of
- * RIBBON_W at its depth, laid perpendicular to the on-screen path. A ground-plane ribbon would
- * fan into a road at the bottom and flatten the turn arm into a sliver.
+ * Roundabout, right-hand traffic: enter at the ring's south point, go counter-clockwise (seen
+ * from above: east, north, west) for `travel` degrees, then leave outwards. travel 90 = first
+ * exit on the right, 180 = straight on, 270 = left.
  */
-function draw3dArrow(tbt, meters) {
-  const pts = arrowCenterline(meters, tbt.angle);
-  const scr = pts.map(q => {
-    const [sx, sy] = project(q.x, q.z);
-    return { x: sx, y: sy, w: Math.min(P3.MAX_W, P3.F_X * P3.RIBBON_W / q.z) };
+function roundaboutCenterline(zc, travel) {
+  const pts = straightTo(zc);
+  const cz = zc + P3.RING_R, ds = 0.06;
+  const steps = Math.max(1, Math.round(travel * Math.PI / 180 * P3.RING_R / ds));
+  for (let i = 1; i <= steps; i++) {
+    const psi = (travel * Math.PI / 180) * i / steps;
+    pts.push({ x: P3.RING_R * Math.sin(psi), z: cz - P3.RING_R * Math.cos(psi) });
+  }
+  const psi = travel * Math.PI / 180, out = [Math.sin(psi), -Math.cos(psi)];
+  const e = pts[pts.length - 1];
+  for (let d = ds; d <= P3.TURN_LEN + 1e-6; d += ds) pts.push({ x: e.x + out[0] * d, z: e.z + out[1] * d });
+  return pts;
+}
+
+function toScreen(pts, widthScale = 1) {
+  return pts.filter(q => q.z > 0.4).map(q => {
+    const [x, y] = project(q.x, q.z);
+    return { x, y, z: q.z, w: Math.min(P3.MAX_W, P3.F_X * P3.RIBBON_W * widthScale / q.z) };
   });
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(M.BOX_LEFT, P3.TOP, M.BOX_RIGHT - M.BOX_LEFT, P3.BOTTOM - P3.TOP);
-  ctx.clip();
+}
+
+/** Thick polyline in screen space, gradient + top fade per segment. */
+function strokeRibbon(scr, alphaScale = 1) {
   const normal = (i) => {
     const a = scr[Math.max(0, i - 1)], b = scr[Math.min(scr.length - 1, i + 1)];
     const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
@@ -444,10 +477,10 @@ function draw3dArrow(tbt, meters) {
   };
   for (let i = 0; i + 1 < scr.length; i++) {
     const a = scr[i], b = scr[i + 1];
-    const alpha = rowAlpha(Math.min(a.y, b.y));
+    const alpha = rowAlpha(Math.min(a.y, b.y)) * alphaScale;
     if (alpha <= 0) continue;
     const na = normal(i), nb = normal(i + 1);
-    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.fillStyle = rowColor((a.y + b.y) / 2, alpha);
     ctx.beginPath();
     ctx.moveTo(a.x + na[0] * a.w / 2, a.y + na[1] * a.w / 2);
     ctx.lineTo(b.x + nb[0] * b.w / 2, b.y + nb[1] * b.w / 2);
@@ -457,27 +490,57 @@ function draw3dArrow(tbt, meters) {
     ctx.fill();
     ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 0.6; ctx.stroke(); // hide seams
   }
-  // Head, sized by the perspective at the tail's end.
-  const e = scr[scr.length - 1], pe = pts[pts.length - 1];
+}
+
+function drawHead(scr) {
+  const e = scr[scr.length - 1], prev = scr[Math.max(0, scr.length - 4)];
   const alpha = rowAlpha(e.y);
-  if (alpha > 0) {
-    const prev = scr[Math.max(0, scr.length - 4)];
-    const dx = e.x - prev.x, dy = e.y - prev.y, len = Math.hypot(dx, dy) || 1;
-    const d = [dx / len, dy / len], n = [-d[1], d[0]];
-    const scale = P3.F_X / pe.z;
-    const hl = P3.HEAD_L * scale, hw = Math.min(P3.MAX_W * 2.2, P3.HEAD_W * scale);
-    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
-    ctx.beginPath();
-    ctx.moveTo(e.x + d[0] * hl, e.y + d[1] * hl);
-    ctx.lineTo(e.x + n[0] * hw / 2, e.y + n[1] * hw / 2);
-    ctx.lineTo(e.x - n[0] * hw / 2, e.y - n[1] * hw / 2);
-    ctx.closePath();
-    ctx.fill();
+  if (alpha <= 0) return;
+  const dx = e.x - prev.x, dy = e.y - prev.y, len = Math.hypot(dx, dy) || 1;
+  const d = [dx / len, dy / len], n = [-d[1], d[0]];
+  const scale = P3.F_X / e.z;
+  const hl = P3.HEAD_L * scale, hw = Math.min(P3.MAX_W * 2, P3.HEAD_W * scale);
+  ctx.fillStyle = rowColor(e.y, alpha);
+  ctx.beginPath();
+  ctx.moveTo(e.x + d[0] * hl, e.y + d[1] * hl);
+  ctx.lineTo(e.x + n[0] * hw / 2, e.y + n[1] * hw / 2);
+  ctx.lineTo(e.x - n[0] * hw / 2, e.y - n[1] * hw / 2);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * Always a straight arrow that morphs into the maneuver as the car arrives: the bend (or the
+ * way round the roundabout) eases in between BEND_START and BEND_FULL while the corner comes
+ * down from Z_CAP to Z_END. Path in perspective, thickness in screen space.
+ */
+function draw3dArrow(tbt, meters) {
+  const bend = bendAmount(meters);
+  const zc = cornerDepth(meters);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(M.BOX_LEFT, P3.TOP, M.BOX_RIGHT - M.BOX_LEFT, P3.BOTTOM - P3.TOP);
+  ctx.clip();
+  let scr;
+  if (tbt.ring) {
+    // Faint full ring fades in with the bend, the route round it on top.
+    const ring = [];
+    for (let i = 0; i <= 72; i++) {
+      const psi = i / 72 * Math.PI * 2;
+      ring.push({ x: P3.RING_R * Math.sin(psi), z: zc + P3.RING_R - P3.RING_R * Math.cos(psi) });
+    }
+    strokeRibbon(toScreen(ring, 0.35), 0.45 * bend);
+    scr = toScreen(roundaboutCenterline(zc, tbt.ring * bend));
+  } else {
+    scr = toScreen(turnCenterline(zc, tbt.angle * bend));
   }
+  strokeRibbon(scr);
+  drawHead(scr);
   ctx.restore();
-  // Distance centred under the viewport.
-  const w2 = distanceWidth(tbt, M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE);
-  drawDistance(tbt, M.BOX_CENTER_X - w2 / 2, P3.BOTTOM + 16, M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE);
+  // Distance (and exit number) above the trip line, over the arrow.
+  const label = tbt.exitNumber ? { ...tbt, unit: `${tbt.unit} · ${tbt.exitNumber}ª saída` } : tbt;
+  const w2 = distanceWidth(label, M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE);
+  drawDistance(label, M.BOX_CENTER_X - w2 / 2, 166, M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE);
 }
 
 function formatDistance(m) {
@@ -524,8 +587,9 @@ const NAV = {
   right_lanes: { label: 'Right turn, 250 m, 3 lanes', angle: 90, icon: 'TURN_RIGHT', value: '250', unit: 'm', meters: 250, eta: '4.8 km · 12 min', lanes: [[[1, 0]], [[1, 0]], [[5, 1], [1, 0]]] },
   right: { label: 'Right turn, 90 m, no lanes', angle: 90, icon: 'TURN_RIGHT', value: '90', unit: 'm', meters: 90, eta: '4.8 km · 12 min', lanes: [] },
   keep_left: { label: 'Keep left, 1.2 km, no lanes', angle: -25, icon: resolveTurnIcon('KEEP_LEFT'), value: '1.2', unit: 'km', meters: 1200, eta: '27.3 km · 34 min', lanes: [] },
+  roundabout_left: { label: 'Roundabout, 3rd exit (left), 150 m', ring: 270, exitNumber: 3, angle: 0, icon: 'ROUNDABOUT', value: '150', unit: 'm', meters: 150, eta: '5.0 km · 11 min', lanes: [] },
   sharp_left: { label: 'Sharp left, 400 m, no lanes', angle: -135, icon: 'TURN_LEFT', value: '400', unit: 'm', meters: 400, eta: '3.2 km · 8 min', lanes: [] },
-  roundabout: { label: 'Roundabout, 80 m', icon: 'ROUNDABOUT', value: '80', unit: 'm', meters: 80, eta: '2.1 km · 6 min', lanes: [] },
+  roundabout: { label: 'Roundabout, 2nd exit (straight), 80 m', ring: 180, exitNumber: 2, angle: 0, icon: 'ROUNDABOUT', value: '80', unit: 'm', meters: 80, eta: '2.1 km · 6 min', lanes: [] },
   uturn_lanes: { label: 'U-turn, 500 m, 5 lanes', angle: -180, icon: 'U_TURN', value: '500', unit: 'm', meters: 500, eta: '61 km · 1 h 4 min', lanes: [[[8, 1]], [[1, 0]], [[1, 0]], [[1, 0], [3, 0]], [[5, 0]]] },
   exit: { label: 'Exit right, 2.4 km', angle: 35, icon: resolveTurnIcon('OFF_RAMP_RIGHT'), value: '2.4', unit: 'km', meters: 2400, eta: '19.6 km · 18 min', lanes: [] },
   arrive: { label: 'Destination, 30 m', angle: 0, icon: 'DESTINATION', value: '30', unit: 'm', meters: 30, eta: '30 m · <1 min', lanes: [] },
