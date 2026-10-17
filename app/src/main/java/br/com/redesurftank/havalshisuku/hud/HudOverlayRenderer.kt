@@ -21,14 +21,9 @@ import br.com.redesurftank.havalshisuku.hud.HudOverlayModel as M
  */
 class HudOverlayRenderer {
     private companion object {
-        /**
-         * AR layout: the arrow moved to the middle under the native speed, so the left box shows
-         * the distance alone, a bit larger, above the trip line (as the simulator).
-         */
-        const val AR_DISTANCE_BASELINE = 128f
-        const val AR_DISTANCE_VALUE_SIZE = 30f
-        const val AR_DISTANCE_UNIT_SIZE = 18f
         val DRIVE = Color.rgb(63, 169, 255)
+        val OFF = Color.argb(61, 255, 255, 255)
+        val RED_OFF = Color.argb(77, 255, 64, 64)
         val REGEN = Color.rgb(80, 230, 120)
         val RED = Color.rgb(255, 64, 64)
     }
@@ -101,14 +96,97 @@ class HudOverlayRenderer {
         f.tbt?.let { tbt ->
             when (tbt.style) {
                 M.TbtStyle.HERO -> drawHero(canvas, tbt)
-                M.TbtStyle.COMPACT -> drawRow(canvas, tbt, M.COMPACT_TOP).also { drawLanes(canvas, tbt.lanes) }
+                M.TbtStyle.COMPACT -> drawRow(canvas, tbt, M.COMPACT_TOP).also { drawLanes(canvas, tbt.lanes, M.LANES_TOP) }
                 M.TbtStyle.FAR -> drawRow(canvas, tbt, M.FAR_TOP)
-                M.TbtStyle.AR -> drawAr(canvas, tbt)
+                M.TbtStyle.AR -> {
+                    drawAr(canvas, tbt)
+                    drawArColumn(canvas, tbt) // draws its own trip line
+                }
             }
-            if (tbt.trip.isNotEmpty()) canvas.drawText(tbt.trip, M.BOX_CENTER_X, M.TRIP_BASELINE, tripPaint)
+            if (tbt.style != M.TbtStyle.AR && tbt.trip.isNotEmpty()) {
+                canvas.drawText(tbt.trip, M.BOX_CENTER_X, M.TRIP_BASELINE, tripPaint)
+            }
         }
-        f.powerPercent?.let { drawPowerBar(canvas, it) }
-        f.rpmTenths?.let { drawRpmBar(canvas, it) }
+        if (f.arcs) {
+            f.powerPercent?.let { drawPowerArc(canvas, it) }
+            f.rpmTenths?.let { drawRpmArc(canvas, it) }
+        } else {
+            f.powerPercent?.let { drawPowerBar(canvas, it) }
+            f.rpmTenths?.let { drawRpmBar(canvas, it) }
+        }
+    }
+
+    // ---- AR layout: left column ----
+
+    private val streetPaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(230, 255, 255, 255)
+        typeface = lightFace
+        textAlign = Paint.Align.LEFT
+    }
+
+    /**
+     * The arrow is in the middle, so the left box carries the driving info: street, a large
+     * distance and the trip line; compacted round the lane row when there are lanes.
+     */
+    private fun drawArColumn(canvas: Canvas, tbt: M.Tbt) {
+        val lanes = tbt.lanes.isNotEmpty()
+        val streetY = if (lanes) M.AR_LANES_STREET_BASELINE else M.AR_STREET_BASELINE
+        streetPaint.textSize = if (lanes) M.AR_LANES_STREET_SIZE else M.AR_STREET_SIZE
+        if (tbt.street.isNotEmpty()) {
+            val maxW = M.BOX_RIGHT - M.BOX_LEFT
+            val text = android.text.TextUtils.ellipsize(tbt.street, streetPaint, maxW, android.text.TextUtils.TruncateAt.END).toString()
+            canvas.drawText(text, M.BOX_CENTER_X - streetPaint.measureText(text) / 2, streetY, streetPaint)
+        }
+        if (lanes) setTextSizes(M.AR_LANES_DISTANCE_VALUE_SIZE, M.AR_LANES_DISTANCE_UNIT_SIZE)
+        else setTextSizes(M.AR_DISTANCE_VALUE_SIZE, M.AR_DISTANCE_UNIT_SIZE)
+        val width = distanceWidth(tbt)
+        drawDistance(canvas, tbt, M.BOX_CENTER_X - width / 2, if (lanes) M.AR_LANES_DISTANCE_BASELINE else M.AR_DISTANCE_BASELINE)
+        if (lanes) drawLanes(canvas, tbt.lanes, M.AR_LANES_TOP)
+        if (tbt.trip.isNotEmpty()) {
+            val oldSize = tripPaint.textSize
+            tripPaint.textSize = if (lanes) M.AR_LANES_TRIP_SIZE else M.AR_TRIP_SIZE
+            canvas.drawText(tbt.trip, M.BOX_CENTER_X, if (lanes) M.AR_LANES_TRIP_BASELINE else M.AR_TRIP_BASELINE, tripPaint)
+            tripPaint.textSize = oldSize
+        }
+    }
+
+    // ---- AR layout: power / RPM arcs round the native speed ----
+
+    private val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = M.ARC_THICKNESS
+        strokeCap = Paint.Cap.BUTT
+    }
+    private val arcRect = RectF()
+
+    private fun arcSegment(canvas: Canvas, radius: Float, i: Int, steps: Int, color: Int) {
+        arcRect.set(M.ARC_CX - radius, M.ARC_CY - radius, M.ARC_CX + radius, M.ARC_CY + radius)
+        val (start, sweep) = M.arcSegment(i, steps)
+        arcPaint.color = color
+        canvas.drawArc(arcRect, start, sweep, false, arcPaint)
+    }
+
+    /** Outer arc: drive fills from the left end; regen grows from the top centre to both sides. */
+    private fun drawPowerArc(canvas: Canvas, percent: Int) {
+        val lit = M.arcPowerLit(percent)
+        val on = if (percent >= 0) DRIVE else REGEN
+        for (i in 0 until M.ARC_POWER_STEPS) {
+            arcSegment(canvas, M.ARC_POWER_R, i, M.ARC_POWER_STEPS, if (i in lit) on else OFF)
+        }
+    }
+
+    /** Inner arc: one segment per 1000 rpm, left to right, red above 5k. Hidden with the engine off. */
+    private fun drawRpmArc(canvas: Canvas, tenths: Int) {
+        val lit = M.arcRpmLit(tenths)
+        for (i in 0 until M.ARC_RPM_STEPS) {
+            val red = M.rpmSegmentIsRed(i)
+            val color = when {
+                i < lit -> if (red) RED else Color.WHITE
+                red -> RED_OFF
+                else -> OFF
+            }
+            arcSegment(canvas, M.ARC_RPM_R, i, M.ARC_RPM_STEPS, color)
+        }
     }
 
     // ---- AR arrow (Navegação AR) ----
@@ -202,9 +280,6 @@ class HudOverlayRenderer {
         }
         canvas.restore() // layer
         canvas.restore() // clip
-        setTextSizes(AR_DISTANCE_VALUE_SIZE, AR_DISTANCE_UNIT_SIZE)
-        val width = distanceWidth(tbt)
-        drawDistance(canvas, tbt, M.BOX_CENTER_X - width / 2, AR_DISTANCE_BASELINE)
     }
 
     /** Stem colour by row: deep blue at the base, light blue up the road, gone at the top edge. */
@@ -279,10 +354,9 @@ class HudOverlayRenderer {
         }
     }
 
-    private fun drawLanes(canvas: Canvas, lanes: List<List<M.LaneArrow>>) {
+    private fun drawLanes(canvas: Canvas, lanes: List<List<M.LaneArrow>>, top: Float) {
         val cell = M.laneCellWidth(lanes.size)
         val left = M.BOX_CENTER_X - cell * lanes.size / 2
-        val top = M.LANES_TOP
         val height = M.LANE_ROW_HEIGHT
         val icon = minOf(cell - 4f, height)
         val scale = icon / 24f
@@ -491,19 +565,30 @@ private val ROUNDABOUT_REGEN = PreviewScenario(
     rpmTenths = null
 )
 
-private fun arTurn(turn: String, meters: Int, distance: String) = AndroidAutoNavigationTelemetry.Directions(
-    active = true, distance = distance, distanceM = meters, turn = turn,
-    remainingM = 4_800, remainingS = 720
+private fun arTurn(
+    turn: String,
+    meters: Int,
+    distance: String,
+    street: String,
+    lanes: List<List<AndroidAutoNavigationTelemetry.LaneDirection>> = emptyList()
+) = AndroidAutoNavigationTelemetry.Directions(
+    active = true, distance = distance, distanceM = meters, turn = turn, street = street,
+    remainingM = 4_800, remainingS = 720, lanes = lanes
 )
 
-/** AR: a right turn still 650 m away (straight arrow), cruising in EV. */
-private val AR_FAR = PreviewScenario(64, arTurn("TURN_RIGHT", 650, "650 m"), 22, null)
+/** AR: a right turn still 650 m away (straight wedge), cruising in EV. */
+private val AR_FAR = PreviewScenario(64, arTurn("TURN_RIGHT", 650, "650 m", "Av. Paulista"), 22, null)
 
-/** AR: 90 m from the turn, the arrow bending in, engine running. */
-private val AR_BENDING = PreviewScenario(38, arTurn("TURN_RIGHT", 90, "90 m"), 12, 14)
+/** AR: 90 m from the turn with lane guidance, the arm growing, engine running. */
+private val AR_BENDING = PreviewScenario(
+    38,
+    arTurn("TURN_RIGHT", 90, "90 m", "R. Manuel da Nóbrega", listOf(lane(1 to false), lane(1 to false), lane(5 to true, 1 to false))),
+    12,
+    24
+)
 
 /** AR: at a sharp left while regenerating. */
-private val AR_AT_TURN = PreviewScenario(18, arTurn("SHARP_LEFT", 10, "10 m"), -35, null)
+private val AR_AT_TURN = PreviewScenario(18, arTurn("SHARP_LEFT", 10, "10 m", "R. Augusta"), -45, null)
 
 /** Three moments per layout; the Telas previews cycle through them. */
 fun previewScenarios(layout: M.Layout): List<PreviewScenario> = when (layout) {

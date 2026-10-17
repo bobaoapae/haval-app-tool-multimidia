@@ -66,7 +66,7 @@ Grey shading = outside the optics; the native HUD on the right is a rough mock f
 
     <h2 style="margin-top:12px">3D arrow (prototype)</h2>
     <div class="checks">
-      <label><input type="checkbox" id="opt3d" checked> perspective arrow (blue, morphs into the turn) when there are no lanes</label>
+      <label><input type="checkbox" id="opt3d" checked> Navegação AR theme (centre arrow, left column, arcs)</label>
     </div>
     <label class="row">Distance <input type="range" id="dist" min="0" max="1500" step="10"><output id="distOut"></output></label>
     <div class="scen"><button id="play">▶ Play approach<small>1.2 km down to 0 m, ~12 s</small></button></div>
@@ -484,9 +484,67 @@ function draw3dArrow(tbt, meters) {
   ctx.globalAlpha = P3.OPACITY;
   ctx.drawImage(layer, 0, 0);
   ctx.restore();
-  // Distance alone in the left box, a bit larger.
-  const w2 = distanceWidth(tbt, 30, 18);
-  drawDistance(tbt, M.BOX_CENTER_X - w2 / 2, 128, 30, 18);
+}
+
+// ---- AR layout: left column + arcs (port of HudOverlayRenderer.drawArColumn / drawPowerArc) ----
+const ARC = {
+  CX: 268, CY: 98, POWER_R: 46, RPM_R: 38, THICK: 5, START: 135, SWEEP: 270, GAP: 3,
+  POWER_STEPS: 10, RPM_STEPS: 7,
+};
+
+function arColumn(tbt) {
+  const lanes = tbt.lanes.length > 0;
+  const street = tbt.street || '';
+  if (street) {
+    ctx.font = font(lanes ? 14 : 16);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    let t = street;
+    while (ctx.measureText(t).width > M.BOX_RIGHT - M.BOX_LEFT && t.length > 1) t = t.slice(0, -2) + '…';
+    ctx.fillText(t, M.BOX_CENTER_X - ctx.measureText(t).width / 2, lanes ? 74 : 80);
+  }
+  const vs = lanes ? 28 : 38, us = lanes ? 16 : 20;
+  const w = distanceWidth(tbt, vs, us);
+  drawDistance(tbt, M.BOX_CENTER_X - w / 2, lanes ? 104 : 128, vs, us);
+  if (lanes) {
+    const saved = M.LANES_TOP; M.LANES_TOP = 114; drawLanes(tbt.lanes); M.LANES_TOP = saved;
+  }
+  if (opt.eta.checked && tbt.eta) {
+    ctx.font = font(lanes ? 14 : 16);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.textAlign = 'center';
+    ctx.fillText(tbt.eta, M.BOX_CENTER_X, lanes ? 172 : 160);
+    ctx.textAlign = 'left';
+  }
+}
+
+function arcSeg(r, i, steps, color) {
+  const each = ARC.SWEEP / steps;
+  const a0 = (ARC.START + i * each + ARC.GAP / 2) * Math.PI / 180;
+  const a1 = a0 + (each - ARC.GAP) * Math.PI / 180;
+  ctx.strokeStyle = color; ctx.lineWidth = ARC.THICK; ctx.lineCap = 'butt';
+  ctx.beginPath(); ctx.arc(ARC.CX, ARC.CY, r, a0, a1); ctx.stroke();
+}
+
+/** Outer arc: drive fills from the left end; regen grows from the top centre to both sides. */
+function drawPowerArc(kw) {
+  const pct = powerPercent(kw);
+  let lo = 0, hi = 0;
+  if (pct > 0) { lo = 0; hi = Math.max(1, Math.min(10, Math.round(pct / 10))); }
+  else if (pct < 0) { const k = Math.max(1, Math.min(5, Math.floor((-pct + 10) / 20))); lo = 5 - k; hi = 5 + k; }
+  for (let i = 0; i < ARC.POWER_STEPS; i++) {
+    const on = i >= lo && i < hi;
+    arcSeg(ARC.POWER_R, i, ARC.POWER_STEPS, on ? (pct > 0 ? COLORS.drive : COLORS.regen) : COLORS.dotOff);
+  }
+}
+
+/** Inner arc: one segment per 1000 rpm, left to right, red past 5k. Hidden with the engine off. */
+function drawRpmArc(rpm) {
+  if (!(rpm > 0)) return;
+  const lit = Math.max(1, Math.min(ARC.RPM_STEPS, Math.round(rpm / 1000)));
+  for (let i = 0; i < ARC.RPM_STEPS; i++) {
+    const red = (i + 1) * 1000 > M.RPM_RED;
+    arcSeg(ARC.RPM_R, i, ARC.RPM_STEPS, i < lit ? (red ? COLORS.red : COLORS.rpm) : (red ? COLORS.redOff : COLORS.dotOff));
+  }
 }
 
 function formatDistance(m) {
@@ -503,14 +561,20 @@ function render() {
   const meters = base ? (state.dist ?? base.meters) : 0;
   const tbt = base && (state.dist == null ? base : { ...base, meters, ...formatDistance(meters) });
   if (tbt) {
-    if (opt.d3.checked && !tbt.lanes.length && tbt.angle !== undefined && !tbt.ring) draw3dArrow(tbt, meters); // roundabouts: flat icon until exit data lands
+    if (opt.d3.checked && tbt.angle !== undefined && !tbt.ring) { draw3dArrow(tbt, meters); arColumn(tbt); } // roundabouts: flat icon until exit data lands
     else if (tbt.lanes.length) drawCompact(tbt);
     else if (opt.far.checked && tbt.meters >= M.FAR_THRESHOLD_M) drawRow(tbt, M.FAR_TOP);
     else drawHero(tbt);
-    if (opt.eta.checked && tbt.eta) drawEta(tbt.eta);
+    const arShown = opt.d3.checked && tbt.angle !== undefined && !tbt.ring;
+    if (!arShown && opt.eta.checked && tbt.eta) drawEta(tbt.eta);
   }
-  if (opt.power.checked) drawPowerBar(state.kw);
-  if (opt.rpm.checked) drawRpmBar(state.rpm);
+  if (opt.d3.checked) {
+    if (opt.power.checked) drawPowerArc(state.kw);
+    if (opt.rpm.checked) drawRpmArc(state.rpm);
+  } else {
+    if (opt.power.checked) drawPowerBar(state.kw);
+    if (opt.rpm.checked) drawRpmBar(state.rpm);
+  }
   if (opt.guides.checked) {
     ctx.strokeStyle = '#2aa866'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
     ctx.strokeRect(M.BOX_LEFT, M.TBT_TOP, M.BOX_RIGHT - M.BOX_LEFT, 199 - M.TBT_TOP);
@@ -530,15 +594,15 @@ function render() {
 // ---------------------------------------------------------------------------
 const NAV = {
   none: null,
-  right_lanes: { label: 'Right turn, 250 m, 3 lanes', angle: 90, icon: 'TURN_RIGHT', value: '250', unit: 'm', meters: 250, eta: '4.8 km · 12 min', lanes: [[[1, 0]], [[1, 0]], [[5, 1], [1, 0]]] },
-  right: { label: 'Right turn, 90 m, no lanes', angle: 90, icon: 'TURN_RIGHT', value: '90', unit: 'm', meters: 90, eta: '4.8 km · 12 min', lanes: [] },
-  keep_left: { label: 'Keep left, 1.2 km, no lanes', angle: -25, icon: resolveTurnIcon('KEEP_LEFT'), value: '1.2', unit: 'km', meters: 1200, eta: '27.3 km · 34 min', lanes: [] },
+  right_lanes: { street: 'R. Manuel da Nóbrega', label: 'Right turn, 250 m, 3 lanes', angle: 90, icon: 'TURN_RIGHT', value: '250', unit: 'm', meters: 250, eta: '4.8 km · 12 min', lanes: [[[1, 0]], [[1, 0]], [[5, 1], [1, 0]]] },
+  right: { street: 'R. Augusta', label: 'Right turn, 90 m, no lanes', angle: 90, icon: 'TURN_RIGHT', value: '90', unit: 'm', meters: 90, eta: '4.8 km · 12 min', lanes: [] },
+  keep_left: { street: 'Marginal Pinheiros', label: 'Keep left, 1.2 km, no lanes', angle: -25, icon: resolveTurnIcon('KEEP_LEFT'), value: '1.2', unit: 'km', meters: 1200, eta: '27.3 km · 34 min', lanes: [] },
   roundabout_left: { label: 'Roundabout, 3rd exit (left), 150 m', ring: 270, exitNumber: 3, angle: 0, icon: 'ROUNDABOUT', value: '150', unit: 'm', meters: 150, eta: '5.0 km · 11 min', lanes: [] },
-  sharp_left: { label: 'Sharp left, 400 m, no lanes', angle: -135, icon: 'TURN_LEFT', value: '400', unit: 'm', meters: 400, eta: '3.2 km · 8 min', lanes: [] },
-  roundabout: { label: 'Roundabout, 2nd exit (straight), 80 m', ring: 180, exitNumber: 2, angle: 0, icon: 'ROUNDABOUT', value: '80', unit: 'm', meters: 80, eta: '2.1 km · 6 min', lanes: [] },
-  uturn_lanes: { label: 'U-turn, 500 m, 5 lanes', angle: -180, icon: 'U_TURN', value: '500', unit: 'm', meters: 500, eta: '61 km · 1 h 4 min', lanes: [[[8, 1]], [[1, 0]], [[1, 0]], [[1, 0], [3, 0]], [[5, 0]]] },
-  exit: { label: 'Exit right, 2.4 km', angle: 35, icon: resolveTurnIcon('OFF_RAMP_RIGHT'), value: '2.4', unit: 'km', meters: 2400, eta: '19.6 km · 18 min', lanes: [] },
-  arrive: { label: 'Destination, 30 m', angle: 0, icon: 'DESTINATION', value: '30', unit: 'm', meters: 30, eta: '30 m · <1 min', lanes: [] },
+  sharp_left: { street: 'R. da Consolação', label: 'Sharp left, 400 m, no lanes', angle: -135, icon: 'TURN_LEFT', value: '400', unit: 'm', meters: 400, eta: '3.2 km · 8 min', lanes: [] },
+  roundabout: { street: 'Pç. Panamericana', label: 'Roundabout, 2nd exit (straight), 80 m', ring: 180, exitNumber: 2, angle: 0, icon: 'ROUNDABOUT', value: '80', unit: 'm', meters: 80, eta: '2.1 km · 6 min', lanes: [] },
+  uturn_lanes: { street: 'Av. Paulista', label: 'U-turn, 500 m, 5 lanes', angle: -180, icon: 'U_TURN', value: '500', unit: 'm', meters: 500, eta: '61 km · 1 h 4 min', lanes: [[[8, 1]], [[1, 0]], [[1, 0]], [[1, 0], [3, 0]], [[5, 0]]] },
+  exit: { street: 'Rod. dos Bandeirantes', label: 'Exit right, 2.4 km', angle: 35, icon: resolveTurnIcon('OFF_RAMP_RIGHT'), value: '2.4', unit: 'km', meters: 2400, eta: '19.6 km · 18 min', lanes: [] },
+  arrive: { street: 'R. Oscar Freire', label: 'Destination, 30 m', angle: 0, icon: 'DESTINATION', value: '30', unit: 'm', meters: 30, eta: '30 m · <1 min', lanes: [] },
 };
 
 const SCENARIOS = [
