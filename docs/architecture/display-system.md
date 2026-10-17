@@ -94,15 +94,21 @@ Feito no carro do dono com um APK descartável (`br.com.marcel.hudtest`, uma Act
 
 ### Overlay do Impulse no HUD (`hud/HudOverlay*`)
 
-- Opt-in em Ajustes > "HUD do Impulse" (`hudOverlayEnabled`, desligado por padrão).
+- Aba Telas > card "HUD": fila horizontal de layouts com prévia (desenhada pelo mesmo
+  `HudOverlayRenderer` do HUD, sobre uma cena de estrada + mock do HUD nativo). "Original" (padrão)
+  não desenha nada; "Navegação" liga o overlay. A engrenagem do Navegação abre as opções, todas
+  ligadas por padrão: navegação, seta menor até faltar 1 km, horário de chegada, barra de
+  potência, barra de rotação (`HudOverlaySettings`, prefs `hudLayout`/`hudNav*`/`hudPowerBar`/
+  `hudRpmBar`; o antigo `hudOverlayEnabled=true` migra para "navigation").
 - TBT do Android Auto (só com guia) no canto livre x 10..168, y 58..170: seta grande + distância
-  pequena sem faixas, ou seta + "250 m" numa linha centrada sobre as faixas.
-- Linha de baixo (y≈184..195), que o HUD nativo deixa livre dos dois lados: potência na borda
-  esquerda (x 10..118, centro-zero, 1 ponto por 10 %, tração azul / regen verde, % acima do zero)
-  e RPM na borda direita (x 416..470, 1 segmento por 1000 rpm, o de 5-6k vermelho, "3.2 kRPM"
-  acima; some com o motor desligado, `haval.power.ice`).
-- Layout aprovado no simulador `scripts/hud-simulator/` (port do `HudOverlayView`); mudanças de
-  layout passam por lá antes do Kotlin.
+  pequena; seta pequena + "250 m" numa linha centrada sobre as faixas; ou, sem faixas e a 1 km ou
+  mais, só essa linha (opção). Chegada ("10:40 · 12 min") em y≈184.
+- Barras sem rótulo na linha de baixo da faixa visível (y 193..197), que o HUD nativo deixa
+  livre dos dois lados: potência na borda esquerda (x 10..118, centro-zero, 1 segmento por 10 %,
+  tração azul / regen verde) e RPM na borda direita (x 416..470, 1 segmento por 1000 rpm, o de
+  5-6k vermelho; some com o motor desligado, `haval.power.ice`).
+- Layout aprovado no simulador `scripts/hud-simulator/` (port do renderer); mudanças de layout
+  passam por lá antes do Kotlin.
 - **Uma Activity parada no 4096 dá ANR.** Ela vira o app focado com uma janela não-focável, e a
   próxima tecla espera "no window has focus" por 5 s (dropbox `data_app_anr`, 2026-10-14). Por
   isso a `HudOverlayActivity` só abre a porta: o controller adiciona uma janela

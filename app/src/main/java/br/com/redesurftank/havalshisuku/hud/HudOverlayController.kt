@@ -8,7 +8,6 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.WindowManager
-import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.listeners.IDataChanged
 import br.com.redesurftank.havalshisuku.managers.AndroidAutoNavigationTelemetry
@@ -16,17 +15,16 @@ import br.com.redesurftank.havalshisuku.managers.PowerFlowMapper
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.models.PowerFlow
-import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Owns the HUD overlay window (display 4096) when the owner turned it on
- * ([SharedPreferencesKeys.HUD_OVERLAY_ENABLED], off by default).
+ * Owns the HUD overlay window (display 4096) while the owner has a layout other than "original"
+ * picked in the Telas tab ([HudOverlaySettings], default original = nothing drawn).
  *
- * The window stays up the whole time the toggle is on: the power/regen and RPM bars are always
- * shown, and Android Auto turn-by-turn appears above them only while guidance runs. It is
+ * The window stays up the whole time that layout is picked: the power/regen and RPM bars (if
+ * on) are always drawn, and Android Auto turn-by-turn appears only while guidance runs. It is
  * launched once through Shizuku (the HUD is a private display) after a boot grace period, and
  * relaunched if it dies. State lives on the main thread; the Shizuku calls run on their own.
  */
@@ -57,8 +55,9 @@ object HudOverlayController {
     internal const val CLEAR_FRAME_DELAY_MS = 150L
 
     // Main thread.
-    private var tbt: HudOverlayModel.Tbt? = null
-    private var demoTbt: HudOverlayModel.Tbt? = null
+    /** Latest active guidance, kept [TBT_HIDE_DEBOUNCE_MS] past its end; null = no route. */
+    private var navDirections: AndroidAutoNavigationTelemetry.Directions? = null
+    private var demoDirections: AndroidAutoNavigationTelemetry.Directions? = null
     /** Normal host: a window-manager overlay on the HUD display, no activity behind it. */
     private var overlay: HudOverlayView? = null
     private var overlayWm: WindowManager? = null
@@ -66,7 +65,7 @@ object HudOverlayController {
     private var activity: HudOverlayActivity? = null
     private var launchStartedMs = 0L
     private var launchBlockedUntilMs = 0L
-    private var enabledCache: Boolean? = null
+    private var configCache: HudOverlayModel.Config? = null
     private var startedAtMs = 0L
 
     // Written from the CAN callback thread; only quantised changes reach the main thread.
@@ -81,7 +80,7 @@ object HudOverlayController {
     private var tbtHidePending = false
     private val hideTbtRunnable = Runnable {
         tbtHidePending = false
-        tbt = null
+        navDirections = null
         publish()
     }
 
@@ -99,23 +98,22 @@ object HudOverlayController {
         }
     }
 
-    /** Settings toggle. Any thread. */
-    fun setEnabled(enabled: Boolean) {
+    /** Telas tab: layout or one of its options changed (already saved). Any thread. */
+    fun setConfig(config: HudOverlayModel.Config) {
         main.post {
-            enabledCache = enabled
-            // The toggle is the owner's word: a debug demo must not keep the HUD up past "off".
+            configCache = config
+            // The owner's pick wins: a debug demo must not keep the HUD up past "original".
             endDemo()
-            if (enabled) publish() else closeHosts()
+            if (config.active) publish() else closeHosts()
         }
     }
 
     /** Android Auto guidance, from AndroidAutoClusterController. Any thread. */
     fun onDirections(update: AndroidAutoNavigationTelemetry.Directions) {
         main.post {
-            val next = HudOverlayModel.tbtFor(update)
-            if (next == null) {
+            if (!update.active) {
                 // Arm once; repeated inactive updates must not keep pushing the hide out.
-                if (tbt != null && !tbtHidePending) {
+                if (navDirections != null && !tbtHidePending) {
                     tbtHidePending = true
                     main.postDelayed(hideTbtRunnable, TBT_HIDE_DEBOUNCE_MS)
                 }
@@ -123,18 +121,20 @@ object HudOverlayController {
             }
             tbtHidePending = false
             main.removeCallbacks(hideTbtRunnable)
-            if (next == tbt) return@post
-            tbt = next
-            publish()
+            val previous = navDirections
+            navDirections = update
+            // ~1 Hz feed: only redraw when what the HUD shows changes (turn, distance, ETA text).
+            val config = config()
+            if (previous == null || HudOverlayModel.tbtFor(previous, config) != HudOverlayModel.tbtFor(update, config)) {
+                publish()
+            }
         }
     }
 
-    private fun isEnabled(): Boolean = enabledCache ?: App.getDeviceProtectedContext()
-        .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
-        .getBoolean(SharedPreferencesKeys.HUD_OVERLAY_ENABLED.key, false)
-        .also { enabledCache = it }
+    private fun config(): HudOverlayModel.Config =
+        configCache ?: HudOverlaySettings.load().also { configCache = it }
 
-    private fun wanted(): Boolean = isEnabled() || demoTbt != null
+    private fun wanted(): Boolean = config().active || demoDirections != null
 
     // ---- car data ----
 
@@ -168,8 +168,9 @@ object HudOverlayController {
 
     // ---- window ----
 
-    private fun currentFrame() = HudOverlayModel.Frame(
-        tbt = demoTbt ?: tbt,
+    private fun currentFrame() = HudOverlayModel.frameFor(
+        config = config(),
+        directions = demoDirections ?: navDirections,
         powerPercent = powerPercent.get(),
         rpmTenths = rpmTenths.get().takeIf { it != NO_RPM }
     )
@@ -189,7 +190,7 @@ object HudOverlayController {
             return
         }
         if (startedAtMs == 0L || SystemClock.elapsedRealtime() - startedAtMs < BOOT_GRACE_MS) {
-            if (demoTbt == null) return
+            if (demoDirections == null) return
         }
         requestLaunch()
     }
@@ -259,38 +260,43 @@ object HudOverlayController {
     /**
      * Debug-only layout check, from HudOverlayActivity's `hudDemo` extra: `on` = right turn at
      * 250 m with three lanes (the R. Nóbrega shape measured on the car), `nolanes` = the same
-     * turn without lanes, `off` = back to live data. Shows even with the toggle off, so it ends
-     * after [DEMO_TIMEOUT_MS] or as soon as the toggle is touched.
+     * turn without lanes, `far` = keep left in 1.8 km, `off` = back to live data. All arrive at
+     * 10:40. Shows even on the "original" layout, so it ends after [DEMO_TIMEOUT_MS] or as soon
+     * as the layout is touched.
      */
     internal fun demo(mode: String) {
-        val turn = AndroidAutoNavigationTelemetry.Directions(
-            active = true,
-            distance = "250 m",
-            turn = "TURN_RIGHT",
-            lanes = if (mode == "nolanes") emptyList() else listOf(
-                listOf(AndroidAutoNavigationTelemetry.LaneDirection(1, false)),
-                listOf(AndroidAutoNavigationTelemetry.LaneDirection(1, false)),
-                listOf(
-                    AndroidAutoNavigationTelemetry.LaneDirection(5, true),
-                    AndroidAutoNavigationTelemetry.LaneDirection(1, false)
-                )
+        val threeLanes = listOf(
+            listOf(AndroidAutoNavigationTelemetry.LaneDirection(1, false)),
+            listOf(AndroidAutoNavigationTelemetry.LaneDirection(1, false)),
+            listOf(
+                AndroidAutoNavigationTelemetry.LaneDirection(5, true),
+                AndroidAutoNavigationTelemetry.LaneDirection(1, false)
             )
         )
+        val demo = AndroidAutoNavigationTelemetry.Directions(
+            active = true, distance = "250 m", distanceM = 250, turn = "TURN_RIGHT",
+            eta = "10:40", remainingS = 720
+        )
         main.removeCallbacks(demoExpiry)
-        demoTbt = if (mode == "on" || mode == "nolanes") HudOverlayModel.tbtFor(turn) else null
-        // A demo left up looks like a live route with the toggle off (owner hit this): expire it.
-        if (demoTbt != null) main.postDelayed(demoExpiry, DEMO_TIMEOUT_MS)
+        demoDirections = when (mode) {
+            "on" -> demo.copy(lanes = threeLanes)
+            "nolanes" -> demo
+            "far" -> demo.copy(distance = "1.8 km", distanceM = 1_800, turn = "KEEP_LEFT")
+            else -> null
+        }
+        // A demo left up looks like a live route with the HUD off (owner hit this): expire it.
+        if (demoDirections != null) main.postDelayed(demoExpiry, DEMO_TIMEOUT_MS)
     }
 
     private val demoExpiry = Runnable {
-        if (demoTbt == null) return@Runnable
-        demoTbt = null
+        if (demoDirections == null) return@Runnable
+        demoDirections = null
         publish()
     }
 
     private fun endDemo() {
         main.removeCallbacks(demoExpiry)
-        demoTbt = null
+        demoDirections = null
     }
 
     /**

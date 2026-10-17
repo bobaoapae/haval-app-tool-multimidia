@@ -372,9 +372,6 @@ fun TelasTab() {
     var allClusterFunctionsEnabled by remember {
         mutableStateOf(enableProjector || enableCustomIntegration || enableCustomMenu || enableMask)
     }
-    var hudOverlayEnabled by remember {
-        mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.HUD_OVERLAY_ENABLED.key, false))
-    }
     var clusterFuelDisplayUnit by remember {
         mutableStateOf(
                 prefs.getString(SharedPreferencesKeys.CLUSTER_FUEL_DISPLAY_UNIT.key, "liters")
@@ -1548,39 +1545,9 @@ fun TelasTab() {
         }
 
         // HUD CARD - Impulse overlay on the physical HUD (display 4096); independent of the cluster.
-        StyledCard(modifier = Modifier.padding(horizontal = 8.dp)) {
-            Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(20.dp)
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                            "HUD do Impulse",
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                            "Mostra nos cantos livres do HUD a barra de potência/regeneração e a de rotação do motor (só com o motor ligado). Enquanto o Android Auto estiver guiando, mostra também a próxima manobra, a distância e as faixas.",
-                            color = ImpTokens.TextSecondary,
-                            fontSize = 14.sp
-                    )
-                }
-                Switch(
-                        checked = hudOverlayEnabled,
-                        onCheckedChange = {
-                            hudOverlayEnabled = it
-                            prefs.edit { putBoolean(SharedPreferencesKeys.HUD_OVERLAY_ENABLED.key, it) }
-                            br.com.redesurftank.havalshisuku.hud.HudOverlayController.setEnabled(it)
-                        },
-                        colors =
-                                SwitchDefaults.colors(
-                                        checkedThumbColor = Color.White,
-                                        checkedTrackColor = ImpTokens.Accent
-                                )
-                )
-            }
-        }
+        br.com.redesurftank.havalshisuku.ui.components.HudLayoutSection(
+                modifier = Modifier.padding(horizontal = 8.dp)
+        )
 
         // APP COORDINATORS SECTION
         val coordinatorsAlpha = if (allClusterFunctionsEnabled) 1f else 0.4f

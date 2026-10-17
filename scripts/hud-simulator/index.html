@@ -55,13 +55,21 @@ Grey shading = outside the optics; the native HUD on the right is a rough mock f
     <label class="row">Navigation
       <select id="nav" style="grid-column: span 2"></select>
     </label>
+    <h2 style="margin-top:12px">Navigation layout options</h2>
+    <div class="checks">
+      <label><input type="checkbox" id="optNav" checked> navigation</label>
+      <label><input type="checkbox" id="optFar" checked> smaller arrow until 1 km</label>
+      <label><input type="checkbox" id="optEta" checked> arrival (ETA)</label>
+      <label><input type="checkbox" id="optPower" checked> power bar</label>
+      <label><input type="checkbox" id="optRpm" checked> RPM bar</label>
+    </div>
     <div class="checks">
       <label><input type="checkbox" id="native" checked> native HUD mock</label>
       <label><input type="checkbox" id="guides"> free-area guide</label>
       <label><input type="checkbox" id="optics" checked> optics shading</label>
     </div>
     <ul class="notes">
-      <li>RPM 0 = engine off: the RPM bar and value are hidden.</li>
+      <li>RPM 0 = engine off: the RPM bar is hidden.</li>
       <li>Power % = share of 100 kW (drive) or 50 kW (regen) — to tune on a drive.</li>
     </ul>
   </div>
@@ -78,20 +86,26 @@ const M = {
   COMPACT_LANES_GAP: 10, LANE_ROW_HEIGHT: 36, LANE_CELL_MAX: 36,
   HERO_GLYPH: 64, HERO_VALUE_SIZE: 20, HERO_UNIT_SIZE: 14, HERO_TEXT_GAP: 22,
   UNIT_GAP: 4,
-  // Bars on the bottom row: power at the HUD's left edge, RPM mirrored at its right edge
-  // (the native HUD leaves the bottom of its right side empty).
-  BAR_Y: 192, BAR_LABEL_BASELINE: 184, BAR_LABEL_SIZE: 11, DOT_R: 1.5,
-  // Power: one dot per 10 % each side of a subtle zero tick.
-  POWER_LEFT: 10, POWER_RIGHT: 118, POWER_DOTS_PER_SIDE: 10, ZERO_GAP: 4,
+  // Far (no lanes, >= 1 km, option on): the small row alone.
+  FAR_THRESHOLD_M: 1000,
+  // Arrival line under the turn-by-turn.
+  ETA_BASELINE: 184, ETA_SIZE: 13,
+  // Bars on the bottom row of the visible band, no labels: power at the HUD's left edge, RPM
+  // at its right edge (the native HUD leaves the bottom of both sides empty).
+  BAR_Y: 195, BAR_HEIGHT: 4,
+  // Power: one segment per 10 % each side of a subtle zero tick.
+  POWER_LEFT: 10, POWER_RIGHT: 118, POWER_SEGMENTS_PER_SIDE: 10, POWER_SEGMENT_GAP: 1.5, ZERO_GAP: 4, ZERO_TICK: 4,
   // RPM: one segment per 1000 rpm, the last (5-6k) red.
-  RPM_LEFT: 416, RPM_RIGHT: 470, RPM_SEGMENTS: 6, RPM_SEGMENT_GAP: 2, RPM_SEGMENT_H: 3,
+  RPM_LEFT: 416, RPM_RIGHT: 470, RPM_SEGMENTS: 6, RPM_SEGMENT_GAP: 2,
   DRIVE_MAX_KW: 100, REGEN_MAX_KW: 50, POWER_DEADBAND_KW: 0.5,
-  RPM_MAX: 6000, RPM_RED: 5000,
+  RPM_RED: 5000,
 };
 M.BOX_CENTER_X = (M.BOX_LEFT + M.BOX_RIGHT) / 2;
 M.COMPACT_TOP = M.TBT_TOP + (M.TBT_BOTTOM - M.TBT_TOP - (M.COMPACT_GLYPH + M.COMPACT_LANES_GAP + M.LANE_ROW_HEIGHT)) / 2;
 M.LANES_TOP = M.COMPACT_TOP + M.COMPACT_GLYPH + M.COMPACT_LANES_GAP;
 M.HERO_TOP = M.TBT_TOP + (M.TBT_BOTTOM - M.TBT_TOP - (M.HERO_GLYPH + M.HERO_TEXT_GAP)) / 2;
+M.FAR_TOP = M.TBT_TOP + (M.TBT_BOTTOM - M.TBT_TOP - M.COMPACT_GLYPH) / 2;
+M.POWER_SEGMENT_WIDTH = ((M.POWER_RIGHT - M.POWER_LEFT) / 2 - M.ZERO_GAP - M.POWER_SEGMENT_GAP * (M.POWER_SEGMENTS_PER_SIDE - 1)) / M.POWER_SEGMENTS_PER_SIDE;
 
 const COLORS = {
   white: '#ffffff', dotOff: 'rgba(255,255,255,0.24)', drive: '#3fa9ff', regen: '#50e678',
@@ -208,12 +222,17 @@ function drawHero(tbt) {
   drawDistance(tbt, M.BOX_CENTER_X - w / 2, bottom + M.HERO_TEXT_GAP, M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE);
 }
 
-function drawCompact(tbt) {
+/** Small arrow + "250 m" as one row centred in the box, the text on the arrow's bottom edge. */
+function drawRow(tbt, top) {
   const tw = distanceWidth(tbt, M.COMPACT_VALUE_SIZE, M.COMPACT_UNIT_SIZE);
   const gap = tw > 0 ? M.COMPACT_ROW_GAP : 0;
   const left = M.BOX_CENTER_X - (M.COMPACT_GLYPH + gap + tw) / 2;
-  const bottom = drawTurn(tbt.icon, left, M.COMPACT_TOP, M.COMPACT_GLYPH);
+  const bottom = drawTurn(tbt.icon, left, top, M.COMPACT_GLYPH);
   drawDistance(tbt, left + M.COMPACT_GLYPH + gap, bottom, M.COMPACT_VALUE_SIZE, M.COMPACT_UNIT_SIZE);
+}
+
+function drawCompact(tbt) {
+  drawRow(tbt, M.COMPACT_TOP);
   drawLanes(tbt.lanes);
 }
 
@@ -255,8 +274,11 @@ function drawLanes(lanes) {
   });
 }
 
-function dot(x, y, color) {
-  ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, M.DOT_R, 0, Math.PI * 2); ctx.fill();
+function segment(left, width, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.roundRect(left, M.BAR_Y - M.BAR_HEIGHT / 2, width, M.BAR_HEIGHT, 1);
+  ctx.fill();
 }
 
 function powerPercent(kw) {
@@ -265,33 +287,25 @@ function powerPercent(kw) {
                 : -Math.min(100, Math.round(-kw / M.REGEN_MAX_KW * 100));
 }
 
-/** One dot per 10 %; anything past the deadband lights at least one. Signed. */
-function powerDots(kw) {
+/** One segment per 10 %; anything past the deadband lights at least one. Signed. */
+function powerSegments(kw) {
   const pct = powerPercent(kw);
   if (pct === 0) return 0;
-  const n = Math.max(1, Math.min(M.POWER_DOTS_PER_SIDE, Math.round(Math.abs(pct) / 10)));
+  const n = Math.max(1, Math.min(M.POWER_SEGMENTS_PER_SIDE, Math.round(Math.abs(pct) / 10)));
   return pct > 0 ? n : -n;
 }
 
-/** Centre-zero: subtle zero tick, regen dots left (green), drive dots right (blue). */
+/** Centre-zero: subtle zero tick, regen segments left (green), drive right (blue). No label. */
 function drawPowerBar(kw) {
-  const n = M.POWER_DOTS_PER_SIDE, mid = (M.POWER_LEFT + M.POWER_RIGHT) / 2;
-  const first = M.ZERO_GAP + M.DOT_R;
-  const step = (mid - M.POWER_LEFT - M.DOT_R - first) / (n - 1);
-  const lit = powerDots(kw);
-  for (let i = 0; i < n; i++) {
-    const off = first + i * step;
-    dot(mid + off, M.BAR_Y, lit > 0 && i < lit ? COLORS.drive : COLORS.dotOff);
-    dot(mid - off, M.BAR_Y, lit < 0 && i < -lit ? COLORS.regen : COLORS.dotOff);
+  const mid = (M.POWER_LEFT + M.POWER_RIGHT) / 2, w = M.POWER_SEGMENT_WIDTH;
+  const lit = powerSegments(kw);
+  for (let i = 0; i < M.POWER_SEGMENTS_PER_SIDE; i++) {
+    const off = M.ZERO_GAP + i * (w + M.POWER_SEGMENT_GAP);
+    segment(mid + off, w, lit > 0 && i < lit ? COLORS.drive : COLORS.dotOff);
+    segment(mid - off - w, w, lit < 0 && i < -lit ? COLORS.regen : COLORS.dotOff);
   }
   ctx.strokeStyle = COLORS.zero; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(mid, M.BAR_Y - 3); ctx.lineTo(mid, M.BAR_Y + 3); ctx.stroke();
-  const pct = powerPercent(kw);
-  ctx.font = font(M.BAR_LABEL_SIZE, 400);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = pct > 0 ? COLORS.drive : pct < 0 ? COLORS.regen : COLORS.white;
-  ctx.fillText(`${pct}%`, mid, M.BAR_LABEL_BASELINE);
-  ctx.textAlign = 'left';
+  ctx.beginPath(); ctx.moveTo(mid, M.BAR_Y - M.ZERO_TICK); ctx.lineTo(mid, M.BAR_Y + M.ZERO_TICK); ctx.stroke();
 }
 
 /** Lit RPM segments: one per 1000 rpm, rounded, at least one while the engine turns. */
@@ -308,17 +322,15 @@ function drawRpmBar(rpm) {
   const lit = rpmSegments(rpm);
   for (let i = 0; i < n; i++) {
     const red = (i + 1) * 1000 > M.RPM_RED;
-    const on = i < lit;
-    ctx.fillStyle = on ? (red ? COLORS.red : COLORS.rpm) : (red ? COLORS.redOff : COLORS.dotOff);
-    const x = M.RPM_LEFT + i * (w + gap), h = M.RPM_SEGMENT_H;
-    ctx.beginPath();
-    ctx.roundRect(x, M.BAR_Y - h / 2, w, h, h / 2);
-    ctx.fill();
+    segment(M.RPM_LEFT + i * (w + gap), w, i < lit ? (red ? COLORS.red : COLORS.rpm) : (red ? COLORS.redOff : COLORS.dotOff));
   }
-  ctx.font = font(M.BAR_LABEL_SIZE, 400);
+}
+
+function drawEta(text) {
+  ctx.font = font(M.ETA_SIZE);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
   ctx.textAlign = 'center';
-  ctx.fillStyle = rpm > M.RPM_RED ? COLORS.red : COLORS.white;
-  ctx.fillText(`${(rpm / 1000).toFixed(1)} kRPM`, (M.RPM_LEFT + M.RPM_RIGHT) / 2, M.BAR_LABEL_BASELINE);
+  ctx.fillText(text, M.BOX_CENTER_X, M.ETA_BASELINE);
   ctx.textAlign = 'left';
 }
 
@@ -349,14 +361,19 @@ function render() {
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(S, 0, 0, S, 0, 0);
   if (opt.native.checked) drawNativeMock(state.speed);
-  const tbt = NAV[state.nav];
-  if (tbt) (tbt.lanes.length ? drawCompact : drawHero)(tbt);
-  drawPowerBar(state.kw);
-  drawRpmBar(state.rpm);
+  const tbt = opt.nav.checked ? NAV[state.nav] : null;
+  if (tbt) {
+    if (tbt.lanes.length) drawCompact(tbt);
+    else if (opt.far.checked && tbt.meters >= M.FAR_THRESHOLD_M) drawRow(tbt, M.FAR_TOP);
+    else drawHero(tbt);
+    if (opt.eta.checked && tbt.eta) drawEta(tbt.eta);
+  }
+  if (opt.power.checked) drawPowerBar(state.kw);
+  if (opt.rpm.checked) drawRpmBar(state.rpm);
   if (opt.guides.checked) {
     ctx.strokeStyle = '#2aa866'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
-    ctx.strokeRect(M.BOX_LEFT, M.TBT_TOP, M.BOX_RIGHT - M.BOX_LEFT, 196 - M.TBT_TOP);
-    ctx.strokeRect(M.RPM_LEFT - 4, M.BAR_LABEL_BASELINE - 12, M.RPM_RIGHT - M.RPM_LEFT + 8, 196 - M.BAR_LABEL_BASELINE + 12);
+    ctx.strokeRect(M.BOX_LEFT, M.TBT_TOP, M.BOX_RIGHT - M.BOX_LEFT, 199 - M.TBT_TOP);
+    ctx.strokeRect(M.RPM_LEFT - 4, M.BAR_Y - 6, M.RPM_RIGHT - M.RPM_LEFT + 8, 12);
     ctx.setLineDash([]);
   }
   if (opt.optics.checked) {
@@ -372,13 +389,13 @@ function render() {
 // ---------------------------------------------------------------------------
 const NAV = {
   none: null,
-  right_lanes: { label: 'Right turn, 250 m, 3 lanes', icon: 'TURN_RIGHT', value: '250', unit: 'm', lanes: [[[1, 0]], [[1, 0]], [[5, 1], [1, 0]]] },
-  right: { label: 'Right turn, 90 m, no lanes', icon: 'TURN_RIGHT', value: '90', unit: 'm', lanes: [] },
-  keep_left: { label: 'Keep left, 1.2 km, no lanes', icon: resolveTurnIcon('KEEP_LEFT'), value: '1.2', unit: 'km', lanes: [] },
-  roundabout: { label: 'Roundabout, 80 m', icon: 'ROUNDABOUT', value: '80', unit: 'm', lanes: [] },
-  uturn_lanes: { label: 'U-turn, 500 m, 5 lanes', icon: 'U_TURN', value: '500', unit: 'm', lanes: [[[8, 1]], [[1, 0]], [[1, 0]], [[1, 0], [3, 0]], [[5, 0]]] },
-  exit: { label: 'Exit right, 2.4 km', icon: resolveTurnIcon('OFF_RAMP_RIGHT'), value: '2.4', unit: 'km', lanes: [] },
-  arrive: { label: 'Destination, 30 m', icon: 'DESTINATION', value: '30', unit: 'm', lanes: [] },
+  right_lanes: { label: 'Right turn, 250 m, 3 lanes', icon: 'TURN_RIGHT', value: '250', unit: 'm', meters: 250, eta: '10:40 · 12 min', lanes: [[[1, 0]], [[1, 0]], [[5, 1], [1, 0]]] },
+  right: { label: 'Right turn, 90 m, no lanes', icon: 'TURN_RIGHT', value: '90', unit: 'm', meters: 90, eta: '10:40 · 12 min', lanes: [] },
+  keep_left: { label: 'Keep left, 1.2 km, no lanes', icon: resolveTurnIcon('KEEP_LEFT'), value: '1.2', unit: 'km', meters: 1200, eta: '18:05 · 34 min', lanes: [] },
+  roundabout: { label: 'Roundabout, 80 m', icon: 'ROUNDABOUT', value: '80', unit: 'm', meters: 80, eta: '10:40 · 6 min', lanes: [] },
+  uturn_lanes: { label: 'U-turn, 500 m, 5 lanes', icon: 'U_TURN', value: '500', unit: 'm', meters: 500, eta: '21:15 · 1 h 4 min', lanes: [[[8, 1]], [[1, 0]], [[1, 0]], [[1, 0], [3, 0]], [[5, 0]]] },
+  exit: { label: 'Exit right, 2.4 km', icon: resolveTurnIcon('OFF_RAMP_RIGHT'), value: '2.4', unit: 'km', meters: 2400, eta: '10:52 · 18 min', lanes: [] },
+  arrive: { label: 'Destination, 30 m', icon: 'DESTINATION', value: '30', unit: 'm', meters: 30, eta: '10:40 · <1 min', lanes: [] },
 };
 
 const SCENARIOS = [
@@ -386,6 +403,7 @@ const SCENARIOS = [
   { name: 'EV cruise + turn with lanes', note: '+18 kW, engine off', kw: 18, rpm: 0, nav: 'right_lanes', speed: 42 },
   { name: 'Hybrid accel, no lanes', note: '+65 kW, 3200 rpm, keep left 1.2 km', kw: 65, rpm: 3200, nav: 'keep_left', speed: 78 },
   { name: 'Full power, red zone', note: '+100 kW, 5600 rpm', kw: 100, rpm: 5600, nav: 'none', speed: 112 },
+  { name: 'Highway exit far away', note: '+30 kW, 2.4 km to the exit', kw: 30, rpm: 0, nav: 'exit', speed: 105 },
   { name: 'Regen braking at roundabout', note: '−28 kW, engine off', kw: -28, rpm: 0, nav: 'roundabout', speed: 35 },
   { name: 'Engine charging, idle', note: '−6 kW, 1100 rpm', kw: -6, rpm: 1100, nav: 'none', speed: 0 },
   { name: 'U-turn with 5 lanes', note: '+9 kW, engine off', kw: 9, rpm: 0, nav: 'uturn_lanes', speed: 24 },
@@ -393,7 +411,11 @@ const SCENARIOS = [
 ];
 
 const state = { kw: 0, rpm: 0, nav: 'none', speed: 0 };
-const opt = { native: document.getElementById('native'), guides: document.getElementById('guides'), optics: document.getElementById('optics') };
+const opt = {
+  native: document.getElementById('native'), guides: document.getElementById('guides'), optics: document.getElementById('optics'),
+  nav: document.getElementById('optNav'), far: document.getElementById('optFar'), eta: document.getElementById('optEta'),
+  power: document.getElementById('optPower'), rpm: document.getElementById('optRpm'),
+};
 const kwIn = document.getElementById('kw'), rpmIn = document.getElementById('rpm'), navIn = document.getElementById('nav');
 const kwOut = document.getElementById('kwOut'), rpmOut = document.getElementById('rpmOut');
 for (const [k, v] of Object.entries(NAV)) navIn.add(new Option(v ? v.label : 'No route', k));

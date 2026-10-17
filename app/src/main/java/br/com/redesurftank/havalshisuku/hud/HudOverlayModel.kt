@@ -13,8 +13,8 @@ import kotlin.math.roundToInt
  * (x 0..180, y 40..200) minus a gap on every side.
  *
  * Two parts: turn-by-turn (only while Android Auto guides) in the free box, and two bars on the
- * bottom row: power/regen at the left edge (always) and engine RPM at the right edge (while the
- * engine runs).
+ * bottom row: power/regen at the left edge and engine RPM at the right edge (while the engine
+ * runs). Each can be switched off in the Navigation layout's settings ([Config]).
  */
 object HudOverlayModel {
     const val DISPLAY_ID = 4096
@@ -53,32 +53,40 @@ object HudOverlayModel {
     /** Top of the hero arrow, so arrow + text sit centred in the TBT area. */
     const val HERO_TOP = TBT_TOP + (TBT_BOTTOM - TBT_TOP - (HERO_GLYPH + HERO_TEXT_GAP)) / 2
 
-    // Bars on the bottom row: power at the HUD's left edge, RPM at its right edge (the native
-    // HUD leaves the bottom of its right side empty). Layout approved in the browser simulator.
-    const val BAR_Y = 192f
-    const val BAR_LABEL_BASELINE = 184f
-    const val BAR_LABEL_SIZE = 11f
+    // No lanes and still >= 1 km away (optional): a small arrow + distance row, like the compact
+    // row without lanes; the big arrow only comes back for the last kilometre.
+    const val FAR_THRESHOLD_M = 1_000
+    const val FAR_TOP = TBT_TOP + (TBT_BOTTOM - TBT_TOP - COMPACT_GLYPH) / 2
 
-    // Power: centre-zero, one dot per 10 % each side of a subtle zero tick.
+    // Arrival line ("10:40 · 12 min") under the turn-by-turn, centred in the box.
+    const val ETA_BASELINE = 184f
+    const val ETA_SIZE = 13f
+
+    // Bars on the bottom row of the visible band, no labels: power at the HUD's left edge, RPM at
+    // its right edge (the native HUD leaves the bottom of both sides empty). Approved in the
+    // browser simulator (scripts/hud-simulator).
+    const val BAR_Y = 195f
+    const val BAR_HEIGHT = 4f
+
+    // Power: centre-zero, one segment per 10 % each side of a subtle zero tick.
     const val POWER_LEFT = 10f
     const val POWER_RIGHT = 118f
-    const val POWER_DOTS_PER_SIDE = 10
-    const val POWER_DOT_RADIUS = 1.5f
+    const val POWER_SEGMENTS_PER_SIDE = 10
+    const val POWER_SEGMENT_GAP = 1.5f
     const val POWER_ZERO_GAP = 4f
-    const val POWER_ZERO_TICK = 3f
+    const val POWER_ZERO_TICK = 4f
 
     // RPM: one segment per 1000 rpm, the 5-6k one red.
     const val RPM_LEFT = 416f
     const val RPM_RIGHT = 470f
     const val RPM_SEGMENTS = 6
     const val RPM_SEGMENT_GAP = 2f
-    const val RPM_SEGMENT_HEIGHT = 3f
     const val RPM_RED = 5_000
 
     /** Power full scale. A confirmar against the car's real limits; tune on a drive. */
     const val DRIVE_MAX_KW = 100.0
     const val REGEN_MAX_KW = 50.0
-    /** Below this power reads 0 %, so idle noise doesn't flicker a dot. */
+    /** Below this power reads 0 %, so idle noise doesn't light a segment. */
     const val POWER_DEADBAND_KW = 0.5
 
     /**
@@ -94,24 +102,26 @@ object HudOverlayModel {
         }
     }
 
-    /** Lit power dots from [powerPercent], signed: one per 10 %, at least one past the deadband. */
-    fun powerDots(percent: Int): Int {
+    /** Lit power segments from [powerPercent], signed: one per 10 %, at least one past the deadband. */
+    fun powerSegments(percent: Int): Int {
         if (percent == 0) return 0
-        val n = ((kotlin.math.abs(percent) + 5) / 10).coerceIn(1, POWER_DOTS_PER_SIDE)
+        val n = ((kotlin.math.abs(percent) + 5) / 10).coerceIn(1, POWER_SEGMENTS_PER_SIDE)
         return if (percent > 0) n else -n
     }
 
-    /** Distance of power dot [i] (0 = nearest the zero tick) from the bar's centre. */
-    fun powerDotOffset(i: Int): Float {
-        val mid = (POWER_LEFT + POWER_RIGHT) / 2
-        val first = POWER_ZERO_GAP + POWER_DOT_RADIUS
-        val step = (mid - POWER_LEFT - POWER_DOT_RADIUS - first) / (POWER_DOTS_PER_SIDE - 1)
-        return first + i * step
-    }
+    /** Width of one power segment. */
+    val POWER_SEGMENT_WIDTH: Float
+        get() {
+            val half = (POWER_RIGHT - POWER_LEFT) / 2 - POWER_ZERO_GAP
+            return (half - POWER_SEGMENT_GAP * (POWER_SEGMENTS_PER_SIDE - 1)) / POWER_SEGMENTS_PER_SIDE
+        }
+
+    /** Inner edge of power segment [i] (0 = nearest the zero tick), as a distance from the bar's centre. */
+    fun powerSegmentOffset(i: Int): Float = POWER_ZERO_GAP + i * (POWER_SEGMENT_WIDTH + POWER_SEGMENT_GAP)
 
     /**
-     * RPM in tenths of a thousand (32 = 3.2k), the unit of the "3.2 kRPM" label; null hides the
-     * bar (engine off, or a sentinel like 65535).
+     * RPM in tenths of a thousand (32 = 3.2k): fine enough to redraw only on a visible change;
+     * null hides the bar (engine off, or a sentinel like 65535).
      */
     fun rpmTenths(rpm: Double, engineOn: Boolean): Int? {
         if (!engineOn || !rpm.isFinite() || rpm < 0 || rpm > 8_000) return null
@@ -127,8 +137,40 @@ object HudOverlayModel {
     /** Whether segment [i] (0-based, 1000 rpm each) sits in the red zone. */
     fun rpmSegmentIsRed(i: Int): Boolean = (i + 1) * 1000 > RPM_RED
 
-    /** "3.2 kRPM". */
-    fun rpmLabel(tenths: Int): String = "${tenths / 10}.${tenths % 10} kRPM"
+    private val CLOCK = Regex("""^(\d{1,2}):(\d{2})$""")
+
+    /**
+     * Arrival line: "10:40 · 12 min", or whichever half exists; "" when neither does. Same rules
+     * as formatArrivalClock / formatTripEta in the cluster card (tbtTurnIcons.js).
+     */
+    fun etaLabel(etaClock: String, remainingS: Int?): String {
+        val clock = CLOCK.find(etaClock.trim())?.let { m ->
+            val h = m.groupValues[1].toInt()
+            val min = m.groupValues[2].toInt()
+            if (h <= 23 && min <= 59) "%02d:%02d".format(h, min) else null
+        }
+        val left = remainingS?.takeIf { it >= 0 }?.let { s ->
+            if (s < 45) return@let "<1 min"
+            val minutes = (s / 60.0).roundToInt()
+            if (minutes < 60) return@let "$minutes min"
+            val hours = minutes / 60
+            val rest = minutes % 60
+            if (rest == 0) "$hours h" else "$hours h $rest min"
+        }
+        return listOfNotNull(clock, left).joinToString(" · ")
+    }
+
+    /** Metres to the maneuver: the host's number, else parsed from "1.2 km" / "250 m". */
+    fun distanceMeters(distance: String, distanceM: Int?): Int? {
+        if (distanceM != null && distanceM >= 0) return distanceM
+        val (value, unit) = splitDistance(distance, null)
+        val n = value.replace(',', '.').toDoubleOrNull() ?: return null
+        return when (unit.lowercase()) {
+            "km" -> (n * 1000).roundToInt()
+            "m" -> n.roundToInt()
+            else -> null
+        }
+    }
 
     /**
      * Same fold as `resolveTurnIcon` in cluster-widgets/source/v1.0/shared/tbt/tbtTurnIcons.js,
@@ -226,28 +268,86 @@ object HudOverlayModel {
         return -1
     }
 
-    /** Turn-by-turn part. Lanes empty = hero layout, otherwise compact. */
+    /** How the turn-by-turn block is laid out. */
+    enum class TbtStyle {
+        /** No lanes: big arrow, small distance under it. */
+        HERO,
+        /** Lanes: small arrow + distance row centred over the lane row. */
+        COMPACT,
+        /** No lanes, still >= [FAR_THRESHOLD_M] away, "smaller arrow when far" on: the row alone. */
+        FAR
+    }
+
+    /** Turn-by-turn part. [eta] is "" when off or unknown. */
     data class Tbt(
         val icon: String,
         val distanceValue: String,
         val distanceUnit: String,
-        val lanes: List<List<LaneArrow>>
+        val lanes: List<List<LaneArrow>>,
+        val style: TbtStyle,
+        val eta: String
     )
 
     /**
-     * Everything the view draws. Bars are quantised to what their labels show (whole %, 0.1k
-     * rpm), so equal frames are skipped and the high-rate CAN feed only redraws on a visible change.
+     * Everything the view draws; null parts are switched off or have no data. Bars are quantised
+     * (whole %, 0.1k rpm), so equal frames are skipped and the high-rate CAN feed only redraws on
+     * a visible change.
      */
-    data class Frame(val tbt: Tbt?, val powerPercent: Int, val rpmTenths: Int?)
+    data class Frame(val tbt: Tbt?, val powerPercent: Int?, val rpmTenths: Int?)
 
-    fun tbtFor(d: AndroidAutoNavigationTelemetry.Directions): Tbt? {
+    /** HUD layouts the owner picks from in the Telas tab. */
+    enum class Layout(val key: String) {
+        /** The car's own HUD only; Impulse draws nothing. */
+        ORIGINAL("original"),
+        /** Turn-by-turn + power/RPM bars. */
+        NAVIGATION("navigation");
+
+        companion object {
+            fun fromKey(key: String?): Layout? = entries.firstOrNull { it.key == key }
+        }
+    }
+
+    /** Owner's choices for the Navigation layout; everything on by default. */
+    data class Config(
+        val layout: Layout = Layout.ORIGINAL,
+        val navigation: Boolean = true,
+        val smallArrowWhenFar: Boolean = true,
+        val eta: Boolean = true,
+        val powerBar: Boolean = true,
+        val rpmBar: Boolean = true
+    ) {
+        val active: Boolean get() = layout != Layout.ORIGINAL
+    }
+
+    fun tbtFor(d: AndroidAutoNavigationTelemetry.Directions, config: Config = Config()): Tbt? {
         if (!d.active) return null
         val (value, unit) = splitDistance(d.distance, d.distanceM)
+        val lanes = d.lanes.map { laneArrows(it) }
+        val meters = distanceMeters(d.distance, d.distanceM)
+        val style = when {
+            lanes.isNotEmpty() -> TbtStyle.COMPACT
+            config.smallArrowWhenFar && meters != null && meters >= FAR_THRESHOLD_M -> TbtStyle.FAR
+            else -> TbtStyle.HERO
+        }
         return Tbt(
             icon = resolveTurnIcon(d.turn),
             distanceValue = value,
             distanceUnit = unit,
-            lanes = d.lanes.map { laneArrows(it) }
+            lanes = lanes,
+            style = style,
+            eta = if (config.eta) etaLabel(d.eta, d.remainingS) else ""
         )
     }
+
+    /** The frame for [config], from the latest guidance and bar readings. */
+    fun frameFor(
+        config: Config,
+        directions: AndroidAutoNavigationTelemetry.Directions?,
+        powerPercent: Int,
+        rpmTenths: Int?
+    ): Frame = Frame(
+        tbt = if (config.navigation) directions?.let { tbtFor(it, config) } else null,
+        powerPercent = if (config.powerBar) powerPercent else null,
+        rpmTenths = if (config.rpmBar) rpmTenths else null
+    )
 }
