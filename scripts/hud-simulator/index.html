@@ -350,11 +350,13 @@ function drawNativeMock(speed) {
   ctx.globalAlpha = 0.85;
   ctx.fillStyle = '#ffffff';
   ctx.font = font(58, 300);
-  ctx.textAlign = 'right';
-  ctx.fillText(String(speed), 300, 122);
+  // Centred where the native speed sits on the car (measured 2026-10-17: about x 222).
+  ctx.textAlign = 'center';
+  ctx.fillText(String(speed), 222, 121);
+  const half = ctx.measureText(String(speed)).width / 2;
   ctx.textAlign = 'left';
   ctx.font = font(14, 400);
-  ctx.fillText('km/h', 304, 122);
+  ctx.fillText('km/h', 222 + half + 4, 121);
   ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
   [[214, 150], [244, 150]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.stroke(); });
   ctx.fillStyle = '#ff7a3d'; ctx.beginPath(); ctx.arc(276, 150, 10, 0, Math.PI * 2); ctx.fill();
@@ -488,7 +490,7 @@ function draw3dArrow(tbt, meters) {
 
 // ---- AR layout: left column + arcs (port of HudOverlayRenderer.drawArColumn / drawPowerArc) ----
 const ARC = {
-  CX: 268, CY: 98, POWER_R: 46, RPM_R: 38, THICK: 5, START: 135, SWEEP: 270, GAP: 3,
+  CX: 222, CY: 100, POWER_R: 46, RPM_R: 38, THICK: 5, START: 135, SWEEP: 270, GAP: 3,
   POWER_STEPS: 10, RPM_STEPS: 7,
 };
 
