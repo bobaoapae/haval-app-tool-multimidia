@@ -22,8 +22,8 @@ import kotlin.math.sin
  *   the maneuver's angle, laid in perspective.
  */
 object HudArArrow {
-    /** Centre of the HUD panel: the arrow sits under the native speed readout. */
-    const val CX = 240f
+    /** Centred on the native speed and the power/RPM arcs (one axis, owner's request). */
+    const val CX = HudOverlayModel.ARC_CX
     // Viewport: the strip under the speed digits down to the bottom of the visible band.
     const val TOP = 126f
     const val BOTTOM = 200f
@@ -52,14 +52,18 @@ object HudArArrow {
     /** Straight -> full turn between these distances. */
     const val BEND_START_M = 180f
     const val BEND_FULL_M = 40f
-    /** Fully drawn below this row, fading out up to [TOP]. */
-    const val FADE_FROM = 138f
-    /** See-through over the road and the native HUD (owner: ~70 % transparent). */
-    const val OPACITY = 0.3f
+    /** Short fade at the top edge, so the clip there doesn't show as a hard line. */
+    const val FADE_TOP_TO = 132f
+    /** Fades out over the bottom of the visible band, so the optics' edge doesn't crop it hard. */
+    const val FADE_BOTTOM_FROM = 180f
+    /** Overall opacity over the road and the native HUD (owner: less see-through than 30 %). */
+    const val OPACITY = 0.65f
     /** Within this distance the controller interpolates between AA updates for smooth motion. */
     const val SMOOTH_WITHIN_M = 200
-    /** Room either side of the centre line (x 112..368): clear of the left box and the RPM bar. */
-    const val HALF_ROOM = 128f
+    /** How far the turn arm may reach left of [CX]: stops short of the left column (x ~162). */
+    const val ROOM_LEFT = 60f
+    /** How far it may reach right of [CX] (x ~368). */
+    const val ROOM_RIGHT = 146f
 
     /** One point of the arm on screen: position, thickness. */
     data class Pt(val x: Float, val y: Float, val w: Float)
@@ -107,11 +111,15 @@ object HudArArrow {
     /** Stem width at row [y]: linear in y, so the sides are straight lines meeting at [APEX]. */
     fun stemWidthAt(y: Float): Float = BASE_W * ((y - APEX) / (BOTTOM - APEX)).coerceAtLeast(0f)
 
-    /** Row fade: 1 below [FADE_FROM], 0 at [TOP]. */
-    fun rowAlpha(y: Float): Float =
-        if (y >= FADE_FROM) 1f else ((y - TOP) / (FADE_FROM - TOP)).coerceIn(0f, 1f)
+    /** Row fade: in over [TOP]..[FADE_TOP_TO], out over [FADE_BOTTOM_FROM]..[BOTTOM]. */
+    fun rowAlpha(y: Float): Float = when {
+        y <= TOP || y >= BOTTOM -> 0f
+        y < FADE_TOP_TO -> (y - TOP) / (FADE_TOP_TO - TOP)
+        y > FADE_BOTTOM_FROM -> (BOTTOM - y) / (BOTTOM - FADE_BOTTOM_FROM)
+        else -> 1f
+    }
 
-    /** Gradient position for a row: 0 at the base (deep blue) .. 1 at the top (light blue). */
+    /** Gradient position for a row: 0 at the base (lighter blue) .. 1 at the top (deeper blue). */
     fun rowGradient(y: Float): Float = ((BOTTOM - y) / (BOTTOM - TOP)).coerceIn(0f, 1f)
 
     /** Arm centreline in world space (x, z): from the corner, an arc, then a tail. */
@@ -164,16 +172,18 @@ object HudArArrow {
             e.x - dy * hw / 2, e.y + dx * hw / 2,  // base, one side
             e.x + dy * hw / 2, e.y - dx * hw / 2   // base, other side
         )
-        // Sharp turns and U-turns near the corner would sweep past HALF_ROOM (their tail comes
-        // back towards the camera): squeeze the arm sideways just enough; thickness is kept.
+        // Sharp turns and U-turns near the corner would sweep past the room on their side (their
+        // tail comes back towards the camera), and left turns would run under the left column:
+        // squeeze the arm sideways just enough; thickness is kept.
+        fun room(x: Float) = if (x < CX) ROOM_LEFT else ROOM_RIGHT
         var squeeze = 1f
         for (p in arm) {
             val dxc = abs(p.x - CX)
-            if (dxc > 0.01f) squeeze = min(squeeze, ((HALF_ROOM - p.w / 2) / dxc).coerceAtLeast(0f))
+            if (dxc > 0.01f) squeeze = min(squeeze, ((room(p.x) - p.w / 2) / dxc).coerceAtLeast(0f))
         }
         for (k in 0 until 3) {
             val dxc = abs(head[2 * k] - CX)
-            if (dxc > 0.01f) squeeze = min(squeeze, HALF_ROOM / dxc)
+            if (dxc > 0.01f) squeeze = min(squeeze, room(head[2 * k]) / dxc)
         }
         if (squeeze < 1f) {
             arm = arm.map { it.copy(x = CX + (it.x - CX) * squeeze) }

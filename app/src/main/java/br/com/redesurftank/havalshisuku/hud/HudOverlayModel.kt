@@ -367,47 +367,46 @@ object HudOverlayModel {
     const val AR_LANES_TRIP_SIZE = 14f
 
     // ---- AR layout: power / RPM arcs round the native speed readout ----
-    // Centred on the native speed readout. Measured on the car (2026-10-17): with the car parked
-    // the native "0" sat under the 2nd outer segment (~175°, the arc's leftmost point) when the
-    // centre was at x 268, so the speed's centre is at about (222, 100). Radii a confirmar for
-    // 3-digit speeds.
-    const val ARC_CX = 222f
-    const val ARC_CY = 100f
-    /** Outer arc: power. */
-    const val ARC_POWER_R = 46f
-    /** Inner arc: RPM. */
-    const val ARC_RPM_R = 38f
-    const val ARC_THICKNESS = 5f
-    /** 270° open at the bottom: starts bottom-left (135°, canvas angles, clockwise) to bottom-right. */
-    const val ARC_START_DEG = 135f
-    const val ARC_SWEEP_DEG = 270f
-    const val ARC_GAP_DEG = 3f
-    const val ARC_POWER_STEPS = 10
-    const val ARC_RPM_STEPS = 7
+    // Centred on the native speed (measured on the car 2026-10-17: about x 222, y 100), then moved
+    // down ~20 px (a quarter of the arc's height) at the owner's request. Each arc is 50 thin
+    // radial ticks over 225°, from bottom-left over the top to the right-hand horizontal, so it
+    // stops short of the native "km/h".
 
-    /** Start angle and sweep of arc segment [i] of [steps], gap included. */
-    fun arcSegment(i: Int, steps: Int): Pair<Float, Float> {
-        val each = ARC_SWEEP_DEG / steps
-        return ARC_START_DEG + i * each + ARC_GAP_DEG / 2 to each - ARC_GAP_DEG
-    }
+    const val ARC_CX = 222f
+    const val ARC_CY = 120f
+    /** 225° starting bottom-left (135°, canvas angles, clockwise) and ending at 0° (right). */
+    const val ARC_START_DEG = 135f
+    const val ARC_SWEEP_DEG = 225f
+    const val ARC_TICKS = 50
+
+    /** Outer arc, power: thicker, longer ticks. */
+    const val ARC_POWER_R_IN = 44f
+    const val ARC_POWER_R_OUT = 52f
+    const val ARC_POWER_TICK_W = 1.3f
+
+    /** Inner arc, RPM: thinner, shorter ticks. */
+    const val ARC_RPM_R_IN = 35f
+    const val ARC_RPM_R_OUT = 39f
+    const val ARC_RPM_TICK_W = 0.8f
+    /** RPM arc full scale. */
+    const val ARC_RPM_MAX = 7_000
+
+    /** Canvas angle (degrees) of tick [i] of [ARC_TICKS], at the middle of its slot. */
+    fun arcTickDeg(i: Int): Float = ARC_START_DEG + (i + 0.5f) * ARC_SWEEP_DEG / ARC_TICKS
 
     /**
-     * Lit power segments on the outer arc. Drive fills from the left end, one segment per 10 %.
-     * Regen grows from the top centre towards both sides, one segment per side per 20 %.
-     * Empty for 0 %.
+     * Lit power ticks, from the left end: one per 2 % of [powerPercent] (drive blue, regen green,
+     * both filling from the left); at least one past 0 %, none at 0 %.
      */
-    fun arcPowerLit(percent: Int): IntRange {
-        if (percent == 0) return IntRange.EMPTY
-        if (percent > 0) return 0 until powerSegments(percent)
-        val half = ARC_POWER_STEPS / 2
-        val perSide = ((kotlin.math.abs(percent) + 10) / 20).coerceIn(1, half)
-        return (half - perSide) until (half + perSide)
+    fun arcPowerTicks(percent: Int): Int {
+        if (percent == 0) return 0
+        return ((kotlin.math.abs(percent) * ARC_TICKS + 50) / 100).coerceIn(1, ARC_TICKS)
     }
 
-    /** Lit RPM segments on the inner arc: one per 1000 rpm, at least one while turning. */
-    fun arcRpmLit(tenths: Int): Int {
+    /** Lit RPM ticks, from the left end, over 0..[ARC_RPM_MAX]; at least one while turning. */
+    fun arcRpmTicks(tenths: Int): Int {
         if (tenths <= 0) return 0
-        return ((tenths + 5) / 10).coerceIn(1, ARC_RPM_STEPS)
+        return (tenths * 100 * ARC_TICKS / ARC_RPM_MAX.toFloat()).roundToInt().coerceIn(1, ARC_TICKS)
     }
 
     /**

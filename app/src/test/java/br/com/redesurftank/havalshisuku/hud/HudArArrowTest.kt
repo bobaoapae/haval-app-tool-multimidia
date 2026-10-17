@@ -79,8 +79,8 @@ class HudArArrowTest {
 
     @Test
     fun `the arm and head stay inside the middle strip at every angle`() {
-        val lo = HudArArrow.CX - HudArArrow.HALF_ROOM - 1f
-        val hi = HudArArrow.CX + HudArArrow.HALF_ROOM + 1f
+        val lo = HudArArrow.CX - HudArArrow.ROOM_LEFT - 1f
+        val hi = HudArArrow.CX + HudArArrow.ROOM_RIGHT + 1f
         for (meters in listOf(0f, 20f, 60f, 120f)) for (angle in listOf(90f, -90f, 135f, -135f, -180f, 45f, 0f)) {
             val shape = HudArArrow.shape(meters, angle)
             for (p in shape.arm) {
@@ -90,10 +90,20 @@ class HudArArrowTest {
                 for (k in 0 until 3) assertTrue("m=$meters angle=$angle head x=${h[2 * k]}", h[2 * k] in lo..hi)
             }
         }
-        // The wide stem and the strip stay clear of the left box's bars and the RPM bar.
-        val barBottom = HudOverlayModel.BAR_Y + HudOverlayModel.BAR_HEIGHT / 2
-        assertTrue(HudArArrow.CX - HudArArrow.stemWidthAt(barBottom) / 2 > HudOverlayModel.POWER_RIGHT)
-        assertTrue(hi < HudOverlayModel.RPM_LEFT)
+        // Centred on the arcs; the arm never reaches under the left column, and stays on the panel.
+        assertEquals(HudOverlayModel.ARC_CX, HudArArrow.CX, 0f)
+        assertTrue(lo >= HudOverlayModel.BOX_RIGHT - 8f)
+        assertTrue(hi < 480f)
+    }
+
+    @Test
+    fun `arrow fades in at the top and out over the bottom of the band`() {
+        assertEquals(0f, HudArArrow.rowAlpha(HudArArrow.TOP), 0f)
+        assertEquals(1f, HudArArrow.rowAlpha(HudArArrow.FADE_TOP_TO), 0.001f)
+        assertEquals(1f, HudArArrow.rowAlpha(160f), 0f)
+        assertEquals(1f, HudArArrow.rowAlpha(HudArArrow.FADE_BOTTOM_FROM), 0.001f)
+        assertEquals(0.5f, HudArArrow.rowAlpha((HudArArrow.FADE_BOTTOM_FROM + HudArArrow.BOTTOM) / 2), 0.01f)
+        assertEquals(0f, HudArArrow.rowAlpha(HudArArrow.BOTTOM), 0f)
     }
 
     @Test
@@ -139,39 +149,38 @@ class HudArArrowTest {
     }
 
     @Test
-    fun `power arc - drive fills from the left, regen grows from the top centre`() {
-        assertTrue(HudOverlayModel.arcPowerLit(0).isEmpty())
-        assertEquals(0 until 4, HudOverlayModel.arcPowerLit(35))
-        assertEquals(0 until 10, HudOverlayModel.arcPowerLit(100))
-        assertEquals(0 until 1, HudOverlayModel.arcPowerLit(2))
-        // Regen: symmetric round the top (between segments 4 and 5), one per side per 20 %.
-        assertEquals(4 until 6, HudOverlayModel.arcPowerLit(-10))
-        assertEquals(3 until 7, HudOverlayModel.arcPowerLit(-35))
-        assertEquals(0 until 10, HudOverlayModel.arcPowerLit(-100))
+    fun `power arc - one tick per 2 percent from the left, regen too`() {
+        assertEquals(0, HudOverlayModel.arcPowerTicks(0))
+        assertEquals(1, HudOverlayModel.arcPowerTicks(1)) // anything lights one
+        assertEquals(18, HudOverlayModel.arcPowerTicks(35))
+        assertEquals(50, HudOverlayModel.arcPowerTicks(100))
+        assertEquals(20, HudOverlayModel.arcPowerTicks(-40)) // regen fills from the left as well
+        assertEquals(50, HudOverlayModel.arcPowerTicks(-250))
     }
 
     @Test
-    fun `rpm arc has 7 steps of 1000 rpm, red past 5k`() {
-        assertEquals(0, HudOverlayModel.arcRpmLit(0))
-        assertEquals(1, HudOverlayModel.arcRpmLit(8))
-        assertEquals(3, HudOverlayModel.arcRpmLit(32))
-        assertEquals(7, HudOverlayModel.arcRpmLit(75))
-        assertTrue(HudOverlayModel.rpmSegmentIsRed(5) && HudOverlayModel.rpmSegmentIsRed(6))
-        assertTrue(!HudOverlayModel.rpmSegmentIsRed(4))
+    fun `rpm arc - 50 ticks over 0 to 7000 rpm, at least one while turning`() {
+        assertEquals(0, HudOverlayModel.arcRpmTicks(0))
+        assertEquals(1, HudOverlayModel.arcRpmTicks(1)) // 100 rpm still lights one
+        assertEquals(25, HudOverlayModel.arcRpmTicks(35))
+        assertEquals(40, HudOverlayModel.arcRpmTicks(56))
+        assertEquals(50, HudOverlayModel.arcRpmTicks(75))
     }
 
     @Test
-    fun `arcs span 270 degrees open at the bottom, top centre between the middle segments`() {
-        val (firstStart, _) = HudOverlayModel.arcSegment(0, 10)
-        val (lastStart, lastSweep) = HudOverlayModel.arcSegment(9, 10)
-        assertEquals(HudOverlayModel.ARC_START_DEG + HudOverlayModel.ARC_GAP_DEG / 2, firstStart, 0.01f)
-        assertEquals(HudOverlayModel.ARC_START_DEG + 270f - HudOverlayModel.ARC_GAP_DEG / 2, lastStart + lastSweep, 0.01f)
-        // Top of the arc is 270° in canvas angles: the boundary between segments 4 and 5.
-        val (s5, _) = HudOverlayModel.arcSegment(5, 10)
-        assertEquals(270f, s5 - HudOverlayModel.ARC_GAP_DEG / 2, 0.01f)
-        // Inside the visible band, and clear of the left column.
-        assertTrue(HudOverlayModel.ARC_CY - HudOverlayModel.ARC_POWER_R - HudOverlayModel.ARC_THICKNESS > 40f)
-        assertTrue(HudOverlayModel.ARC_CX - HudOverlayModel.ARC_POWER_R - HudOverlayModel.ARC_THICKNESS / 2 > HudOverlayModel.BOX_RIGHT)
+    fun `arcs span 225 degrees, stop at the right horizontal, clear of the column`() {
+        val first = HudOverlayModel.arcTickDeg(0)
+        val last = HudOverlayModel.arcTickDeg(HudOverlayModel.ARC_TICKS - 1)
+        val slot = HudOverlayModel.ARC_SWEEP_DEG / HudOverlayModel.ARC_TICKS
+        assertEquals(HudOverlayModel.ARC_START_DEG + slot / 2, first, 0.01f)
+        assertEquals(360f - slot / 2, last, 0.01f) // ends at 0° (right), short of the native km/h
+        // Power ticks are longer and thicker than RPM ticks, and outside them.
+        assertTrue(HudOverlayModel.ARC_POWER_R_OUT - HudOverlayModel.ARC_POWER_R_IN > HudOverlayModel.ARC_RPM_R_OUT - HudOverlayModel.ARC_RPM_R_IN)
+        assertTrue(HudOverlayModel.ARC_POWER_TICK_W > HudOverlayModel.ARC_RPM_TICK_W)
+        assertTrue(HudOverlayModel.ARC_POWER_R_IN > HudOverlayModel.ARC_RPM_R_OUT)
+        // Inside the visible band, clear of the left column.
+        assertTrue(HudOverlayModel.ARC_CY - HudOverlayModel.ARC_POWER_R_OUT > 40f)
+        assertTrue(HudOverlayModel.ARC_CX - HudOverlayModel.ARC_POWER_R_OUT > HudOverlayModel.BOX_RIGHT)
     }
 
     @Test
@@ -186,7 +195,7 @@ class HudArArrowTest {
         val left = HudOverlayModel.DemoDrive.at(35f, 15f)
         assertEquals("SHARP_LEFT", left.directions.turn)
         assertEquals(3, left.directions.lanes.size)
-        assertTrue(HudOverlayModel.rpmSegmentIsRed(HudOverlayModel.arcRpmLit(left.rpmTenths!!) - 1))
+        assertTrue(left.rpmTenths!! * 100 > HudOverlayModel.RPM_RED) // into the red zone
         // Every step is something the AR theme draws with its centre arrow.
         val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR)
         for (t in 0 until 48) {

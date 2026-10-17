@@ -23,10 +23,12 @@ class HudOverlayRenderer {
     private companion object {
         /** Native speed readout in the preview mock: centred on the arcs (measured on the car). */
         const val NATIVE_SPEED_CX = M.ARC_CX
-        const val NATIVE_SPEED_BASELINE = 121f
+        const val NATIVE_SPEED_BASELINE = 141f
         val DRIVE = Color.rgb(63, 169, 255)
         val OFF = Color.argb(61, 255, 255, 255)
-        val RED_OFF = Color.argb(77, 255, 64, 64)
+        /** Arcs: power's unlit ticks stay fairly visible, RPM's fade back (owner's request). */
+        val POWER_OFF = Color.argb(90, 255, 255, 255)
+        val RPM_OFF = Color.argb(30, 255, 64, 64)
         val REGEN = Color.rgb(80, 230, 120)
         val RED = Color.rgb(255, 64, 64)
     }
@@ -224,39 +226,53 @@ class HudOverlayRenderer {
 
     private val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = M.ARC_THICKNESS
         strokeCap = Paint.Cap.BUTT
     }
-    private val arcRect = RectF()
+    /** Scratch for drawLines: one batch per colour (lit / off), 4 floats per tick. */
+    private val tickLit = FloatArray(M.ARC_TICKS * 4)
+    private val tickOff = FloatArray(M.ARC_TICKS * 4)
 
-    private fun arcSegment(canvas: Canvas, radius: Float, i: Int, steps: Int, color: Int) {
-        arcRect.set(M.ARC_CX - radius, M.ARC_CY - radius, M.ARC_CX + radius, M.ARC_CY + radius)
-        val (start, sweep) = M.arcSegment(i, steps)
-        arcPaint.color = color
-        canvas.drawArc(arcRect, start, sweep, false, arcPaint)
+    /**
+     * 100 radial ticks from [rIn] to [rOut]; the first [lit] (from the left end) in [litColor],
+     * the rest in [offColor]. Batched into two drawLines calls.
+     */
+    private fun drawTicks(canvas: Canvas, rIn: Float, rOut: Float, width: Float, lit: Int, litColor: Int, offColor: Int) {
+        var nLit = 0
+        var nOff = 0
+        for (i in 0 until M.ARC_TICKS) {
+            val rad = Math.toRadians(M.arcTickDeg(i).toDouble())
+            val c = kotlin.math.cos(rad).toFloat()
+            val sn = kotlin.math.sin(rad).toFloat()
+            val buf = if (i < lit) tickLit else tickOff
+            var k = if (i < lit) nLit else nOff
+            buf[k++] = M.ARC_CX + c * rIn
+            buf[k++] = M.ARC_CY + sn * rIn
+            buf[k++] = M.ARC_CX + c * rOut
+            buf[k++] = M.ARC_CY + sn * rOut
+            if (i < lit) nLit = k else nOff = k
+        }
+        arcPaint.strokeWidth = width
+        if (nOff > 0) {
+            arcPaint.color = offColor
+            canvas.drawLines(tickOff, 0, nOff, arcPaint)
+        }
+        if (nLit > 0) {
+            arcPaint.color = litColor
+            canvas.drawLines(tickLit, 0, nLit, arcPaint)
+        }
     }
 
-    /** Outer arc: drive fills from the left end; regen grows from the top centre to both sides. */
+    /** Outer arc: thick, long ticks; drive blue / regen green, both filling from the left. */
     private fun drawPowerArc(canvas: Canvas, percent: Int) {
-        val lit = M.arcPowerLit(percent)
-        val on = if (percent >= 0) DRIVE else REGEN
-        for (i in 0 until M.ARC_POWER_STEPS) {
-            arcSegment(canvas, M.ARC_POWER_R, i, M.ARC_POWER_STEPS, if (i in lit) on else OFF)
-        }
+        drawTicks(
+            canvas, M.ARC_POWER_R_IN, M.ARC_POWER_R_OUT, M.ARC_POWER_TICK_W,
+            M.arcPowerTicks(percent), if (percent >= 0) DRIVE else REGEN, POWER_OFF
+        )
     }
 
-    /** Inner arc: one segment per 1000 rpm, left to right, red above 5k. Hidden with the engine off. */
+    /** Inner arc: thin, short red ticks over 0..7000 rpm. Hidden with the engine off. */
     private fun drawRpmArc(canvas: Canvas, tenths: Int) {
-        val lit = M.arcRpmLit(tenths)
-        for (i in 0 until M.ARC_RPM_STEPS) {
-            val red = M.rpmSegmentIsRed(i)
-            val color = when {
-                i < lit -> if (red) RED else Color.WHITE
-                red -> RED_OFF
-                else -> OFF
-            }
-            arcSegment(canvas, M.ARC_RPM_R, i, M.ARC_RPM_STEPS, color)
-        }
+        drawTicks(canvas, M.ARC_RPM_R_IN, M.ARC_RPM_R_OUT, M.ARC_RPM_TICK_W, M.arcRpmTicks(tenths), RED, RPM_OFF)
     }
 
     // ---- AR arrow (Navegação AR) ----
@@ -269,12 +285,13 @@ class HudOverlayRenderer {
     private val arPath = Path()
 
     /** Deep blue at the base to light blue at the top, faded out towards the top edge. */
+    /** Lighter blue at the base to deeper blue at the top (owner: "slightly darker on top"). */
     private fun arColor(y: Float, alpha: Float): Int {
         val t = HudArArrow.rowGradient(y)
         return Color.argb(
             (alpha * 255).toInt(),
-            (30 + (150 - 30) * t).toInt(),
-            (123 + (218 - 123) * t).toInt(),
+            (120 + (25 - 120) * t).toInt(),
+            (200 + (105 - 200) * t).toInt(),
             255
         )
     }
@@ -286,8 +303,8 @@ class HudOverlayRenderer {
      */
     private fun drawAr(canvas: Canvas, tbt: M.Tbt) {
         val shape = HudArArrow.shape(tbt.arMeters ?: 0f, tbt.arAngle ?: 0f)
-        val left = HudArArrow.CX - HudArArrow.HALF_ROOM - 2f
-        val right = HudArArrow.CX + HudArArrow.HALF_ROOM + 2f
+        val left = HudArArrow.CX - maxOf(HudArArrow.ROOM_LEFT, HudArArrow.BASE_W / 2) - 2f
+        val right = HudArArrow.CX + maxOf(HudArArrow.ROOM_RIGHT, HudArArrow.BASE_W / 2) + 2f
         canvas.save()
         canvas.clipRect(left, HudArArrow.TOP, right, HudArArrow.BOTTOM)
         // Opaque into a layer, then composited once at OPACITY: drawing overlapping pieces
@@ -352,17 +369,30 @@ class HudOverlayRenderer {
         canvas.restore() // clip
     }
 
-    /** Stem colour by row: deep blue at the base, light blue up the road, gone at the top edge. */
-    private val stemShader = LinearGradient(
-        0f, HudArArrow.BOTTOM, 0f, HudArArrow.TOP,
-        intArrayOf(
-            Color.argb(255, 30, 123, 255),
-            Color.argb(255, 120, 200, 255),
-            Color.argb(0, 150, 218, 255)
-        ),
-        floatArrayOf(0f, (HudArArrow.BOTTOM - HudArArrow.FADE_FROM) / (HudArArrow.BOTTOM - HudArArrow.TOP), 1f),
-        Shader.TileMode.CLAMP
-    )
+    /**
+     * Stem colour by row, same as [arColor]: lighter at the base, deeper at the top. Fades out
+     * over the bottom of the band (so the optics' edge doesn't crop it hard) and over the last
+     * few rows at the top (so the clip there doesn't show).
+     */
+    private val stemShader = run {
+        val span = HudArArrow.BOTTOM - HudArArrow.TOP
+        LinearGradient(
+            0f, HudArArrow.BOTTOM, 0f, HudArArrow.TOP,
+            intArrayOf(
+                Color.argb(0, 120, 200, 255),
+                Color.argb(255, 108, 188, 255),
+                Color.argb(255, 32, 112, 255),
+                Color.argb(0, 25, 105, 255)
+            ),
+            floatArrayOf(
+                0f,
+                (HudArArrow.BOTTOM - HudArArrow.FADE_BOTTOM_FROM) / span,
+                (HudArArrow.BOTTOM - HudArArrow.FADE_TOP_TO) / span,
+                1f
+            ),
+            Shader.TileMode.CLAMP
+        )
+    }
 
     // ---- turn-by-turn ----
 
@@ -643,10 +673,11 @@ class HudOverlayRenderer {
         nativePaint.textSize = 14f
         nativePaint.textAlign = Paint.Align.LEFT
         canvas.drawText("km/h", NATIVE_SPEED_CX + half + 4f, NATIVE_SPEED_BASELINE, nativePaint)
-        canvas.drawCircle(214f, 150f, 9f, nativeStroke)
-        canvas.drawCircle(244f, 150f, 9f, nativeStroke)
+        // Icons under the speed, shifted down with it (as on the car).
+        canvas.drawCircle(214f, 170f, 9f, nativeStroke)
+        canvas.drawCircle(244f, 170f, 9f, nativeStroke)
         nativePaint.color = Color.rgb(255, 122, 61)
-        canvas.drawCircle(276f, 150f, 10f, nativePaint)
+        canvas.drawCircle(276f, 170f, 10f, nativePaint)
         nativeStroke.strokeWidth = 4f
         canvas.drawLine(388f, 140f, 404f, 84f, nativeStroke)
         nativeStroke.color = Color.rgb(47, 211, 143)

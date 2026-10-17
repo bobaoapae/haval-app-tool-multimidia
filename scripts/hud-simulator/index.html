@@ -352,14 +352,14 @@ function drawNativeMock(speed) {
   ctx.font = font(58, 300);
   // Centred where the native speed sits on the car (measured 2026-10-17: about x 222).
   ctx.textAlign = 'center';
-  ctx.fillText(String(speed), 222, 121);
+  ctx.fillText(String(speed), 222, 141);
   const half = ctx.measureText(String(speed)).width / 2;
   ctx.textAlign = 'left';
   ctx.font = font(14, 400);
-  ctx.fillText('km/h', 222 + half + 4, 121);
+  ctx.fillText('km/h', 222 + half + 4, 141);
   ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
-  [[214, 150], [244, 150]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.stroke(); });
-  ctx.fillStyle = '#ff7a3d'; ctx.beginPath(); ctx.arc(276, 150, 10, 0, Math.PI * 2); ctx.fill();
+  [[214, 170], [244, 170]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.stroke(); });
+  ctx.fillStyle = '#ff7a3d'; ctx.beginPath(); ctx.arc(276, 170, 10, 0, Math.PI * 2); ctx.fill();
   ctx.lineWidth = 4; ctx.strokeStyle = '#ffffff';
   ctx.beginPath(); ctx.moveTo(388, 140); ctx.lineTo(404, 84); ctx.stroke();
   ctx.strokeStyle = '#2fd38f';
@@ -375,7 +375,7 @@ function drawNativeMock(speed) {
 // ---------------------------------------------------------------------------
 // Port of HudArArrow (Kotlin): keep the two in step.
 const P3 = {
-  CX: 240,                     // middle of the HUD, under the native speed readout
+  CX: 222,                     // centred on the native speed and the arcs
   TOP: 126, BOTTOM: 200,       // strip under the speed digits down to the bottom of the band
   APEX: 118,                   // the stem's straight sides meet here (thin far end)
   BASE_W: 200,                 // stem width at the bottom
@@ -385,10 +385,10 @@ const P3 = {
   TURN_R: 1.4, TURN_LEN: 2.0,
   HEAD_W_RATIO: 2.0, HEAD_L_RATIO: 1.1,
   BEND_START: 180, BEND_FULL: 40,
-  FADE_FROM: 138,
-  OPACITY: 0.3,                // ~70 % transparent
-  HALF_ROOM: 128,
-  NEAR_RGB: [30, 123, 255], FAR_RGB: [150, 218, 255],
+  FADE_TOP_TO: 132, FADE_BOTTOM_FROM: 180, // short fade at the top, fade out over the bottom
+  OPACITY: 0.65,
+  ROOM_LEFT: 60, ROOM_RIGHT: 146,          // arm stops short of the left column
+  NEAR_RGB: [120, 200, 255], FAR_RGB: [25, 105, 255], // lighter at the base, deeper on top
 };
 
 const smooth = (t) => t * t * (3 - 2 * t);
@@ -396,7 +396,9 @@ const bendAmount = (m) => smooth(Math.min(1, Math.max(0, (P3.BEND_START - m) / (
 const cornerDepth = (m) => Math.min(P3.Z_CAP, P3.Z_END + P3.K * Math.max(0, m));
 const project = (x, z) => [P3.CX + P3.F_X * x / z, P3.HORIZON + (P3.BOTTOM - P3.HORIZON) * P3.Z_NEAR / z];
 const stemWidthAt = (y) => P3.BASE_W * Math.max(0, (y - P3.APEX) / (P3.BOTTOM - P3.APEX));
-const rowAlpha = (y) => y >= P3.FADE_FROM ? 1 : Math.max(0, Math.min(1, (y - P3.TOP) / (P3.FADE_FROM - P3.TOP)));
+const rowAlpha = (y) => y <= P3.TOP || y >= P3.BOTTOM ? 0
+  : y < P3.FADE_TOP_TO ? (y - P3.TOP) / (P3.FADE_TOP_TO - P3.TOP)
+  : y > P3.FADE_BOTTOM_FROM ? (P3.BOTTOM - y) / (P3.BOTTOM - P3.FADE_BOTTOM_FROM) : 1;
 function rowColor(y, alpha) {
   const t = Math.min(1, Math.max(0, (P3.BOTTOM - y) / (P3.BOTTOM - P3.TOP)));
   const c = P3.NEAR_RGB.map((v, i) => Math.round(v + (P3.FAR_RGB[i] - v) * t));
@@ -426,8 +428,9 @@ function arShape(meters, angleDeg) {
   const hw = e.w * P3.HEAD_W_RATIO, hl = e.w * P3.HEAD_L_RATIO;
   let head = [e.x + dx * hl, e.y + dy * hl, e.x - dy * hw / 2, e.y + dx * hw / 2, e.x + dy * hw / 2, e.y - dx * hw / 2];
   let squeeze = 1;
-  for (const p of arm) { const d = Math.abs(p.x - P3.CX); if (d > 0.01) squeeze = Math.min(squeeze, Math.max(0, (P3.HALF_ROOM - p.w / 2) / d)); }
-  for (let k = 0; k < 3; k++) { const d = Math.abs(head[2 * k] - P3.CX); if (d > 0.01) squeeze = Math.min(squeeze, P3.HALF_ROOM / d); }
+  const room = (x) => x < P3.CX ? P3.ROOM_LEFT : P3.ROOM_RIGHT;
+  for (const p of arm) { const d = Math.abs(p.x - P3.CX); if (d > 0.01) squeeze = Math.min(squeeze, Math.max(0, (room(p.x) - p.w / 2) / d)); }
+  for (let k = 0; k < 3; k++) { const d = Math.abs(head[2 * k] - P3.CX); if (d > 0.01) squeeze = Math.min(squeeze, room(head[2 * k]) / d); }
   if (squeeze < 1) {
     arm = arm.map(p => ({ ...p, x: P3.CX + (p.x - P3.CX) * squeeze }));
     head = head.map((v, i) => i % 2 === 0 ? P3.CX + (v - P3.CX) * squeeze : v);
@@ -438,7 +441,7 @@ function arShape(meters, angleDeg) {
 /** Wide see-through wedge in the middle; the arm grows out of it as the car arrives. */
 function draw3dArrow(tbt, meters) {
   const shape = arShape(meters, tbt.angle);
-  const left = P3.CX - P3.HALF_ROOM - 2, right = P3.CX + P3.HALF_ROOM + 2;
+  const left = P3.CX - Math.max(P3.ROOM_LEFT, P3.BASE_W / 2) - 2, right = P3.CX + Math.max(P3.ROOM_RIGHT, P3.BASE_W / 2) + 2;
   // Opaque into a layer, composited once at OPACITY (no stripes at the seams).
   const layer = document.createElement('canvas');
   layer.width = canvas.width; layer.height = canvas.height;
@@ -446,9 +449,11 @@ function draw3dArrow(tbt, meters) {
   lc.setTransform(S, 0, 0, S, 0, 0);
   lc.beginPath(); lc.rect(left, P3.TOP, right - left, P3.BOTTOM - P3.TOP); lc.clip();
   const g = lc.createLinearGradient(0, P3.BOTTOM, 0, P3.TOP);
-  g.addColorStop(0, 'rgba(30,123,255,1)');
-  g.addColorStop((P3.BOTTOM - P3.FADE_FROM) / (P3.BOTTOM - P3.TOP), 'rgba(120,200,255,1)');
-  g.addColorStop(1, 'rgba(150,218,255,0)');
+  const span = P3.BOTTOM - P3.TOP;
+  g.addColorStop(0, 'rgba(120,200,255,0)');
+  g.addColorStop((P3.BOTTOM - P3.FADE_BOTTOM_FROM) / span, 'rgba(108,188,255,1)');
+  g.addColorStop((P3.BOTTOM - P3.FADE_TOP_TO) / span, 'rgba(32,112,255,1)');
+  g.addColorStop(1, 'rgba(25,105,255,0)');
   const ht = stemWidthAt(shape.stemTop) / 2, hb = P3.BASE_W / 2;
   lc.fillStyle = g;
   lc.beginPath();
@@ -490,8 +495,10 @@ function draw3dArrow(tbt, meters) {
 
 // ---- AR layout: left column + arcs (port of HudOverlayRenderer.drawArColumn / drawPowerArc) ----
 const ARC = {
-  CX: 222, CY: 100, POWER_R: 46, RPM_R: 38, THICK: 5, START: 135, SWEEP: 270, GAP: 3,
-  POWER_STEPS: 10, RPM_STEPS: 7,
+  CX: 222, CY: 120, START: 135, SWEEP: 225, TICKS: 50,
+  POWER_R_IN: 44, POWER_R_OUT: 52, POWER_W: 1.3,
+  RPM_R_IN: 35, RPM_R_OUT: 39, RPM_W: 0.8, RPM_MAX: 7000,
+  POWER_OFF: 'rgba(255,255,255,0.35)', RPM_OFF: 'rgba(255,64,64,0.12)',
 };
 
 function arColumn(tbt) {
@@ -519,34 +526,31 @@ function arColumn(tbt) {
   }
 }
 
-function arcSeg(r, i, steps, color) {
-  const each = ARC.SWEEP / steps;
-  const a0 = (ARC.START + i * each + ARC.GAP / 2) * Math.PI / 180;
-  const a1 = a0 + (each - ARC.GAP) * Math.PI / 180;
-  ctx.strokeStyle = color; ctx.lineWidth = ARC.THICK; ctx.lineCap = 'butt';
-  ctx.beginPath(); ctx.arc(ARC.CX, ARC.CY, r, a0, a1); ctx.stroke();
+/** 50 radial ticks; the first `lit` from the left end in `on`, the rest in `off`. */
+function arcTicks(rIn, rOut, w, lit, on, off) {
+  ctx.lineWidth = w; ctx.lineCap = 'butt';
+  for (let i = 0; i < ARC.TICKS; i++) {
+    const a = (ARC.START + (i + 0.5) * ARC.SWEEP / ARC.TICKS) * Math.PI / 180;
+    ctx.strokeStyle = i < lit ? on : off;
+    ctx.beginPath();
+    ctx.moveTo(ARC.CX + Math.cos(a) * rIn, ARC.CY + Math.sin(a) * rIn);
+    ctx.lineTo(ARC.CX + Math.cos(a) * rOut, ARC.CY + Math.sin(a) * rOut);
+    ctx.stroke();
+  }
 }
 
-/** Outer arc: drive fills from the left end; regen grows from the top centre to both sides. */
+/** Outer arc: thick, long ticks, 1 per 2 %; drive blue / regen green, both from the left. */
 function drawPowerArc(kw) {
   const pct = powerPercent(kw);
-  let lo = 0, hi = 0;
-  if (pct > 0) { lo = 0; hi = Math.max(1, Math.min(10, Math.round(pct / 10))); }
-  else if (pct < 0) { const k = Math.max(1, Math.min(5, Math.floor((-pct + 10) / 20))); lo = 5 - k; hi = 5 + k; }
-  for (let i = 0; i < ARC.POWER_STEPS; i++) {
-    const on = i >= lo && i < hi;
-    arcSeg(ARC.POWER_R, i, ARC.POWER_STEPS, on ? (pct > 0 ? COLORS.drive : COLORS.regen) : COLORS.dotOff);
-  }
+  arcTicks(ARC.POWER_R_IN, ARC.POWER_R_OUT, ARC.POWER_W, pct === 0 ? 0 : Math.max(1, Math.min(50, Math.round(Math.abs(pct) / 2))),
+    pct >= 0 ? COLORS.drive : COLORS.regen, ARC.POWER_OFF);
 }
 
-/** Inner arc: one segment per 1000 rpm, left to right, red past 5k. Hidden with the engine off. */
+/** Inner arc: thin, short red ticks over 0..7000 rpm. Hidden with the engine off. */
 function drawRpmArc(rpm) {
   if (!(rpm > 0)) return;
-  const lit = Math.max(1, Math.min(ARC.RPM_STEPS, Math.round(rpm / 1000)));
-  for (let i = 0; i < ARC.RPM_STEPS; i++) {
-    const red = (i + 1) * 1000 > M.RPM_RED;
-    arcSeg(ARC.RPM_R, i, ARC.RPM_STEPS, i < lit ? (red ? COLORS.red : COLORS.rpm) : (red ? COLORS.redOff : COLORS.dotOff));
-  }
+  const lit = Math.max(1, Math.min(50, Math.round(rpm / ARC.RPM_MAX * 50)));
+  arcTicks(ARC.RPM_R_IN, ARC.RPM_R_OUT, ARC.RPM_W, lit, COLORS.red, ARC.RPM_OFF);
 }
 
 function formatDistance(m) {
