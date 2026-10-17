@@ -20,6 +20,43 @@ export const TBT_TURN_GLYPHS = {
     DESTINATION: '◎'
 };
 
+/**
+ * Roundabout drawn with its real exit, for when the host sends turn_angle:
+ * ring, entry at the bottom, the travelled arc bright (the rest dim) and an
+ * arrow where the exit leaves. `angle` is degrees travelled around the ring
+ * from the entry (1..360, 180 = straight across), counter-clockwise on screen
+ * for right-hand traffic and clockwise when `clockwise`. Same geometry as
+ * drawRoundabout in the HUD (HudOverlayModel RB_*). Returns '' when the angle
+ * can't be drawn, so the caller keeps the static icon.
+ */
+export function roundaboutSvg(angle, clockwise) {
+    if (angle == null || angle === '') return '';
+    const a = Number(angle);
+    if (!Number.isInteger(a) || a < 1 || a > 360) return '';
+    const cx = 12, cy = 12, r = 5, tip = 11, head = 4, half = 3.2;
+    const deg = clockwise ? 270 - a : 270 + a;
+    const rad = (deg * Math.PI) / 180;
+    const dx = Math.cos(rad);
+    const dy = -Math.sin(rad);
+    const f = (n) => n.toFixed(2);
+    const ex = cx + dx * r, ey = cy + dy * r;
+    // A full turn starts and ends at the same point, which an SVG arc can't draw.
+    const arc = a >= 359
+        ? `<circle cx="${cx}" cy="${cy}" r="${r}"/>`
+        : `<path d="M${cx} ${cy + r}A${r} ${r} 0 ${a > 180 ? 1 : 0} ${clockwise ? 1 : 0} ${f(ex)} ${f(ey)}"/>`;
+    const base = tip - head;
+    const bx = cx + dx * base, by = cy + dy * base;
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">' +
+        '<g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' +
+        `<circle cx="${cx}" cy="${cy}" r="${r}" stroke-opacity="0.35"/>` +
+        arc +
+        `<path d="M${cx} 22.5V${cy + r}"/>` +
+        `<path d="M${f(ex)} ${f(ey)}L${f(cx + dx * (base + 0.5))} ${f(cy + dy * (base + 0.5))}"/>` +
+        '</g>' +
+        `<path fill="currentColor" d="M${f(cx + dx * tip)} ${f(cy + dy * tip)}L${f(bx - dy * half)} ${f(by + dx * half)}L${f(bx + dy * half)} ${f(by - dx * half)}Z"/>` +
+        '</svg>';
+}
+
 /** pt-BR grouping: 1000 -> "1.000". Values under 1000 are returned unchanged. */
 export function groupThousands(value) {
     const n = Math.round(Number(value));

@@ -46,6 +46,12 @@ class HudOverlayRenderer {
         textSize = M.TRIP_SIZE
         textAlign = Paint.Align.CENTER
     }
+    // Regular, not light: it sits inside the ring's hole and has to read at 18 px.
+    private val exitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+        textAlign = Paint.Align.CENTER
+    }
     private val glyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
@@ -66,6 +72,12 @@ class HudOverlayRenderer {
         color = Color.argb(115, 255, 255, 255)
         strokeWidth = 1f
     }
+    // Dynamic roundabout, in its 24 box (scaled like the lanes): bright travelled arc, entry and
+    // exit; the rest of the ring dim.
+    private val ringOn = lanePaint(Color.WHITE).apply { strokeWidth = M.RB_STROKE }
+    private val ringOff = lanePaint(Color.argb(90, 255, 255, 255)).apply { strokeWidth = M.RB_STROKE }
+    private val ringOval = RectF(M.RB_CX - M.RB_R, M.RB_CY - M.RB_R, M.RB_CX + M.RB_R, M.RB_CY + M.RB_R)
+    private val headPath = Path()
     private val segRect = RectF()
     private val laneBounds = RectF()
     private val arrowBounds = RectF()
@@ -108,25 +120,47 @@ class HudOverlayRenderer {
     /** No lanes: big arrow centred, small distance centred under it. */
     private fun drawHero(canvas: Canvas, tbt: M.Tbt) {
         val left = M.BOX_CENTER_X - M.HERO_GLYPH / 2
-        val bottom = drawTurn(canvas, tbt.icon, left, M.HERO_TOP, M.HERO_GLYPH)
+        val bottom = drawTurn(canvas, tbt, left, M.HERO_TOP, M.HERO_GLYPH)
+        tbt.exitNumber?.let { exit ->
+            val (cx, cy) = M.ringHoleCenter(left, M.HERO_TOP, M.HERO_GLYPH, tbt.dynamicRoundabout)
+            exitPaint.textSize = M.heroExitSize(exit)
+            canvas.drawText(exit.toString(), cx, cy - (exitPaint.descent() + exitPaint.ascent()) / 2, exitPaint)
+        }
         setTextSizes(M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE)
         val width = distanceWidth(tbt)
         drawDistance(canvas, tbt, M.BOX_CENTER_X - width / 2, bottom + M.HERO_TEXT_GAP)
     }
 
-    /** Small arrow + "250 m" as one row centred in the box, the text on the arrow's bottom edge. */
+    /**
+     * Small arrow + "250 m" as one row centred in the box, the text on the arrow's bottom edge.
+     * A roundabout exit follows the distance as "2ª", in the unit's size.
+     */
     private fun drawRow(canvas: Canvas, tbt: M.Tbt, top: Float) {
         setTextSizes(M.COMPACT_VALUE_SIZE, M.COMPACT_UNIT_SIZE)
-        val textWidth = distanceWidth(tbt)
+        val exit = tbt.exitNumber?.let { M.exitLabel(it) }
+        val distWidth = distanceWidth(tbt)
+        val exitWidth = exit?.let { unitPaint.measureText(it) } ?: 0f
+        val textWidth = distWidth + if (exit != null && distWidth > 0f) M.EXIT_GAP + exitWidth else exitWidth
         val gap = if (textWidth > 0f) M.COMPACT_ROW_GAP else 0f
         val left = M.BOX_CENTER_X - (M.COMPACT_GLYPH + gap + textWidth) / 2
-        val bottom = drawTurn(canvas, tbt.icon, left, top, M.COMPACT_GLYPH)
-        drawDistance(canvas, tbt, left + M.COMPACT_GLYPH + gap, bottom)
+        val bottom = drawTurn(canvas, tbt, left, top, M.COMPACT_GLYPH)
+        val textLeft = left + M.COMPACT_GLYPH + gap
+        drawDistance(canvas, tbt, textLeft, bottom)
+        if (exit != null) {
+            val x = textLeft + textWidth - exitWidth
+            canvas.drawText(exit, x, bottom, unitPaint)
+        }
     }
 
     /** Draws the maneuver icon in a [size] square; returns the y of its visible bottom edge. */
-    private fun drawTurn(canvas: Canvas, icon: String, left: Float, top: Float, size: Float): Float {
+    private fun drawTurn(canvas: Canvas, tbt: M.Tbt, left: Float, top: Float, size: Float): Float {
+        val icon = tbt.icon
         if (icon.isEmpty()) return top + size
+        val exitAngle = tbt.exitAngle
+        if (tbt.dynamicRoundabout && exitAngle != null) {
+            drawRoundabout(canvas, left, top, size, exitAngle, tbt.roundaboutClockwise)
+            return top + (M.RB_ENTRY_BOTTOM + M.RB_STROKE / 2) / 24f * size
+        }
         val path = HudTbtIcons.turnPath(icon, size)
         if (path != null) {
             canvas.save()
@@ -141,6 +175,32 @@ class HudOverlayRenderer {
         val baseline = top + size / 2 - (glyphPaint.descent() + glyphPaint.ascent()) / 2
         canvas.drawText(HudTbtIcons.turnGlyph(icon), left + size / 2, baseline, glyphPaint)
         return baseline
+    }
+
+    /** Ring with the entry at the bottom and an arrow at the exit [angle] degrees around it. */
+    private fun drawRoundabout(canvas: Canvas, left: Float, top: Float, size: Float, angle: Int, clockwise: Boolean) {
+        val scale = size / 24f
+        canvas.save()
+        canvas.translate(left, top)
+        canvas.scale(scale, scale)
+        canvas.drawCircle(M.RB_CX, M.RB_CY, M.RB_R, ringOff)
+        // Canvas arcs run clockwise from 3 o'clock; the entry is at 6 o'clock (90).
+        canvas.drawArc(ringOval, 90f, if (clockwise) angle.toFloat() else -angle.toFloat(), false, ringOn)
+        canvas.drawLine(M.RB_CX, M.RB_ENTRY_BOTTOM, M.RB_CX, M.RB_CY + M.RB_R, ringOn)
+        val rad = Math.toRadians(M.roundaboutExitDegrees(angle, clockwise).toDouble())
+        val dx = kotlin.math.cos(rad).toFloat()
+        val dy = -kotlin.math.sin(rad).toFloat()
+        val baseR = M.RB_EXIT_TIP - M.RB_HEAD_LENGTH
+        canvas.drawLine(M.RB_CX + dx * M.RB_R, M.RB_CY + dy * M.RB_R, M.RB_CX + dx * (baseR + 0.5f), M.RB_CY + dy * (baseR + 0.5f), ringOn)
+        val bx = M.RB_CX + dx * baseR
+        val by = M.RB_CY + dy * baseR
+        headPath.reset()
+        headPath.moveTo(M.RB_CX + dx * M.RB_EXIT_TIP, M.RB_CY + dy * M.RB_EXIT_TIP)
+        headPath.lineTo(bx - dy * M.RB_HEAD_HALF_WIDTH, by + dx * M.RB_HEAD_HALF_WIDTH)
+        headPath.lineTo(bx + dy * M.RB_HEAD_HALF_WIDTH, by - dx * M.RB_HEAD_HALF_WIDTH)
+        headPath.close()
+        canvas.drawPath(headPath, fill)
+        canvas.restore()
     }
 
     private fun setTextSizes(value: Float, unit: Float) {
@@ -364,12 +424,12 @@ private val HIGHWAY_EXIT = PreviewScenario(
     rpmTenths = 31
 )
 
-/** Roundabout in 80 m (big arrow) while braking: regen, engine off. */
+/** Roundabout in 80 m, 2nd exit straight across (dynamic ring, "2" inside) while braking: regen, engine off. */
 private val ROUNDABOUT_REGEN = PreviewScenario(
     speedKmh = 35,
     route = AndroidAutoNavigationTelemetry.Directions(
         active = true, distance = "80 m", distanceM = 80, turn = "ROUNDABOUT",
-        remainingM = 2_100, remainingS = 360
+        remainingM = 2_100, remainingS = 360, exitNumber = 2, turnAngle = 180, roundaboutClockwise = false
     ),
     powerPercent = -45,
     rpmTenths = null

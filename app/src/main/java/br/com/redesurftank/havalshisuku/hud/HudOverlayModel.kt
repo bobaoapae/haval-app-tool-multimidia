@@ -45,6 +45,29 @@ object HudOverlayModel {
 
     const val UNIT_GAP = 4f
 
+    // Roundabout exit number. In the big arrow it sits in the ring's hole: the hole's centre and
+    // radius as fractions of the ROUNDABOUT icon's box (486.039 viewBox in HudTbtIcons /
+    // tbtTurnIcons.js: centre 296.897,182.665, inner radius 81.16). The small arrow's hole is too
+    // small to read, so the compact and far rows put "2ª" after the distance instead.
+    const val RING_HOLE_CX = 296.897f / 486.039f
+    const val RING_HOLE_CY = 182.665f / 486.039f
+    const val RING_HOLE_R = 81.16f / 486.039f
+    // Dynamic roundabout, drawn when AA sends the exit angle: ring, entry at the bottom, the
+    // travelled arc and an arrow at the real exit. In a 24 box like the other icons; same geometry
+    // as roundaboutSvg in tbtTurnIcons.js. The exit number sits in the ring's centre.
+    const val RB_CX = 12f
+    const val RB_CY = 12f
+    const val RB_R = 5f
+    const val RB_STROKE = 2.4f
+    const val RB_ENTRY_BOTTOM = 22.5f
+    const val RB_EXIT_TIP = 11f
+    const val RB_HEAD_LENGTH = 4f
+    const val RB_HEAD_HALF_WIDTH = 3.2f
+
+    const val HERO_EXIT_SIZE = 18f
+    const val HERO_EXIT_SIZE_2DIGITS = 13f
+    const val EXIT_GAP = 6f
+
     /** Top of the compact block (row + lanes), centred in the TBT area. */
     const val COMPACT_TOP =
         TBT_TOP + (TBT_BOTTOM - TBT_TOP - (COMPACT_GLYPH + COMPACT_LANES_GAP + LANE_ROW_HEIGHT)) / 2
@@ -284,15 +307,53 @@ object HudOverlayModel {
         FAR
     }
 
-    /** Turn-by-turn part. [trip] (remaining distance · time) is "" when off or unknown. */
+    /**
+     * Turn-by-turn part. [trip] (remaining distance · time) is "" when off or unknown.
+     * [exitNumber] is the roundabout exit to take, only with the ROUNDABOUT icon.
+     */
     data class Tbt(
         val icon: String,
         val distanceValue: String,
         val distanceUnit: String,
         val lanes: List<List<LaneArrow>>,
         val style: TbtStyle,
-        val trip: String
-    )
+        val trip: String,
+        val exitNumber: Int? = null,
+        /** Degrees travelled around the ring (1..360); set only with the ROUNDABOUT icon. */
+        val exitAngle: Int? = null,
+        val roundaboutClockwise: Boolean = false
+    ) {
+        /** Draw the roundabout with its real exit instead of the static icon. */
+        val dynamicRoundabout: Boolean get() = icon == "ROUNDABOUT" && exitAngle != null
+    }
+
+    /**
+     * Where the exit leaves the ring, as a maths angle (degrees, 0 = right, 90 = up). The entry
+     * is at the bottom (270); [angle] is travelled in the roundabout's direction: counter-clockwise
+     * on screen for right-hand traffic (90 = right exit, 180 = straight, 270 = left), clockwise
+     * for left-hand traffic. A confirmar against a real drive (see aa_nav_roundabout).
+     */
+    fun roundaboutExitDegrees(angle: Int, clockwise: Boolean): Float {
+        val deg = if (clockwise) 270 - angle else 270 + angle
+        return (((deg % 360) + 360) % 360).toFloat()
+    }
+
+    /** Exit angle the dynamic icon can draw: 1..360, else null (static icon). */
+    fun drawableExitAngle(angle: Int?): Int? = angle?.takeIf { it in 1..360 }
+
+    /** Exit after the distance in the compact / far rows: 2 -> "2ª" (saída). */
+    fun exitLabel(exitNumber: Int): String = "${exitNumber}ª"
+
+    /** Text size of the exit in the big arrow's ring: two digits shrink to stay inside the hole. */
+    fun heroExitSize(exitNumber: Int): Float = if (exitNumber >= 10) HERO_EXIT_SIZE_2DIGITS else HERO_EXIT_SIZE
+
+    /**
+     * Centre of the ring's hole for an icon drawn at [left], [top] in a [size] square: the static
+     * icon's hole, or the dynamic ring's centre.
+     */
+    fun ringHoleCenter(left: Float, top: Float, size: Float, dynamic: Boolean = false): Pair<Float, Float> =
+        if (dynamic) (left + RB_CX / 24f * size) to (top + RB_CY / 24f * size)
+        else (left + RING_HOLE_CX * size) to (top + RING_HOLE_CY * size)
 
     /**
      * Everything the view draws; null parts are switched off or have no data. Bars are quantised
@@ -335,13 +396,17 @@ object HudOverlayModel {
             config.smallArrowWhenFar && meters != null && meters >= FAR_THRESHOLD_M -> TbtStyle.FAR
             else -> TbtStyle.HERO
         }
+        val icon = resolveTurnIcon(d.turn)
         return Tbt(
-            icon = resolveTurnIcon(d.turn),
+            icon = icon,
             distanceValue = value,
             distanceUnit = unit,
             lanes = lanes,
             style = style,
-            trip = if (config.trip) tripLabel(d.remainingM, d.remainingS) else ""
+            trip = if (config.trip) tripLabel(d.remainingM, d.remainingS) else "",
+            exitNumber = d.exitNumber?.takeIf { icon == "ROUNDABOUT" && it > 0 },
+            exitAngle = if (icon == "ROUNDABOUT") drawableExitAngle(d.turnAngle) else null,
+            roundaboutClockwise = d.roundaboutClockwise == true
         )
     }
 

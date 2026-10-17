@@ -213,4 +213,68 @@ class HudOverlayModelTest {
         for (layout in HudOverlayModel.Layout.entries) assertEquals(layout, HudOverlayModel.Layout.fromKey(layout.key))
         assertNull(HudOverlayModel.Layout.fromKey("nope"))
     }
+
+    @Test
+    fun `roundabout exit rides the tbt only with the roundabout icon`() {
+        val roundabout = Directions(active = true, distance = "80 m", distanceM = 80, turn = "ROUNDABOUT_ENTER", exitNumber = 2)
+        assertEquals(2, HudOverlayModel.tbtFor(roundabout)!!.exitNumber)
+        assertNull(HudOverlayModel.tbtFor(roundabout.copy(exitNumber = null))!!.exitNumber)
+        assertNull(HudOverlayModel.tbtFor(roundabout.copy(exitNumber = 0))!!.exitNumber)
+        // A stale number on a non-roundabout step must not reach the HUD.
+        assertNull(HudOverlayModel.tbtFor(roundabout.copy(turn = "TURN_RIGHT"))!!.exitNumber)
+    }
+
+    @Test
+    fun `exit label and two-digit size`() {
+        assertEquals("2ª", HudOverlayModel.exitLabel(2))
+        assertEquals("12ª", HudOverlayModel.exitLabel(12))
+        assertEquals(HudOverlayModel.HERO_EXIT_SIZE, HudOverlayModel.heroExitSize(3))
+        assertEquals(HudOverlayModel.HERO_EXIT_SIZE_2DIGITS, HudOverlayModel.heroExitSize(10))
+    }
+
+    @Test
+    fun `hero exit number sits in the ring hole, inside the free box`() {
+        val left = HudOverlayModel.BOX_CENTER_X - HudOverlayModel.HERO_GLYPH / 2
+        val (cx, cy) = HudOverlayModel.ringHoleCenter(left, HudOverlayModel.HERO_TOP, HudOverlayModel.HERO_GLYPH)
+        val r = HudOverlayModel.RING_HOLE_R * HudOverlayModel.HERO_GLYPH
+        assertTrue(cx - r >= HudOverlayModel.BOX_LEFT && cx + r <= HudOverlayModel.BOX_RIGHT)
+        assertTrue(cy - r >= HudOverlayModel.TBT_TOP && cy + r <= HudOverlayModel.TBT_BOTTOM)
+        // An 18 px digit is ~13 px tall: it has to clear the ~21 px hole.
+        assertTrue(2 * r >= HudOverlayModel.HERO_EXIT_SIZE)
+    }
+
+    @Test
+    fun `roundabout exit angle travels the ring in the traffic direction`() {
+        // Right-hand traffic (CCW): enter at the bottom, 90 = right, 180 = straight, 270 = left.
+        assertEquals(0f, HudOverlayModel.roundaboutExitDegrees(90, clockwise = false))
+        assertEquals(90f, HudOverlayModel.roundaboutExitDegrees(180, clockwise = false))
+        assertEquals(180f, HudOverlayModel.roundaboutExitDegrees(270, clockwise = false))
+        assertEquals(270f, HudOverlayModel.roundaboutExitDegrees(360, clockwise = false))
+        // Left-hand traffic (CW): 90 = left.
+        assertEquals(180f, HudOverlayModel.roundaboutExitDegrees(90, clockwise = true))
+        assertEquals(90f, HudOverlayModel.roundaboutExitDegrees(180, clockwise = true))
+    }
+
+    @Test
+    fun `dynamic roundabout only with a drawable angle`() {
+        val d = Directions(active = true, distance = "80 m", turn = "ROUNDABOUT", exitNumber = 2, turnAngle = 180)
+        val tbt = HudOverlayModel.tbtFor(d)!!
+        assertTrue(tbt.dynamicRoundabout)
+        assertEquals(180, tbt.exitAngle)
+        assertTrue(!HudOverlayModel.tbtFor(d.copy(turnAngle = null))!!.dynamicRoundabout)
+        assertNull(HudOverlayModel.tbtFor(d.copy(turnAngle = -90))!!.exitAngle)
+        assertNull(HudOverlayModel.tbtFor(d.copy(turn = "TURN_LEFT"))!!.exitAngle)
+        assertEquals(true, HudOverlayModel.tbtFor(d.copy(roundaboutClockwise = true))!!.roundaboutClockwise)
+    }
+
+    @Test
+    fun `dynamic roundabout stays inside its icon box`() {
+        // Arrow tip and the entry stub (plus half the stroke) inside the 24 box.
+        assertTrue(HudOverlayModel.RB_CY - HudOverlayModel.RB_EXIT_TIP >= 0f)
+        assertTrue(HudOverlayModel.RB_CX + HudOverlayModel.RB_EXIT_TIP <= 24f)
+        assertTrue(HudOverlayModel.RB_ENTRY_BOTTOM + HudOverlayModel.RB_STROKE / 2 <= 24f)
+        // The exit number has room inside the ring at hero size.
+        val inner = 2 * (HudOverlayModel.RB_R - HudOverlayModel.RB_STROKE / 2) / 24f * HudOverlayModel.HERO_GLYPH
+        assertTrue(inner >= HudOverlayModel.HERO_EXIT_SIZE)
+    }
 }

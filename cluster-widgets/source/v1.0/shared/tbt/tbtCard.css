@@ -78,6 +78,41 @@
 
 .dashboard-tbt-glyph.is-svg {
   text-shadow: none;
+  /* Anchor for the roundabout exit badge. */
+  position: relative;
+}
+
+/* Roundabout exit number, centred in the ROUNDABOUT icon's ring. The ring's
+   hole sits at 296.897,182.665 (radius 81.16) of the 486.039 viewBox, i.e.
+   53.75,33.07 (radius ~14.7) in the 88px glyph. Absolute, so the card's
+   geometry never changes. */
+.dashboard-tbt-exit {
+  position: absolute;
+  left: 53.75px;
+  top: 33.07px;
+  transform: translate(-50%, -50%);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  color: #f4f7fb;
+  text-shadow: none;
+}
+
+.dashboard-tbt-exit.is-two-digits {
+  font-size: 18px;
+}
+
+/* Dynamic roundabout (roundaboutSvg): the ring is centred at 12,12 of its
+   24 box, i.e. 44,44 here, with ~28px inside the stroke. */
+.dashboard-tbt-exit.is-dynamic {
+  left: 44px;
+  top: 44px;
+  font-size: 22px;
+}
+
+.dashboard-tbt-exit.is-dynamic.is-two-digits {
+  font-size: 16px;
 }
 
 .dashboard-tbt-glyph svg {
