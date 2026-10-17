@@ -85,17 +85,32 @@ object HudOverlayModel {
     // street the maneuver leads onto, then a larger trip line, all pulled up close to the arrow.
     const val FAR_THRESHOLD_M = 1_000
     const val FAR_TOP = 70f
-    const val FAR_STREET_SIZE = 16f
-    const val FAR_STREET_BASELINE = FAR_TOP + COMPACT_GLYPH + 20f
-    const val FAR_TRIP_SIZE = 18f
-    const val FAR_TRIP_BASELINE = FAR_STREET_BASELINE + 24f
+    const val FAR_STREET_SIZE = 13f
+    const val FAR_STREET_BASELINE = FAR_TOP + COMPACT_GLYPH + 18f
+    const val FAR_TRIP_SIZE = 16f
+    const val FAR_TRIP_BASELINE = FAR_STREET_BASELINE + 21f
     /** No street from AA: the trip line moves up into the street's place. */
-    const val FAR_TRIP_BASELINE_NO_STREET = FAR_TOP + COMPACT_GLYPH + 24f
+    const val FAR_TRIP_BASELINE_NO_STREET = FAR_TOP + COMPACT_GLYPH + 21f
 
     // Trip line ("4.8 km · 12 min" left to the destination) under the big arrow or the lanes,
     // centred in the box: larger than it was (13), smaller than the far row's.
     const val TRIP_BASELINE = 178f
     const val TRIP_SIZE = 15f
+
+    // Destination flag before the trip line: a square box this share of the text size, sitting on
+    // the baseline, then a gap; flag + text are centred together in the box.
+    const val TRIP_FLAG_SCALE = 0.9f
+    const val TRIP_FLAG_GAP = 4f
+
+    /**
+     * Left edges of the flag and of the text for a trip line [textWidth] wide at [size], so the
+     * whole line (flag included) is centred on [BOX_CENTER_X].
+     */
+    fun tripLineLefts(textWidth: Float, size: Float): Pair<Float, Float> {
+        val flag = size * TRIP_FLAG_SCALE
+        val left = BOX_CENTER_X - (flag + TRIP_FLAG_GAP + textWidth) / 2
+        return left to left + flag + TRIP_FLAG_GAP
+    }
 
     /** Trip line baseline and text size for [style]; the far row's depends on a street showing. */
     fun tripPlacement(style: TbtStyle, hasStreet: Boolean): Pair<Float, Float> = when (style) {

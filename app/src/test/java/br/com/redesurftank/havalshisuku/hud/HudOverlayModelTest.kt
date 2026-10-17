@@ -323,4 +323,14 @@ class HudOverlayModelTest {
         val heroDistance = HudOverlayModel.HERO_TOP + HudOverlayModel.HERO_GLYPH + HudOverlayModel.HERO_TEXT_GAP
         assertTrue(HudOverlayModel.TRIP_BASELINE - HudOverlayModel.TRIP_SIZE * 0.75f > heroDistance + HudOverlayModel.HERO_VALUE_SIZE * 0.25f)
     }
+
+    @Test
+    fun `trip line with its flag is centred as one`() {
+        val size = HudOverlayModel.TRIP_SIZE
+        val text = 100f
+        val (flagLeft, textLeft) = HudOverlayModel.tripLineLefts(text, size)
+        val right = textLeft + text
+        assertEquals(HudOverlayModel.BOX_CENTER_X, (flagLeft + right) / 2, 0.01f)
+        assertEquals(size * HudOverlayModel.TRIP_FLAG_SCALE + HudOverlayModel.TRIP_FLAG_GAP, textLeft - flagLeft, 0.01f)
+    }
 }

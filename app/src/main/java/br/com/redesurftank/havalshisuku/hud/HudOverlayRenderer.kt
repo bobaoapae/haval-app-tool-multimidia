@@ -127,8 +127,9 @@ class HudOverlayRenderer {
     }
 
     /**
-     * Navigation layout text under the turn-by-turn: the street (far row only) and the trip line,
-     * each fitted to the box width (street cut with an ellipsis, trip shrunk).
+     * Navigation layout text under the turn-by-turn: the street (far row only) and the trip line
+     * behind a small destination flag, each fitted to the box width (street cut with an ellipsis,
+     * trip shrunk with its flag).
      */
     private fun drawNavText(canvas: Canvas, tbt: M.Tbt) {
         val maxW = M.BOX_RIGHT - M.BOX_LEFT
@@ -139,12 +140,41 @@ class HudOverlayRenderer {
             canvas.drawText(text, M.BOX_CENTER_X, M.FAR_STREET_BASELINE, navStreetPaint)
         }
         if (tbt.trip.isEmpty()) return
-        val (baseline, size) = M.tripPlacement(tbt.style, street)
-        tripPaint.textSize = size
-        val w = tripPaint.measureText(tbt.trip)
-        if (w > maxW) tripPaint.textSize = size * maxW / w
-        canvas.drawText(tbt.trip, M.BOX_CENTER_X, baseline, tripPaint)
-        tripPaint.textSize = M.TRIP_SIZE
+        val (baseline, wanted) = M.tripPlacement(tbt.style, street)
+        navTripPaint.textSize = wanted
+        val full = wanted * M.TRIP_FLAG_SCALE + M.TRIP_FLAG_GAP + navTripPaint.measureText(tbt.trip)
+        val size = if (full > maxW) wanted * maxW / full else wanted
+        navTripPaint.textSize = size
+        val (flagLeft, textLeft) = M.tripLineLefts(navTripPaint.measureText(tbt.trip), size)
+        drawFlag(canvas, flagLeft, baseline, size * M.TRIP_FLAG_SCALE)
+        canvas.drawText(tbt.trip, textLeft, baseline, navTripPaint)
+    }
+
+    /** Destination flag in a [size] square standing on [baseline]: a pole and a pennant. */
+    private fun drawFlag(canvas: Canvas, left: Float, baseline: Float, size: Float) {
+        val s = size / 24f
+        canvas.save()
+        canvas.translate(left, baseline - size)
+        canvas.scale(s, s)
+        canvas.drawLine(5f, 3f, 5f, 23f, flagPole)
+        canvas.drawPath(flagPath, flagFill)
+        canvas.restore()
+    }
+
+    private val navTripPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(217, 255, 255, 255)
+        typeface = lightFace
+        textAlign = Paint.Align.LEFT
+    }
+    private val flagFill = fillPaint(Color.argb(217, 255, 255, 255))
+    private val flagPole = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(217, 255, 255, 255)
+        strokeWidth = 2.6f
+        strokeCap = Paint.Cap.ROUND
+    }
+    // Pennant in the 24 box, notched on the fly side like a checkered-flag outline.
+    private val flagPath = Path().apply {
+        moveTo(5f, 3.5f); lineTo(20f, 3.5f); lineTo(16.5f, 8.5f); lineTo(20f, 13.5f); lineTo(5f, 13.5f); close()
     }
 
     private val navStreetPaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
