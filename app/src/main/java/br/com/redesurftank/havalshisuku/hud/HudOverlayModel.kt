@@ -286,6 +286,70 @@ object HudOverlayModel {
         AR
     }
 
+    // ---- AR layout: left column (no big arrow there; the arrow is in the middle) ----
+
+    /** Left column, no lanes: street, a large distance, the trip line. */
+    const val AR_STREET_BASELINE = 80f
+    const val AR_STREET_SIZE = 16f
+    const val AR_DISTANCE_BASELINE = 128f
+    const val AR_DISTANCE_VALUE_SIZE = 38f
+    const val AR_DISTANCE_UNIT_SIZE = 20f
+    const val AR_TRIP_BASELINE = 160f
+    const val AR_TRIP_SIZE = 16f
+
+    /** Left column with lanes: the same, compacted around the lane row. */
+    const val AR_LANES_STREET_BASELINE = 74f
+    const val AR_LANES_STREET_SIZE = 14f
+    const val AR_LANES_DISTANCE_BASELINE = 104f
+    const val AR_LANES_DISTANCE_VALUE_SIZE = 28f
+    const val AR_LANES_DISTANCE_UNIT_SIZE = 16f
+    const val AR_LANES_TOP = 114f
+    const val AR_LANES_TRIP_BASELINE = 172f
+    const val AR_LANES_TRIP_SIZE = 14f
+
+    // ---- AR layout: power / RPM arcs round the native speed readout ----
+    // Centre and radii follow the native speed's position on the owner's photo (mock in the
+    // simulator); a confirmar on the windshield, tune here.
+
+    const val ARC_CX = 268f
+    const val ARC_CY = 98f
+    /** Outer arc: power. */
+    const val ARC_POWER_R = 46f
+    /** Inner arc: RPM. */
+    const val ARC_RPM_R = 38f
+    const val ARC_THICKNESS = 5f
+    /** 270° open at the bottom: starts bottom-left (135°, canvas angles, clockwise) to bottom-right. */
+    const val ARC_START_DEG = 135f
+    const val ARC_SWEEP_DEG = 270f
+    const val ARC_GAP_DEG = 3f
+    const val ARC_POWER_STEPS = 10
+    const val ARC_RPM_STEPS = 7
+
+    /** Start angle and sweep of arc segment [i] of [steps], gap included. */
+    fun arcSegment(i: Int, steps: Int): Pair<Float, Float> {
+        val each = ARC_SWEEP_DEG / steps
+        return ARC_START_DEG + i * each + ARC_GAP_DEG / 2 to each - ARC_GAP_DEG
+    }
+
+    /**
+     * Lit power segments on the outer arc. Drive fills from the left end, one segment per 10 %.
+     * Regen grows from the top centre towards both sides, one segment per side per 20 %.
+     * Empty for 0 %.
+     */
+    fun arcPowerLit(percent: Int): IntRange {
+        if (percent == 0) return IntRange.EMPTY
+        if (percent > 0) return 0 until powerSegments(percent)
+        val half = ARC_POWER_STEPS / 2
+        val perSide = ((kotlin.math.abs(percent) + 10) / 20).coerceIn(1, half)
+        return (half - perSide) until (half + perSide)
+    }
+
+    /** Lit RPM segments on the inner arc: one per 1000 rpm, at least one while turning. */
+    fun arcRpmLit(tenths: Int): Int {
+        if (tenths <= 0) return 0
+        return ((tenths + 5) / 10).coerceIn(1, ARC_RPM_STEPS)
+    }
+
     /**
      * Turn-by-turn part. [trip] (remaining distance · time) is "" when off or unknown. For
      * [TbtStyle.AR], [arAngle] is the maneuver's bend and [arMeters] the distance that places the
@@ -299,7 +363,9 @@ object HudOverlayModel {
         val style: TbtStyle,
         val trip: String,
         val arAngle: Float? = null,
-        val arMeters: Float? = null
+        val arMeters: Float? = null,
+        /** Road the maneuver leads onto (shown by the AR layout's left column). */
+        val street: String = ""
     )
 
     /**
@@ -307,7 +373,13 @@ object HudOverlayModel {
      * (whole %, 0.1k rpm), so equal frames are skipped and the high-rate CAN feed only redraws on
      * a visible change.
      */
-    data class Frame(val tbt: Tbt?, val powerPercent: Int?, val rpmTenths: Int?)
+    data class Frame(
+        val tbt: Tbt?,
+        val powerPercent: Int?,
+        val rpmTenths: Int?,
+        /** AR layout: power and RPM as arcs round the native speed instead of the bottom bars. */
+        val arcs: Boolean = false
+    )
 
     /** HUD layouts the owner picks from in the Telas tab. */
     enum class Layout(val key: String) {
@@ -342,8 +414,9 @@ object HudOverlayModel {
         val meters = distanceMeters(d.distance, d.distanceM)
         val arAngle = if (config.layout == Layout.AR) HudArArrow.angleFor(d.turn) else null
         val style = when {
-            lanes.isNotEmpty() -> TbtStyle.COMPACT
+            // AR keeps the centre arrow with lanes too; the lanes go to the left column.
             arAngle != null && meters != null -> TbtStyle.AR
+            lanes.isNotEmpty() -> TbtStyle.COMPACT
             config.smallArrowWhenFar && meters != null && meters >= FAR_THRESHOLD_M -> TbtStyle.FAR
             else -> TbtStyle.HERO
         }
@@ -355,7 +428,8 @@ object HudOverlayModel {
             style = style,
             trip = if (config.trip) tripLabel(d.remainingM, d.remainingS) else "",
             arAngle = arAngle.takeIf { style == TbtStyle.AR },
-            arMeters = meters?.toFloat().takeIf { style == TbtStyle.AR }
+            arMeters = meters?.toFloat().takeIf { style == TbtStyle.AR },
+            street = d.street.trim()
         )
     }
 
@@ -373,6 +447,7 @@ object HudOverlayModel {
             }
         } else null,
         powerPercent = if (config.powerBar) powerPercent else null,
-        rpmTenths = if (config.rpmBar) rpmTenths else null
+        rpmTenths = if (config.rpmBar) rpmTenths else null,
+        arcs = config.layout == Layout.AR
     )
 }

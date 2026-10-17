@@ -97,7 +97,7 @@ class HudArArrowTest {
     }
 
     @Test
-    fun `AR layout uses the 3D arrow only without lanes and for shaped maneuvers`() {
+    fun `AR layout keeps the centre arrow with lanes, roundabouts keep the flat icon`() {
         val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR)
         val nav = HudOverlayModel.Config(layout = HudOverlayModel.Layout.NAVIGATION)
         val turn = Directions(active = true, distance = "90 m", distanceM = 90, turn = "TURN_RIGHT")
@@ -109,8 +109,12 @@ class HudArArrowTest {
 
         assertEquals(HudOverlayModel.TbtStyle.HERO, HudOverlayModel.tbtFor(turn, nav)!!.style)
         assertNull(HudOverlayModel.tbtFor(turn, nav)!!.arAngle)
-        val withLanes = turn.copy(lanes = listOf(listOf(LaneDirection(5, true))))
-        assertEquals(HudOverlayModel.TbtStyle.COMPACT, HudOverlayModel.tbtFor(withLanes, ar)!!.style)
+        val withLanes = turn.copy(lanes = listOf(listOf(LaneDirection(5, true))), street = " R. Augusta ")
+        val laned = HudOverlayModel.tbtFor(withLanes, ar)!!
+        assertEquals(HudOverlayModel.TbtStyle.AR, laned.style)
+        assertEquals(1, laned.lanes.size)
+        assertEquals("R. Augusta", laned.street)
+        assertEquals(HudOverlayModel.TbtStyle.COMPACT, HudOverlayModel.tbtFor(withLanes, nav)!!.style)
         val roundabout = turn.copy(turn = "ROUNDABOUT")
         assertEquals(HudOverlayModel.TbtStyle.HERO, HudOverlayModel.tbtFor(roundabout, ar)!!.style)
     }
@@ -124,5 +128,48 @@ class HudArArrowTest {
         assertEquals("90", frame.tbt!!.distanceValue) // the text stays Android Auto's
         val navFrame = HudOverlayModel.frameFor(ar.copy(layout = HudOverlayModel.Layout.NAVIGATION), turn, 0, null, 72.5f)
         assertNull(navFrame.tbt!!.arMeters)
+    }
+
+    @Test
+    fun `AR frames use arcs, Navegação keeps the bars`() {
+        val turn = Directions(active = true, distance = "90 m", distanceM = 90, turn = "TURN_RIGHT")
+        val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR)
+        assertTrue(HudOverlayModel.frameFor(ar, turn, 30, 24).arcs)
+        assertTrue(!HudOverlayModel.frameFor(ar.copy(layout = HudOverlayModel.Layout.NAVIGATION), turn, 30, 24).arcs)
+    }
+
+    @Test
+    fun `power arc - drive fills from the left, regen grows from the top centre`() {
+        assertTrue(HudOverlayModel.arcPowerLit(0).isEmpty())
+        assertEquals(0 until 4, HudOverlayModel.arcPowerLit(35))
+        assertEquals(0 until 10, HudOverlayModel.arcPowerLit(100))
+        assertEquals(0 until 1, HudOverlayModel.arcPowerLit(2))
+        // Regen: symmetric round the top (between segments 4 and 5), one per side per 20 %.
+        assertEquals(4 until 6, HudOverlayModel.arcPowerLit(-10))
+        assertEquals(3 until 7, HudOverlayModel.arcPowerLit(-35))
+        assertEquals(0 until 10, HudOverlayModel.arcPowerLit(-100))
+    }
+
+    @Test
+    fun `rpm arc has 7 steps of 1000 rpm, red past 5k`() {
+        assertEquals(0, HudOverlayModel.arcRpmLit(0))
+        assertEquals(1, HudOverlayModel.arcRpmLit(8))
+        assertEquals(3, HudOverlayModel.arcRpmLit(32))
+        assertEquals(7, HudOverlayModel.arcRpmLit(75))
+        assertTrue(HudOverlayModel.rpmSegmentIsRed(5) && HudOverlayModel.rpmSegmentIsRed(6))
+        assertTrue(!HudOverlayModel.rpmSegmentIsRed(4))
+    }
+
+    @Test
+    fun `arcs span 270 degrees open at the bottom, top centre between the middle segments`() {
+        val (firstStart, _) = HudOverlayModel.arcSegment(0, 10)
+        val (lastStart, lastSweep) = HudOverlayModel.arcSegment(9, 10)
+        assertEquals(HudOverlayModel.ARC_START_DEG + HudOverlayModel.ARC_GAP_DEG / 2, firstStart, 0.01f)
+        assertEquals(HudOverlayModel.ARC_START_DEG + 270f - HudOverlayModel.ARC_GAP_DEG / 2, lastStart + lastSweep, 0.01f)
+        // Top of the arc is 270° in canvas angles: the boundary between segments 4 and 5.
+        val (s5, _) = HudOverlayModel.arcSegment(5, 10)
+        assertEquals(270f, s5 - HudOverlayModel.ARC_GAP_DEG / 2, 0.01f)
+        // Inside the visible band.
+        assertTrue(HudOverlayModel.ARC_CY - HudOverlayModel.ARC_POWER_R - HudOverlayModel.ARC_THICKNESS > 40f)
     }
 }
