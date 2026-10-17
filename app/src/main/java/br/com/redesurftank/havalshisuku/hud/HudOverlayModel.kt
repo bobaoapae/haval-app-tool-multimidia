@@ -566,4 +566,72 @@ object HudOverlayModel {
         rpmTenths = if (config.rpmBar) rpmTenths else null,
         arcs = config.layout == Layout.AR
     )
+
+    /**
+     * Scripted drive for the debug `hudDemo drive`: what the HUD would get [t] seconds into a
+     * 48 s loop at [speed] m/s. Right turn from 450 m (engine on, then regen into the turn), then
+     * a sharp left with lanes from 270 m (into the RPM red zone, then regen).
+     */
+    object DemoDrive {
+        class Step(
+            val directions: AndroidAutoNavigationTelemetry.Directions,
+            val powerPercent: Int,
+            val rpmTenths: Int?
+        )
+
+        private fun lane(shape: Int, used: Boolean) =
+            listOf(AndroidAutoNavigationTelemetry.LaneDirection(shape, used))
+
+        fun at(t: Float, speed: Float): Step {
+            val firstLeg = 30f
+            return if (t < firstLeg) {
+                val d = (450f - speed * t).coerceAtLeast(0f)
+                Step(
+                    directions(d, "TURN_RIGHT", "R. Augusta", 5_200f - speed * t, 700 - t.toInt(), emptyList()),
+                    powerPercent = when {
+                        t < 10f -> 45
+                        t < 20f -> 20
+                        else -> -40
+                    },
+                    rpmTenths = if (t < 12f) 28 else null
+                )
+            } else {
+                val s = t - firstLeg
+                val d = (270f - speed * s).coerceAtLeast(0f)
+                Step(
+                    directions(
+                        d, "SHARP_LEFT", "Av. Paulista", 4_750f - speed * s, 670 - s.toInt(),
+                        listOf(lane(4, true), lane(1, false), lane(1, false))
+                    ),
+                    powerPercent = if (s < 8f) 85 else -25,
+                    rpmTenths = when {
+                        s < 3f -> 35
+                        s < 8f -> 56
+                        else -> null
+                    }
+                )
+            }
+        }
+
+        private fun directions(
+            meters: Float,
+            turn: String,
+            street: String,
+            remainingM: Float,
+            remainingS: Int,
+            lanes: List<List<AndroidAutoNavigationTelemetry.LaneDirection>>
+        ): AndroidAutoNavigationTelemetry.Directions {
+            val rounded = (meters / 10f).roundToInt() * 10
+            return AndroidAutoNavigationTelemetry.Directions(
+                active = true,
+                distance = "$rounded m",
+                distanceM = meters.roundToInt(),
+                turn = turn,
+                street = street,
+                remainingM = remainingM.roundToInt(),
+                remainingS = remainingS,
+                lanes = lanes
+            )
+        }
+    }
 }
