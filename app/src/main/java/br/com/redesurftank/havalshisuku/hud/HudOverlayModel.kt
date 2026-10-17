@@ -58,9 +58,9 @@ object HudOverlayModel {
     const val FAR_THRESHOLD_M = 1_000
     const val FAR_TOP = TBT_TOP + (TBT_BOTTOM - TBT_TOP - COMPACT_GLYPH) / 2
 
-    // Arrival line ("10:40 · 12 min") under the turn-by-turn, centred in the box.
-    const val ETA_BASELINE = 184f
-    const val ETA_SIZE = 13f
+    // Trip line ("4.8 km · 12 min" left to the destination) under the turn-by-turn, centred in the box.
+    const val TRIP_BASELINE = 184f
+    const val TRIP_SIZE = 13f
 
     // Bars on the bottom row of the visible band, no labels: power at the HUD's left edge, RPM at
     // its right edge (the native HUD leaves the bottom of both sides empty). Approved in the
@@ -68,9 +68,11 @@ object HudOverlayModel {
     const val BAR_Y = 195f
     const val BAR_HEIGHT = 4f
 
-    // Power: centre-zero, one segment per 10 % each side of a subtle zero tick.
-    const val POWER_LEFT = 10f
-    const val POWER_RIGHT = 118f
+    // Power: centre-zero, one segment per 10 % each side of a subtle zero tick. Centred under the
+    // turn-by-turn (BOX_CENTER_X), so the bar lines up with the arrow and trip line above it.
+    const val POWER_HALF_WIDTH = 54f
+    const val POWER_LEFT = BOX_CENTER_X - POWER_HALF_WIDTH
+    const val POWER_RIGHT = BOX_CENTER_X + POWER_HALF_WIDTH
     const val POWER_SEGMENTS_PER_SIDE = 10
     const val POWER_SEGMENT_GAP = 1.5f
     const val POWER_ZERO_GAP = 4f
@@ -137,17 +139,17 @@ object HudOverlayModel {
     /** Whether segment [i] (0-based, 1000 rpm each) sits in the red zone. */
     fun rpmSegmentIsRed(i: Int): Boolean = (i + 1) * 1000 > RPM_RED
 
-    private val CLOCK = Regex("""^(\d{1,2}):(\d{2})$""")
-
     /**
-     * Arrival line: "10:40 · 12 min", or whichever half exists; "" when neither does. Same rules
-     * as formatArrivalClock / formatTripEta in the cluster card (tbtTurnIcons.js).
+     * Trip line: "4.8 km · 12 min" left to the destination, or whichever half exists; "" when
+     * neither does. Same rules as formatRemainingDistance / formatTripEta in the cluster card
+     * (tbtTurnIcons.js), so the HUD and the card's DISTÂNCIA / TEMPO read the same.
      */
-    fun etaLabel(etaClock: String, remainingS: Int?): String {
-        val clock = CLOCK.find(etaClock.trim())?.let { m ->
-            val h = m.groupValues[1].toInt()
-            val min = m.groupValues[2].toInt()
-            if (h <= 23 && min <= 59) "%02d:%02d".format(h, min) else null
+    fun tripLabel(remainingM: Int?, remainingS: Int?): String {
+        val distance = remainingM?.takeIf { it >= 0 }?.let { m ->
+            if (m < 1000) return@let "$m m"
+            val km = m / 1000.0
+            if (km >= 100) "${groupThousands(km.roundToInt())} km"
+            else "${(km * 10).roundToInt() / 10}.${(km * 10).roundToInt() % 10} km"
         }
         val left = remainingS?.takeIf { it >= 0 }?.let { s ->
             if (s < 45) return@let "<1 min"
@@ -157,8 +159,12 @@ object HudOverlayModel {
             val rest = minutes % 60
             if (rest == 0) "$hours h" else "$hours h $rest min"
         }
-        return listOfNotNull(clock, left).joinToString(" · ")
+        return listOfNotNull(distance, left).joinToString(" · ")
     }
+
+    /** pt-BR grouping, as groupThousands in tbtTurnIcons.js: 1234 -> "1.234". */
+    private fun groupThousands(n: Int): String =
+        n.toString().reversed().chunked(3).joinToString(".").reversed()
 
     /** Metres to the maneuver: the host's number, else parsed from "1.2 km" / "250 m". */
     fun distanceMeters(distance: String, distanceM: Int?): Int? {
@@ -278,14 +284,14 @@ object HudOverlayModel {
         FAR
     }
 
-    /** Turn-by-turn part. [eta] is "" when off or unknown. */
+    /** Turn-by-turn part. [trip] (remaining distance · time) is "" when off or unknown. */
     data class Tbt(
         val icon: String,
         val distanceValue: String,
         val distanceUnit: String,
         val lanes: List<List<LaneArrow>>,
         val style: TbtStyle,
-        val eta: String
+        val trip: String
     )
 
     /**
@@ -312,7 +318,7 @@ object HudOverlayModel {
         val layout: Layout = Layout.ORIGINAL,
         val navigation: Boolean = true,
         val smallArrowWhenFar: Boolean = true,
-        val eta: Boolean = true,
+        val trip: Boolean = true,
         val powerBar: Boolean = true,
         val rpmBar: Boolean = true
     ) {
@@ -335,7 +341,7 @@ object HudOverlayModel {
             distanceUnit = unit,
             lanes = lanes,
             style = style,
-            eta = if (config.eta) etaLabel(d.eta, d.remainingS) else ""
+            trip = if (config.trip) tripLabel(d.remainingM, d.remainingS) else ""
         )
     }
 

@@ -97,15 +97,17 @@ class HudOverlayModelTest {
         assertTrue(m.HERO_TOP + m.HERO_GLYPH + m.HERO_TEXT_GAP <= m.TBT_BOTTOM)
         assertTrue(m.HERO_GLYPH > m.COMPACT_GLYPH)
         // ETA between the turn-by-turn and the bars; bars inside the visible band.
-        assertTrue(m.ETA_BASELINE - m.ETA_SIZE >= m.TBT_BOTTOM)
-        assertTrue(m.ETA_BASELINE < m.BAR_Y - m.BAR_HEIGHT / 2)
+        assertTrue(m.TRIP_BASELINE - m.TRIP_SIZE >= m.TBT_BOTTOM)
+        assertTrue(m.TRIP_BASELINE < m.BAR_Y - m.BAR_HEIGHT / 2)
         assertTrue(m.BAR_Y + m.BAR_HEIGHT / 2 < 200f)
         // Power at the left edge inside the free cells; RPM at the right edge of the panel.
         val mid = (m.POWER_LEFT + m.POWER_RIGHT) / 2
         val last = m.powerSegmentOffset(m.POWER_SEGMENTS_PER_SIDE - 1) + m.POWER_SEGMENT_WIDTH
         assertEquals(m.POWER_RIGHT, mid + last, 0.01f)
         assertTrue(m.POWER_SEGMENT_WIDTH > 2f)
-        assertTrue(m.POWER_RIGHT < 180f)
+        assertTrue(m.POWER_RIGHT < 180f && m.POWER_LEFT > 0f)
+        // Lined up with the turn-by-turn block above it.
+        assertEquals(m.BOX_CENTER_X, mid, 0.01f)
         assertTrue(m.RPM_LEFT > 180f && m.RPM_RIGHT < 480f)
     }
 
@@ -144,13 +146,15 @@ class HudOverlayModelTest {
     }
 
     @Test
-    fun `eta joins arrival clock and time left like the cluster card`() {
-        assertEquals("10:40 · 12 min", HudOverlayModel.etaLabel("10:40", 720))
-        assertEquals("09:05", HudOverlayModel.etaLabel("9:05", null))
-        assertEquals("<1 min", HudOverlayModel.etaLabel("", 30))
-        assertEquals("1 h 34 min", HudOverlayModel.etaLabel("bad", 94 * 60))
-        assertEquals("2 h", HudOverlayModel.etaLabel("", 120 * 60))
-        assertEquals("", HudOverlayModel.etaLabel("25:00", null))
+    fun `trip joins remaining distance and time like the cluster card`() {
+        assertEquals("4.8 km · 12 min", HudOverlayModel.tripLabel(4_769, 720))
+        assertEquals("850 m", HudOverlayModel.tripLabel(850, null))
+        assertEquals("1.0 km · <1 min", HudOverlayModel.tripLabel(1_000, 30))
+        assertEquals("123 km · 1 h 34 min", HudOverlayModel.tripLabel(123_400, 94 * 60))
+        assertEquals("1.234 km · 2 h", HudOverlayModel.tripLabel(1_234_000, 120 * 60))
+        assertEquals("2 h", HudOverlayModel.tripLabel(null, 120 * 60))
+        assertEquals("", HudOverlayModel.tripLabel(null, null))
+        assertEquals("", HudOverlayModel.tripLabel(-1, -5))
     }
 
     @Test
@@ -184,20 +188,20 @@ class HudOverlayModelTest {
         val defaults = HudOverlayModel.Config()
         assertEquals(HudOverlayModel.Layout.ORIGINAL, defaults.layout)
         assertTrue(!defaults.active)
-        assertTrue(defaults.navigation && defaults.smallArrowWhenFar && defaults.eta && defaults.powerBar && defaults.rpmBar)
+        assertTrue(defaults.navigation && defaults.smallArrowWhenFar && defaults.trip && defaults.powerBar && defaults.rpmBar)
 
-        val route = Directions(active = true, distance = "90 m", turn = "TURN_LEFT", eta = "10:40", remainingS = 720)
+        val route = Directions(active = true, distance = "90 m", turn = "TURN_LEFT", remainingM = 4_800, remainingS = 720)
         val all = HudOverlayModel.Config(layout = HudOverlayModel.Layout.NAVIGATION)
         val full = HudOverlayModel.frameFor(all, route, powerPercent = 35, rpmTenths = 24)
         assertEquals("TURN_LEFT", full.tbt!!.icon)
         assertEquals("90", full.tbt!!.distanceValue)
         assertEquals("m", full.tbt!!.distanceUnit)
-        assertEquals("10:40 · 12 min", full.tbt!!.eta)
+        assertEquals("4.8 km · 12 min", full.tbt!!.trip)
         assertEquals(35, full.powerPercent)
         assertEquals(24, full.rpmTenths)
 
         assertNull(HudOverlayModel.frameFor(all.copy(navigation = false), route, 35, 24).tbt)
-        assertEquals("", HudOverlayModel.frameFor(all.copy(eta = false), route, 35, 24).tbt!!.eta)
+        assertEquals("", HudOverlayModel.frameFor(all.copy(trip = false), route, 35, 24).tbt!!.trip)
         assertNull(HudOverlayModel.frameFor(all.copy(powerBar = false), route, 35, 24).powerPercent)
         assertNull(HudOverlayModel.frameFor(all.copy(rpmBar = false), route, 35, 24).rpmTenths)
         assertNull(HudOverlayModel.frameFor(all, Directions(active = false), 0, null).tbt)

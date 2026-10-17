@@ -123,7 +123,7 @@ object HudOverlayController {
             main.removeCallbacks(hideTbtRunnable)
             val previous = navDirections
             navDirections = update
-            // ~1 Hz feed: only redraw when what the HUD shows changes (turn, distance, ETA text).
+            // ~1 Hz feed: only redraw when what the HUD shows changes (turn, distance, trip line).
             val config = config()
             if (previous == null || HudOverlayModel.tbtFor(previous, config) != HudOverlayModel.tbtFor(update, config)) {
                 publish()
@@ -260,8 +260,8 @@ object HudOverlayController {
     /**
      * Debug-only layout check, from HudOverlayActivity's `hudDemo` extra: `on` = right turn at
      * 250 m with three lanes (the R. Nóbrega shape measured on the car), `nolanes` = the same
-     * turn without lanes, `far` = keep left in 1.8 km, `off` = back to live data. All arrive at
-     * 10:40. Shows even on the "original" layout, so it ends after [DEMO_TIMEOUT_MS] or as soon
+     * turn without lanes, `far` = keep left in 1.8 km, `off` = back to live data. All with
+     * 4.8 km / 12 min to go. Shows even on the "original" layout, so it ends after [DEMO_TIMEOUT_MS] or as soon
      * as the layout is touched.
      */
     internal fun demo(mode: String) {
@@ -275,7 +275,7 @@ object HudOverlayController {
         )
         val demo = AndroidAutoNavigationTelemetry.Directions(
             active = true, distance = "250 m", distanceM = 250, turn = "TURN_RIGHT",
-            eta = "10:40", remainingS = 720
+            remainingM = 4_800, remainingS = 720
         )
         main.removeCallbacks(demoExpiry)
         demoDirections = when (mode) {

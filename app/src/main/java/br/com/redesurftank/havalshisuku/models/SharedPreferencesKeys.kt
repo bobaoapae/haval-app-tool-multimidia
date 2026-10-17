@@ -412,7 +412,7 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     HUD_LAYOUT("hudLayout", "Layout do HUD"),
     HUD_NAV_ENABLED("hudNavEnabled", "HUD: mostrar navegação do Android Auto"),
     HUD_NAV_SMALL_WHEN_FAR("hudNavSmallWhenFar", "HUD: seta menor até faltar 1 km"),
-    HUD_NAV_ETA("hudNavEta", "HUD: mostrar horário de chegada"),
+    HUD_NAV_TRIP("hudNavTrip", "HUD: mostrar distância e tempo restantes"),
     HUD_POWER_BAR("hudPowerBar", "HUD: barra de potência/regeneração"),
     HUD_RPM_BAR("hudRpmBar", "HUD: barra de rotação do motor"),
     CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),

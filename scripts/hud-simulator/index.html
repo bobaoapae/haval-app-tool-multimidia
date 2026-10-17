@@ -59,7 +59,7 @@ Grey shading = outside the optics; the native HUD on the right is a rough mock f
     <div class="checks">
       <label><input type="checkbox" id="optNav" checked> navigation</label>
       <label><input type="checkbox" id="optFar" checked> smaller arrow until 1 km</label>
-      <label><input type="checkbox" id="optEta" checked> arrival (ETA)</label>
+      <label><input type="checkbox" id="optEta" checked> remaining distance · time</label>
       <label><input type="checkbox" id="optPower" checked> power bar</label>
       <label><input type="checkbox" id="optRpm" checked> RPM bar</label>
     </div>
@@ -88,19 +88,22 @@ const M = {
   UNIT_GAP: 4,
   // Far (no lanes, >= 1 km, option on): the small row alone.
   FAR_THRESHOLD_M: 1000,
-  // Arrival line under the turn-by-turn.
+  // Trip line (remaining distance · time) under the turn-by-turn.
   ETA_BASELINE: 184, ETA_SIZE: 13,
   // Bars on the bottom row of the visible band, no labels: power at the HUD's left edge, RPM
   // at its right edge (the native HUD leaves the bottom of both sides empty).
   BAR_Y: 195, BAR_HEIGHT: 4,
   // Power: one segment per 10 % each side of a subtle zero tick.
-  POWER_LEFT: 10, POWER_RIGHT: 118, POWER_SEGMENTS_PER_SIDE: 10, POWER_SEGMENT_GAP: 1.5, ZERO_GAP: 4, ZERO_TICK: 4,
+  POWER_HALF_WIDTH: 54, POWER_SEGMENTS_PER_SIDE: 10, POWER_SEGMENT_GAP: 1.5, ZERO_GAP: 4, ZERO_TICK: 4,
   // RPM: one segment per 1000 rpm, the last (5-6k) red.
   RPM_LEFT: 416, RPM_RIGHT: 470, RPM_SEGMENTS: 6, RPM_SEGMENT_GAP: 2,
   DRIVE_MAX_KW: 100, REGEN_MAX_KW: 50, POWER_DEADBAND_KW: 0.5,
   RPM_RED: 5000,
 };
 M.BOX_CENTER_X = (M.BOX_LEFT + M.BOX_RIGHT) / 2;
+// Power bar centred under the turn-by-turn.
+M.POWER_LEFT = M.BOX_CENTER_X - M.POWER_HALF_WIDTH;
+M.POWER_RIGHT = M.BOX_CENTER_X + M.POWER_HALF_WIDTH;
 M.COMPACT_TOP = M.TBT_TOP + (M.TBT_BOTTOM - M.TBT_TOP - (M.COMPACT_GLYPH + M.COMPACT_LANES_GAP + M.LANE_ROW_HEIGHT)) / 2;
 M.LANES_TOP = M.COMPACT_TOP + M.COMPACT_GLYPH + M.COMPACT_LANES_GAP;
 M.HERO_TOP = M.TBT_TOP + (M.TBT_BOTTOM - M.TBT_TOP - (M.HERO_GLYPH + M.HERO_TEXT_GAP)) / 2;
@@ -389,13 +392,13 @@ function render() {
 // ---------------------------------------------------------------------------
 const NAV = {
   none: null,
-  right_lanes: { label: 'Right turn, 250 m, 3 lanes', icon: 'TURN_RIGHT', value: '250', unit: 'm', meters: 250, eta: '10:40 · 12 min', lanes: [[[1, 0]], [[1, 0]], [[5, 1], [1, 0]]] },
-  right: { label: 'Right turn, 90 m, no lanes', icon: 'TURN_RIGHT', value: '90', unit: 'm', meters: 90, eta: '10:40 · 12 min', lanes: [] },
-  keep_left: { label: 'Keep left, 1.2 km, no lanes', icon: resolveTurnIcon('KEEP_LEFT'), value: '1.2', unit: 'km', meters: 1200, eta: '18:05 · 34 min', lanes: [] },
-  roundabout: { label: 'Roundabout, 80 m', icon: 'ROUNDABOUT', value: '80', unit: 'm', meters: 80, eta: '10:40 · 6 min', lanes: [] },
-  uturn_lanes: { label: 'U-turn, 500 m, 5 lanes', icon: 'U_TURN', value: '500', unit: 'm', meters: 500, eta: '21:15 · 1 h 4 min', lanes: [[[8, 1]], [[1, 0]], [[1, 0]], [[1, 0], [3, 0]], [[5, 0]]] },
-  exit: { label: 'Exit right, 2.4 km', icon: resolveTurnIcon('OFF_RAMP_RIGHT'), value: '2.4', unit: 'km', meters: 2400, eta: '10:52 · 18 min', lanes: [] },
-  arrive: { label: 'Destination, 30 m', icon: 'DESTINATION', value: '30', unit: 'm', meters: 30, eta: '10:40 · <1 min', lanes: [] },
+  right_lanes: { label: 'Right turn, 250 m, 3 lanes', icon: 'TURN_RIGHT', value: '250', unit: 'm', meters: 250, eta: '4.8 km · 12 min', lanes: [[[1, 0]], [[1, 0]], [[5, 1], [1, 0]]] },
+  right: { label: 'Right turn, 90 m, no lanes', icon: 'TURN_RIGHT', value: '90', unit: 'm', meters: 90, eta: '4.8 km · 12 min', lanes: [] },
+  keep_left: { label: 'Keep left, 1.2 km, no lanes', icon: resolveTurnIcon('KEEP_LEFT'), value: '1.2', unit: 'km', meters: 1200, eta: '27.3 km · 34 min', lanes: [] },
+  roundabout: { label: 'Roundabout, 80 m', icon: 'ROUNDABOUT', value: '80', unit: 'm', meters: 80, eta: '2.1 km · 6 min', lanes: [] },
+  uturn_lanes: { label: 'U-turn, 500 m, 5 lanes', icon: 'U_TURN', value: '500', unit: 'm', meters: 500, eta: '61 km · 1 h 4 min', lanes: [[[8, 1]], [[1, 0]], [[1, 0]], [[1, 0], [3, 0]], [[5, 0]]] },
+  exit: { label: 'Exit right, 2.4 km', icon: resolveTurnIcon('OFF_RAMP_RIGHT'), value: '2.4', unit: 'km', meters: 2400, eta: '19.6 km · 18 min', lanes: [] },
+  arrive: { label: 'Destination, 30 m', icon: 'DESTINATION', value: '30', unit: 'm', meters: 30, eta: '30 m · <1 min', lanes: [] },
 };
 
 const SCENARIOS = [

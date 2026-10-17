@@ -40,10 +40,10 @@ class HudOverlayRenderer {
         color = Color.WHITE
         typeface = lightFace
     }
-    private val etaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val tripPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(217, 255, 255, 255)
         typeface = lightFace
-        textSize = M.ETA_SIZE
+        textSize = M.TRIP_SIZE
         textAlign = Paint.Align.CENTER
     }
     private val glyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -97,7 +97,7 @@ class HudOverlayRenderer {
                 M.TbtStyle.COMPACT -> drawRow(canvas, tbt, M.COMPACT_TOP).also { drawLanes(canvas, tbt.lanes) }
                 M.TbtStyle.FAR -> drawRow(canvas, tbt, M.FAR_TOP)
             }
-            if (tbt.eta.isNotEmpty()) canvas.drawText(tbt.eta, M.BOX_CENTER_X, M.ETA_BASELINE, etaPaint)
+            if (tbt.trip.isNotEmpty()) canvas.drawText(tbt.trip, M.BOX_CENTER_X, M.TRIP_BASELINE, tripPaint)
         }
         f.powerPercent?.let { drawPowerBar(canvas, it) }
         f.rpmTenths?.let { drawRpmBar(canvas, it) }
@@ -259,19 +259,24 @@ class HudOverlayRenderer {
     private val scenePaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     /**
-     * A "what you'd see through the windshield" picture of [config]: a road at dusk, the car's
-     * own HUD (speed, icons, lane keeping), and the Impulse overlay drawn by this renderer with a
-     * sample route and readings. Only the band that reaches the optics (y 40..200) is shown.
+     * A "what you'd see through the windshield" picture of [config] in [scenario]: a road at
+     * dusk, the car's own HUD (speed, icons, lane keeping), and the Impulse overlay drawn by this
+     * renderer. Only the band that reaches the optics (y 40..200) is shown.
      */
-    fun preview(config: M.Config, width: Int = 480, height: Int = 160): Bitmap {
+    fun preview(
+        config: M.Config,
+        scenario: PreviewScenario = previewScenarios(config.layout).first(),
+        width: Int = 480,
+        height: Int = 160
+    ): Bitmap {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.scale(width / 480f, height / 160f)
         canvas.translate(0f, -40f)
         drawScene(canvas)
-        drawNativeHud(canvas)
+        drawNativeHud(canvas, scenario.speedKmh)
         if (config.active) {
-            drawContent(canvas, M.frameFor(config, SAMPLE_ROUTE, powerPercent = 35, rpmTenths = 24))
+            drawContent(canvas, M.frameFor(config, scenario.route, scenario.powerPercent, scenario.rpmTenths))
         }
         return bitmap
     }
@@ -301,12 +306,12 @@ class HudOverlayRenderer {
     }
 
     /** Rough stand-in for the car's own HUD, placed as on the owner's photo. */
-    private fun drawNativeHud(canvas: Canvas) {
+    private fun drawNativeHud(canvas: Canvas, speedKmh: Int) {
         nativePaint.typeface = lightFace
         nativePaint.textSize = 58f
         nativePaint.textAlign = Paint.Align.RIGHT
         nativePaint.color = Color.argb(225, 255, 255, 255)
-        canvas.drawText("78", 300f, 122f, nativePaint)
+        canvas.drawText(speedKmh.toString(), 300f, 122f, nativePaint)
         nativePaint.textSize = 14f
         nativePaint.textAlign = Paint.Align.LEFT
         canvas.drawText("km/h", 304f, 122f, nativePaint)
@@ -325,20 +330,58 @@ class HudOverlayRenderer {
     }
 }
 
-/** Sample guidance for previews: right turn in 250 m on a three-lane road, arriving 10:40. */
-private val SAMPLE_ROUTE = AndroidAutoNavigationTelemetry.Directions(
-    active = true,
-    distance = "250 m",
-    distanceM = 250,
-    turn = "TURN_RIGHT",
-    eta = "10:40",
-    remainingS = 720,
-    lanes = listOf(
-        listOf(AndroidAutoNavigationTelemetry.LaneDirection(1, false)),
-        listOf(AndroidAutoNavigationTelemetry.LaneDirection(1, false)),
-        listOf(
-            AndroidAutoNavigationTelemetry.LaneDirection(5, true),
-            AndroidAutoNavigationTelemetry.LaneDirection(1, false)
-        )
-    )
+/** One moment shown in a layout preview: the car's speed, the route (if any) and bar readings. */
+data class PreviewScenario(
+    val speedKmh: Int,
+    val route: AndroidAutoNavigationTelemetry.Directions?,
+    val powerPercent: Int,
+    val rpmTenths: Int?
 )
+
+private fun lane(vararg arrows: Pair<Int, Boolean>) =
+    arrows.map { (shape, used) -> AndroidAutoNavigationTelemetry.LaneDirection(shape, used) }
+
+/** Town: right turn in 250 m on a three-lane road, light EV drive, engine off. */
+private val TOWN_TURN = PreviewScenario(
+    speedKmh = 42,
+    route = AndroidAutoNavigationTelemetry.Directions(
+        active = true, distance = "250 m", distanceM = 250, turn = "TURN_RIGHT",
+        remainingM = 4_800, remainingS = 720,
+        lanes = listOf(lane(1 to false), lane(1 to false), lane(5 to true, 1 to false))
+    ),
+    powerPercent = 18,
+    rpmTenths = null
+)
+
+/** Highway: exit 2.4 km ahead (small arrow when far), hybrid pulling with the engine on. */
+private val HIGHWAY_EXIT = PreviewScenario(
+    speedKmh = 110,
+    route = AndroidAutoNavigationTelemetry.Directions(
+        active = true, distance = "2.4 km", distanceM = 2_400, turn = "OFF_RAMP_RIGHT",
+        remainingM = 27_300, remainingS = 1_260
+    ),
+    powerPercent = 62,
+    rpmTenths = 31
+)
+
+/** Roundabout in 80 m (big arrow) while braking: regen, engine off. */
+private val ROUNDABOUT_REGEN = PreviewScenario(
+    speedKmh = 35,
+    route = AndroidAutoNavigationTelemetry.Directions(
+        active = true, distance = "80 m", distanceM = 80, turn = "ROUNDABOUT",
+        remainingM = 2_100, remainingS = 360
+    ),
+    powerPercent = -45,
+    rpmTenths = null
+)
+
+/** Three moments per layout; the Telas previews cycle through them. */
+fun previewScenarios(layout: M.Layout): List<PreviewScenario> = when (layout) {
+    // The car's own HUD only: what changes is the speed.
+    M.Layout.ORIGINAL -> listOf(
+        PreviewScenario(42, null, 0, null),
+        PreviewScenario(110, null, 0, null),
+        PreviewScenario(0, null, 0, null)
+    )
+    M.Layout.NAVIGATION -> listOf(TOWN_TURN, HIGHWAY_EXIT, ROUNDABOUT_REGEN)
+}

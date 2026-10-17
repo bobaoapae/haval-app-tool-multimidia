@@ -1,5 +1,11 @@
 package br.com.redesurftank.havalshisuku.ui.components
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import br.com.redesurftank.havalshisuku.hud.previewScenarios
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -101,6 +107,36 @@ fun HudLayoutSection(modifier: Modifier = Modifier) {
     }
 }
 
+/** How long each sample scenario stays up in a preview before the next one fades in. */
+private const val PREVIEW_CYCLE_MS = 3_000L
+
+/**
+ * The layout preview, cycling through its sample scenarios (town turn, highway exit, roundabout
+ * regen...) with a crossfade. Bitmaps are rendered once per [config] by the HUD's own renderer.
+ */
+@Composable
+private fun HudPreview(config: HudOverlayModel.Config, description: String, modifier: Modifier = Modifier) {
+    val frames = remember(config) {
+        val renderer = HudOverlayRenderer()
+        previewScenarios(config.layout).map { renderer.preview(config, it).asImageBitmap() }
+    }
+    var index by remember(config) { mutableIntStateOf(0) }
+    LaunchedEffect(frames) {
+        while (true) {
+            delay(PREVIEW_CYCLE_MS)
+            index = (index + 1) % frames.size
+        }
+    }
+    Crossfade(targetState = index, animationSpec = tween(600), label = "hudPreview", modifier = modifier) { i ->
+        Image(
+            bitmap = frames[i],
+            contentDescription = description,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxWidth().aspectRatio(3f)
+        )
+    }
+}
+
 @Composable
 private fun HudLayoutCard(
     title: String,
@@ -110,8 +146,6 @@ private fun HudLayoutCard(
     onSelect: () -> Unit,
     onSettings: (() -> Unit)? = null
 ) {
-    // Re-rendered only when the options it shows change.
-    val image = remember(preview) { HudOverlayRenderer().preview(preview).asImageBitmap() }
     val shape = RoundedCornerShape(10.dp)
     Column(
         modifier = Modifier
@@ -122,11 +156,10 @@ private fun HudLayoutCard(
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Image(
-            bitmap = image,
-            contentDescription = "Prévia do layout $title",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().aspectRatio(3f).clip(RoundedCornerShape(6.dp))
+        HudPreview(
+            config = preview,
+            description = "Prévia do layout $title",
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
@@ -165,8 +198,8 @@ private fun HudLayoutCard(
 private enum class HudSettingsTab(val title: String) { NAVIGATION("Navegação"), BARS("Barras") }
 
 /**
- * Wide two-pane dialog for the 1920x720 head unit: live preview on the left, the options on the
- * right split into tabs so each fits without scrolling. (A tall single column got clipped on
+ * Wide two-pane dialog for the 1920x720 head unit: the options on the left split into tabs so
+ * each fits without scrolling, live preview on the right. (A tall single column got clipped on
  * this screen, with the bar switches drawn on top of each other.)
  */
 @Composable
@@ -176,9 +209,6 @@ private fun HudNavigationSettingsDialog(
     onDismiss: () -> Unit
 ) {
     var tab by remember { mutableStateOf(HudSettingsTab.NAVIGATION) }
-    val preview = remember(config) {
-        HudOverlayRenderer().preview(config.copy(layout = HudOverlayModel.Layout.NAVIGATION)).asImageBitmap()
-    }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Card(
             modifier = Modifier.fillMaxWidth(0.82f).padding(16.dp),
@@ -200,21 +230,7 @@ private fun HudNavigationSettingsDialog(
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                    // Left: what the HUD will show with these options.
-                    Column(modifier = Modifier.weight(1.1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Image(
-                            bitmap = preview,
-                            contentDescription = "Prévia com estas opções",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxWidth().aspectRatio(3f).clip(RoundedCornerShape(8.dp))
-                        )
-                        Text(
-                            "Prévia com estas opções. O Impulse desenha só nos cantos livres do HUD.",
-                            color = ImpTokens.TextSecondary,
-                            fontSize = 12.sp
-                        )
-                    }
-                    // Right: one tab of options at a time.
+                    // Left: one tab of options at a time.
                     Column(modifier = Modifier.weight(1f)) {
                         HudTabs(selected = tab, onSelect = { tab = it })
                         Spacer(Modifier.height(8.dp))
@@ -230,11 +246,11 @@ private fun HudNavigationSettingsDialog(
                                     enabled = config.navigation
                                 ) { onChange(config.copy(smallArrowWhenFar = it)) }
                                 OptionRow(
-                                    "Horário de chegada",
-                                    "Chegada e tempo restante, ex.: 10:40 · 12 min.",
-                                    config.eta,
+                                    "Distância e tempo restantes",
+                                    "Quanto falta até o destino, ex.: 4.8 km · 12 min.",
+                                    config.trip,
                                     enabled = config.navigation
-                                ) { onChange(config.copy(eta = it)) }
+                                ) { onChange(config.copy(trip = it)) }
                             }
                             HudSettingsTab.BARS -> {
                                 OptionRow("Potência / regeneração", "Canto inferior esquerdo. Azul acelerando, verde regenerando.", config.powerBar) {
@@ -245,6 +261,19 @@ private fun HudNavigationSettingsDialog(
                                 }
                             }
                         }
+                    }
+                    // Right: what the HUD will show with these options.
+                    Column(modifier = Modifier.weight(1.1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        HudPreview(
+                            config = config.copy(layout = HudOverlayModel.Layout.NAVIGATION),
+                            description = "Prévia com estas opções",
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                        )
+                        Text(
+                            "Prévia com estas opções, alternando cidade, rodovia e rotatória. O Impulse desenha só nos cantos livres do HUD.",
+                            color = ImpTokens.TextSecondary,
+                            fontSize = 12.sp
+                        )
                     }
                 }
             }

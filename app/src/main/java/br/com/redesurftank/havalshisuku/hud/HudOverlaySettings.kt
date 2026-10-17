@@ -21,7 +21,7 @@ object HudOverlaySettings {
             layout = layout,
             navigation = prefs.getBoolean(SharedPreferencesKeys.HUD_NAV_ENABLED.key, defaults.navigation),
             smallArrowWhenFar = prefs.getBoolean(SharedPreferencesKeys.HUD_NAV_SMALL_WHEN_FAR.key, defaults.smallArrowWhenFar),
-            eta = prefs.getBoolean(SharedPreferencesKeys.HUD_NAV_ETA.key, defaults.eta),
+            trip = prefs.getBoolean(SharedPreferencesKeys.HUD_NAV_TRIP.key, defaults.trip),
             powerBar = prefs.getBoolean(SharedPreferencesKeys.HUD_POWER_BAR.key, defaults.powerBar),
             rpmBar = prefs.getBoolean(SharedPreferencesKeys.HUD_RPM_BAR.key, defaults.rpmBar)
         )
@@ -33,7 +33,7 @@ object HudOverlaySettings {
             .putString(SharedPreferencesKeys.HUD_LAYOUT.key, config.layout.key)
             .putBoolean(SharedPreferencesKeys.HUD_NAV_ENABLED.key, config.navigation)
             .putBoolean(SharedPreferencesKeys.HUD_NAV_SMALL_WHEN_FAR.key, config.smallArrowWhenFar)
-            .putBoolean(SharedPreferencesKeys.HUD_NAV_ETA.key, config.eta)
+            .putBoolean(SharedPreferencesKeys.HUD_NAV_TRIP.key, config.trip)
             .putBoolean(SharedPreferencesKeys.HUD_POWER_BAR.key, config.powerBar)
             .putBoolean(SharedPreferencesKeys.HUD_RPM_BAR.key, config.rpmBar)
             .remove(LEGACY_ENABLED_KEY)
