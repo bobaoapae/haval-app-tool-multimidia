@@ -63,7 +63,8 @@ import br.com.redesurftank.havalshisuku.hud.HudOverlaySettings
 @Composable
 fun HudLayoutSection(modifier: Modifier = Modifier) {
     var config by remember { mutableStateOf(HudOverlaySettings.load()) }
-    var showSettings by remember { mutableStateOf(false) }
+    /** Layout whose gear was tapped (its settings dialog is open), or null. */
+    var settingsFor by remember { mutableStateOf<HudOverlayModel.Layout?>(null) }
     val apply: (HudOverlayModel.Config) -> Unit = {
         config = it
         HudOverlaySettings.save(it)
@@ -96,14 +97,27 @@ fun HudLayoutSection(modifier: Modifier = Modifier) {
                     preview = config.copy(layout = HudOverlayModel.Layout.NAVIGATION),
                     selected = config.layout == HudOverlayModel.Layout.NAVIGATION,
                     onSelect = { apply(config.copy(layout = HudOverlayModel.Layout.NAVIGATION)) },
-                    onSettings = { showSettings = true }
+                    onSettings = { settingsFor = HudOverlayModel.Layout.NAVIGATION }
+                )
+                HudLayoutCard(
+                    title = "Navegação AR",
+                    subtitle = "Seta azul em perspectiva que vira a manobra ao chegar",
+                    preview = config.copy(layout = HudOverlayModel.Layout.AR),
+                    selected = config.layout == HudOverlayModel.Layout.AR,
+                    onSelect = { apply(config.copy(layout = HudOverlayModel.Layout.AR)) },
+                    onSettings = { settingsFor = HudOverlayModel.Layout.AR }
                 )
             }
         }
     }
 
-    if (showSettings) {
-        HudNavigationSettingsDialog(config = config, onChange = apply, onDismiss = { showSettings = false })
+    settingsFor?.let { layout ->
+        HudNavigationSettingsDialog(
+            layout = layout,
+            config = config,
+            onChange = apply,
+            onDismiss = { settingsFor = null }
+        )
     }
 }
 
@@ -204,6 +218,7 @@ private enum class HudSettingsTab(val title: String) { NAVIGATION("Navegação")
  */
 @Composable
 private fun HudNavigationSettingsDialog(
+    layout: HudOverlayModel.Layout,
     config: HudOverlayModel.Config,
     onChange: (HudOverlayModel.Config) -> Unit,
     onDismiss: () -> Unit
@@ -219,7 +234,7 @@ private fun HudNavigationSettingsDialog(
             Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Layout Navegação",
+                        if (layout == HudOverlayModel.Layout.AR) "Layout Navegação AR" else "Layout Navegação",
                         color = Color.White,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
@@ -239,12 +254,15 @@ private fun HudNavigationSettingsDialog(
                                 OptionRow("Mostrar navegação", "Seta, distância e faixas enquanto o Android Auto guia.", config.navigation) {
                                     onChange(config.copy(navigation = it))
                                 }
-                                OptionRow(
-                                    "Seta menor quando longe",
-                                    "Seta pequena até faltar 1 km para a manobra; depois fica grande.",
-                                    config.smallArrowWhenFar,
-                                    enabled = config.navigation
-                                ) { onChange(config.copy(smallArrowWhenFar = it)) }
+                                // The AR arrow already shows distance by itself (straight when far).
+                                if (layout != HudOverlayModel.Layout.AR) {
+                                    OptionRow(
+                                        "Seta menor quando longe",
+                                        "Seta pequena até faltar 1 km para a manobra; depois fica grande.",
+                                        config.smallArrowWhenFar,
+                                        enabled = config.navigation
+                                    ) { onChange(config.copy(smallArrowWhenFar = it)) }
+                                }
                                 OptionRow(
                                     "Distância e tempo restantes",
                                     "Quanto falta até o destino, ex.: 4.8 km · 12 min.",
@@ -265,7 +283,7 @@ private fun HudNavigationSettingsDialog(
                     // Right: what the HUD will show with these options.
                     Column(modifier = Modifier.weight(1.1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         HudPreview(
-                            config = config.copy(layout = HudOverlayModel.Layout.NAVIGATION),
+                            config = config.copy(layout = layout),
                             description = "Prévia com estas opções",
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                         )

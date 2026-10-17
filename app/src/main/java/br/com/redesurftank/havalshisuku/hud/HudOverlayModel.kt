@@ -281,17 +281,25 @@ object HudOverlayModel {
         /** Lanes: small arrow + distance row centred over the lane row. */
         COMPACT,
         /** No lanes, still >= [FAR_THRESHOLD_M] away, "smaller arrow when far" on: the row alone. */
-        FAR
+        FAR,
+        /** "Navegação AR" layout, no lanes, a maneuver with a ribbon shape: the 3D arrow ([HudArArrow]). */
+        AR
     }
 
-    /** Turn-by-turn part. [trip] (remaining distance · time) is "" when off or unknown. */
+    /**
+     * Turn-by-turn part. [trip] (remaining distance · time) is "" when off or unknown. For
+     * [TbtStyle.AR], [arAngle] is the maneuver's bend and [arMeters] the distance that places the
+     * corner (the controller interpolates it between Android Auto updates when near).
+     */
     data class Tbt(
         val icon: String,
         val distanceValue: String,
         val distanceUnit: String,
         val lanes: List<List<LaneArrow>>,
         val style: TbtStyle,
-        val trip: String
+        val trip: String,
+        val arAngle: Float? = null,
+        val arMeters: Float? = null
     )
 
     /**
@@ -306,7 +314,9 @@ object HudOverlayModel {
         /** The car's own HUD only; Impulse draws nothing. */
         ORIGINAL("original"),
         /** Turn-by-turn + power/RPM bars. */
-        NAVIGATION("navigation");
+        NAVIGATION("navigation"),
+        /** Navigation with the 3D perspective arrow in place of the big arrow. */
+        AR("ar");
 
         companion object {
             fun fromKey(key: String?): Layout? = entries.firstOrNull { it.key == key }
@@ -330,8 +340,10 @@ object HudOverlayModel {
         val (value, unit) = splitDistance(d.distance, d.distanceM)
         val lanes = d.lanes.map { laneArrows(it) }
         val meters = distanceMeters(d.distance, d.distanceM)
+        val arAngle = if (config.layout == Layout.AR) HudArArrow.angleFor(d.turn) else null
         val style = when {
             lanes.isNotEmpty() -> TbtStyle.COMPACT
+            arAngle != null && meters != null -> TbtStyle.AR
             config.smallArrowWhenFar && meters != null && meters >= FAR_THRESHOLD_M -> TbtStyle.FAR
             else -> TbtStyle.HERO
         }
@@ -341,7 +353,9 @@ object HudOverlayModel {
             distanceUnit = unit,
             lanes = lanes,
             style = style,
-            trip = if (config.trip) tripLabel(d.remainingM, d.remainingS) else ""
+            trip = if (config.trip) tripLabel(d.remainingM, d.remainingS) else "",
+            arAngle = arAngle.takeIf { style == TbtStyle.AR },
+            arMeters = meters?.toFloat().takeIf { style == TbtStyle.AR }
         )
     }
 
@@ -350,9 +364,14 @@ object HudOverlayModel {
         config: Config,
         directions: AndroidAutoNavigationTelemetry.Directions?,
         powerPercent: Int,
-        rpmTenths: Int?
+        rpmTenths: Int?,
+        arMetersOverride: Float? = null
     ): Frame = Frame(
-        tbt = if (config.navigation) directions?.let { tbtFor(it, config) } else null,
+        tbt = if (config.navigation) {
+            directions?.let { tbtFor(it, config) }?.let { tbt ->
+                if (tbt.style == TbtStyle.AR && arMetersOverride != null) tbt.copy(arMeters = arMetersOverride) else tbt
+            }
+        } else null,
         powerPercent = if (config.powerBar) powerPercent else null,
         rpmTenths = if (config.rpmBar) rpmTenths else null
     )

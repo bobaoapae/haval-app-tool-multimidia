@@ -45,6 +45,11 @@ object HudOverlayController {
     private val KEY_VOLTAGE = CarConstants.CAR_EV_INFO_POWER_BATTERY_VOLTAGE.value
     private val KEY_CURRENT = CarConstants.CAR_EV_INFO_CUR_CHARGE_CURRENT.value
     private val KEY_RPM = CarConstants.CAR_BASIC_ENGINE_SPEED.value
+    private val KEY_SPEED = CarConstants.CAR_BASIC_VEHICLE_SPEED.value
+    /** AR arrow redraw period while near a maneuver (~10 fps). */
+    private const val AR_TICK_MS = 100L
+    /** Stop extrapolating if Android Auto goes quiet for this long. */
+    private const val AR_EXTRAPOLATE_MAX_MS = 3_000L
 
     private val main = Handler(Looper.getMainLooper())
     private val shell = Executors.newSingleThreadExecutor { r -> Thread(r, "HudOverlayShell") }
@@ -66,6 +71,9 @@ object HudOverlayController {
     private var launchStartedMs = 0L
     private var launchBlockedUntilMs = 0L
     private var configCache: HudOverlayModel.Config? = null
+    private var navReceivedAtMs = 0L
+    private var demoSetAtMs = 0L
+    private var arTickScheduled = false
     private var startedAtMs = 0L
 
     // Written from the CAN callback thread; only quantised changes reach the main thread.
@@ -73,6 +81,8 @@ object HudOverlayController {
     @Volatile private var current = Double.NaN
     @Volatile private var rpm = Double.NaN
     @Volatile private var engineOn = false
+    /** km/h; drives the AR arrow between Android Auto's ~1 Hz distance updates. */
+    @Volatile private var speedKmh = 0.0
     private val powerPercent = AtomicInteger(0)
     private val rpmTenths = AtomicInteger(NO_RPM)
     private const val NO_RPM = Int.MIN_VALUE
@@ -123,6 +133,7 @@ object HudOverlayController {
             main.removeCallbacks(hideTbtRunnable)
             val previous = navDirections
             navDirections = update
+            navReceivedAtMs = SystemClock.elapsedRealtime()
             // ~1 Hz feed: only redraw when what the HUD shows changes (turn, distance, trip line).
             val config = config()
             if (previous == null || HudOverlayModel.tbtFor(previous, config) != HudOverlayModel.tbtFor(update, config)) {
@@ -144,6 +155,7 @@ object HudOverlayController {
         sm.getData(KEY_CURRENT)?.let { onCarData(KEY_CURRENT, it) }
         sm.getData(PowerFlow.KEY_ICE)?.let { onCarData(PowerFlow.KEY_ICE, it) }
         sm.getData(KEY_RPM)?.let { onCarData(KEY_RPM, it) }
+        sm.getData(KEY_SPEED)?.let { onCarData(KEY_SPEED, it) }
     }
 
     /** CAN callback thread. Cheap: posts to main only when a shown value (%, 0.1k rpm) changes. */
@@ -153,6 +165,11 @@ object HudOverlayController {
             KEY_CURRENT -> current = PowerFlowMapper.parseNumber(value)
             KEY_RPM -> rpm = PowerFlowMapper.parseNumber(value)
             PowerFlow.KEY_ICE -> engineOn = value?.trim() == "1"
+            KEY_SPEED -> {
+                // Only feeds the AR extrapolation, which redraws on its own tick.
+                speedKmh = PowerFlowMapper.parseNumber(value).takeIf { it.isFinite() && it in 0.0..300.0 } ?: 0.0
+                return
+            }
             else -> return
         }
         val changed = if (key == KEY_VOLTAGE || key == KEY_CURRENT) {
@@ -172,8 +189,39 @@ object HudOverlayController {
         config = config(),
         directions = demoDirections ?: navDirections,
         powerPercent = powerPercent.get(),
-        rpmTenths = rpmTenths.get().takeIf { it != NO_RPM }
+        rpmTenths = rpmTenths.get().takeIf { it != NO_RPM },
+        arMetersOverride = arMetersEstimate()
     )
+
+    /**
+     * AR layout, within [HudArArrow.SMOOTH_WITHIN_M] of a maneuver: Android Auto's last distance
+     * minus what the car covered since, so the corner glides instead of jumping once a second.
+     * Null when not applicable (the reported distance is used as is).
+     */
+    private fun arMetersEstimate(): Float? {
+        if (config().layout != HudOverlayModel.Layout.AR) return null
+        val dirs = (demoDirections ?: navDirections)?.takeIf { it.active } ?: return null
+        val base = HudOverlayModel.distanceMeters(dirs.distance, dirs.distanceM) ?: return null
+        if (base > HudArArrow.SMOOTH_WITHIN_M) return null
+        val since = if (demoDirections != null) demoSetAtMs else navReceivedAtMs
+        val elapsedMs = (SystemClock.elapsedRealtime() - since).coerceIn(0L, AR_EXTRAPOLATE_MAX_MS)
+        return (base - speedKmh / 3.6 * elapsedMs / 1000.0).coerceAtLeast(0.0).toFloat()
+    }
+
+    private val arTick = Runnable {
+        arTickScheduled = false
+        publish()
+    }
+
+    /** Keep redrawing while the AR arrow is near a maneuver and the car is moving. */
+    private fun scheduleArTick(frame: HudOverlayModel.Frame) {
+        val near = frame.tbt?.style == HudOverlayModel.TbtStyle.AR &&
+            (frame.tbt?.arMeters ?: Float.MAX_VALUE) <= HudArArrow.SMOOTH_WITHIN_M
+        if (near && speedKmh > 0.5 && !arTickScheduled) {
+            arTickScheduled = true
+            main.postDelayed(arTick, AR_TICK_MS)
+        }
+    }
 
     /** Main thread. Push the frame, or bring the window up if it should exist and doesn't. */
     private fun publish() {
@@ -182,11 +230,15 @@ object HudOverlayController {
             return
         }
         overlay?.let {
-            it.show(currentFrame())
+            val frame = currentFrame()
+            it.show(frame)
+            scheduleArTick(frame)
             return
         }
         activity?.let {
-            it.show(currentFrame())
+            val frame = currentFrame()
+            it.show(frame)
+            scheduleArTick(frame)
             return
         }
         if (startedAtMs == 0L || SystemClock.elapsedRealtime() - startedAtMs < BOOT_GRACE_MS) {
@@ -278,6 +330,7 @@ object HudOverlayController {
             remainingM = 4_800, remainingS = 720
         )
         main.removeCallbacks(demoExpiry)
+        demoSetAtMs = SystemClock.elapsedRealtime()
         demoDirections = when (mode) {
             "on" -> demo.copy(lanes = threeLanes)
             "nolanes" -> demo

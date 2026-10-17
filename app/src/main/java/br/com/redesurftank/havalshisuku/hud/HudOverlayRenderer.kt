@@ -21,6 +21,8 @@ import br.com.redesurftank.havalshisuku.hud.HudOverlayModel as M
  */
 class HudOverlayRenderer {
     private companion object {
+        /** AR layout: distance over the arrow, above the trip line (as the simulator). */
+        const val AR_DISTANCE_BASELINE = 166f
         val DRIVE = Color.rgb(63, 169, 255)
         val REGEN = Color.rgb(80, 230, 120)
         val RED = Color.rgb(255, 64, 64)
@@ -96,11 +98,83 @@ class HudOverlayRenderer {
                 M.TbtStyle.HERO -> drawHero(canvas, tbt)
                 M.TbtStyle.COMPACT -> drawRow(canvas, tbt, M.COMPACT_TOP).also { drawLanes(canvas, tbt.lanes) }
                 M.TbtStyle.FAR -> drawRow(canvas, tbt, M.FAR_TOP)
+                M.TbtStyle.AR -> drawAr(canvas, tbt)
             }
             if (tbt.trip.isNotEmpty()) canvas.drawText(tbt.trip, M.BOX_CENTER_X, M.TRIP_BASELINE, tripPaint)
         }
         f.powerPercent?.let { drawPowerBar(canvas, it) }
         f.rpmTenths?.let { drawRpmBar(canvas, it) }
+    }
+
+    // ---- AR arrow (Navegação AR) ----
+
+    private val arPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val arSeam = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 0.6f
+    }
+    private val arPath = Path()
+
+    /** Deep blue at the base to light blue at the top, faded out towards the top edge. */
+    private fun arColor(y: Float, alpha: Float): Int {
+        val t = HudArArrow.rowGradient(y)
+        return Color.argb(
+            (alpha * 255).toInt(),
+            (30 + (150 - 30) * t).toInt(),
+            (123 + (218 - 123) * t).toInt(),
+            255
+        )
+    }
+
+    /**
+     * The 3D arrow ([HudArArrow]) under the trip line and bars, then the distance over it. Each
+     * segment is a quad laid perpendicular to the on-screen path, coloured by its row.
+     */
+    private fun drawAr(canvas: Canvas, tbt: M.Tbt) {
+        val shape = HudArArrow.shape(tbt.arMeters ?: 0f, tbt.arAngle ?: 0f)
+        val pts = shape.ribbon
+        canvas.save()
+        canvas.clipRect(M.BOX_LEFT, HudArArrow.TOP, M.BOX_RIGHT, HudArArrow.BOTTOM)
+        fun normal(i: Int): Pair<Float, Float> {
+            val a = pts[maxOf(0, i - 1)]
+            val b = pts[minOf(pts.size - 1, i + 1)]
+            val len = kotlin.math.hypot(b.x - a.x, b.y - a.y).takeIf { it > 0f } ?: 1f
+            return -(b.y - a.y) / len to (b.x - a.x) / len
+        }
+        for (i in 0 until pts.size - 1) {
+            val a = pts[i]
+            val b = pts[i + 1]
+            val alpha = HudArArrow.rowAlpha(minOf(a.y, b.y))
+            if (alpha <= 0f) continue
+            val (nax, nay) = normal(i)
+            val (nbx, nby) = normal(i + 1)
+            arPath.reset()
+            arPath.moveTo(a.x + nax * a.w / 2, a.y + nay * a.w / 2)
+            arPath.lineTo(b.x + nbx * b.w / 2, b.y + nby * b.w / 2)
+            arPath.lineTo(b.x - nbx * b.w / 2, b.y - nby * b.w / 2)
+            arPath.lineTo(a.x - nax * a.w / 2, a.y - nay * a.w / 2)
+            arPath.close()
+            val color = arColor((a.y + b.y) / 2, alpha)
+            arPaint.color = color
+            arSeam.color = color
+            canvas.drawPath(arPath, arPaint)
+            canvas.drawPath(arPath, arSeam) // hide the seams between quads
+        }
+        val h = shape.head
+        val headAlpha = HudArArrow.rowAlpha(pts.last().y)
+        if (headAlpha > 0f) {
+            arPath.reset()
+            arPath.moveTo(h[0], h[1])
+            arPath.lineTo(h[2], h[3])
+            arPath.lineTo(h[4], h[5])
+            arPath.close()
+            arPaint.color = arColor(pts.last().y, headAlpha)
+            canvas.drawPath(arPath, arPaint)
+        }
+        canvas.restore()
+        setTextSizes(M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE)
+        val width = distanceWidth(tbt)
+        drawDistance(canvas, tbt, M.BOX_CENTER_X - width / 2, AR_DISTANCE_BASELINE)
     }
 
     // ---- turn-by-turn ----
@@ -375,6 +449,20 @@ private val ROUNDABOUT_REGEN = PreviewScenario(
     rpmTenths = null
 )
 
+private fun arTurn(turn: String, meters: Int, distance: String) = AndroidAutoNavigationTelemetry.Directions(
+    active = true, distance = distance, distanceM = meters, turn = turn,
+    remainingM = 4_800, remainingS = 720
+)
+
+/** AR: a right turn still 650 m away (straight arrow), cruising in EV. */
+private val AR_FAR = PreviewScenario(64, arTurn("TURN_RIGHT", 650, "650 m"), 22, null)
+
+/** AR: 90 m from the turn, the arrow bending in, engine running. */
+private val AR_BENDING = PreviewScenario(38, arTurn("TURN_RIGHT", 90, "90 m"), 12, 14)
+
+/** AR: at a sharp left while regenerating. */
+private val AR_AT_TURN = PreviewScenario(18, arTurn("SHARP_LEFT", 10, "10 m"), -35, null)
+
 /** Three moments per layout; the Telas previews cycle through them. */
 fun previewScenarios(layout: M.Layout): List<PreviewScenario> = when (layout) {
     // The car's own HUD only: what changes is the speed.
@@ -384,4 +472,6 @@ fun previewScenarios(layout: M.Layout): List<PreviewScenario> = when (layout) {
         PreviewScenario(0, null, 0, null)
     )
     M.Layout.NAVIGATION -> listOf(TOWN_TURN, HIGHWAY_EXIT, ROUNDABOUT_REGEN)
+    // Far straight arrow, the turn bending in, then right at the corner.
+    M.Layout.AR -> listOf(AR_FAR, AR_BENDING, AR_AT_TURN)
 }

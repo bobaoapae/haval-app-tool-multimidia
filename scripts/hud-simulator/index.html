@@ -380,8 +380,9 @@ const P3 = {
   Z_CAP: 12.5,                 // corner depth while far: a straight arrow, head still visible
   K: 0.055,                    // depth per metre between Z_END and Z_CAP (~100 m of travel)
   F_X: 117,                    // lateral scale (px per world unit at depth 1)
-  RIBBON_W: 1.5,               // thickness in world units, drawn in screen space (44 px at the base)
-  MAX_W: 50,
+  RIBBON_W: 1.5,               // plain-perspective thickness, sizes the head
+  BASE_W: 100, WIDTH_EXP: 1.7, // on-screen thickness: wide base, falls off faster than perspective
+  MAX_W: 110,
   TURN_R: 1.4, TURN_LEN: 2.0,  // corner radius, length after it
   HEAD_W: 2.4, HEAD_L: 1.0,
   RING_R: 1.5,                 // roundabout radius
@@ -464,7 +465,7 @@ function roundaboutCenterline(zc, travel) {
 function toScreen(pts, widthScale = 1) {
   return pts.filter(q => q.z > 0.4).map(q => {
     const [x, y] = project(q.x, q.z);
-    return { x, y, z: q.z, w: Math.min(P3.MAX_W, P3.F_X * P3.RIBBON_W * widthScale / q.z) };
+    return { x, y, z: q.z, w: Math.min(P3.MAX_W, P3.BASE_W * widthScale * Math.pow(P3.Z_NEAR / q.z, P3.WIDTH_EXP)) };
   });
 }
 
