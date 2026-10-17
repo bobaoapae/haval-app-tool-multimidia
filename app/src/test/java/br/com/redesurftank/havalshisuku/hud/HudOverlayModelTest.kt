@@ -96,8 +96,9 @@ class HudOverlayModelTest {
         assertTrue(m.HERO_TOP >= m.TBT_TOP)
         assertTrue(m.HERO_TOP + m.HERO_GLYPH + m.HERO_TEXT_GAP <= m.TBT_BOTTOM)
         assertTrue(m.HERO_GLYPH > m.COMPACT_GLYPH)
-        // ETA between the turn-by-turn and the bars; bars inside the visible band.
-        assertTrue(m.TRIP_BASELINE - m.TRIP_SIZE >= m.TBT_BOTTOM)
+        // ETA between the turn-by-turn and the bars (pulled up into the area's empty bottom: its
+        // cap height clears the lane row; see `nav text stays between...`); bars in the band.
+        assertTrue(m.TRIP_BASELINE - m.TRIP_SIZE * 0.75f > m.LANES_TOP + m.LANE_ROW_HEIGHT)
         assertTrue(m.TRIP_BASELINE < m.BAR_Y - m.BAR_HEIGHT / 2)
         assertTrue(m.BAR_Y + m.BAR_HEIGHT / 2 < 200f)
         // Power at the left edge inside the free cells; RPM at the right edge of the panel.
@@ -288,5 +289,38 @@ class HudOverlayModelTest {
         assertEquals(emptyList<Float>(), HudOverlayModel.passedExitAngles(90, 5))
         // Stubs stay inside the ring's own box.
         assertTrue(HudOverlayModel.RB_STUB_END < HudOverlayModel.RB_EXIT_TIP)
+    }
+
+    @Test
+    fun `far row shows the street and a larger trip line, the others neither`() {
+        val far = HudOverlayModel.tbtFor(Directions(active = true, distance = "2.4 km", distanceM = 2_400, turn = "TURN_RIGHT", street = "Av. Brasil"))!!
+        assertEquals(HudOverlayModel.TbtStyle.FAR, far.style)
+        assertTrue(HudOverlayModel.showsStreet(far))
+        assertTrue(!HudOverlayModel.showsStreet(far.copy(street = "")))
+        assertTrue(!HudOverlayModel.showsStreet(far.copy(style = HudOverlayModel.TbtStyle.HERO)))
+        assertTrue(!HudOverlayModel.showsStreet(far.copy(style = HudOverlayModel.TbtStyle.COMPACT)))
+        val (farBase, farSize) = HudOverlayModel.tripPlacement(HudOverlayModel.TbtStyle.FAR, hasStreet = true)
+        val (heroBase, heroSize) = HudOverlayModel.tripPlacement(HudOverlayModel.TbtStyle.HERO, hasStreet = false)
+        // Far: bigger and higher than with the big arrow; big arrow: bigger than the old 13 px.
+        assertTrue(farSize > heroSize && heroSize > 13f)
+        assertTrue(farBase < heroBase)
+        assertTrue(HudOverlayModel.tripPlacement(HudOverlayModel.TbtStyle.FAR, hasStreet = false).first < farBase)
+    }
+
+    @Test
+    fun `nav text stays between the arrow row and the bars`() {
+        val rowBottom = HudOverlayModel.FAR_TOP + HudOverlayModel.COMPACT_GLYPH
+        // Street cap height (~0.75 em) clears the row; trip clears the street.
+        assertTrue(HudOverlayModel.FAR_STREET_BASELINE - HudOverlayModel.FAR_STREET_SIZE * 0.75f > rowBottom)
+        assertTrue(HudOverlayModel.FAR_TRIP_BASELINE - HudOverlayModel.FAR_TRIP_SIZE * 0.75f > HudOverlayModel.FAR_STREET_BASELINE)
+        // Descenders (~0.25 em) stay above the bar row.
+        val barTop = HudOverlayModel.BAR_Y - HudOverlayModel.BAR_HEIGHT / 2
+        assertTrue(HudOverlayModel.FAR_TRIP_BASELINE + HudOverlayModel.FAR_TRIP_SIZE * 0.25f < barTop)
+        assertTrue(HudOverlayModel.TRIP_BASELINE + HudOverlayModel.TRIP_SIZE * 0.25f < barTop)
+        // The trip line clears the lane row and the big arrow's distance.
+        val lanesBottom = HudOverlayModel.LANES_TOP + HudOverlayModel.LANE_ROW_HEIGHT
+        assertTrue(HudOverlayModel.TRIP_BASELINE - HudOverlayModel.TRIP_SIZE * 0.75f > lanesBottom)
+        val heroDistance = HudOverlayModel.HERO_TOP + HudOverlayModel.HERO_GLYPH + HudOverlayModel.HERO_TEXT_GAP
+        assertTrue(HudOverlayModel.TRIP_BASELINE - HudOverlayModel.TRIP_SIZE * 0.75f > heroDistance + HudOverlayModel.HERO_VALUE_SIZE * 0.25f)
     }
 }

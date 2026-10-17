@@ -115,9 +115,7 @@ class HudOverlayRenderer {
                     drawArColumn(canvas, tbt) // draws its own trip line
                 }
             }
-            if (tbt.style != M.TbtStyle.AR && tbt.trip.isNotEmpty()) {
-                canvas.drawText(tbt.trip, M.BOX_CENTER_X, M.TRIP_BASELINE, tripPaint)
-            }
+            if (tbt.style != M.TbtStyle.AR) drawNavText(canvas, tbt)
         }
         if (f.arcs) {
             f.powerPercent?.let { drawPowerArc(canvas, it) }
@@ -126,6 +124,33 @@ class HudOverlayRenderer {
             f.powerPercent?.let { drawPowerBar(canvas, it) }
             f.rpmTenths?.let { drawRpmBar(canvas, it) }
         }
+    }
+
+    /**
+     * Navigation layout text under the turn-by-turn: the street (far row only) and the trip line,
+     * each fitted to the box width (street cut with an ellipsis, trip shrunk).
+     */
+    private fun drawNavText(canvas: Canvas, tbt: M.Tbt) {
+        val maxW = M.BOX_RIGHT - M.BOX_LEFT
+        val street = M.showsStreet(tbt)
+        if (street) {
+            navStreetPaint.textSize = M.FAR_STREET_SIZE
+            val text = android.text.TextUtils.ellipsize(tbt.street, navStreetPaint, maxW, android.text.TextUtils.TruncateAt.END).toString()
+            canvas.drawText(text, M.BOX_CENTER_X, M.FAR_STREET_BASELINE, navStreetPaint)
+        }
+        if (tbt.trip.isEmpty()) return
+        val (baseline, size) = M.tripPlacement(tbt.style, street)
+        tripPaint.textSize = size
+        val w = tripPaint.measureText(tbt.trip)
+        if (w > maxW) tripPaint.textSize = size * maxW / w
+        canvas.drawText(tbt.trip, M.BOX_CENTER_X, baseline, tripPaint)
+        tripPaint.textSize = M.TRIP_SIZE
+    }
+
+    private val navStreetPaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(230, 255, 255, 255)
+        typeface = lightFace
+        textAlign = Paint.Align.CENTER
     }
 
     // ---- AR layout: left column ----
@@ -624,7 +649,7 @@ private val TOWN_TURN = PreviewScenario(
 private val HIGHWAY_EXIT = PreviewScenario(
     speedKmh = 110,
     route = AndroidAutoNavigationTelemetry.Directions(
-        active = true, distance = "2.4 km", distanceM = 2_400, turn = "OFF_RAMP_RIGHT",
+        active = true, distance = "2.4 km", distanceM = 2_400, turn = "OFF_RAMP_RIGHT", street = "Rod. dos Bandeirantes",
         remainingM = 27_300, remainingS = 1_260
     ),
     powerPercent = 62,

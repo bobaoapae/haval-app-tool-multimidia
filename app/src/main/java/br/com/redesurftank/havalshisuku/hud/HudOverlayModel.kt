@@ -81,13 +81,30 @@ object HudOverlayModel {
     const val HERO_TOP = TBT_TOP + (TBT_BOTTOM - TBT_TOP - (HERO_GLYPH + HERO_TEXT_GAP)) / 2
 
     // No lanes and still >= 1 km away (optional): a small arrow + distance row, like the compact
-    // row without lanes; the big arrow only comes back for the last kilometre.
+    // row without lanes; the big arrow only comes back for the last kilometre. Under the row: the
+    // street the maneuver leads onto, then a larger trip line, all pulled up close to the arrow.
     const val FAR_THRESHOLD_M = 1_000
-    const val FAR_TOP = TBT_TOP + (TBT_BOTTOM - TBT_TOP - COMPACT_GLYPH) / 2
+    const val FAR_TOP = 70f
+    const val FAR_STREET_SIZE = 16f
+    const val FAR_STREET_BASELINE = FAR_TOP + COMPACT_GLYPH + 20f
+    const val FAR_TRIP_SIZE = 18f
+    const val FAR_TRIP_BASELINE = FAR_STREET_BASELINE + 24f
+    /** No street from AA: the trip line moves up into the street's place. */
+    const val FAR_TRIP_BASELINE_NO_STREET = FAR_TOP + COMPACT_GLYPH + 24f
 
-    // Trip line ("4.8 km · 12 min" left to the destination) under the turn-by-turn, centred in the box.
-    const val TRIP_BASELINE = 184f
-    const val TRIP_SIZE = 13f
+    // Trip line ("4.8 km · 12 min" left to the destination) under the big arrow or the lanes,
+    // centred in the box: larger than it was (13), smaller than the far row's.
+    const val TRIP_BASELINE = 178f
+    const val TRIP_SIZE = 15f
+
+    /** Trip line baseline and text size for [style]; the far row's depends on a street showing. */
+    fun tripPlacement(style: TbtStyle, hasStreet: Boolean): Pair<Float, Float> = when (style) {
+        TbtStyle.FAR -> (if (hasStreet) FAR_TRIP_BASELINE else FAR_TRIP_BASELINE_NO_STREET) to FAR_TRIP_SIZE
+        else -> TRIP_BASELINE to TRIP_SIZE
+    }
+
+    /** The far row shows the street under the arrow; the big arrow and the lane rows don't. */
+    fun showsStreet(tbt: Tbt): Boolean = tbt.style == TbtStyle.FAR && tbt.street.isNotEmpty()
 
     // Bars on the bottom row of the visible band, no labels: power at the HUD's left edge, RPM at
     // its right edge (the native HUD leaves the bottom of both sides empty). Approved in the
