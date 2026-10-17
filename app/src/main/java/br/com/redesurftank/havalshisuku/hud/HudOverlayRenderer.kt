@@ -21,6 +21,9 @@ import br.com.redesurftank.havalshisuku.hud.HudOverlayModel as M
  */
 class HudOverlayRenderer {
     private companion object {
+        /** Native speed readout in the preview mock: centred on the arcs (measured on the car). */
+        const val NATIVE_SPEED_CX = M.ARC_CX
+        const val NATIVE_SPEED_BASELINE = 121f
         val DRIVE = Color.rgb(63, 169, 255)
         val OFF = Color.argb(61, 255, 255, 255)
         val RED_OFF = Color.argb(77, 255, 64, 64)
@@ -631,12 +634,15 @@ class HudOverlayRenderer {
     private fun drawNativeHud(canvas: Canvas, speedKmh: Int) {
         nativePaint.typeface = lightFace
         nativePaint.textSize = 58f
-        nativePaint.textAlign = Paint.Align.RIGHT
+        // Speed centred where it sits on the car (see HudOverlayModel.ARC_CX), km/h after it.
+        nativePaint.textAlign = Paint.Align.CENTER
         nativePaint.color = Color.argb(225, 255, 255, 255)
-        canvas.drawText(speedKmh.toString(), 300f, 122f, nativePaint)
+        val speed = speedKmh.toString()
+        canvas.drawText(speed, NATIVE_SPEED_CX, NATIVE_SPEED_BASELINE, nativePaint)
+        val half = nativePaint.measureText(speed) / 2
         nativePaint.textSize = 14f
         nativePaint.textAlign = Paint.Align.LEFT
-        canvas.drawText("km/h", 304f, 122f, nativePaint)
+        canvas.drawText("km/h", NATIVE_SPEED_CX + half + 4f, NATIVE_SPEED_BASELINE, nativePaint)
         canvas.drawCircle(214f, 150f, 9f, nativeStroke)
         canvas.drawCircle(244f, 150f, 9f, nativeStroke)
         nativePaint.color = Color.rgb(255, 122, 61)
