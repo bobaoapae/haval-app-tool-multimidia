@@ -2,6 +2,7 @@ package br.com.redesurftank.havalshisuku.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -21,8 +22,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -42,6 +43,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import br.com.redesurftank.havalshisuku.hud.HudOverlayModel
 import br.com.redesurftank.havalshisuku.hud.HudOverlayRenderer
 import br.com.redesurftank.havalshisuku.hud.HudOverlaySettings
@@ -158,62 +161,119 @@ private fun HudLayoutCard(
     }
 }
 
+/** Tabs of the Navegação settings dialog. */
+private enum class HudSettingsTab(val title: String) { NAVIGATION("Navegação"), BARS("Barras") }
+
+/**
+ * Wide two-pane dialog for the 1920x720 head unit: live preview on the left, the options on the
+ * right split into tabs so each fits without scrolling. (A tall single column got clipped on
+ * this screen, with the bar switches drawn on top of each other.)
+ */
 @Composable
 private fun HudNavigationSettingsDialog(
     config: HudOverlayModel.Config,
     onChange: (HudOverlayModel.Config) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var tab by remember { mutableStateOf(HudSettingsTab.NAVIGATION) }
     val preview = remember(config) {
         HudOverlayRenderer().preview(config.copy(layout = HudOverlayModel.Layout.NAVIGATION)).asImageBitmap()
     }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = ImpTokens.Container,
-        titleContentColor = Color.White,
-        textContentColor = Color.White,
-        title = { Text("Layout Navegação", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Image(
-                    bitmap = preview,
-                    contentDescription = "Prévia com estas opções",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(3f).clip(RoundedCornerShape(6.dp))
-                )
-                Spacer(Modifier.height(8.dp))
-                SectionLabel("Navegação")
-                OptionRow("Mostrar navegação", "Seta, distância e faixas enquanto o Android Auto guia.", config.navigation) {
-                    onChange(config.copy(navigation = it))
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(0.82f).padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.5.dp, ImpTokens.Accent)
+        ) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Layout Navegação",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onDismiss) {
+                        Text("Fechar", color = ImpTokens.Accent, fontWeight = FontWeight.Bold)
+                    }
                 }
-                OptionRow(
-                    "Seta menor quando longe",
-                    "Seta pequena até faltar 1 km para a manobra; depois volta a ficar grande.",
-                    config.smallArrowWhenFar,
-                    enabled = config.navigation
-                ) { onChange(config.copy(smallArrowWhenFar = it)) }
-                OptionRow("Horário de chegada", "Mostra a chegada e o tempo restante, ex.: 10:40 · 12 min.", config.eta, enabled = config.navigation) {
-                    onChange(config.copy(eta = it))
-                }
-                HorizontalDivider(color = ImpTokens.TrackOff, modifier = Modifier.padding(vertical = 6.dp))
-                SectionLabel("Barras")
-                OptionRow("Potência / regeneração", "Canto inferior esquerdo. Azul acelerando, verde regenerando.", config.powerBar) {
-                    onChange(config.copy(powerBar = it))
-                }
-                OptionRow("Rotação do motor", "Canto inferior direito, só com o motor ligado.", config.rpmBar) {
-                    onChange(config.copy(rpmBar = it))
+                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                    // Left: what the HUD will show with these options.
+                    Column(modifier = Modifier.weight(1.1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Image(
+                            bitmap = preview,
+                            contentDescription = "Prévia com estas opções",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxWidth().aspectRatio(3f).clip(RoundedCornerShape(8.dp))
+                        )
+                        Text(
+                            "Prévia com estas opções. O Impulse desenha só nos cantos livres do HUD.",
+                            color = ImpTokens.TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                    // Right: one tab of options at a time.
+                    Column(modifier = Modifier.weight(1f)) {
+                        HudTabs(selected = tab, onSelect = { tab = it })
+                        Spacer(Modifier.height(8.dp))
+                        when (tab) {
+                            HudSettingsTab.NAVIGATION -> {
+                                OptionRow("Mostrar navegação", "Seta, distância e faixas enquanto o Android Auto guia.", config.navigation) {
+                                    onChange(config.copy(navigation = it))
+                                }
+                                OptionRow(
+                                    "Seta menor quando longe",
+                                    "Seta pequena até faltar 1 km para a manobra; depois fica grande.",
+                                    config.smallArrowWhenFar,
+                                    enabled = config.navigation
+                                ) { onChange(config.copy(smallArrowWhenFar = it)) }
+                                OptionRow(
+                                    "Horário de chegada",
+                                    "Chegada e tempo restante, ex.: 10:40 · 12 min.",
+                                    config.eta,
+                                    enabled = config.navigation
+                                ) { onChange(config.copy(eta = it)) }
+                            }
+                            HudSettingsTab.BARS -> {
+                                OptionRow("Potência / regeneração", "Canto inferior esquerdo. Azul acelerando, verde regenerando.", config.powerBar) {
+                                    onChange(config.copy(powerBar = it))
+                                }
+                                OptionRow("Rotação do motor", "Canto inferior direito, só com o motor ligado.", config.rpmBar) {
+                                    onChange(config.copy(rpmBar = it))
+                                }
+                            }
+                        }
+                    }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Fechar", color = ImpTokens.Accent, fontWeight = FontWeight.Bold) }
         }
-    )
+    }
 }
 
 @Composable
-private fun SectionLabel(text: String) {
-    Text(text.uppercase(), color = ImpTokens.TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+private fun HudTabs(selected: HudSettingsTab, onSelect: (HudSettingsTab) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (t in HudSettingsTab.entries) {
+            val on = t == selected
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (on) ImpTokens.Accent.copy(alpha = 0.18f) else Color.Transparent)
+                    .border(1.dp, if (on) ImpTokens.Accent else ImpTokens.TrackOff, RoundedCornerShape(8.dp))
+                    .clickable { onSelect(t) }
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    t.title,
+                    color = if (on) Color.White else ImpTokens.TextSecondary,
+                    fontSize = 14.sp,
+                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal
+                )
+            }
+        }
+    }
 }
 
 @Composable
