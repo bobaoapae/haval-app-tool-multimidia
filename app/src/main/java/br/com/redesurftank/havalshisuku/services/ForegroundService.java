@@ -79,6 +79,10 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
     private static final long SHIZUKU_BINDER_RECEIVE_TIMEOUT_MS = 15000L;
     private static final int SHIZUKU_BINDER_TIMEOUTS_BEFORE_RESTART = 3;
     private static final String CARPLAY_PATCH_VERSION_KEY = "carPlayPatchAutoMountPatchVersion";
+    private static final String SELF_COMPILED_UPDATE_TIME_KEY = "selfCompiledLastUpdateTime";
+    private static final long SELF_COMPILE_DELAY_MS = 60_000L;
+    private static final java.util.concurrent.atomic.AtomicBoolean selfCompileScheduled =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
     private static final String CARPLAY_HVAC_FOCUS_PATCH_VERSION = "app_visual_d0_focus_service_conditional_camera_native1904x704_v14";
 
     private HandlerThread handlerThread;
@@ -338,6 +342,37 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
                 Log.e(TAG, "Android Auto patch auto-mount failed (" + reason + "): " + e.getMessage(), e);
             }
         });
+    }
+
+    /**
+     * AOT-compiles Impulse once per install/update. A freshly installed APK runs unverified and
+     * reaches App.attachBaseContext too late at boot to mount the AA patches before Android Auto
+     * starts (MOUNT_LATE). Runs on its own low-priority thread after start-up has settled.
+     */
+    private void scheduleSelfCompileAfterUpdate() {
+        if (!selfCompileScheduled.compareAndSet(false, true)) return;
+        Thread thread = new Thread(() -> {
+            try {
+                Thread.sleep(SELF_COMPILE_DELAY_MS);
+                long updateTime = getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime;
+                var prefs = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE);
+                if (prefs.getLong(SELF_COMPILED_UPDATE_TIME_KEY, 0L) == updateTime) return;
+                String output = ShizukuUtils.runCommandAndGetOutput(
+                        new String[]{"cmd", "package", "compile", "-m", "speed", "-f", getPackageName()});
+                boolean success = output != null && output.contains("Success");
+                ClusterPersistentEventLogger.logText("self_compile",
+                        "success=" + success + " updateTime=" + updateTime
+                                + " output=" + (output == null ? "" : output.trim()));
+                if (success) {
+                    prefs.edit().putLong(SELF_COMPILED_UPDATE_TIME_KEY, updateTime).apply();
+                }
+            } catch (InterruptedException ignored) {
+            } catch (Exception e) {
+                Log.e(TAG, "Self-compile failed: " + e.getMessage(), e);
+            }
+        }, "SelfCompile");
+        thread.setPriority(Thread.MIN_PRIORITY);
+        thread.start();
     }
 
     private void scheduleCarPlayPatchAutoMount(String reason) {
@@ -605,6 +640,7 @@ public class ForegroundService extends Service implements Shizuku.OnBinderDeadLi
 
         Log.w(TAG, "Shizuku initialized/bypassed, starting services...");
         scheduleAndroidAutoPatchAutoMount("shizuku-ready");
+        scheduleSelfCompileAfterUpdate();
         scheduleCarPlayPatchAutoMount("shizuku-ready");
 
         // Start SSH check and start in background with retry
