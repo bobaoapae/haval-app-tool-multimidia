@@ -33,7 +33,7 @@ class HudOverlayActivity : Activity() {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         )
         Log.w(TAG, "created on display=${windowManager.defaultDisplay.displayId}")
-        // Debug builds only: `--es hudDemo on|nolanes|far|off` puts a sample frame up for layout checks.
+        // Debug builds only: `--es hudDemo on|nolanes|far|drive|off` puts a sample frame up for layout checks.
         if (BuildConfig.DEBUG) intent?.getStringExtra(EXTRA_DEMO)?.let { HudOverlayController.demo(it) }
         if (HudOverlayController.adoptDisplay(this)) {
             finishQuietly()
