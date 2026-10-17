@@ -6,7 +6,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.math.abs
 
 class HudArArrowTest {
     @Test
@@ -42,36 +41,59 @@ class HudArArrowTest {
     }
 
     @Test
-    fun `far arrow is straight with its head inside the visible band`() {
+    fun `far away it is only the wedge, running to the top`() {
         val shape = HudArArrow.shape(1_200f, 90f)
-        assertTrue(shape.ribbon.all { abs(it.x - HudOverlayModel.BOX_CENTER_X) < 0.01f })
-        val tipY = shape.head[1]
-        assertTrue("tip y=$tipY", tipY > HudArArrow.TOP && HudArArrow.rowAlpha(shape.ribbon.last().y) > 0.3f)
+        assertEquals(HudArArrow.TOP, shape.stemTop, 0f)
+        assertTrue(shape.arm.isEmpty())
+        assertNull(shape.head)
+        assertEquals(0f, shape.armAlpha, 0f)
     }
 
     @Test
-    fun `at the turn the whole arrow and head stay inside the free box`() {
-        for (angle in listOf(90f, -90f, 135f, -135f, -180f, 45f)) {
-            val shape = HudArArrow.shape(0f, angle)
-            val visible = shape.ribbon.filter { it.y in HudArArrow.TOP..HudArArrow.BOTTOM }
-            for (p in visible) {
-                assertTrue("angle=$angle x=${p.x}", p.x - p.w / 2 >= HudOverlayModel.BOX_LEFT - 1f)
-                assertTrue("angle=$angle x=${p.x}", p.x + p.w / 2 <= HudOverlayModel.BOX_RIGHT + 1f)
+    fun `stem is 200 px at the base with straight sides meeting at the apex`() {
+        assertEquals(HudArArrow.BASE_W, HudArArrow.stemWidthAt(HudArArrow.BOTTOM), 0.01f)
+        assertEquals(0f, HudArArrow.stemWidthAt(HudArArrow.APEX), 0.01f)
+        // Linear in y = straight edges.
+        val a = HudArArrow.stemWidthAt(150f)
+        val b = HudArArrow.stemWidthAt(175f)
+        val c = HudArArrow.stemWidthAt(200f)
+        assertEquals(b - a, c - b, 0.01f)
+        assertTrue(HudArArrow.stemWidthAt(HudArArrow.TOP) < 25f) // thin far end
+    }
+
+    @Test
+    fun `as the car arrives the stem comes down to the corner and the arm grows`() {
+        val near = HudArArrow.shape(0f, 90f)
+        val cornerY = HudArArrow.project(0f, HudArArrow.Z_END).second
+        assertEquals(cornerY, near.stemTop, 0.01f)
+        assertEquals(1f, near.armAlpha, 0f)
+        assertTrue(near.arm.isNotEmpty())
+        assertTrue(near.arm.all { it.w <= HudArArrow.ARM_W + 0.01f })
+        // Right turn: the arm ends to the right of the stem.
+        assertTrue(near.arm.last().x > HudArArrow.CX + 30f)
+
+        val bending = HudArArrow.shape(110f, 90f)
+        assertTrue(bending.armAlpha in 0.1f..0.9f)
+        assertTrue(bending.stemTop in HudArArrow.TOP..cornerY)
+    }
+
+    @Test
+    fun `the arm and head stay inside the middle strip at every angle`() {
+        val lo = HudArArrow.CX - HudArArrow.HALF_ROOM - 1f
+        val hi = HudArArrow.CX + HudArArrow.HALF_ROOM + 1f
+        for (meters in listOf(0f, 20f, 60f, 120f)) for (angle in listOf(90f, -90f, 135f, -135f, -180f, 45f, 0f)) {
+            val shape = HudArArrow.shape(meters, angle)
+            for (p in shape.arm) {
+                assertTrue("m=$meters angle=$angle x=${p.x} w=${p.w}", p.x - p.w / 2 >= lo && p.x + p.w / 2 <= hi)
             }
-            for (k in 0 until 3) {
-                val x = shape.head[2 * k]
-                assertTrue("angle=$angle head x=$x", x in HudOverlayModel.BOX_LEFT - 1f..HudOverlayModel.BOX_RIGHT + 1f)
+            shape.head?.let { h ->
+                for (k in 0 until 3) assertTrue("m=$meters angle=$angle head x=${h[2 * k]}", h[2 * k] in lo..hi)
             }
         }
-    }
-
-    @Test
-    fun `thick at the base, thin far away`() {
-        val shape = HudArArrow.shape(1_200f, 0f)
-        val base = shape.ribbon.first { it.y <= HudArArrow.BOTTOM }
-        val far = shape.ribbon.last()
-        assertTrue(base.w > 3 * far.w)
-        assertTrue(base.w <= HudArArrow.MAX_W)
+        // The wide stem and the strip stay clear of the left box's bars and the RPM bar.
+        val barBottom = HudOverlayModel.BAR_Y + HudOverlayModel.BAR_HEIGHT / 2
+        assertTrue(HudArArrow.CX - HudArArrow.stemWidthAt(barBottom) / 2 > HudOverlayModel.POWER_RIGHT)
+        assertTrue(hi < HudOverlayModel.RPM_LEFT)
     }
 
     @Test

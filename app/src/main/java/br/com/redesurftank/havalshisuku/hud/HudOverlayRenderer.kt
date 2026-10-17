@@ -21,8 +21,13 @@ import br.com.redesurftank.havalshisuku.hud.HudOverlayModel as M
  */
 class HudOverlayRenderer {
     private companion object {
-        /** AR layout: distance over the arrow, above the trip line (as the simulator). */
-        const val AR_DISTANCE_BASELINE = 166f
+        /**
+         * AR layout: the arrow moved to the middle under the native speed, so the left box shows
+         * the distance alone, a bit larger, above the trip line (as the simulator).
+         */
+        const val AR_DISTANCE_BASELINE = 128f
+        const val AR_DISTANCE_VALUE_SIZE = 30f
+        const val AR_DISTANCE_UNIT_SIZE = 18f
         val DRIVE = Color.rgb(63, 169, 255)
         val REGEN = Color.rgb(80, 230, 120)
         val RED = Color.rgb(255, 64, 64)
@@ -127,14 +132,37 @@ class HudOverlayRenderer {
     }
 
     /**
-     * The 3D arrow ([HudArArrow]) under the trip line and bars, then the distance over it. Each
-     * segment is a quad laid perpendicular to the on-screen path, coloured by its row.
+     * The 3D arrow ([HudArArrow]) in the middle of the HUD, see-through ([HudArArrow.OPACITY]),
+     * then the distance in the left box. Each segment is a quad laid perpendicular to the
+     * on-screen path, coloured by its row.
      */
     private fun drawAr(canvas: Canvas, tbt: M.Tbt) {
         val shape = HudArArrow.shape(tbt.arMeters ?: 0f, tbt.arAngle ?: 0f)
-        val pts = shape.ribbon
+        val left = HudArArrow.CX - HudArArrow.HALF_ROOM - 2f
+        val right = HudArArrow.CX + HudArArrow.HALF_ROOM + 2f
         canvas.save()
-        canvas.clipRect(M.BOX_LEFT, HudArArrow.TOP, M.BOX_RIGHT, HudArArrow.BOTTOM)
+        canvas.clipRect(left, HudArArrow.TOP, right, HudArArrow.BOTTOM)
+        // Opaque into a layer, then composited once at OPACITY: drawing overlapping pieces
+        // translucent would stack into visible stripes at the seams.
+        canvas.saveLayerAlpha(left, HudArArrow.TOP, right, HudArArrow.BOTTOM, (HudArArrow.OPACITY * 255).toInt())
+
+        // Stem: one trapezoid, straight sides, coloured by row through a vertical gradient.
+        val top = shape.stemTop
+        val halfTop = HudArArrow.stemWidthAt(top) / 2
+        val halfBase = HudArArrow.BASE_W / 2
+        arPath.reset()
+        arPath.moveTo(HudArArrow.CX - halfBase, HudArArrow.BOTTOM)
+        arPath.lineTo(HudArArrow.CX + halfBase, HudArArrow.BOTTOM)
+        arPath.lineTo(HudArArrow.CX + halfTop, top)
+        arPath.lineTo(HudArArrow.CX - halfTop, top)
+        arPath.close()
+        arPaint.color = Color.WHITE
+        arPaint.shader = stemShader
+        canvas.drawPath(arPath, arPaint)
+        arPaint.shader = null
+
+        // Arm: quads laid perpendicular to the on-screen path, faded in with the bend.
+        val pts = shape.arm
         fun normal(i: Int): Pair<Float, Float> {
             val a = pts[maxOf(0, i - 1)]
             val b = pts[minOf(pts.size - 1, i + 1)]
@@ -144,7 +172,7 @@ class HudOverlayRenderer {
         for (i in 0 until pts.size - 1) {
             val a = pts[i]
             val b = pts[i + 1]
-            val alpha = HudArArrow.rowAlpha(minOf(a.y, b.y))
+            val alpha = HudArArrow.rowAlpha(minOf(a.y, b.y)) * shape.armAlpha
             if (alpha <= 0f) continue
             val (nax, nay) = normal(i)
             val (nbx, nby) = normal(i + 1)
@@ -160,22 +188,36 @@ class HudOverlayRenderer {
             canvas.drawPath(arPath, arPaint)
             canvas.drawPath(arPath, arSeam) // hide the seams between quads
         }
-        val h = shape.head
-        val headAlpha = HudArArrow.rowAlpha(pts.last().y)
-        if (headAlpha > 0f) {
-            arPath.reset()
-            arPath.moveTo(h[0], h[1])
-            arPath.lineTo(h[2], h[3])
-            arPath.lineTo(h[4], h[5])
-            arPath.close()
-            arPaint.color = arColor(pts.last().y, headAlpha)
-            canvas.drawPath(arPath, arPaint)
+        shape.head?.let { h ->
+            val alpha = HudArArrow.rowAlpha(pts.last().y) * shape.armAlpha
+            if (alpha > 0f) {
+                arPath.reset()
+                arPath.moveTo(h[0], h[1])
+                arPath.lineTo(h[2], h[3])
+                arPath.lineTo(h[4], h[5])
+                arPath.close()
+                arPaint.color = arColor(pts.last().y, alpha)
+                canvas.drawPath(arPath, arPaint)
+            }
         }
-        canvas.restore()
-        setTextSizes(M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE)
+        canvas.restore() // layer
+        canvas.restore() // clip
+        setTextSizes(AR_DISTANCE_VALUE_SIZE, AR_DISTANCE_UNIT_SIZE)
         val width = distanceWidth(tbt)
         drawDistance(canvas, tbt, M.BOX_CENTER_X - width / 2, AR_DISTANCE_BASELINE)
     }
+
+    /** Stem colour by row: deep blue at the base, light blue up the road, gone at the top edge. */
+    private val stemShader = LinearGradient(
+        0f, HudArArrow.BOTTOM, 0f, HudArArrow.TOP,
+        intArrayOf(
+            Color.argb(255, 30, 123, 255),
+            Color.argb(255, 120, 200, 255),
+            Color.argb(0, 150, 218, 255)
+        ),
+        floatArrayOf(0f, (HudArArrow.BOTTOM - HudArArrow.FADE_FROM) / (HudArArrow.BOTTOM - HudArArrow.TOP), 1f),
+        Shader.TileMode.CLAMP
+    )
 
     // ---- turn-by-turn ----
 
