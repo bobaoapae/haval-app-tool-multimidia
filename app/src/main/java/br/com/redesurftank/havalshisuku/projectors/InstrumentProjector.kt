@@ -452,9 +452,8 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
         }
     }
 
-    private fun updateBackgroundVisibility() {
+    private fun updateBackgroundVisibility(isScreenOn: Boolean = ServiceManager.getInstance().isMainScreenOn) {
         val isEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
-        val isScreenOn = ServiceManager.getInstance().isMainScreenOn
 
         Log.w(TAG, "Visibility check: isAnyAppOnDisplay1=$isAnyAppOnDisplay1, isScreenOn=$isScreenOn, isEnabled=$isEnabled")
 
@@ -523,7 +522,10 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
 
     override fun carMainScreenOn() {
         ensureUi {
-            updateBackgroundVisibility()
+            // The engine-state event that brought us here reaches listeners before
+            // ServiceManager caches it, so isMainScreenOn can still read the old "off" value
+            // and latch the wallpaper hidden for the whole drive (2026-10-17 17:10 boot).
+            updateBackgroundVisibility(isScreenOn = true)
         }
     }
 

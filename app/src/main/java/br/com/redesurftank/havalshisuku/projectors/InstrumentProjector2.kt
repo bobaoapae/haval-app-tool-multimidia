@@ -3511,8 +3511,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
     override fun carMainScreenOn() {
         ensureUi {
+            // Not isMainScreenOn: the engine-state event reaches listeners before
+            // ServiceManager caches it (see InstrumentProjector.carMainScreenOn).
             applyProjectorViewVisibility(
-                    shouldShowProjector() && ServiceManager.getInstance().isMainScreenOn,
+                    shouldShowProjector(),
                     projectionOverlayBypassActive == true
             )
         }
