@@ -63,6 +63,13 @@ Grey shading = outside the optics; the native HUD on the right is a rough mock f
       <label><input type="checkbox" id="optPower" checked> power bar</label>
       <label><input type="checkbox" id="optRpm" checked> RPM bar</label>
     </div>
+
+    <h2 style="margin-top:12px">3D arrow (prototype)</h2>
+    <div class="checks">
+      <label><input type="checkbox" id="opt3d" checked> perspective arrow when there are no lanes</label>
+    </div>
+    <label class="row">Distance <input type="range" id="dist" min="0" max="1500" step="10"><output id="distOut"></output></label>
+    <div class="scen"><button id="play">▶ Play approach<small>1.2 km down to 0 m, ~12 s</small></button></div>
     <div class="checks">
       <label><input type="checkbox" id="native" checked> native HUD mock</label>
       <label><input type="checkbox" id="guides"> free-area guide</label>
@@ -359,14 +366,136 @@ function drawNativeMock(speed) {
   ctx.restore();
 }
 
+// ---------------------------------------------------------------------------
+// 3D perspective arrow (prototype). A ribbon runs "down the road" from the bottom of the
+// turn-by-turn area towards a vanishing point; the turn sits at a depth set by the remaining
+// distance, so far away it is past the fade (no tip) and it slides down as the car closes in.
+// ---------------------------------------------------------------------------
+const P3 = {
+  TOP: 60, BOTTOM: 154,        // viewport rows inside the turn-by-turn area (distance text under it)
+  HORIZON: 20,                 // camera pitched down: the horizon sits above the viewport
+  Z_NEAR: 4,                   // depth of the bottom edge
+  K: 0.06,                     // depth per metre: 0 m at the bottom, ~150 m reaches the top edge
+  F_X: 62,                    // lateral scale: the whole turn + head fits the box even at 0 m
+  RIBBON_W: 1.35,              // ribbon thickness in world units, drawn in screen space
+  TURN_R: 1.3,                 // corner radius
+  TURN_LEN: 2.2,               // length after the corner
+  HEAD_W: 2.9, HEAD_L: 1.3,    // arrow head
+  FADE_FROM: 84,               // fully drawn below this row, fading out up to TOP
+  MAX_W: 34,                   // cap the near thickness so it stays an arrow, not a road
+};
+
+function project(x, z) {
+  return [M.BOX_CENTER_X + P3.F_X * x / z, P3.HORIZON + (P3.BOTTOM - P3.HORIZON) * P3.Z_NEAR / z];
+}
+
+function rowAlpha(y) {
+  if (y >= P3.FADE_FROM) return 1;
+  return Math.max(0, (y - P3.TOP) / (P3.FADE_FROM - P3.TOP));
+}
+
+/** Centreline in world space: straight to the corner, an arc of `angle` degrees, a short tail. */
+function arrowCenterline(meters, angle) {
+  const pts = [];
+  const zc = P3.Z_NEAR + P3.K * meters;
+  const zStart = P3.Z_NEAR * 0.8;
+  const n = 40;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    pts.push({ x: 0, z: zStart + (zc - zStart) * t });
+  }
+  let x = 0, z = zc, h = 0;
+  const target = angle * Math.PI / 180, sign = Math.sign(target) || 1;
+  const ds = 0.08;
+  if (angle !== 0) {
+    const arc = Math.abs(target) * P3.TURN_R;
+    for (let d = ds; d <= arc + 1e-6; d += ds) {
+      h += sign * ds / P3.TURN_R;
+      x += Math.sin(h) * ds; z += Math.cos(h) * ds;
+      pts.push({ x, z });
+    }
+  }
+  for (let d = ds; d <= P3.TURN_LEN + 1e-6; d += ds) {
+    x += Math.sin(h) * ds; z += Math.cos(h) * ds;
+    pts.push({ x, z });
+  }
+  return pts.filter(q => q.z > 0.4);
+}
+
+/**
+ * Path in perspective, thickness in screen space: each point's width is the perspective size of
+ * RIBBON_W at its depth, laid perpendicular to the on-screen path. A ground-plane ribbon would
+ * fan into a road at the bottom and flatten the turn arm into a sliver.
+ */
+function draw3dArrow(tbt, meters) {
+  const pts = arrowCenterline(meters, tbt.angle);
+  const scr = pts.map(q => {
+    const [sx, sy] = project(q.x, q.z);
+    return { x: sx, y: sy, w: Math.min(P3.MAX_W, P3.F_X * P3.RIBBON_W / q.z) };
+  });
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(M.BOX_LEFT, P3.TOP, M.BOX_RIGHT - M.BOX_LEFT, P3.BOTTOM - P3.TOP);
+  ctx.clip();
+  const normal = (i) => {
+    const a = scr[Math.max(0, i - 1)], b = scr[Math.min(scr.length - 1, i + 1)];
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+    return [-dy / len, dx / len];
+  };
+  for (let i = 0; i + 1 < scr.length; i++) {
+    const a = scr[i], b = scr[i + 1];
+    const alpha = rowAlpha(Math.min(a.y, b.y));
+    if (alpha <= 0) continue;
+    const na = normal(i), nb = normal(i + 1);
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(a.x + na[0] * a.w / 2, a.y + na[1] * a.w / 2);
+    ctx.lineTo(b.x + nb[0] * b.w / 2, b.y + nb[1] * b.w / 2);
+    ctx.lineTo(b.x - nb[0] * b.w / 2, b.y - nb[1] * b.w / 2);
+    ctx.lineTo(a.x - na[0] * a.w / 2, a.y - na[1] * a.w / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 0.6; ctx.stroke(); // hide seams
+  }
+  // Head, sized by the perspective at the tail's end.
+  const e = scr[scr.length - 1], pe = pts[pts.length - 1];
+  const alpha = rowAlpha(e.y);
+  if (alpha > 0) {
+    const prev = scr[Math.max(0, scr.length - 4)];
+    const dx = e.x - prev.x, dy = e.y - prev.y, len = Math.hypot(dx, dy) || 1;
+    const d = [dx / len, dy / len], n = [-d[1], d[0]];
+    const scale = P3.F_X / pe.z;
+    const hl = P3.HEAD_L * scale, hw = Math.min(P3.MAX_W * 2.2, P3.HEAD_W * scale);
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(e.x + d[0] * hl, e.y + d[1] * hl);
+    ctx.lineTo(e.x + n[0] * hw / 2, e.y + n[1] * hw / 2);
+    ctx.lineTo(e.x - n[0] * hw / 2, e.y - n[1] * hw / 2);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+  // Distance centred under the viewport.
+  const w2 = distanceWidth(tbt, M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE);
+  drawDistance(tbt, M.BOX_CENTER_X - w2 / 2, P3.BOTTOM + 16, M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE);
+}
+
+function formatDistance(m) {
+  if (m >= 1000) return { value: (Math.round(m / 100) / 10).toFixed(1), unit: 'km' };
+  return { value: String(Math.round(m / 10) * 10), unit: 'm' };
+}
+
 function render() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(S, 0, 0, S, 0, 0);
   if (opt.native.checked) drawNativeMock(state.speed);
-  const tbt = opt.nav.checked ? NAV[state.nav] : null;
+  const base = opt.nav.checked ? NAV[state.nav] : null;
+  const meters = base ? (state.dist ?? base.meters) : 0;
+  const tbt = base && (state.dist == null ? base : { ...base, meters, ...formatDistance(meters) });
   if (tbt) {
-    if (tbt.lanes.length) drawCompact(tbt);
+    if (opt.d3.checked && !tbt.lanes.length && tbt.angle !== undefined) draw3dArrow(tbt, meters);
+    else if (tbt.lanes.length) drawCompact(tbt);
     else if (opt.far.checked && tbt.meters >= M.FAR_THRESHOLD_M) drawRow(tbt, M.FAR_TOP);
     else drawHero(tbt);
     if (opt.eta.checked && tbt.eta) drawEta(tbt.eta);
@@ -392,13 +521,14 @@ function render() {
 // ---------------------------------------------------------------------------
 const NAV = {
   none: null,
-  right_lanes: { label: 'Right turn, 250 m, 3 lanes', icon: 'TURN_RIGHT', value: '250', unit: 'm', meters: 250, eta: '4.8 km · 12 min', lanes: [[[1, 0]], [[1, 0]], [[5, 1], [1, 0]]] },
-  right: { label: 'Right turn, 90 m, no lanes', icon: 'TURN_RIGHT', value: '90', unit: 'm', meters: 90, eta: '4.8 km · 12 min', lanes: [] },
-  keep_left: { label: 'Keep left, 1.2 km, no lanes', icon: resolveTurnIcon('KEEP_LEFT'), value: '1.2', unit: 'km', meters: 1200, eta: '27.3 km · 34 min', lanes: [] },
+  right_lanes: { label: 'Right turn, 250 m, 3 lanes', angle: 90, icon: 'TURN_RIGHT', value: '250', unit: 'm', meters: 250, eta: '4.8 km · 12 min', lanes: [[[1, 0]], [[1, 0]], [[5, 1], [1, 0]]] },
+  right: { label: 'Right turn, 90 m, no lanes', angle: 90, icon: 'TURN_RIGHT', value: '90', unit: 'm', meters: 90, eta: '4.8 km · 12 min', lanes: [] },
+  keep_left: { label: 'Keep left, 1.2 km, no lanes', angle: -25, icon: resolveTurnIcon('KEEP_LEFT'), value: '1.2', unit: 'km', meters: 1200, eta: '27.3 km · 34 min', lanes: [] },
+  sharp_left: { label: 'Sharp left, 400 m, no lanes', angle: -135, icon: 'TURN_LEFT', value: '400', unit: 'm', meters: 400, eta: '3.2 km · 8 min', lanes: [] },
   roundabout: { label: 'Roundabout, 80 m', icon: 'ROUNDABOUT', value: '80', unit: 'm', meters: 80, eta: '2.1 km · 6 min', lanes: [] },
-  uturn_lanes: { label: 'U-turn, 500 m, 5 lanes', icon: 'U_TURN', value: '500', unit: 'm', meters: 500, eta: '61 km · 1 h 4 min', lanes: [[[8, 1]], [[1, 0]], [[1, 0]], [[1, 0], [3, 0]], [[5, 0]]] },
-  exit: { label: 'Exit right, 2.4 km', icon: resolveTurnIcon('OFF_RAMP_RIGHT'), value: '2.4', unit: 'km', meters: 2400, eta: '19.6 km · 18 min', lanes: [] },
-  arrive: { label: 'Destination, 30 m', icon: 'DESTINATION', value: '30', unit: 'm', meters: 30, eta: '30 m · <1 min', lanes: [] },
+  uturn_lanes: { label: 'U-turn, 500 m, 5 lanes', angle: -180, icon: 'U_TURN', value: '500', unit: 'm', meters: 500, eta: '61 km · 1 h 4 min', lanes: [[[8, 1]], [[1, 0]], [[1, 0]], [[1, 0], [3, 0]], [[5, 0]]] },
+  exit: { label: 'Exit right, 2.4 km', angle: 35, icon: resolveTurnIcon('OFF_RAMP_RIGHT'), value: '2.4', unit: 'km', meters: 2400, eta: '19.6 km · 18 min', lanes: [] },
+  arrive: { label: 'Destination, 30 m', angle: 0, icon: 'DESTINATION', value: '30', unit: 'm', meters: 30, eta: '30 m · <1 min', lanes: [] },
 };
 
 const SCENARIOS = [
@@ -413,11 +543,12 @@ const SCENARIOS = [
   { name: 'Arriving', note: '0 kW coasting', kw: 0.2, rpm: 0, nav: 'arrive', speed: 12 },
 ];
 
-const state = { kw: 0, rpm: 0, nav: 'none', speed: 0 };
+const state = { kw: 0, rpm: 0, nav: 'none', speed: 0, dist: null };
 const opt = {
   native: document.getElementById('native'), guides: document.getElementById('guides'), optics: document.getElementById('optics'),
   nav: document.getElementById('optNav'), far: document.getElementById('optFar'), eta: document.getElementById('optEta'),
   power: document.getElementById('optPower'), rpm: document.getElementById('optRpm'),
+  d3: document.getElementById('opt3d'),
 };
 const kwIn = document.getElementById('kw'), rpmIn = document.getElementById('rpm'), navIn = document.getElementById('nav');
 const kwOut = document.getElementById('kwOut'), rpmOut = document.getElementById('rpmOut');
@@ -433,19 +564,44 @@ SCENARIOS.forEach((s, i) => {
 });
 
 function apply(s, btn) {
-  Object.assign(state, { kw: s.kw, rpm: s.rpm, nav: s.nav, speed: s.speed });
+  stopPlay();
+  Object.assign(state, { kw: s.kw, rpm: s.rpm, nav: s.nav, speed: s.speed, dist: null });
   scenBox.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === btn));
   sync();
 }
 function sync() {
   kwIn.value = state.kw; rpmIn.value = state.rpm; navIn.value = state.nav;
+  const nav = NAV[state.nav];
+  const d = state.dist ?? (nav ? nav.meters : 0);
+  distIn.value = d; distOut.textContent = nav ? `${Math.round(d)} m` : '—';
   kwOut.textContent = `${state.kw} kW`; rpmOut.textContent = state.rpm > 0 ? `${state.rpm}` : 'off';
   render();
 }
 const manual = () => { scenBox.querySelectorAll('button').forEach(x => x.classList.remove('on')); };
 kwIn.oninput = () => { state.kw = +kwIn.value; manual(); sync(); };
 rpmIn.oninput = () => { state.rpm = +rpmIn.value; manual(); sync(); };
-navIn.onchange = () => { state.nav = navIn.value; manual(); sync(); };
+navIn.onchange = () => { state.nav = navIn.value; state.dist = null; manual(); sync(); };
+const distIn = document.getElementById('dist'), distOut = document.getElementById('distOut');
+distIn.oninput = () => { stopPlay(); state.dist = +distIn.value; manual(); sync(); };
+
+// Drive from 1.2 km to the turn: ~100 m/s far out, slowing to ~20 m/s near it, so the
+// interesting last 150 m get a few seconds.
+let playTimer = null;
+function stopPlay() { if (playTimer) { cancelAnimationFrame(playTimer); playTimer = null; } }
+document.getElementById('play').onclick = () => {
+  stopPlay();
+  if (!NAV[state.nav] || NAV[state.nav].lanes.length || NAV[state.nav].angle === undefined) state.nav = 'right';
+  state.dist = 1200;
+  let last = performance.now();
+  const step = (now) => {
+    const dt = (now - last) / 1000; last = now;
+    const v = state.dist > 200 ? 160 : 20 + state.dist * 0.4;
+    state.dist = Math.max(0, state.dist - v * dt);
+    sync();
+    playTimer = state.dist > 0 ? requestAnimationFrame(step) : null;
+  };
+  playTimer = requestAnimationFrame(step);
+};
 Object.values(opt).forEach(c => c.onchange = render);
 document.fonts && document.fonts.ready.then(render);
 </script>
