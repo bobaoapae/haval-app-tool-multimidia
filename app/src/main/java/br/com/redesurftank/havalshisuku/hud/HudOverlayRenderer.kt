@@ -215,10 +215,18 @@ class HudOverlayRenderer {
         drawDistance(canvas, tbt, M.BOX_CENTER_X - width / 2, if (lanes) M.AR_LANES_DISTANCE_BASELINE else M.AR_DISTANCE_BASELINE)
         if (lanes) drawLanes(canvas, tbt.lanes, M.AR_LANES_TOP)
         if (tbt.trip.isNotEmpty()) {
-            val oldSize = tripPaint.textSize
-            tripPaint.textSize = if (lanes) M.AR_LANES_TRIP_SIZE else M.AR_TRIP_SIZE
-            canvas.drawText(tbt.trip, M.BOX_CENTER_X, if (lanes) M.AR_LANES_TRIP_BASELINE else M.AR_TRIP_BASELINE, tripPaint)
-            tripPaint.textSize = oldSize
+            // Destination flag before the trip line, as in the Navegação layout; the pair is
+            // shrunk together when it would not fit the box.
+            val baseline = if (lanes) M.AR_LANES_TRIP_BASELINE else M.AR_TRIP_BASELINE
+            val wanted = if (lanes) M.AR_LANES_TRIP_SIZE else M.AR_TRIP_SIZE
+            val maxW = M.BOX_RIGHT - M.BOX_LEFT
+            navTripPaint.textSize = wanted
+            val full = wanted * M.TRIP_FLAG_SCALE + M.TRIP_FLAG_GAP + navTripPaint.measureText(tbt.trip)
+            val size = if (full > maxW) wanted * maxW / full else wanted
+            navTripPaint.textSize = size
+            val (flagLeft, textLeft) = M.tripLineLefts(navTripPaint.measureText(tbt.trip), size)
+            drawFlag(canvas, flagLeft, baseline, size * M.TRIP_FLAG_SCALE)
+            canvas.drawText(tbt.trip, textLeft, baseline, navTripPaint)
         }
     }
 
