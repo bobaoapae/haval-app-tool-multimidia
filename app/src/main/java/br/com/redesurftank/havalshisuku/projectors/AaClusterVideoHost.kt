@@ -118,6 +118,7 @@ object AaClusterVideoHost {
         return if (l >= 0 && t >= 0 && r - l >= 100 && b - t >= 100) intArrayOf(l, t, r, b) else null
     }
     private var parentRef: WeakReference<FrameLayout>? = null
+    private var aboveRef: WeakReference<View>? = null
     private var textureView: TextureView? = null
     private var output: ClusterSurfaceOutput? = null
     private var shown = false
@@ -125,9 +126,14 @@ object AaClusterVideoHost {
     private var width = 0
     private var height = 0
 
-    fun attachParent(parent: FrameLayout) {
+    /**
+     * Hosts the map in [parent], stacked directly above [above] (the native masks) when it
+     * is a child of [parent], else at the bottom.
+     */
+    fun attachParent(parent: FrameLayout, above: View? = null) {
         if (parentRef?.get() !== parent) detachParent()
         parentRef = WeakReference(parent)
+        aboveRef = above?.let { WeakReference(it) }
         ClusterSurfaceOutput.setCapacityListener { adoptPendingConsumer() }
         ensureView(parent.context, parent)
         AndroidAutoClusterController.onHostAvailable()
@@ -141,6 +147,7 @@ object AaClusterVideoHost {
         textureView = null
         output = null
         parentRef = null
+        aboveRef = null
         shown = false
         live = false
         generation++
@@ -398,6 +405,7 @@ object AaClusterVideoHost {
         leftFade = fade(context, 0, LEFT_FADE_WIDTH, intArrayOf(black, black, 0)).also { layer.addView(it) }
         rightFade = fade(context, RIGHT_FADE_LEFT, PANEL_WIDTH - RIGHT_FADE_LEFT, intArrayOf(0, black, black))
             .also { layer.addView(it) }
-        parent.addView(layer, 0)
+        val above = aboveRef?.get()?.let { parent.indexOfChild(it) } ?: -1
+        parent.addView(layer, above + 1)
     }
 }
