@@ -142,8 +142,11 @@ object HudOverlayController {
         }
     }
 
-    private fun config(): HudOverlayModel.Config =
-        configCache ?: HudOverlaySettings.load().also { configCache = it }
+    private fun config(): HudOverlayModel.Config {
+        val saved = configCache ?: HudOverlaySettings.load().also { configCache = it }
+        // The drive demo shows the AR theme whatever the owner picked.
+        return if (demoDriveStartMs != 0L) saved.copy(layout = HudOverlayModel.Layout.AR) else saved
+    }
 
     private fun wanted(): Boolean = config().active || demoDirections != null
 
@@ -188,8 +191,8 @@ object HudOverlayController {
     private fun currentFrame() = HudOverlayModel.frameFor(
         config = config(),
         directions = demoDirections ?: navDirections,
-        powerPercent = powerPercent.get(),
-        rpmTenths = rpmTenths.get().takeIf { it != NO_RPM },
+        powerPercent = if (demoDriveStartMs != 0L) demoPower else powerPercent.get(),
+        rpmTenths = if (demoDriveStartMs != 0L) demoRpm else rpmTenths.get().takeIf { it != NO_RPM },
         arMetersOverride = arMetersEstimate()
     )
 
@@ -312,7 +315,8 @@ object HudOverlayController {
     /**
      * Debug-only layout check, from HudOverlayActivity's `hudDemo` extra: `on` = right turn at
      * 250 m with three lanes (the R. Nóbrega shape measured on the car), `nolanes` = the same
-     * turn without lanes, `far` = keep left in 1.8 km, `off` = back to live data. All with
+     * turn without lanes, `far` = keep left in 1.8 km, `drive` = a looping scripted drive in the
+     * AR theme (see [stepDemoDrive]), `off` = back to live data. Static ones with
      * 4.8 km / 12 min to go. Shows even on the "original" layout, so it ends after [DEMO_TIMEOUT_MS] or as soon
      * as the layout is touched.
      */
@@ -330,6 +334,11 @@ object HudOverlayController {
             remainingM = 4_800, remainingS = 720
         )
         main.removeCallbacks(demoExpiry)
+        stopDemoDrive()
+        if (mode == "drive") {
+            startDemoDrive()
+            return
+        }
         demoSetAtMs = SystemClock.elapsedRealtime()
         demoDirections = when (mode) {
             "on" -> demo.copy(lanes = threeLanes)
@@ -349,7 +358,54 @@ object HudOverlayController {
 
     private fun endDemo() {
         main.removeCallbacks(demoExpiry)
+        stopDemoDrive()
         demoDirections = null
+    }
+
+    // ---- drive demo (debug): the AR theme animating on the real HUD with the car parked ----
+
+    /** Drive demo runs at most this long. */
+    private const val DEMO_DRIVE_TIMEOUT_MS = 300_000L
+    private const val DEMO_DRIVE_TICK_MS = 100L
+    private var demoDriveStartMs = 0L
+    private var demoPower = 0
+    private var demoRpm: Int? = null
+
+    private val demoDriveTick = Runnable { stepDemoDrive() }
+
+    private fun startDemoDrive() {
+        demoDriveStartMs = SystemClock.elapsedRealtime()
+        stepDemoDrive()
+    }
+
+    private fun stopDemoDrive() {
+        if (demoDriveStartMs == 0L) return
+        main.removeCallbacks(demoDriveTick)
+        demoDriveStartMs = 0L
+        demoDirections = null
+    }
+
+    /**
+     * One step of the scripted drive, looping every 48 s at 54 km/h: a right turn from 450 m to
+     * 0 (accelerating with the engine on, then regen into the turn), then a sharp left with
+     * lane guidance from 270 m (hard acceleration into the RPM red zone, then regen).
+     */
+    private fun stepDemoDrive() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - demoDriveStartMs > DEMO_DRIVE_TIMEOUT_MS) {
+            stopDemoDrive()
+            publish()
+            return
+        }
+        val t = ((now - demoDriveStartMs) % 48_000L) / 1000f
+        val speed = 15f // m/s
+        val step = HudOverlayModel.DemoDrive.at(t, speed)
+        demoDirections = step.directions
+        demoPower = step.powerPercent
+        demoRpm = step.rpmTenths
+        demoSetAtMs = now
+        publish()
+        main.postDelayed(demoDriveTick, DEMO_DRIVE_TICK_MS)
     }
 
     /**

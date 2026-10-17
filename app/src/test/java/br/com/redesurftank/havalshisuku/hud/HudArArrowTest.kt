@@ -172,4 +172,25 @@ class HudArArrowTest {
         // Inside the visible band.
         assertTrue(HudOverlayModel.ARC_CY - HudOverlayModel.ARC_POWER_R - HudOverlayModel.ARC_THICKNESS > 40f)
     }
+
+    @Test
+    fun `drive demo - right turn approaching, then a sharp left with lanes into the red zone`() {
+        val start = HudOverlayModel.DemoDrive.at(0f, 15f)
+        assertEquals("TURN_RIGHT", start.directions.turn)
+        assertEquals(450, start.directions.distanceM)
+        assertEquals(28, start.rpmTenths)
+        val nearTurn = HudOverlayModel.DemoDrive.at(29f, 15f)
+        assertEquals(15, nearTurn.directions.distanceM)
+        assertTrue(nearTurn.powerPercent < 0) // regen into the turn
+        val left = HudOverlayModel.DemoDrive.at(35f, 15f)
+        assertEquals("SHARP_LEFT", left.directions.turn)
+        assertEquals(3, left.directions.lanes.size)
+        assertTrue(HudOverlayModel.rpmSegmentIsRed(HudOverlayModel.arcRpmLit(left.rpmTenths!!) - 1))
+        // Every step is something the AR theme draws with its centre arrow.
+        val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR)
+        for (t in 0 until 48) {
+            val step = HudOverlayModel.DemoDrive.at(t.toFloat(), 15f)
+            assertEquals(HudOverlayModel.TbtStyle.AR, HudOverlayModel.tbtFor(step.directions, ar)!!.style)
+        }
+    }
 }
