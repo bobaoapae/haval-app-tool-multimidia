@@ -21,7 +21,13 @@ object AndroidAutoNavigationTelemetry {
         val remainingM: Int? = null,
         val remainingS: Int? = null,
         val eta: String = "",
-        val lanes: List<List<LaneDirection>> = emptyList()
+        val lanes: List<List<LaneDirection>> = emptyList(),
+        /** Roundabout exit to take (1 = first); null off roundabouts. See [roundaboutExit]. */
+        val exitNumber: Int? = null,
+        /** Roundabout exit angle in degrees, as AA sends it; null off roundabouts or when 0. */
+        val turnAngle: Int? = null,
+        /** Roundabout travel direction: true clockwise (left-hand traffic); null off roundabouts. */
+        val roundaboutClockwise: Boolean? = null
     ) {
         fun identityChanged(other: Directions): Boolean {
             return active != other.active ||
@@ -30,7 +36,10 @@ object AndroidAutoNavigationTelemetry {
                 turnId != other.turnId ||
                 nextStreet != other.nextStreet ||
                 nextTurn != other.nextTurn ||
-                lanes != other.lanes
+                lanes != other.lanes ||
+                exitNumber != other.exitNumber ||
+                turnAngle != other.turnAngle ||
+                roundaboutClockwise != other.roundaboutClockwise
         }
 
         /** `v` is the payload schema; bump only for a breaking change (see themes-contract-v1.md). */
@@ -55,12 +64,47 @@ object AndroidAutoNavigationTelemetry {
                 append(",\"eta\":").append(jsonString(eta))
                 append(",\"lanes\":")
                 appendLanes(lanes)
+                append(",\"exit_number\":").append(jsonNumber(exitNumber))
+                append(",\"turn_angle\":").append(jsonNumber(turnAngle))
+                append(",\"roundabout_cw\":").append(roundaboutClockwise?.toString() ?: "null")
                 append('}')
             }
         }
     }
 
     const val SCHEMA_VERSION = 1
+
+    // No real roundabout has more exits; a larger number means a desynced read.
+    const val MAX_ROUNDABOUT_EXIT = 20
+
+    /** Whether a vendor maneuver value is one of the roundabout ones. */
+    fun isRoundabout(maneuver: Int): Boolean = turnFromManeuver(maneuver).startsWith("ROUNDABOUT")
+
+    /** Clockwise (left-hand traffic) roundabout maneuvers; the other roundabout ones are CCW. */
+    fun isClockwiseRoundabout(maneuver: Int): Boolean = when (maneuver) {
+        MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CW,
+        MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CW_WITH_ANGLE,
+        MANEUVER_ROUNDABOUT_ENTER_CW,
+        MANEUVER_ROUNDABOUT_EXIT_CW -> true
+        else -> false
+    }
+
+    /**
+     * Roundabout exit number and angle for the published step, from
+     * `IfNavigationData` / `IfNavigationStepData` `mTurnNumber` / `mTurnAngle`.
+     * Google's AAP proto defines `turn_number` as the roundabout exit to take
+     * and `turn_angle` as that exit's angle (Android for Cars: degrees travelled
+     * around the ring from the entry, 1..360, in the direction of travel, so
+     * 180 = straight across); this car has never been measured
+     * through a roundabout, so both are a confirmar (trace: aa_nav_roundabout).
+     * Off roundabouts, at 0 or out of range, they are null.
+     */
+    fun roundaboutExit(maneuver: Int, turnNumber: Int, turnAngle: Int): Pair<Int?, Int?> {
+        if (!isRoundabout(maneuver)) return null to null
+        val exit = turnNumber.takeIf { it in 1..MAX_ROUNDABOUT_EXIT }
+        val angle = turnAngle.takeIf { it != 0 && it in -360..360 }
+        return exit to angle
+    }
 
     /**
      * One arrow of a lane. [shape] is Google's `LaneDirection.Shape` number,
@@ -358,17 +402,34 @@ object AndroidAutoNavigationTelemetry {
         private var remainingS: Int? = null
         private var eta: String = ""
         private var lanes: List<List<LaneDirection>> = emptyList()
+        private var exitNumber: Int? = null
+        private var turnAngle: Int? = null
+        private var roundaboutClockwise: Boolean? = null
         private var active: Boolean = false
 
         @Synchronized
-        fun onNextTurn(road: String?, event: Int, turnSide: Int): Directions {
+        fun onNextTurn(
+            road: String?,
+            event: Int,
+            turnSide: Int,
+            angle: Int = 0,
+            number: Int = 0
+        ): Directions {
             active = true
             street = road?.trim().orEmpty()
             turn = turnFromManeuver(event)
             turnId = event
             // Code 8 carries no lane data.
             lanes = emptyList()
+            setRoundaboutExit(event, number, angle)
             return current()
+        }
+
+        private fun setRoundaboutExit(event: Int, number: Int, angle: Int) {
+            val (exit, exitAngle) = roundaboutExit(event, number, angle)
+            exitNumber = exit
+            turnAngle = exitAngle
+            roundaboutClockwise = if (isRoundabout(event)) isClockwiseRoundabout(event) else null
         }
 
         @Synchronized
@@ -413,7 +474,9 @@ object AndroidAutoNavigationTelemetry {
             road: String?,
             event: Int,
             hasRoute: Boolean,
-            stepLanes: List<List<LaneDirection>> = emptyList()
+            stepLanes: List<List<LaneDirection>> = emptyList(),
+            angle: Int = 0,
+            number: Int = 0
         ): Directions {
             if (!hasRoute) {
                 reset()
@@ -424,6 +487,7 @@ object AndroidAutoNavigationTelemetry {
             turn = turnFromManeuver(event)
             turnId = event
             lanes = stepLanes
+            setRoundaboutExit(event, number, angle)
             return current()
         }
 
@@ -494,6 +558,9 @@ object AndroidAutoNavigationTelemetry {
             remainingS = null
             eta = ""
             lanes = emptyList()
+            exitNumber = null
+            turnAngle = null
+            roundaboutClockwise = null
             active = false
         }
 
@@ -510,7 +577,10 @@ object AndroidAutoNavigationTelemetry {
                 remainingM = remainingM,
                 remainingS = remainingS,
                 eta = eta,
-                lanes = lanes
+                lanes = lanes,
+                exitNumber = exitNumber,
+                turnAngle = turnAngle,
+                roundaboutClockwise = roundaboutClockwise
             )
         }
     }

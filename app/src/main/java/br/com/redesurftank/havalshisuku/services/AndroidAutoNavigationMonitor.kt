@@ -65,6 +65,7 @@ object AndroidAutoNavigationMonitor {
     private var started = false
     private var retryScheduled = false
     @Volatile private var lastLaneSignature: String? = null
+    @Volatile private var lastRoundaboutSignature: String? = null
 
     private val retryHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -167,6 +168,7 @@ object AndroidAutoNavigationMonitor {
         retryHandler.removeCallbacks(staleGuidanceRunnable)
         accumulator.reset()
         lastLaneSignature = null
+        lastRoundaboutSignature = null
         AndroidAutoClusterController.onNavigationUpdate(accumulator.current())
     }
 
@@ -191,7 +193,8 @@ object AndroidAutoNavigationMonitor {
             "onNotifyNextTurn road=$road event=$event side=$turnSide " +
                 "angle=$turnAngle number=$turnNumber image=$imageLength"
         )
-        publish(accumulator.onNextTurn(road, event, turnSide))
+        logRoundaboutOnChange(TRANSACTION_ON_NOTIFY_NEXT_TURN, road, event, turnNumber, turnAngle)
+        publish(accumulator.onNextTurn(road, event, turnSide, turnAngle, turnNumber))
     }
 
     /**
@@ -251,7 +254,34 @@ object AndroidAutoNavigationMonitor {
                     )
             logLanesOnChange(road, event, summary)
         }
-        publish(accumulator.onRouteStep(road, event, hasRoute, lanes))
+        if (hasRoute) {
+            logRoundaboutOnChange(TRANSACTION_ON_NAVIGATION_STATE, road, event, turnNumber, turnAngle)
+        }
+        publish(accumulator.onRouteStep(road, event, hasRoute, lanes, turnAngle, turnNumber))
+    }
+
+    /**
+     * One persisted line per roundabout step (raw `turnNumber` / `turnAngle`
+     * as the car sent them, before [AndroidAutoNavigationTelemetry.roundaboutExit]
+     * filters them), so the owner can check on a drive that the number really
+     * is the exit AA announces. Never measured on this car yet.
+     */
+    private fun logRoundaboutOnChange(code: Int, road: String?, event: Int, turnNumber: Int, turnAngle: Int) {
+        if (!AndroidAutoNavigationTelemetry.isRoundabout(event)) return
+        val signature = "$code|$road|$event|$turnNumber|$turnAngle"
+        if (signature == lastRoundaboutSignature) return
+        lastRoundaboutSignature = signature
+        Log.w(TAG, "AA_ROUNDABOUT code=$code road=$road event=$event turnNumber=$turnNumber turnAngle=$turnAngle")
+        ClusterPersistentEventLogger.log(
+            "aa_nav_roundabout",
+            mapOf(
+                "code" to code,
+                "road" to road,
+                "maneuver" to event,
+                "turn_number" to turnNumber,
+                "turn_angle" to turnAngle
+            )
+        )
     }
 
     /**

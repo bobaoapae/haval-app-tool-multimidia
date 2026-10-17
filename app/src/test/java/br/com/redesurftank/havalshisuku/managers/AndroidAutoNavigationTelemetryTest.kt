@@ -72,4 +72,56 @@ class AndroidAutoNavigationTelemetryTest {
         assertEquals("TURN_LEFT", AndroidAutoNavigationTelemetry.fromTurnEnum(null, 1))
         assertEquals("", AndroidAutoNavigationTelemetry.fromTurnEnum(null, 99))
     }
+
+    @Test
+    fun roundaboutExitIsPublishedAdditively() {
+        val acc = AndroidAutoNavigationTelemetry.Accumulator()
+        val step = acc.onRouteStep(
+            "Pça. da Sé",
+            AndroidAutoNavigationTelemetry.MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CCW_WITH_ANGLE,
+            hasRoute = true,
+            angle = 90,
+            number = 2
+        )
+        assertEquals(2, step.exitNumber)
+        assertEquals(90, step.turnAngle)
+        val json = step.toJson()
+        assertTrue(json.contains("\"v\":1,"))
+        assertTrue(json.contains("\"exit_number\":2"))
+        assertTrue(json.contains("\"turn_angle\":90"))
+        assertTrue(json.contains("\"roundabout_cw\":false"))
+        // Every field the v1.0 themes already read is still there.
+        assertTrue(json.contains("\"turn\":\"ROUNDABOUT\""))
+        assertTrue(json.contains("\"lanes\":[]"))
+    }
+
+    @Test
+    fun roundaboutExitIsNullOffRoundaboutsAndWhenZero() {
+        val acc = AndroidAutoNavigationTelemetry.Accumulator()
+        val turn = acc.onRouteStep("A", AndroidAutoNavigationTelemetry.MANEUVER_TURN_NORMAL_RIGHT, true, angle = 90, number = 2)
+        assertNull(turn.exitNumber)
+        assertNull(turn.turnAngle)
+        assertTrue(turn.toJson().contains("\"exit_number\":null,\"turn_angle\":null,\"roundabout_cw\":null"))
+        assertEquals(true, acc.onRouteStep("D", AndroidAutoNavigationTelemetry.MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CW_WITH_ANGLE, true, angle = 90, number = 1).roundaboutClockwise)
+        val zero = acc.onRouteStep("B", AndroidAutoNavigationTelemetry.MANEUVER_ROUNDABOUT_ENTER_CW, true)
+        assertNull(zero.exitNumber)
+        assertNull(zero.turnAngle)
+        assertEquals(null to null, AndroidAutoNavigationTelemetry.roundaboutExit(
+            AndroidAutoNavigationTelemetry.MANEUVER_ROUNDABOUT_EXIT_CW, 999, 9999))
+        // Code 8 (other builds) carries the same pair.
+        assertEquals(3, acc.onNextTurn("C", AndroidAutoNavigationTelemetry.MANEUVER_ROUNDABOUT_EXIT_CCW, 0, angle = -45, number = 3).exitNumber)
+        acc.reset()
+        assertNull(acc.current().exitNumber)
+    }
+
+    @Test
+    fun newRoundaboutExitPublishesImmediately() {
+        val publisher = AndroidAutoNavigationTelemetry.Publisher()
+        val first = AndroidAutoNavigationTelemetry.Directions(
+            active = true, street = "A", distance = "300 m", distanceM = 300, turn = "ROUNDABOUT", exitNumber = 1
+        )
+        publisher.onUpdate(first, 0L)
+        val json = publisher.onUpdate(first.copy(exitNumber = 2), 10L)
+        assertTrue(json!!.contains("\"exit_number\":2"))
+    }
 }
