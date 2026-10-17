@@ -10,6 +10,7 @@ import android.os.IInterface
 import android.os.Parcel
 import android.os.SystemClock
 import android.util.Log
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController
 import br.com.redesurftank.havalshisuku.managers.AndroidAutoNavigationTelemetry
 
@@ -63,6 +64,8 @@ object AndroidAutoNavigationMonitor {
     private var bound = false
     private var started = false
     private var retryScheduled = false
+    @Volatile private var lastLaneSignature: String? = null
+    @Volatile private var lastRoundaboutSignature: String? = null
 
     private val retryHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -164,6 +167,8 @@ object AndroidAutoNavigationMonitor {
         Log.w(TAG, "Clearing navigation: $reason")
         retryHandler.removeCallbacks(staleGuidanceRunnable)
         accumulator.reset()
+        lastLaneSignature = null
+        lastRoundaboutSignature = null
         AndroidAutoClusterController.onNavigationUpdate(accumulator.current())
     }
 
@@ -188,7 +193,8 @@ object AndroidAutoNavigationMonitor {
             "onNotifyNextTurn road=$road event=$event side=$turnSide " +
                 "angle=$turnAngle number=$turnNumber image=$imageLength"
         )
-        publish(accumulator.onNextTurn(road, event, turnSide))
+        logRoundaboutOnChange(TRANSACTION_ON_NOTIFY_NEXT_TURN, road, event, turnNumber, turnAngle)
+        publish(accumulator.onNextTurn(road, event, turnSide, turnAngle, turnNumber))
     }
 
     /**
@@ -196,9 +202,9 @@ object AndroidAutoNavigationMonitor {
      * list is preceded by its own explicit count int, and the list itself then
      * re-reads its length — the same double-count shape the byte array uses.
      *
-     * Only the first step is read, for its road and turn; parsing stops there
-     * rather than walking the cue and lane lists, so this never depends on
-     * `IfNavigationLaneData`'s layout.
+     * Step 0's road and turn are read first, then its cue and lane lists via
+     * [AndroidAutoNavigationTelemetry.readStepTail]. A failed tail read only
+     * drops the lanes; the road and turn still publish.
      */
     private fun readNavigationState(parcel: Parcel) {
         val destCount = parcel.readInt()
@@ -214,9 +220,10 @@ object AndroidAutoNavigationMonitor {
         var turnAngle = 0
         var turnNumber = 0
         var hasRoute = false
+        var listSize = 0
         if (stepCount > 0) {
-            val n = parcel.readInt()
-            if (n > 0 && parcel.readInt() != 0) {
+            listSize = parcel.readInt()
+            if (listSize > 0 && parcel.readInt() != 0) {
                 road = parcel.readString()
                 event = parcel.readInt()
                 turnAngle = parcel.readInt()
@@ -229,7 +236,68 @@ object AndroidAutoNavigationMonitor {
             "onNavigationState steps=$stepCount road=$road event=$event " +
                 "angle=$turnAngle number=$turnNumber"
         )
-        publish(accumulator.onRouteStep(road, event, hasRoute))
+        var lanes = emptyList<List<AndroidAutoNavigationTelemetry.LaneDirection>>()
+        if (hasRoute) {
+            val reader = object : AndroidAutoNavigationTelemetry.ParcelReader {
+                override fun readInt(): Int = parcel.readInt()
+                override fun readString(): String? = parcel.readString()
+            }
+            val summary =
+                runCatching { AndroidAutoNavigationTelemetry.readStepTail(reader, listSize) }
+                    .fold(
+                        onSuccess = { tail ->
+                            lanes = tail.lanes
+                            "lanes=${tail.lanes.size} [${AndroidAutoNavigationTelemetry.describeLanes(tail.lanes)}] " +
+                                "cues=${tail.cues.size} steps=$listSize next=${tail.nextRoad}/${tail.nextEvent}"
+                        },
+                        onFailure = { "parse_failed ${it.javaClass.simpleName}: ${it.message}" }
+                    )
+            logLanesOnChange(road, event, summary)
+        }
+        if (hasRoute) {
+            logRoundaboutOnChange(TRANSACTION_ON_NAVIGATION_STATE, road, event, turnNumber, turnAngle)
+        }
+        publish(accumulator.onRouteStep(road, event, hasRoute, lanes, turnAngle, turnNumber))
+    }
+
+    /**
+     * One persisted line per roundabout step (raw `turnNumber` / `turnAngle`
+     * as the car sent them, before [AndroidAutoNavigationTelemetry.roundaboutExit]
+     * filters them), so the owner can check on a drive that the number really
+     * is the exit AA announces. Never measured on this car yet.
+     */
+    private fun logRoundaboutOnChange(code: Int, road: String?, event: Int, turnNumber: Int, turnAngle: Int) {
+        if (!AndroidAutoNavigationTelemetry.isRoundabout(event)) return
+        val signature = "$code|$road|$event|$turnNumber|$turnAngle"
+        if (signature == lastRoundaboutSignature) return
+        lastRoundaboutSignature = signature
+        Log.w(TAG, "AA_ROUNDABOUT code=$code road=$road event=$event turnNumber=$turnNumber turnAngle=$turnAngle")
+        ClusterPersistentEventLogger.log(
+            "aa_nav_roundabout",
+            mapOf(
+                "code" to code,
+                "road" to road,
+                "maneuver" to event,
+                "turn_number" to turnNumber,
+                "turn_angle" to turnAngle
+            )
+        )
+    }
+
+    /**
+     * One persisted line per manoeuvre/lane change. Lanes print as
+     * `|`-separated lanes of `,`-separated shapes, `*` = highlighted; the
+     * diagnostics file rewrites `|` as `/`.
+     */
+    private fun logLanesOnChange(road: String?, event: Int, summary: String) {
+        val signature = "$road|$event|$summary"
+        if (signature == lastLaneSignature) return
+        lastLaneSignature = signature
+        Log.w(TAG, "AA_LANES road=$road event=$event $summary")
+        ClusterPersistentEventLogger.log(
+            "aa_nav_lanes",
+            mapOf("road" to road, "maneuver" to event, "summary" to summary)
+        )
     }
 
     /**

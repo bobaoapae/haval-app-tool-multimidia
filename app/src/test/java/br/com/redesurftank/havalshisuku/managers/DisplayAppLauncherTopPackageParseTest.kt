@@ -10,6 +10,46 @@ import org.junit.Test
  * looked absent (native-mask hole closed).
  */
 class DisplayAppLauncherTopPackageParseTest {
+    /** Dock "open apps": every task on the display counts, other displays do not. */
+    @Test
+    fun openPackagesListsEveryTaskOnTheDisplayOnly() {
+        val stackList =
+            """
+            Stack id=4 bounds=[0,0][1920,720] displayId=0 userId=0
+              taskId=24262: app.revanced.android.youtube/app.revanced.android.youtube.revanced_rounded_1 bounds=[0,0][1920,720] userId=0 visible=true
+              taskId=24265: com.ts.androidauto.app/com.ts.androidauto.app.display.AapActivity bounds=[0,0][1920,720] userId=0 visible=true
+            Stack id=5 bounds=[0,0][1920,720] displayId=0 userId=0
+              taskId=24263: com.beantechs.settings/com.beantechs.settings.ui.activity.MainActivity bounds=[0,0][1920,720] userId=0 visible=false
+            Stack id=9 bounds=[0,0][1920,720] displayId=3 userId=0
+              taskId=24270: com.ts.carplay.app/com.ts.carplay.app.ui.display.view.CarPlayDisplayActivity bounds=[0,0][1920,720] userId=0 visible=true
+            """.trimIndent()
+
+        assertEquals(
+            setOf("app.revanced.android.youtube", "com.ts.androidauto.app", "com.beantechs.settings"),
+            DisplayAppLauncher.packagesFromStackList(stackList, 0)
+        )
+        assertEquals(setOf("com.ts.carplay.app"), DisplayAppLauncher.packagesFromStackList(stackList, 3))
+        assertEquals(emptySet<String>(), DisplayAppLauncher.packagesFromStackList(stackList, 1))
+    }
+
+    /** Car 2026-10-09: tasks inside a stack are listed bottom to top; AA was resumed on top. */
+    @Test
+    fun topTaskIsLastInTheFirstStackOfTheDisplay() {
+        val stackList =
+            """
+            Stack id=3 bounds=[0,0][1920,660] displayId=0 userId=0
+              taskId=24150: com.havalh6.viewer/com.havalh6.viewer.MainActivity bounds=[0,0][1920,660] userId=0 visible=true
+              taskId=24151: com.ts.androidauto.app/com.ts.androidauto.app.display.AapActivity bounds=[0,0][1920,660] userId=0 visible=true
+            Stack id=1 bounds=[0,0][1920,720] displayId=0 userId=0
+              taskId=36: com.beantechs.mediacenter/com.beantechs.mediacenter.MediaCenterActivity bounds=[0,0][1920,720] userId=0 visible=false
+            """.trimIndent()
+
+        assertEquals(
+            "com.ts.androidauto.app",
+            DisplayAppLauncher.topPackageFromStackListForTest(stackList, 0)
+        )
+    }
+
     @Test
     fun stackHeaderDisplayIdIgnoresConfigurationLines() {
         val stackList =

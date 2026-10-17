@@ -63,6 +63,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -192,21 +199,100 @@ internal fun animatedDockTint(
         return tint
 }
 
-/** Blue underline marking the foreground app; grows / shrinks from the centre. */
+/** Dark gray underline for an app that is open but not in front. */
+internal val DockOpenIndicatorGray = Color(0xFF30343A)
+
+/** Indicator width; wide enough to read at arm's length on the head unit. */
+internal val DOCK_INDICATOR_WIDTH = 30.dp
+
+/**
+ * Underline under a dock tile, drawn flush with the bottom edge of the bar: blue for the foreground
+ * app, dark gray for an app that is open behind it. Grows / shrinks from the centre.
+ */
 @Composable
-internal fun DockActiveIndicator(active: Boolean, modifier: Modifier = Modifier) {
+internal fun DockAppIndicator(active: Boolean, open: Boolean, modifier: Modifier = Modifier) {
         val width by animateDpAsState(
-                targetValue = if (active) 18.dp else 0.dp,
+                targetValue = if (active || open) DOCK_INDICATOR_WIDTH else 0.dp,
                 animationSpec = tween(durationMillis = DOCK_ANIM_MS, easing = FastOutSlowInEasing),
                 label = "dockIndicatorWidth"
+        )
+        val color by animateColorAsState(
+                targetValue = if (active) DockAccentBlue else DockOpenIndicatorGray,
+                animationSpec = tween(durationMillis = 150),
+                label = "dockIndicatorColor"
         )
         if (width > 0.dp) {
                 Box(
                         modifier = modifier
-                                .size(width = width, height = 2.5.dp)
-                                .clip(RoundedCornerShape(1.dp))
-                                .background(DockAccentBlue)
+                                .size(width = width, height = 3.dp)
+                                .clip(RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
+                                .background(color)
                 )
+        }
+}
+
+/**
+ * Swipe up on a tile to close its app: no press-and-hold needed, a quick flick or a long drag both
+ * count. The tile follows the finger, and on release it slides up and fades, [onClose] runs, and the
+ * tile fades back in; a short swipe springs back.
+ *
+ * The gesture is read on the Initial pass and the vertical moves are consumed once it is clearly an
+ * upward swipe, so neither the tile's own click handler nor the bar's swipe-up action (dashboard /
+ * Impulse Home) also reacts to it. The pointer handler sits outside the graphicsLayer on purpose:
+ * inside it, the moving layer would feed back into the drag deltas.
+ */
+@Composable
+internal fun Modifier.dockSwipeUpToClose(enabled: Boolean, onClose: () -> Unit): Modifier {
+        val offset = remember { Animatable(0f) }
+        val scope = rememberCoroutineScope()
+        val density = LocalDensity.current
+        val closeDistancePx = with(density) { 16.dp.toPx() }
+        val flickMinDistancePx = with(density) { 8.dp.toPx() }
+        val flickVelocityPx = with(density) { 600.dp.toPx() }
+        val travelPx = with(density) { 44.dp.toPx() }
+        val currentOnClose by rememberUpdatedState(onClose)
+
+        val gesture = if (!enabled) this else this.pointerInput(Unit) {
+                val slop = viewConfiguration.touchSlop
+                awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        val tracker = VelocityTracker()
+                        tracker.addPosition(down.uptimeMillis, down.position)
+                        var dragging = false
+                        var dy = 0f
+                        while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) break
+                                val dx = change.position.x - down.position.x
+                                dy = change.position.y - down.position.y
+                                tracker.addPosition(change.uptimeMillis, change.position)
+                                if (!dragging && dy < -slop && abs(dy) > abs(dx)) dragging = true
+                                if (dragging) {
+                                        change.consume()
+                                        val target = dy.coerceIn(-travelPx, 0f)
+                                        scope.launch { offset.snapTo(target) }
+                                }
+                        }
+                        if (!dragging) return@awaitEachGesture
+                        val velocityY = tracker.calculateVelocity().y
+                        val close = dy <= -closeDistancePx ||
+                                (dy <= -flickMinDistancePx && velocityY <= -flickVelocityPx)
+                        android.util.Log.w("DockSwipe", "release dy=$dy velocityY=$velocityY close=$close")
+                        scope.launch {
+                                if (close) {
+                                        offset.animateTo(-travelPx, tween(140, easing = FastOutSlowInEasing))
+                                        currentOnClose()
+                                        offset.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
+                                } else {
+                                        offset.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = 500f))
+                                }
+                        }
+                }
+        }
+        return gesture.graphicsLayer {
+                translationY = offset.value
+                alpha = 1f - (-offset.value / travelPx).coerceIn(0f, 1f)
         }
 }
 

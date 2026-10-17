@@ -52,6 +52,7 @@ import br.com.redesurftank.havalshisuku.utils.HomeVerifyResult
 import br.com.redesurftank.havalshisuku.utils.ImpulseHomeUpdater
 import br.com.redesurftank.havalshisuku.utils.SessionApkCache
 import br.com.redesurftank.havalshisuku.utils.SilentApkInstall
+import br.com.redesurftank.havalshisuku.utils.ViewerFirstRun
 import br.com.redesurftank.havalshisuku.utils.ReleaseUpdateChecker
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -113,6 +114,9 @@ fun InstallAppsTab() {
     // A instalacao termina FORA daqui: startDownload entrega o APK ao instalador do sistema.
     // Entao a sugestao nao pode pendurar num callback - ela observa o pacote aparecer.
     var homeWasInstalled by remember { mutableStateOf(runCatching { pm.getPackageInfo(IMPULSE_HOME_PACKAGE, 0) }.isSuccess) }
+    // Ultimo versionCode do viewer para o qual os grants foram aplicados. Instalar/atualizar muda
+    // o valor, e ai o Shizuku concede o que o launcher pede (permissoes novas incluidas).
+    var homeGrantedVersion by remember { mutableStateOf(ImpulseHomeUpdater.installedVersionCode(pm, IMPULSE_HOME_PACKAGE)) }
     // Manifesto assinado do viewer (latest.json). Quando disponivel, vale sobre a entrada do
     // apps.json, que fica como espelho/fallback.
     var homeManifest by remember { mutableStateOf<HomeManifest?>(null) }
@@ -129,6 +133,9 @@ fun InstallAppsTab() {
     }
     var aaPatchAutoMount by remember {
         mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.AA_PATCH_AUTO_MOUNT.key, false))
+    }
+    var aaClusterServiceAutoMount by remember {
+        mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.key, false))
     }
     var carPlayPatchAutoMount by remember {
         mutableStateOf(
@@ -158,6 +165,13 @@ fun InstallAppsTab() {
                 showHomeSetup = true
             }
             homeWasInstalled = homeNow
+            // Cobre tambem o instalador do sistema (fallback) e atualizacoes feitas fora do app.
+            // Se o Shizuku falhar, o launcher ainda pede as permissoes sozinho ao abrir.
+            val homeVersion = ImpulseHomeUpdater.installedVersionCode(pm, IMPULSE_HOME_PACKAGE)
+            if (homeVersion != null && homeVersion != homeGrantedVersion) {
+                homeGrantedVersion = homeVersion
+                withContext(Dispatchers.IO) { ViewerFirstRun.prepare(context, IMPULSE_HOME_PACKAGE) }
+            }
             refreshTrigger++
             delay(4000)
         }
@@ -321,6 +335,9 @@ fun InstallAppsTab() {
                 }
                 val wasInstalled = homeWasInstalled
                 if (SilentApkInstall.install(file, IMPULSE_HOME_PACKAGE)) {
+                    // install() so retorna depois do pm install terminar: ja da para conceder.
+                    homeGrantedVersion = ImpulseHomeUpdater.installedVersionCode(pm, IMPULSE_HOME_PACKAGE)
+                    ViewerFirstRun.prepare(context, IMPULSE_HOME_PACKAGE)
                     withContext(Dispatchers.Main) {
                         if (!wasInstalled) {
                             homeSetupCanOpen = true
@@ -512,20 +529,53 @@ fun InstallAppsTab() {
                     extra =
                             if (isPatchInstalled) {
                                 {
-                                    AutoMountRow(
-                                            checked = aaPatchAutoMount,
-                                            onCheckedChange = {
-                                                aaPatchAutoMount = it
-                                                prefs.edit()
-                                                        .putBoolean(
-                                                                SharedPreferencesKeys
-                                                                        .AA_PATCH_AUTO_MOUNT
-                                                                        .key,
-                                                                it
-                                                        )
-                                                        .apply()
-                                            }
-                                    )
+                                    // One row, like the other cards: stacked switches pushed the
+                                    // Ativar/Desativar row out of the fixed-height card.
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        AutoMountRow(
+                                                checked = aaPatchAutoMount,
+                                                onCheckedChange = { enabled ->
+                                                    aaPatchAutoMount = enabled
+                                                    prefs.edit()
+                                                            .putBoolean(
+                                                                    SharedPreferencesKeys
+                                                                            .AA_PATCH_AUTO_MOUNT
+                                                                            .key,
+                                                                    enabled
+                                                            )
+                                                            .apply()
+                                                    if (enabled) {
+                                                        scope.launch(Dispatchers.IO) {
+                                                            val mounted = AndroidAutoPatchManager.applyMounts()
+                                                            withContext(Dispatchers.Main) { isMounted = mounted }
+                                                        }
+                                                    }
+                                                }
+                                        )
+                                        // Map Service: mounted only while Android Auto is not running
+                                        // (a swap under it breaks the phone certificate), so turning
+                                        // this on mid-drive takes effect at the next car start.
+                                        AutoMountRow(
+                                                checked = aaClusterServiceAutoMount,
+                                                label = "Mapa no cluster",
+                                                onCheckedChange = { enabled ->
+                                                    aaClusterServiceAutoMount = enabled
+                                                    prefs.edit()
+                                                            .putBoolean(
+                                                                    SharedPreferencesKeys
+                                                                            .AA_CLUSTER_SERVICE_AUTO_MOUNT
+                                                                            .key,
+                                                                    enabled
+                                                            )
+                                                            .apply()
+                                                    if (enabled) {
+                                                        scope.launch(Dispatchers.IO) {
+                                                            AndroidAutoPatchManager.mountClusterServiceIfEnabled()
+                                                        }
+                                                    }
+                                                }
+                                        )
+                                    }
                                 }
                             } else null
             ) {
@@ -540,11 +590,17 @@ fun InstallAppsTab() {
                     ) {
                         if (!isMounted) {
                             CardButton("Ativar", Color(0xFF4CAF50)) {
-                                if (AndroidAutoPatchManager.applyMounts()) isMounted = true
+                                scope.launch(Dispatchers.IO) {
+                                    val mounted = AndroidAutoPatchManager.applyMounts()
+                                    withContext(Dispatchers.Main) { isMounted = mounted }
+                                }
                             }
                         } else {
                             CardButton("Desativar", Color(0xFFF44336)) {
-                                if (AndroidAutoPatchManager.removeMounts()) isMounted = false
+                                scope.launch(Dispatchers.IO) {
+                                    val removed = AndroidAutoPatchManager.removeMounts()
+                                    withContext(Dispatchers.Main) { if (removed) isMounted = false }
+                                }
                             }
                         }
                         IconButton(

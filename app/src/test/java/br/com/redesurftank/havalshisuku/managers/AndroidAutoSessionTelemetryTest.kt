@@ -27,6 +27,41 @@ class AndroidAutoSessionTelemetryTest {
     }
 
     @Test
+    fun pollKeepsWirelessSessionWhileDcmEvidenceIsRecent() {
+        assertEquals(
+            AndroidAutoSessionTelemetry.LINK_STATUS_ACTIVATED,
+            AndroidAutoSessionTelemetry.statusForPoll(
+                linkStatus = null,
+                dcmEvidenceRecent = true,
+                sessionActive = true
+            )
+        )
+    }
+
+    @Test
+    fun pollReleasesSessionWhenWirelessEvidenceIsGone() {
+        assertEquals(
+            0,
+            AndroidAutoSessionTelemetry.statusForPoll(
+                linkStatus = null,
+                dcmEvidenceRecent = false,
+                sessionActive = true
+            )
+        )
+    }
+
+    @Test
+    fun pollLeavesUnreadLinkAloneWhenNoSessionIsUp() {
+        assertNull(
+            AndroidAutoSessionTelemetry.statusForPoll(
+                linkStatus = null,
+                dcmEvidenceRecent = false,
+                sessionActive = false
+            )
+        )
+    }
+
+    @Test
     fun sevenToEightDoesNotRepublish() {
         val debouncer = AndroidAutoSessionTelemetry.Debouncer()
         assertEquals("active", debouncer.onStatus(3, 0L))

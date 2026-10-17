@@ -70,6 +70,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     /** Grace period before the layout follows a warning that cleared by itself, so it does
      *  not snap back while the car's own popup is still finishing its own close. */
     private val WARNING_CLEAR_HOLDOFF_MS = 2000L
+    /** Mask crossfade when an app/map hole opens or closes; in step with the theme's own fades. */
+    private val MASK_FADE_MS = 300L
     private val MAX_PENDING_JS_COMMANDS = 250
     private val vehiclePropertyReader = VehiclePropertyReader()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -218,6 +220,21 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var cachedGlobalMaskKey: String? = null
     /** Last bitmap handed to [globalMaskView]; recycled when replaced. */
     private var displayedGlobalMaskBitmap: android.graphics.Bitmap? = null
+
+    /**
+     * Crossfade layer over [globalMaskView]. When the app/map hole opens, the hole moves or it
+     * closes, the mask used to swap in one frame while the theme faded its own panels over
+     * 0.25-1 s, so the cluster stepped through visibly mismatched states. The curtain holds
+     * one side of the swap and fades for [MASK_FADE_MS]: the wallpaper dissolves into the app
+     * or map, and back.
+     */
+    private var maskCurtainView: android.widget.ImageView? = null
+    /** Bitmap the curtain is drawing; never recycled while it is shown. */
+    private var maskCurtainBitmap: android.graphics.Bitmap? = null
+    /** Closing fade: the curtain holds the new mask, which replaces the displayed one at the end. */
+    private var maskCurtainPendingSwap = false
+    /** Hole cut into [displayedGlobalMaskBitmap]; a change in it is what triggers a fade. */
+    private var displayedMaskHole: android.graphics.Rect? = null
 
     /**
      * When D1 paints (or IMAGE_URL lands in [ClusterBackgroundSync]), re-run the mask pass so
@@ -732,6 +749,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         }
     }
 
+    /** The AA map steps aside while an app is on D1 or D3 (it would draw over the app). */
+    private fun syncAaClusterMapForSecondaryApps(source: String) {
+        AndroidAutoClusterController.setSecondaryDisplayAppActive(
+                isAnyAppOnDisplay1 || isAnyAppOnDisplay3,
+                source
+        )
+    }
+
     private fun isAaClusterInDash(): Boolean {
         return AndroidAutoClusterController.isSurfaceAttached()
     }
@@ -1111,6 +1136,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val startedAt = SystemClock.uptimeMillis()
         val previousCard = currentCard
         currentCard = nextCard
+        syncAaClusterMapWindow()
         updateNativeMaskViews()
         updateKnownScreenForCard(nextCard)
 
@@ -1175,6 +1201,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         if (ClusterCardFlowPolicy.isCardBackedMenu(currentCard)) {
             isWarningDismissed = false
+            syncAaClusterMapWindow()
         }
         if (decision.syncVisibleCardValues) {
             updateCardEntryValuesWebView(currentCard)
@@ -1353,6 +1380,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             if (!isAnyAppOnDisplay3) {
                                 lastAppliedConfigs.clear()
                             }
+                            syncAaClusterMapForSecondaryApps("display3_app_state")
                             // Force hole refresh even when the rect object compares equal:
                             // the flag flip is the authoritative "app arrived/left" signal.
                             updateVirtualClusterVisibility(
@@ -1372,6 +1400,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     "display1_app_state",
                                     mapOf("active" to isAnyAppOnDisplay1)
                             )
+                            syncAaClusterMapForSecondaryApps("display1_app_state")
                             updateVirtualClusterVisibility(reason = "DISPLAY_1_APP_STATE_CHANGED")
                             pushVirtualDisplayState(1)
                         }
@@ -1397,16 +1426,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         }
                         ServiceManagerEventType.AA_CLUSTER_SURFACE -> {
                             val enabled = args.getOrNull(0) as? Boolean ?: false
+                            // The map draws above the native masks, so it needs no mask hole;
+                            // this only tells the theme the map covers both sides.
                             updateVirtualClusterVisibility(
                                     reason = "AA_CLUSTER_SURFACE",
                                     forceNativeMaskRefresh = true
                             )
-                            if (enabled) {
-                                prepareDisplay3AppHole(
-                                        AaClusterVideoHost.DEFAULT_MAP_BOUNDS,
-                                        reason = "AA_CLUSTER_SURFACE"
-                                )
-                            }
                         }
                         ServiceManagerEventType.RAW_KEY_EVENT -> {
                             val key = args[0] as br.com.redesurftank.havalshisuku.models.ClusterKey
@@ -1452,7 +1477,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         root = FrameLayout(outerContext).apply { setBackgroundColor(Color.TRANSPARENT) }
         setContentView(root)
         setupControlView(root)
-        AaClusterVideoHost.attachParent(root)
+        // Directly above the native masks, below the theme WebView: the masks can never
+        // cover the map, so the map needs no mask hole.
+        AaClusterVideoHost.attachParent(root, above = nativeMaskContainer)
+        syncAaClusterMapWindow()
         if (AndroidAutoClusterController.isClusterRequested()) {
             AndroidAutoClusterController.setClusterMapEnabled(true, "projector_attach")
         }
@@ -1460,6 +1488,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAnyAppOnDisplay(3)
         isAnyAppOnDisplay1 =
                 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAnyAppOnDisplay(1)
+        syncAaClusterMapForSecondaryApps("on_create")
         updateValuesWebView() // Queue initial values for state sync
         syncInitialWarnings() // Fresh JS state on init — warnings need to be primed
         refreshNativeProjectionPanelStateFromCache()
@@ -2365,6 +2394,18 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         warningClearRunnable = null
     }
 
+    /**
+     * The native card is up on card 0, or while an undismissed warning shows. A dismissed
+     * warning only cancels the warning case: it used to drop card 0 too, so after any
+     * warning was dismissed the map went full width (and lost its fade) while still on
+     * card 0 (car, 2026-10-14 19:13).
+     */
+    private fun syncAaClusterMapWindow() {
+        AaClusterVideoHost.setNativeCardShown(
+                currentCard == ClusterCardIds.NATIVE_CARD || (isWarningActive && !isWarningDismissed)
+        )
+    }
+
     private fun applyWarningState(active: Boolean, reason: String) {
         val dismissed = !active && dismissedCards.isNotEmpty()
         val changed = active != isWarningActive || dismissed != isWarningDismissed
@@ -2376,6 +2417,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         isWarningActive = active
         isWarningDismissed = dismissed
+        syncAaClusterMapWindow()
 
         // Tell the theme BEFORE visibility/sync work. updateVirtualClusterVisibility can
         // spend multi-seconds on this UI thread (stack list + AA probe); previously
@@ -3009,19 +3051,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             }
         }
 
-        // AA/CarPlay are intentionally excluded from managed secondary configs (resize/
-        // sync paths), but they still need a native-mask hole on D3 — otherwise the
-        // opaque d3_mask wallpaper stays on top of the projection.
+        // AA/CarPlay projections are intentionally excluded from managed secondary configs
+        // (resize/sync paths), but they still need a native-mask hole on D3 — otherwise the
+        // opaque d3_mask wallpaper stays on top of the projection. The AA cluster map does
+        // not: it is drawn above the masks inside this window (AaClusterVideoHost).
         if (appRectOnDisplay3 == null) {
             val projectionHole = resolveProjectionDisplay3AppRect()
             if (projectionHole != null) {
                 appRectOnDisplay3 = projectionHole
-                isLeftCovered = true
-                isRightCovered = true
-            } else if (isAaClusterInDash()) {
-                val bounds = AaClusterVideoHost.DEFAULT_MAP_BOUNDS
-                appRectOnDisplay3 =
-                        android.graphics.Rect(bounds[0], bounds[1], bounds[2], bounds[3])
                 isLeftCovered = true
                 isRightCovered = true
             }
@@ -3474,8 +3511,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
     override fun carMainScreenOn() {
         ensureUi {
+            // Not isMainScreenOn: the engine-state event reaches listeners before
+            // ServiceManager caches it (see InstrumentProjector.carMainScreenOn).
             applyProjectorViewVisibility(
-                    shouldShowProjector() && ServiceManager.getInstance().isMainScreenOn,
+                    shouldShowProjector(),
                     projectionOverlayBypassActive == true
             )
         }
@@ -3849,7 +3888,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             visibility = View.GONE
         }
 
+        maskCurtainView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            layoutParams = FrameLayout.LayoutParams(1920, 720)
+            visibility = View.GONE
+        }
+
         container.addView(globalMaskView)
+        container.addView(maskCurtainView)
         container.addView(fuelMaskView)
         container.addView(batteryMaskView)
         container.addView(speedMaskView)
@@ -3933,7 +3980,17 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val base = obtainGlobalMaskBase(folderName, cacheKey, themeMgr)
         if (base != null) {
             val framed = applyDisplay3AppHoleToBase(base)
-            setDisplayedGlobalMask(framed)
+            val hole = display3AppRect?.let { android.graphics.Rect(it) }
+            val previous = displayedGlobalMaskBitmap
+            val canFade = hole != displayedMaskHole &&
+                    previous != null && !previous.isRecycled && previous !== framed &&
+                    globalMaskView?.isShown == true
+            displayedMaskHole = hole
+            if (canFade) {
+                crossfadeGlobalMask(previous!!, framed, closing = hole == null)
+            } else {
+                setDisplayedGlobalMask(framed)
+            }
             globalMaskView?.isVisible = true
 
             fuelMaskView?.isVisible = false
@@ -4074,16 +4131,85 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun setDisplayedGlobalMask(bitmap: android.graphics.Bitmap?) {
+        if (bitmap == null) {
+            cancelMaskCurtain()
+            displayedMaskHole = null
+        }
         val previous = displayedGlobalMaskBitmap
         globalMaskView?.setImageBitmap(bitmap)
         displayedGlobalMaskBitmap = bitmap
-        // Recycle the previous framed copy, but never the cached base.
+        // Recycle the previous framed copy, but never the cached base or what the curtain shows.
         if (previous != null &&
                         previous !== bitmap &&
                         previous !== cachedGlobalMaskBase &&
+                        previous !== maskCurtainBitmap &&
                         !previous.isRecycled
         ) {
             previous.recycle()
+        }
+    }
+
+    /**
+     * Opening (or moving) a hole: [globalMaskView] takes [next] at once and the curtain fades
+     * [old] out over it. Closing: the curtain fades [next] in over the holed mask, which would
+     * otherwise show the full mask inside the hole on the first frame.
+     */
+    private fun crossfadeGlobalMask(
+            old: android.graphics.Bitmap,
+            next: android.graphics.Bitmap,
+            closing: Boolean
+    ) {
+        cancelMaskCurtain()
+        val curtain = maskCurtainView
+        if (curtain == null) {
+            setDisplayedGlobalMask(next)
+            return
+        }
+        if (closing) {
+            maskCurtainBitmap = next
+            maskCurtainPendingSwap = true
+            curtain.setImageBitmap(next)
+            curtain.alpha = 0f
+            curtain.visibility = View.VISIBLE
+            curtain.animate().alpha(1f).setDuration(MASK_FADE_MS).withLayer()
+                    .withEndAction { finishMaskCurtain() }.start()
+        } else {
+            maskCurtainBitmap = old
+            maskCurtainPendingSwap = false
+            curtain.setImageBitmap(old)
+            curtain.alpha = 1f
+            curtain.visibility = View.VISIBLE
+            setDisplayedGlobalMask(next)
+            curtain.animate().alpha(0f).setDuration(MASK_FADE_MS).withLayer()
+                    .withEndAction { finishMaskCurtain() }.start()
+        }
+    }
+
+    /** Stops a running fade at its end state, so the next mask update starts from a settled one. */
+    private fun cancelMaskCurtain() {
+        val curtain = maskCurtainView ?: return
+        if (maskCurtainBitmap == null) return
+        curtain.animate().cancel()
+        finishMaskCurtain()
+    }
+
+    private fun finishMaskCurtain() {
+        val curtain = maskCurtainView
+        val shown = maskCurtainBitmap
+        val swap = maskCurtainPendingSwap
+        maskCurtainBitmap = null
+        maskCurtainPendingSwap = false
+        curtain?.visibility = View.GONE
+        curtain?.setImageBitmap(null)
+        curtain?.alpha = 1f
+        if (shown == null) return
+        if (swap) {
+            setDisplayedGlobalMask(shown)
+        } else if (shown !== displayedGlobalMaskBitmap &&
+                        shown !== cachedGlobalMaskBase &&
+                        !shown.isRecycled
+        ) {
+            shown.recycle()
         }
     }
 
@@ -4091,7 +4217,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val base = cachedGlobalMaskBase
         cachedGlobalMaskBase = null
         cachedGlobalMaskKey = null
-        if (base != null && base !== displayedGlobalMaskBitmap && !base.isRecycled) {
+        if (base != null && base !== displayedGlobalMaskBitmap && base !== maskCurtainBitmap &&
+                !base.isRecycled) {
             base.recycle()
         }
     }

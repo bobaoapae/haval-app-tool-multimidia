@@ -111,6 +111,10 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     // ===== Deslocamento do Android Auto no cluster (contorna o crop do menu lateral) =====
     ENABLE_AA_CLUSTER_OFFSET("enableAaClusterOffset", "Habilitar deslocamento do Android Auto no cluster"),
     AA_CLUSTER_LEFT_OFFSET("aaClusterLeftOffset", "Deslocamento horizontal do Android Auto no cluster (px)"),
+    AA_CLUSTER_MAP_CUSTOM_BOUNDS(
+            "aaClusterMapCustomBounds",
+            "Retângulo do mapa do Android Auto no D3 (\"esq,topo,dir,base\"); vazio = padrão do tema"
+    ),
     CAR_MONITOR_PROPERTIES("carMonitorProperties", "Propriedades do monitoramento do carro"),
     // ===== Modo Concessionária =====
     // Ao ENTRAR, o modo grava um retrato (JSON, com os tipos) de TODAS as preferências em
@@ -396,6 +400,21 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "Estado interno da suspensao do app de ar-condicionado do carro"
     ),
     AA_PATCH_AUTO_MOUNT("aaPatchAutoMount", "Habilitar montagem automática dos patches do Android Auto ao iniciar"),
+    // The cluster map Service. Mounted with the App patch only while Android Auto is
+    // not running yet (boot), never by restarting it. Off by default.
+    AA_CLUSTER_SERVICE_AUTO_MOUNT(
+            "aaClusterServiceAutoMount",
+            "Montar o Service do mapa do cluster ao ligar"
+    ),
+    // Impulse overlay on the physical HUD (display 4096). Layout "original" (default) draws
+    // nothing; "navigation" = AA turn-by-turn + power/RPM bars, each part switchable below
+    // (all on by default). Read through HudOverlaySettings.
+    HUD_LAYOUT("hudLayout", "Layout do HUD"),
+    HUD_NAV_ENABLED("hudNavEnabled", "HUD: mostrar navegação do Android Auto"),
+    HUD_NAV_SMALL_WHEN_FAR("hudNavSmallWhenFar", "HUD: seta menor até faltar 1 km"),
+    HUD_NAV_TRIP("hudNavTrip", "HUD: mostrar distância e tempo restantes"),
+    HUD_POWER_BAR("hudPowerBar", "HUD: barra de potência/regeneração"),
+    HUD_RPM_BAR("hudRpmBar", "HUD: barra de rotação do motor"),
     CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),
     AMBIENT_LIGHT_BLE_ENABLED("ambientLightBleEnabled", "Ativar Ambient Light BLE"),
     AMBIENT_LIGHT_BLE_DEVICE_MAC("ambientLightBleDeviceMac", "MAC do dispositivo Ambient Light BLE"),

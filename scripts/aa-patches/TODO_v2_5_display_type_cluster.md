@@ -1,8 +1,12 @@
 # v2.6 — CLUSTER as a **second** stream (current) vs this file's original idea
 
-**Current work (2026-09-11):** keep MAIN `AapActivity` on D0 and advertise a
+**Current work (updated 2026-10-04):** keep MAIN `AapActivity` on D0 and advertise a
 second CLUSTER VideoSink (id 21) + InputSource (id 22). Script:
 [`patch_android_auto_service_cluster.py`](patch_android_auto_service_cluster.py).
+The script now only supports `--check-contract`: bare patch invocation exits 2
+without modifying files. VideoSink has no `setSurface` in historical stock 48ff;
+independent rendering is still required.
+
 Dump comparison: [`DUMPS_V2_6_CLUSTER.md`](DUMPS_V2_6_CLUSTER.md). Handoff:
 `docs/handoff/HANDOFF-AA-CLUSTER-TBT.md`.
 

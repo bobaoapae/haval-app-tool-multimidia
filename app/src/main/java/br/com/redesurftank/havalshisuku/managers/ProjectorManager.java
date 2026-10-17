@@ -237,11 +237,38 @@ public class ProjectorManager {
             } catch (Throwable t) {
                 stillPending.add(displayId);
                 Log.e(TAG, "Failed to create projector for display " + displayId, t);
-                logProjectorEvent("projector_create_failed", reason, displayId, t.getClass().getName());
+                Throwable cause = t.getCause();
+                logProjectorEvent("projector_create_failed", reason, displayId,
+                        t.getClass().getName() + ": " + t.getMessage()
+                                + (cause != null ? " | cause=" + cause.getClass().getName() + ": " + cause.getMessage() : ""));
             }
         }
 
         return stillPending;
+    }
+
+    /**
+     * A creator that throws (not a missing display, which the display listener covers) was
+     * never tried again, so the projector stayed down until the next boot. The car's logs showed
+     * D1 lost that way on 6 of 8 boots (2026-10-11..13). Retry with backoff; ensureProjectors()
+     * skips whatever is live or disabled, so a retry after recovery is a no-op.
+     */
+    private static final long[] CREATE_RETRY_DELAYS_MS = {2_000L, 5_000L, 10_000L, 20_000L, 30_000L};
+    private int createRetryAttempt = 0;
+    private final Runnable createRetry = () -> {
+        int attempt = createRetryAttempt;
+        Set<Integer> pending = ensureProjectors("RETRY_" + (attempt + 1));
+        if (!pending.isEmpty()) scheduleCreateRetry(attempt + 1);
+    };
+
+    private void scheduleCreateRetry(int attempt) {
+        mainHandler.removeCallbacks(createRetry);
+        if (attempt >= CREATE_RETRY_DELAYS_MS.length) {
+            Log.e(TAG, "Projectors still missing after " + attempt + " retries");
+            return;
+        }
+        createRetryAttempt = attempt;
+        mainHandler.postDelayed(createRetry, CREATE_RETRY_DELAYS_MS[attempt]);
     }
 
     public void initialize() {
@@ -283,6 +310,7 @@ public class ProjectorManager {
             Set<Integer> pending = ensureProjectors("INITIALIZE");
             if (!pending.isEmpty()) {
                 Log.w(TAG, "Projectors still pending a display: " + pending);
+                scheduleCreateRetry(0);
             }
 
             if (initialized) {
@@ -342,6 +370,7 @@ public class ProjectorManager {
         }
         Log.w(TAG, "Stopping all projectors");
         mainHandler.removeCallbacks(reconcilePreferences);
+        mainHandler.removeCallbacks(createRetry);
         if (preferencesListenerRegistered) {
             sharedPreferences.unregisterOnSharedPreferenceChangeListener(preferencesListener);
             preferencesListenerRegistered = false;
