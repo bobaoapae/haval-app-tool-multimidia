@@ -288,11 +288,8 @@ class HudOverlayRenderer {
     // ---- AR arrow (Navegação AR) ----
 
     private val arPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val arSeam = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 0.6f
-    }
-    private val arPath = Path()
+    /** All pieces of one ribbon in one path, filled once: no seams, no double-blended overlaps. */
+    private val arPath = Path().apply { fillType = Path.FillType.WINDING }
 
     /**
      * One vertical gradient carries both the colour (lighter blue at the base, deeper on top; owner:
@@ -347,45 +344,46 @@ class HudOverlayRenderer {
         canvas.saveLayerAlpha(left, HudArArrow.TOP, right, HudArArrow.BOTTOM, (HudArArrow.OPACITY * 255).toInt())
         if (shape.gray.isNotEmpty()) {
             arPaint.shader = grayShader
-            arSeam.shader = grayShader
             arPaint.alpha = (shape.grayAlpha * 140).toInt().coerceIn(0, 255)
-            arSeam.alpha = arPaint.alpha
-            for (ribbon in shape.gray) drawRibbon(canvas, ribbon)
-        }
-        arPaint.shader = blueShader
-        arSeam.shader = blueShader
-        arPaint.alpha = 255
-        arSeam.alpha = 255
-        drawRibbon(canvas, shape.blue)
-        val h = shape.head
-        if (h.size == 6) {
             arPath.reset()
-            arPath.moveTo(h[0], h[1])
-            arPath.lineTo(h[2], h[3])
-            arPath.lineTo(h[4], h[5])
-            arPath.close()
+            for (ribbon in shape.gray) addRibbon(ribbon)
             canvas.drawPath(arPath, arPaint)
         }
+        arPaint.shader = blueShader
+        arPaint.alpha = 255
+        arPath.reset()
+        addRibbon(shape.blue)
+        val h = shape.head
+        if (h.size == 6) {
+            // Same winding as the ribbon's pieces, so the overlap fills once.
+            val cross = (h[2] - h[0]) * (h[5] - h[1]) - (h[3] - h[1]) * (h[4] - h[0])
+            arPath.moveTo(h[0], h[1])
+            if (cross > 0f) { arPath.lineTo(h[2], h[3]); arPath.lineTo(h[4], h[5]) } else { arPath.lineTo(h[4], h[5]); arPath.lineTo(h[2], h[3]) }
+            arPath.close()
+        }
+        canvas.drawPath(arPath, arPaint)
         arPaint.shader = null
-        arSeam.shader = null
         canvas.restore() // layer
         canvas.restore() // clip
     }
 
-    /** One ribbon: a quad between each pair of cross-sections, seams stroked over. */
-    private fun drawRibbon(canvas: Canvas, pts: List<HudArArrow.Pt>) {
+    /**
+     * One ribbon into [arPath]: a quad between each pair of cross-sections, all wound the same
+     * way so the overlaps of neighbouring quads fill once.
+     */
+    private fun addRibbon(pts: List<HudArArrow.Pt>) {
         for (i in 0 until pts.size - 1) {
             val a = pts[i]
             val b = pts[i + 1]
             if (maxOf(a.ly, a.ry, b.ly, b.ry) <= HudArArrow.TOP || minOf(a.ly, a.ry, b.ly, b.ry) >= HudArArrow.BOTTOM) continue
-            arPath.reset()
+            val cross = (b.lx - a.lx) * (a.ry - a.ly) - (b.ly - a.ly) * (a.rx - a.lx)
             arPath.moveTo(a.lx, a.ly)
-            arPath.lineTo(b.lx, b.ly)
-            arPath.lineTo(b.rx, b.ry)
-            arPath.lineTo(a.rx, a.ry)
+            if (cross >= 0f) {
+                arPath.lineTo(b.lx, b.ly); arPath.lineTo(b.rx, b.ry); arPath.lineTo(a.rx, a.ry)
+            } else {
+                arPath.lineTo(a.rx, a.ry); arPath.lineTo(b.rx, b.ry); arPath.lineTo(b.lx, b.ly)
+            }
             arPath.close()
-            canvas.drawPath(arPath, arPaint)
-            canvas.drawPath(arPath, arSeam) // hide the seams between quads
         }
     }
 

@@ -506,11 +506,14 @@ function rowGradient(lc, rgb, alpha) {
   });
   return g;
 }
-function fillRibbon(lc, pts) {
+/** Adds a ribbon's quads to the current path, all wound one way (one nonzero fill, no seams). */
+function addRibbon(lc, pts) {
   for (let i = 0; i + 1 < pts.length; i++) {
     const a = pts[i], b = pts[i + 1];
-    lc.beginPath(); lc.moveTo(a.lx, a.ly); lc.lineTo(b.lx, b.ly); lc.lineTo(b.rx, b.ry); lc.lineTo(a.rx, a.ry); lc.closePath();
-    lc.fill(); lc.stroke();
+    lc.moveTo(a.lx, a.ly);
+    if ((b.lx - a.lx) * (a.ry - a.ly) - (b.ly - a.ly) * (a.rx - a.lx) >= 0) { lc.lineTo(b.lx, b.ly); lc.lineTo(b.rx, b.ry); lc.lineTo(a.rx, a.ry); }
+    else { lc.lineTo(a.rx, a.ry); lc.lineTo(b.rx, b.ry); lc.lineTo(b.lx, b.ly); }
+    lc.closePath();
   }
 }
 
@@ -525,15 +528,19 @@ function draw3dArrow(tbt, meters) {
   const lc = layer.getContext('2d');
   lc.setTransform(S, 0, 0, S, 0, 0);
   lc.beginPath(); lc.rect(left, P3.TOP, right - left, P3.BOTTOM - P3.TOP); lc.clip();
-  lc.lineWidth = 0.6;
   if (shape.gray.length) {
-    lc.fillStyle = lc.strokeStyle = rowGradient(lc, () => [200, 205, 215], 0.55 * shape.grayAlpha);
-    shape.gray.forEach(g => fillRibbon(lc, g));
+    lc.fillStyle = rowGradient(lc, () => [200, 205, 215], 0.55 * shape.grayAlpha);
+    lc.beginPath(); shape.gray.forEach(g => addRibbon(lc, g)); lc.fill();
   }
-  lc.fillStyle = lc.strokeStyle = rowGradient(lc, rgbAt, 1);
-  fillRibbon(lc, shape.blue);
+  lc.fillStyle = rowGradient(lc, rgbAt, 1);
+  lc.beginPath(); addRibbon(lc, shape.blue);
   const h = shape.head;
-  if (h.length === 6) { lc.beginPath(); lc.moveTo(h[0], h[1]); lc.lineTo(h[2], h[3]); lc.lineTo(h[4], h[5]); lc.closePath(); lc.fill(); }
+  if (h.length === 6) {
+    lc.moveTo(h[0], h[1]);
+    if ((h[2] - h[0]) * (h[5] - h[1]) - (h[3] - h[1]) * (h[4] - h[0]) > 0) { lc.lineTo(h[2], h[3]); lc.lineTo(h[4], h[5]); } else { lc.lineTo(h[4], h[5]); lc.lineTo(h[2], h[3]); }
+    lc.closePath();
+  }
+  lc.fill();
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = P3.OPACITY;
