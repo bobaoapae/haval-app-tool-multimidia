@@ -29,100 +29,62 @@ class ClusterWarningPolicyTest {
         assertFalse(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_INFO_WARNING_TTS_NOTIFY.value,
-                        "1121",
-                        noOtherKeys
+                        "1121"
                 )
         )
         assertFalse(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQLEFT.value,
-                        "1",
-                        noOtherKeys
+                        "1"
                 )
         )
         assertFalse(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQRIGHT.value,
-                        "1",
-                        noOtherKeys
+                        "1"
                 )
         )
         assertTrue(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_BASIC_SEAT_BELT_WARNING.value,
-                        "1",
-                        noOtherKeys
+                        "1"
                 )
         )
         assertTrue(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_LIGHT_DOOR_WARNING.value,
-                        "1",
-                        noOtherKeys
+                        "1"
                 )
         )
         assertTrue(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_LIGHT_FUEL_LOW.value,
-                        "1",
-                        noOtherKeys
+                        "1"
                 )
         )
         assertTrue(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_LIGHT_TPMS_WARNING.value,
-                        "1",
-                        noOtherKeys
+                        "1"
                 )
         )
     }
 
     @Test
-    fun perWheelVectorRaisesTheBadgeOnlyWhileItsLampIsLit() {
-        val tirepress = CarConstants.CAR_BASIC_TIREPRESS_WARNING.value
-        val lamp = CarConstants.CAR_IPK_LIGHT_TPMS_WARNING.value
-
-        // 2026-10-18: {0,0,1,0} stood for 47 minutes with the lamp off and no card on the
-        // cluster. Alone it must not raise a badge, or it holds one up with nothing behind it.
-        assertFalse(
-                ClusterWarningPolicy.raisesWarningBadge(tirepress, "{0,0,1,0}", noOtherKeys)
-        )
-        // Same vector, lamp lit: a real tyre card, and the badge must still go up.
+    fun criticalWarningKeysTriggerCriticalWarningFlowOnlyWhenActive() {
         assertTrue(
-                ClusterWarningPolicy.raisesWarningBadge(tirepress, "{0,0,1,0}") {
-                    if (it == lamp) "1" else null
-                }
+                ClusterWarningPolicy.raisesWarningBadge(
+                        CarConstants.CAR_BASIC_TIREPRESS_WARNING.value,
+                        "1"
+                )
         )
-        // An idle vector raises nothing whatever the lamp says.
         assertFalse(
-                ClusterWarningPolicy.raisesWarningBadge(tirepress, "{0,0,0,0}") {
-                    if (it == lamp) "1" else null
-                }
+                ClusterWarningPolicy.raisesWarningBadge(
+                        CarConstants.CAR_BASIC_TIREPRESS_WARNING.value,
+                        "0"
+                )
         )
     }
-
-    @Test
-    fun lampGatedKeysNamesTheSuppressedVector() {
-        val tirepress = CarConstants.CAR_BASIC_TIREPRESS_WARNING.value
-        val lamp = CarConstants.CAR_IPK_LIGHT_TPMS_WARNING.value
-
-        assertEquals(
-                listOf(tirepress),
-                ClusterWarningPolicy.lampGatedKeys {
-                    if (it == tirepress) "{0,0,1,0}" else null
-                }
-        )
-        // Nothing is suppressed once the lamp agrees with the vector.
-        assertEquals(
-                emptyList<String>(),
-                ClusterWarningPolicy.lampGatedKeys {
-                    if (it == tirepress || it == lamp) "1" else null
-                }
-        )
-    }
-
-    /** No other key is set; per-wheel vectors therefore see a dark lamp. */
-    private val noOtherKeys: (String) -> String? = { null }
 
     private val belt = CarConstants.CAR_BASIC_SEAT_BELT_WARNING.value
     private val door = CarConstants.CAR_IPK_LIGHT_DOOR_WARNING.value
