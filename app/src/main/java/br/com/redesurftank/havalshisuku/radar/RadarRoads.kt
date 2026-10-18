@@ -96,6 +96,12 @@ object RadarRoads {
     const val COOLDOWN_MS = 30L * 24 * 60 * 60_000L
     /** A camera this close to a road is on it (OSM cameras: 99.9% within 25 m, measured). */
     const val MATCH_M = 30.0
+    /**
+     * A camera on a road's end node (often a junction) lands up to ~1 m past the stored
+     * stretch once points are rounded to 5 decimals; this much past the end still ties it
+     * (30 cameras on 2026-10-18, measured on the APK data).
+     */
+    const val TIE_END_SLACK_M = 5.0
     /** Camera direction vs road direction to count as "this way" / "the other way". */
     private const val DIRECTION_MATCH_DEG = 60f
 
@@ -315,7 +321,7 @@ object RadarRoads {
             var bestProj: RoadSnippet.Projection? = null
             for (sn in grid.near(c.lat, c.lon)) {
                 val p = sn.project(c.lat, c.lon)
-                if (p.beyondM > 0.0 || p.perpM > MATCH_M) continue
+                if (p.beyondM > TIE_END_SLACK_M || p.perpM > MATCH_M) continue
                 if (bestProj == null || p.perpM < bestProj.perpM) {
                     bestSnippet = sn
                     bestProj = p
