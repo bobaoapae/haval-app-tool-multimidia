@@ -98,7 +98,7 @@ object RadarManager {
         HudOverlayController.setRadarHudWanted(newConfig.enabled && newConfig.showOnHud)
         if (newConfig.enabled && !wasEnabled) {
             startTracking()
-            RadarUpdater.maybeUpdate(context, force = false)
+            RadarUpdater.maybeUpdate(force = false)
         } else if (!newConfig.enabled && wasEnabled) {
             stopTracking()
         }
