@@ -23,6 +23,8 @@ class HudOverlayRenderer {
     private companion object {
         /** Native speed readout in the preview mock: centred on the arcs (measured on the car). */
         const val NATIVE_SPEED_CX = M.NATIVE_SPEED_CX
+        /** Map streets: fainter than the roundabout's grey. */
+        const val STREET_ALPHA = 110
         const val NATIVE_SPEED_BASELINE = 133f
         val DRIVE = Color.rgb(63, 169, 255)
         val OFF = Color.argb(61, 255, 255, 255)
@@ -462,6 +464,14 @@ class HudOverlayRenderer {
         // Opaque into a layer, then composited once: drawing overlapping pieces translucent
         // would stack into visible stripes at the seams.
         canvas.saveLayerAlpha(left, place.top, right, HudArArrow.BOTTOM, (opacity * 255).toInt())
+        if (tbt.streets.isNotEmpty()) {
+            // Map (beta): the real streets, faint, under everything else.
+            arPaint.shader = grayShaders.getValue(place)
+            arPaint.alpha = STREET_ALPHA
+            arPath.reset()
+            for (ribbon in HudArArrow.streets(tbt.streets, tbt.arMeters)) addRibbon(ribbon, place.top)
+            canvas.drawPath(arPath, arPaint)
+        }
         if (shape.gray.isNotEmpty()) {
             arPaint.shader = grayShaders.getValue(place)
             arPaint.alpha = (shape.grayAlpha * 140).toInt().coerceIn(0, 255)

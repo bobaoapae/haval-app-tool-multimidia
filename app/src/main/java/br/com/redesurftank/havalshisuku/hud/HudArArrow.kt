@@ -130,6 +130,34 @@ object HudArArrow {
         }
     }
 
+    // Map streets (beta): real OpenStreetMap roads, in light grey under the arrow.
+    /** Half width of a drawn street, world units (thin next to the route's [HW]). */
+    const val STREET_HW = 0.3f
+    /** Streets further than this (world units) melt into the horizon: not drawn. */
+    const val STREET_FAR_Z = 60f
+
+    /**
+     * World units per metre for the map, tied to the arrow's corner: a maneuver [meters] ahead
+     * is drawn at [cornerDepth], so the real cross street lands under the arrow's turn. The map
+     * zooms in as the car closes in (real scale, 1, from ~5 m). Far or unknown: the 200 m scale.
+     */
+    fun mapScale(meters: Float?): Float =
+        if (meters == null || meters >= BEND_START_M) Z_CAP / BEND_START_M
+        else (cornerDepth(meters) / meters.coerceAtLeast(1f)).coerceAtMost(1f)
+
+    /** [lines] (car frame, metres: x right, y ahead, as x, y pairs) as thin grey ribbons. */
+    fun streets(lines: List<FloatArray>, meters: Float?): List<List<Pt>> {
+        val s = mapScale(meters)
+        val out = ArrayList<List<Pt>>()
+        for (line in lines) {
+            val pts = ArrayList<W>(line.size / 2)
+            for (k in 0 until line.size / 2) pts += W(line[2 * k] * s, line[2 * k + 1] * s)
+            if (pts.none { it.z in Z_CLIP..STREET_FAR_Z }) continue
+            out += ribbon(pts, STREET_HW, AHEAD)
+        }
+        return out
+    }
+
     /** Destination flag: pole foot ([x], [y]) on the road, [height] of the pole, unscaled picture. */
     data class Flag(val x: Float, val y: Float, val height: Float)
 

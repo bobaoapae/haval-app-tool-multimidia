@@ -506,7 +506,9 @@ object HudOverlayModel {
         val arProgress: Float = 0f,
         /** AR arriving: destination side (-1 left, +1 right, 0 unknown); null on other maneuvers. */
         val arDestination: Int? = null,
-        val arPlacement: HudArArrow.Placement = HudArArrow.Placement.CENTER
+        val arPlacement: HudArArrow.Placement = HudArArrow.Placement.CENTER,
+        /** AR map: streets round the car, car frame in metres (x, y pairs); empty = none. */
+        val streets: List<FloatArray> = emptyList()
     ) {
         /** Draw the roundabout with its real exit instead of the static icon. */
         val dynamicRoundabout: Boolean get() = icon == "ROUNDABOUT" && exitAngle != null
@@ -628,7 +630,9 @@ object HudOverlayModel {
         /** AR: animated chevrons above the speed when close to a turn. */
         val chevrons: Boolean = true,
         /** AR: arrow in the centre (under the speed) or between the native lane-assist lines. */
-        val arPlacement: HudArArrow.Placement = HudArArrow.Placement.CENTER
+        val arPlacement: HudArArrow.Placement = HudArArrow.Placement.CENTER,
+        /** AR: real streets round the car from OpenStreetMap, in light grey (beta, off by default). */
+        val mapStreets: Boolean = false
     ) {
         val active: Boolean get() = layout != Layout.ORIGINAL
 
@@ -701,7 +705,8 @@ object HudOverlayModel {
         arMetersOverride: Float? = null,
         arProgress: Float = 0f,
         arDistanceKnown: Boolean = true,
-        radar: Radar? = null
+        radar: Radar? = null,
+        streets: List<FloatArray> = emptyList()
     ): Frame {
         // "Original" layout: the window is only up for the radar, so draw nothing else.
         if (!config.active) return Frame(tbt = null, powerPercent = null, rpmTenths = null, radar = radar)
@@ -711,7 +716,8 @@ object HudOverlayModel {
                 if (tbt.style != TbtStyle.AR) tbt
                 else tbt.copy(
                     arMeters = if (arDistanceKnown) arMetersOverride ?: tbt.arMeters else null,
-                    arProgress = arProgress
+                    arProgress = arProgress,
+                    streets = if (config.mapStreets) streets else emptyList()
                 )
             }
         } else null

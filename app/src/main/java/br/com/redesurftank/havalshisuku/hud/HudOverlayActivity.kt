@@ -58,6 +58,7 @@ class HudOverlayActivity : Activity() {
      * `--es radarDemo on|over` drives past a 60 km/h camera (sounds, HUD card, theme key).
      */
     private fun handleDebugExtras(intent: Intent?) {
+        intent?.getStringExtra(EXTRA_MAP)?.let { HudOverlayController.setMapDebug(it == "on") }
         intent?.getStringExtra(EXTRA_DEMO)?.let { HudOverlayController.demo(it) }
         intent?.getStringExtra(EXTRA_RADAR_DEMO)?.let {
             br.com.redesurftank.havalshisuku.radar.RadarManager.demo(over = it == "over")
@@ -92,5 +93,7 @@ class HudOverlayActivity : Activity() {
         private const val TAG = "HudOverlay"
         private const val EXTRA_DEMO = "hudDemo"
         private const val EXTRA_RADAR_DEMO = "radarDemo"
+        /** `--es hudMap on|off`: AR map streets (beta), saved like the Telas option. */
+        private const val EXTRA_MAP = "hudMap"
     }
 }

@@ -285,6 +285,12 @@ private fun HudNavigationSettingsDialog(
                                     onChange(config.copy(arPlacement = if (it) HudArArrow.Placement.RIGHT else HudArArrow.Placement.CENTER))
                                 }
                                 OptionRow(
+                                    "Ruas do mapa (beta)",
+                                    "Ruas reais em volta do carro, em cinza claro, do OpenStreetMap. Usa o GPS e baixa a região (~1 km) pela internet do celular.",
+                                    config.mapStreets,
+                                    enabled = config.navigation
+                                ) { onChange(config.copy(mapStreets = it)) }
+                                OptionRow(
                                     "Setas animadas na curva",
                                     "Setas azuis acima da velocidade a partir de 120 m; deslizam para o lado da curva e piscam mais rápido ao chegar.",
                                     config.chevrons,

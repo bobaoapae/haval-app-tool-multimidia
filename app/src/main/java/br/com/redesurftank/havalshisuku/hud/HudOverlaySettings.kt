@@ -28,7 +28,8 @@ object HudOverlaySettings {
             arArcs = prefs.getBoolean(SharedPreferencesKeys.HUD_AR_ARCS.key, defaults.arArcs),
             chevrons = prefs.getBoolean(SharedPreferencesKeys.HUD_AR_CHEVRONS.key, defaults.chevrons),
             arPlacement = HudArArrow.Placement.fromKey(prefs.getString(SharedPreferencesKeys.HUD_AR_PLACEMENT.key, null))
-                ?: defaults.arPlacement
+                ?: defaults.arPlacement,
+            mapStreets = prefs.getBoolean(SharedPreferencesKeys.HUD_AR_MAP.key, defaults.mapStreets)
         )
     }
 
@@ -45,6 +46,7 @@ object HudOverlaySettings {
             .putBoolean(SharedPreferencesKeys.HUD_AR_ARCS.key, config.arArcs)
             .putBoolean(SharedPreferencesKeys.HUD_AR_CHEVRONS.key, config.chevrons)
             .putString(SharedPreferencesKeys.HUD_AR_PLACEMENT.key, config.arPlacement.key)
+            .putBoolean(SharedPreferencesKeys.HUD_AR_MAP.key, config.mapStreets)
             .remove(LEGACY_ENABLED_KEY)
             .apply()
         HudOverlayController.setConfig(config)

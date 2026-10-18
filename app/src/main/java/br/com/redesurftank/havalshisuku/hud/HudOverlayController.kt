@@ -235,7 +235,8 @@ object HudOverlayController {
         arMetersOverride = arMetersEstimate(),
         arProgress = roundaboutProgress(),
         arDistanceKnown = !distanceStale(),
-        radar = radar
+        radar = radar,
+        streets = HudMapFeed.lines
     )
 
     private fun distanceStale() = demoDirections == null && navDistanceStale
@@ -298,6 +299,10 @@ object HudOverlayController {
 
     /** Main thread. Push the frame, or bring the window up if it should exist and doesn't. */
     private fun publish() {
+        // Map (beta): GPS + streets only while the AR layout with the map is up.
+        HudMapFeed.setEnabled(wanted() && config().layout == HudOverlayModel.Layout.AR && config().mapStreets) {
+            main.post { publish() }
+        }
         if (!wanted()) {
             closeHosts()
             return
@@ -390,6 +395,11 @@ object HudOverlayController {
      * 4.8 km / 12 min to go. Shows even on the "original" layout, so it ends after [DEMO_TIMEOUT_MS] or as soon
      * as the layout is touched.
      */
+    /** Debug `--es hudMap on|off`: switch the map (saved, as the Telas option does). */
+    internal fun setMapDebug(on: Boolean) {
+        main.post { HudOverlaySettings.save(config().copy(mapStreets = on, layout = configCache?.layout ?: config().layout)) }
+    }
+
     internal fun demo(mode: String) {
         val threeLanes = listOf(
             listOf(AndroidAutoNavigationTelemetry.LaneDirection(1, false)),
