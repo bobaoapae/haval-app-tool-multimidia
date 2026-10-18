@@ -193,8 +193,34 @@ object HudOverlayController {
         directions = demoDirections ?: navDirections,
         powerPercent = if (demoDriveStartMs != 0L) demoPower else powerPercent.get(),
         rpmTenths = if (demoDriveStartMs != 0L) demoRpm else rpmTenths.get().takeIf { it != NO_RPM },
-        arMetersOverride = arMetersEstimate()
+        arMetersOverride = arMetersEstimate(),
+        arProgress = roundaboutProgress()
     )
+
+    /** m/s the AR arrow moves at: the car's speed, or the demo drive's. */
+    private fun speedMps(): Double = if (demoDriveStartMs != 0L) DEMO_DRIVE_SPEED_MPS.toDouble() else speedKmh / 3.6
+
+    private var roundaboutZeroAtMs = 0L
+
+    /**
+     * AR roundabout: once the distance to it reaches ~0, how far round the ring we are, from the
+     * speed since then (AA doesn't send it). 0 before the roundabout or on other maneuvers.
+     */
+    private fun roundaboutProgress(): Float {
+        val dirs = (demoDirections ?: navDirections)?.takeIf { it.active }
+        val travel = dirs?.turnAngle?.takeIf { it in 1..360 }
+        val isRoundabout = config().layout == HudOverlayModel.Layout.AR && travel != null &&
+            HudOverlayModel.resolveTurnIcon(dirs.turn) == "ROUNDABOUT"
+        val meters = if (isRoundabout) arMetersEstimate() ?: HudOverlayModel.distanceMeters(dirs!!.distance, dirs.distanceM)?.toFloat() else null
+        if (!isRoundabout || meters == null || meters > 3f) {
+            roundaboutZeroAtMs = 0L
+            return 0f
+        }
+        val now = SystemClock.elapsedRealtime()
+        if (roundaboutZeroAtMs == 0L) roundaboutZeroAtMs = now
+        val driven = (speedMps() * (now - roundaboutZeroAtMs) / 1000.0).toFloat()
+        return HudArArrow.roundaboutProgress(driven, travel!!.toFloat())
+    }
 
     /**
      * AR layout, within [HudArArrow.SMOOTH_WITHIN_M] of a maneuver: Android Auto's last distance
@@ -367,6 +393,7 @@ object HudOverlayController {
     /** Drive demo runs at most this long. */
     private const val DEMO_DRIVE_TIMEOUT_MS = 300_000L
     private const val DEMO_DRIVE_TICK_MS = 100L
+    private const val DEMO_DRIVE_SPEED_MPS = 15f
     private var demoDriveStartMs = 0L
     private var demoPower = 0
     private var demoRpm: Int? = null
@@ -386,9 +413,8 @@ object HudOverlayController {
     }
 
     /**
-     * One step of the scripted drive, looping every 48 s at 54 km/h: a right turn from 450 m to
-     * 0 (accelerating with the engine on, then regen into the turn), then a sharp left with
-     * lane guidance from 270 m (hard acceleration into the RPM red zone, then regen).
+     * One step of the scripted drive, looping at 54 km/h (see [HudOverlayModel.DemoDrive]): a
+     * right turn, a sharp left with lane guidance, then a roundabout taken at the 3rd exit.
      */
     private fun stepDemoDrive() {
         val now = SystemClock.elapsedRealtime()
@@ -397,9 +423,8 @@ object HudOverlayController {
             publish()
             return
         }
-        val t = ((now - demoDriveStartMs) % 48_000L) / 1000f
-        val speed = 15f // m/s
-        val step = HudOverlayModel.DemoDrive.at(t, speed)
+        val t = ((now - demoDriveStartMs) % HudOverlayModel.DemoDrive.LOOP_MS) / 1000f
+        val step = HudOverlayModel.DemoDrive.at(t, DEMO_DRIVE_SPEED_MPS)
         demoDirections = step.directions
         demoPower = step.powerPercent
         demoRpm = step.rpmTenths

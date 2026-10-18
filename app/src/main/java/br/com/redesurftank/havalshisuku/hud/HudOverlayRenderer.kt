@@ -23,7 +23,7 @@ class HudOverlayRenderer {
     private companion object {
         /** Native speed readout in the preview mock: centred on the arcs (measured on the car). */
         const val NATIVE_SPEED_CX = M.ARC_CX
-        const val NATIVE_SPEED_BASELINE = 141f
+        const val NATIVE_SPEED_BASELINE = 133f
         val DRIVE = Color.rgb(63, 169, 255)
         val OFF = Color.argb(61, 255, 255, 255)
         /** Arcs: power's unlit ticks stay fairly visible, RPM's fade back (owner's request). */
@@ -204,9 +204,11 @@ class HudOverlayRenderer {
         val lanes = tbt.lanes.isNotEmpty()
         val streetY = if (lanes) M.AR_LANES_STREET_BASELINE else M.AR_STREET_BASELINE
         streetPaint.textSize = if (lanes) M.AR_LANES_STREET_SIZE else M.AR_STREET_SIZE
-        if (tbt.street.isNotEmpty()) {
+        val exit = tbt.exitNumber?.let { "${M.exitLabel(it)} saída" }
+        val streetLine = listOfNotNull(exit, tbt.street.takeIf { it.isNotEmpty() }).joinToString(" · ")
+        if (streetLine.isNotEmpty()) {
             val maxW = M.BOX_RIGHT - M.BOX_LEFT
-            val text = android.text.TextUtils.ellipsize(tbt.street, streetPaint, maxW, android.text.TextUtils.TruncateAt.END).toString()
+            val text = android.text.TextUtils.ellipsize(streetLine, streetPaint, maxW, android.text.TextUtils.TruncateAt.END).toString()
             canvas.drawText(text, M.BOX_CENTER_X - streetPaint.measureText(text) / 2, streetY, streetPaint)
         }
         if (lanes) setTextSizes(M.AR_LANES_DISTANCE_VALUE_SIZE, M.AR_LANES_DISTANCE_UNIT_SIZE)
@@ -310,7 +312,16 @@ class HudOverlayRenderer {
      * on-screen path, coloured by its row.
      */
     private fun drawAr(canvas: Canvas, tbt: M.Tbt) {
-        val shape = HudArArrow.shape(tbt.arMeters ?: 0f, tbt.arAngle ?: 0f)
+        val meters = tbt.arMeters ?: 0f
+        val shape = if (tbt.dynamicRoundabout) {
+            val travel = tbt.exitAngle!!.toFloat()
+            HudArArrow.roundabout(
+                meters, travel, tbt.roundaboutClockwise,
+                M.passedExitAngles(tbt.exitAngle, tbt.exitNumber), tbt.arProgress
+            )
+        } else {
+            HudArArrow.shape(meters, tbt.arAngle ?: 0f)
+        }
         val left = HudArArrow.CX - maxOf(HudArArrow.ROOM_LEFT, HudArArrow.BASE_W / 2) - 2f
         val right = HudArArrow.CX + maxOf(HudArArrow.ROOM_RIGHT, HudArArrow.BASE_W / 2) + 2f
         canvas.save()
@@ -318,24 +329,31 @@ class HudOverlayRenderer {
         // Opaque into a layer, then composited once at OPACITY: drawing overlapping pieces
         // translucent would stack into visible stripes at the seams.
         canvas.saveLayerAlpha(left, HudArArrow.TOP, right, HudArArrow.BOTTOM, (HudArArrow.OPACITY * 255).toInt())
+        // Grey first (ring, passed exits, the part already driven), the route on top.
+        for (ribbon in shape.gray) drawRibbon(canvas, ribbon) { _, alpha -> Color.argb((alpha * 140).toInt(), 200, 205, 215) }
+        drawRibbon(canvas, shape.blue) { y, alpha -> arColor(y, alpha) }
+        val h = shape.head
+        val end = shape.blue.last()
+        val headAlpha = HudArArrow.rowAlpha(end.y)
+        if (headAlpha > 0f) {
+            arPath.reset()
+            arPath.moveTo(h[0], h[1])
+            arPath.lineTo(h[2], h[3])
+            arPath.lineTo(h[4], h[5])
+            arPath.close()
+            arPaint.color = arColor(end.y, headAlpha)
+            canvas.drawPath(arPath, arPaint)
+        }
+        canvas.restore() // layer
+        canvas.restore() // clip
+    }
 
-        // Stem: one trapezoid, straight sides, coloured by row through a vertical gradient.
-        val top = shape.stemTop
-        val halfTop = HudArArrow.stemWidthAt(top) / 2
-        val halfBase = HudArArrow.BASE_W / 2
-        arPath.reset()
-        arPath.moveTo(HudArArrow.CX - halfBase, HudArArrow.BOTTOM)
-        arPath.lineTo(HudArArrow.CX + halfBase, HudArArrow.BOTTOM)
-        arPath.lineTo(HudArArrow.CX + halfTop, top)
-        arPath.lineTo(HudArArrow.CX - halfTop, top)
-        arPath.close()
-        arPaint.color = Color.WHITE
-        arPaint.shader = stemShader
-        canvas.drawPath(arPath, arPaint)
-        arPaint.shader = null
-
-        // Arm: quads laid perpendicular to the on-screen path, faded in with the bend.
-        val pts = shape.arm
+    /**
+     * One continuous ribbon: a quad per segment, laid perpendicular to the on-screen path (normals
+     * from both neighbours, so joins flow), each coloured by [color] for its row and fade.
+     */
+    private fun drawRibbon(canvas: Canvas, pts: List<HudArArrow.Pt>, color: (Float, Float) -> Int) {
+        if (pts.size < 2) return
         fun normal(i: Int): Pair<Float, Float> {
             val a = pts[maxOf(0, i - 1)]
             val b = pts[minOf(pts.size - 1, i + 1)]
@@ -345,7 +363,7 @@ class HudOverlayRenderer {
         for (i in 0 until pts.size - 1) {
             val a = pts[i]
             val b = pts[i + 1]
-            val alpha = HudArArrow.rowAlpha(minOf(a.y, b.y)) * shape.armAlpha
+            val alpha = HudArArrow.rowAlpha(minOf(a.y, b.y))
             if (alpha <= 0f) continue
             val (nax, nay) = normal(i)
             val (nbx, nby) = normal(i + 1)
@@ -355,51 +373,12 @@ class HudOverlayRenderer {
             arPath.lineTo(b.x - nbx * b.w / 2, b.y - nby * b.w / 2)
             arPath.lineTo(a.x - nax * a.w / 2, a.y - nay * a.w / 2)
             arPath.close()
-            val color = arColor((a.y + b.y) / 2, alpha)
-            arPaint.color = color
-            arSeam.color = color
+            val c = color((a.y + b.y) / 2, alpha)
+            arPaint.color = c
+            arSeam.color = c
             canvas.drawPath(arPath, arPaint)
             canvas.drawPath(arPath, arSeam) // hide the seams between quads
         }
-        shape.head?.let { h ->
-            val alpha = HudArArrow.rowAlpha(pts.last().y) * shape.armAlpha
-            if (alpha > 0f) {
-                arPath.reset()
-                arPath.moveTo(h[0], h[1])
-                arPath.lineTo(h[2], h[3])
-                arPath.lineTo(h[4], h[5])
-                arPath.close()
-                arPaint.color = arColor(pts.last().y, alpha)
-                canvas.drawPath(arPath, arPaint)
-            }
-        }
-        canvas.restore() // layer
-        canvas.restore() // clip
-    }
-
-    /**
-     * Stem colour by row, same as [arColor]: lighter at the base, deeper at the top. Fades out
-     * over the bottom of the band (so the optics' edge doesn't crop it hard) and over the last
-     * few rows at the top (so the clip there doesn't show).
-     */
-    private val stemShader = run {
-        val span = HudArArrow.BOTTOM - HudArArrow.TOP
-        LinearGradient(
-            0f, HudArArrow.BOTTOM, 0f, HudArArrow.TOP,
-            intArrayOf(
-                Color.argb(0, 120, 200, 255),
-                Color.argb(255, 108, 188, 255),
-                Color.argb(255, 32, 112, 255),
-                Color.argb(0, 25, 105, 255)
-            ),
-            floatArrayOf(
-                0f,
-                (HudArArrow.BOTTOM - HudArArrow.FADE_BOTTOM_FROM) / span,
-                (HudArArrow.BOTTOM - HudArArrow.FADE_TOP_TO) / span,
-                1f
-            ),
-            Shader.TileMode.CLAMP
-        )
     }
 
     // ---- turn-by-turn ----
@@ -682,10 +661,10 @@ class HudOverlayRenderer {
         nativePaint.textAlign = Paint.Align.LEFT
         canvas.drawText("km/h", NATIVE_SPEED_CX + half + 4f, NATIVE_SPEED_BASELINE, nativePaint)
         // Icons under the speed, shifted down with it (as on the car).
-        canvas.drawCircle(214f, 170f, 9f, nativeStroke)
-        canvas.drawCircle(244f, 170f, 9f, nativeStroke)
+        canvas.drawCircle(214f, 162f, 9f, nativeStroke)
+        canvas.drawCircle(244f, 162f, 9f, nativeStroke)
         nativePaint.color = Color.rgb(255, 122, 61)
-        canvas.drawCircle(276f, 170f, 10f, nativePaint)
+        canvas.drawCircle(276f, 162f, 10f, nativePaint)
         nativeStroke.strokeWidth = 4f
         canvas.drawLine(388f, 140f, 404f, 84f, nativeStroke)
         nativeStroke.color = Color.rgb(47, 211, 143)

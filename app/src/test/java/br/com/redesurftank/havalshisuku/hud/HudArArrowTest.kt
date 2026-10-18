@@ -41,64 +41,6 @@ class HudArArrowTest {
     }
 
     @Test
-    fun `far away it is only the wedge, running to the top`() {
-        val shape = HudArArrow.shape(1_200f, 90f)
-        assertEquals(HudArArrow.TOP, shape.stemTop, 0f)
-        assertTrue(shape.arm.isEmpty())
-        assertNull(shape.head)
-        assertEquals(0f, shape.armAlpha, 0f)
-    }
-
-    @Test
-    fun `stem is 200 px at the base with straight sides meeting at the apex`() {
-        assertEquals(HudArArrow.BASE_W, HudArArrow.stemWidthAt(HudArArrow.BOTTOM), 0.01f)
-        assertEquals(0f, HudArArrow.stemWidthAt(HudArArrow.APEX), 0.01f)
-        // Linear in y = straight edges.
-        val a = HudArArrow.stemWidthAt(150f)
-        val b = HudArArrow.stemWidthAt(175f)
-        val c = HudArArrow.stemWidthAt(200f)
-        assertEquals(b - a, c - b, 0.01f)
-        assertTrue(HudArArrow.stemWidthAt(HudArArrow.TOP) < 25f) // thin far end
-    }
-
-    @Test
-    fun `as the car arrives the stem comes down to the corner and the arm grows`() {
-        val near = HudArArrow.shape(0f, 90f)
-        val cornerY = HudArArrow.project(0f, HudArArrow.Z_END).second
-        assertEquals(cornerY, near.stemTop, 0.01f)
-        assertEquals(1f, near.armAlpha, 0f)
-        assertTrue(near.arm.isNotEmpty())
-        assertTrue(near.arm.all { it.w <= HudArArrow.ARM_W + 0.01f })
-        // Right turn: the arm ends to the right of the stem.
-        assertTrue(near.arm.last().x > HudArArrow.CX + 30f)
-
-        val bending = HudArArrow.shape(110f, 90f)
-        assertTrue(bending.armAlpha in 0.1f..0.9f)
-        assertTrue(bending.stemTop in HudArArrow.TOP..cornerY)
-    }
-
-    @Test
-    fun `the arm and head stay inside the middle strip at every angle`() {
-        val lo = HudArArrow.CX - HudArArrow.ROOM_LEFT - 1f
-        val hi = HudArArrow.CX + HudArArrow.ROOM_RIGHT + 1f
-        for (meters in listOf(0f, 20f, 60f, 120f)) for (angle in listOf(90f, -90f, 135f, -135f, -180f, 45f, 0f)) {
-            val shape = HudArArrow.shape(meters, angle)
-            for (p in shape.arm) {
-                assertTrue("m=$meters angle=$angle x=${p.x} w=${p.w}", p.x - p.w / 2 >= lo && p.x + p.w / 2 <= hi)
-            }
-            shape.head?.let { h ->
-                for (k in 0 until 3) assertTrue("m=$meters angle=$angle head x=${h[2 * k]}", h[2 * k] in lo..hi)
-            }
-        }
-        // Centred on the arcs; the arm uses the HUD's width but stays on the panel.
-        assertEquals(HudOverlayModel.ARC_CX, HudArArrow.CX, 0f)
-        assertTrue(lo >= 0f && hi <= 480f)
-        // A right turn at the corner now sweeps well across, not a stub.
-        assertTrue(HudArArrow.shape(0f, 90f).arm.last().x > HudArArrow.CX + 150f)
-        assertTrue(HudArArrow.shape(0f, -90f).arm.last().x < HudArArrow.CX - 150f)
-    }
-
-    @Test
     fun `arrow fades in at the top and out over the bottom of the band`() {
         assertEquals(0f, HudArArrow.rowAlpha(HudArArrow.TOP), 0f)
         assertEquals(1f, HudArArrow.rowAlpha(HudArArrow.FADE_TOP_TO), 0.001f)
@@ -106,6 +48,113 @@ class HudArArrowTest {
         assertEquals(1f, HudArArrow.rowAlpha(HudArArrow.FADE_BOTTOM_FROM), 0.001f)
         assertEquals(0.5f, HudArArrow.rowAlpha((HudArArrow.FADE_BOTTOM_FROM + HudArArrow.BOTTOM) / 2), 0.01f)
         assertEquals(0f, HudArArrow.rowAlpha(HudArArrow.BOTTOM), 0f)
+    }
+
+    @Test
+    fun `one continuous ribbon - straight-sided stem rounding exactly into the arm`() {
+        for ((meters, angle) in listOf(1_200f to 0f, 90f to 90f, 0f to -135f)) {
+            val shape = HudArArrow.shape(meters, angle)
+            val pts = shape.blue
+            // No step anywhere: neighbouring widths never jump.
+            for (i in 1 until pts.size) {
+                val jump = kotlin.math.abs(pts[i].w - pts[i - 1].w)
+                assertTrue("m=$meters a=$angle i=$i jump=$jump", jump < 8f)
+            }
+            // Wide at the bottom, the arm's width at the corner.
+            assertTrue(pts.first().w > 180f)
+        }
+        // Straight sides away from the fillet: width linear in t.
+        val cw = 20f
+        val a = HudArArrow.stemWidth(0.4f, cw)
+        val b = HudArArrow.stemWidth(0.7f, cw)
+        val c = HudArArrow.stemWidth(1.0f, cw)
+        assertEquals(b - a, c - b, 0.01f)
+        assertEquals(cw, HudArArrow.stemWidth(0f, cw), 0.001f)
+        assertEquals(HudArArrow.BASE_W, HudArArrow.stemWidth(1f, cw), 0.01f)
+    }
+
+    @Test
+    fun `far away it is a straight arrow with its head inside the band`() {
+        val shape = HudArArrow.shape(1_200f, 90f)
+        assertTrue(shape.blue.all { kotlin.math.abs(it.x - HudArArrow.CX) < 0.01f })
+        assertTrue("tip y=${shape.head[1]}", shape.head[1] > HudArArrow.TOP - 2f)
+    }
+
+    @Test
+    fun `the arrow and head stay on the panel at every angle and distance`() {
+        val lo = HudArArrow.CX - HudArArrow.ROOM_LEFT - 1f
+        val hi = HudArArrow.CX + HudArArrow.ROOM_RIGHT + 1f
+        for (meters in listOf(0f, 20f, 60f, 120f)) for (angle in listOf(90f, -90f, 135f, -135f, -180f, 45f, 0f)) {
+            val shape = HudArArrow.shape(meters, angle)
+            for (p in shape.blue.filter { it.y in HudArArrow.TOP..HudArArrow.BOTTOM && kotlin.math.abs(it.x - HudArArrow.CX) > 1f }) {
+                assertTrue("m=$meters angle=$angle x=${p.x} w=${p.w}", p.x - p.w / 2 >= lo && p.x + p.w / 2 <= hi)
+            }
+            for (k in 0 until 3) assertTrue("m=$meters angle=$angle head x=${shape.head[2 * k]}", shape.head[2 * k] in lo..hi)
+        }
+        assertEquals(HudOverlayModel.ARC_CX, HudArArrow.CX, 0f)
+        assertTrue(lo >= 0f && hi <= 480f)
+        assertTrue(HudArArrow.shape(0f, 90f).blue.last().x > HudArArrow.CX + 150f)
+        assertTrue(HudArArrow.shape(0f, -90f).blue.last().x < HudArArrow.CX - 150f)
+    }
+
+    @Test
+    fun `roundabout - grey ring and passed exits, blue route to our exit`() {
+        // 3rd exit, 270° round a counter-clockwise ring: two exits passed first.
+        val passed = HudOverlayModel.passedExitAngles(270, 3)
+        assertEquals(2, passed.size)
+        val near = HudArArrow.roundabout(20f, 270f, clockwise = false, passedDeg = passed)
+        assertEquals(1 + passed.size, near.gray.size) // ring + one stub per passed exit
+        // Counter-clockwise for right-hand traffic: 270° comes out on the left.
+        assertTrue(near.blue.last().x < HudArArrow.CX)
+        val mirrored = HudArArrow.roundabout(20f, 270f, clockwise = true, passedDeg = passed)
+        assertTrue(mirrored.blue.last().x > HudArArrow.CX)
+        // Far away: no ring yet, just a straight arrow.
+        val far = HudArArrow.roundabout(1_000f, 270f, clockwise = false, passedDeg = passed)
+        assertTrue(far.gray.isEmpty())
+        assertTrue(far.blue.all { kotlin.math.abs(it.x - HudArArrow.CX) < 0.01f })
+    }
+
+    @Test
+    fun `roundabout progress greys the part already driven`() {
+        val passed = HudOverlayModel.passedExitAngles(180, 2)
+        val before = HudArArrow.roundabout(0f, 180f, false, passed, progress = 0f)
+        val half = HudArArrow.roundabout(0f, 180f, false, passed, progress = 0.5f)
+        assertTrue(half.gray.size > before.gray.size) // driven part added in grey
+        assertTrue(half.blue.size < before.blue.size)
+        assertEquals(0f, HudArArrow.roundaboutProgress(0f, 180f), 0f)
+        val way = (Math.PI * HudArArrow.RB_RADIUS_M).toFloat() // 180° on a 15 m ring
+        assertEquals(0.5f, HudArArrow.roundaboutProgress(way / 2, 180f), 0.01f)
+        assertEquals(1f, HudArArrow.roundaboutProgress(way * 3, 180f), 0f)
+    }
+
+    @Test
+    fun `AR layout draws roundabouts with a known exit in 3D`() {
+        val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR)
+        val rb = Directions(
+            active = true, distance = "80 m", distanceM = 80, turn = "ROUNDABOUT",
+            exitNumber = 2, turnAngle = 180, roundaboutClockwise = false
+        )
+        val tbt = HudOverlayModel.tbtFor(rb, ar)!!
+        assertEquals(HudOverlayModel.TbtStyle.AR, tbt.style)
+        assertTrue(tbt.dynamicRoundabout)
+        assertEquals(2, tbt.exitNumber)
+        val frame = HudOverlayModel.frameFor(ar, rb, 0, null, arMetersOverride = 0f, arProgress = 0.4f)
+        assertEquals(0.4f, frame.tbt!!.arProgress, 0f)
+        // Without the exit angle it stays the flat icon.
+        assertEquals(HudOverlayModel.TbtStyle.HERO, HudOverlayModel.tbtFor(rb.copy(turnAngle = null), ar)!!.style)
+    }
+
+    @Test
+    fun `arcs span 195 degrees, 15 shorter at each end, clear of the column`() {
+        val first = HudOverlayModel.arcTickDeg(0)
+        val last = HudOverlayModel.arcTickDeg(HudOverlayModel.ARC_TICKS - 1)
+        val slot = HudOverlayModel.ARC_SWEEP_DEG / HudOverlayModel.ARC_TICKS
+        assertEquals(150f + slot / 2, first, 0.01f)
+        assertEquals(345f - slot / 2, last, 0.01f)
+        assertTrue(HudOverlayModel.ARC_POWER_R_OUT - HudOverlayModel.ARC_POWER_R_IN > HudOverlayModel.ARC_RPM_R_OUT - HudOverlayModel.ARC_RPM_R_IN)
+        assertTrue(HudOverlayModel.ARC_POWER_TICK_W > HudOverlayModel.ARC_RPM_TICK_W)
+        assertTrue(HudOverlayModel.ARC_CY - HudOverlayModel.ARC_POWER_R_OUT > 40f)
+        assertTrue(HudOverlayModel.ARC_CX - HudOverlayModel.ARC_POWER_R_OUT > HudOverlayModel.BOX_RIGHT)
     }
 
     @Test
@@ -127,7 +176,7 @@ class HudArArrowTest {
         assertEquals(1, laned.lanes.size)
         assertEquals("R. Augusta", laned.street)
         assertEquals(HudOverlayModel.TbtStyle.COMPACT, HudOverlayModel.tbtFor(withLanes, nav)!!.style)
-        val roundabout = turn.copy(turn = "ROUNDABOUT")
+        val roundabout = turn.copy(turn = "ROUNDABOUT") // no exit angle: flat icon
         assertEquals(HudOverlayModel.TbtStyle.HERO, HudOverlayModel.tbtFor(roundabout, ar)!!.style)
     }
 
@@ -167,22 +216,6 @@ class HudArArrowTest {
         assertEquals(25, HudOverlayModel.arcRpmTicks(35))
         assertEquals(40, HudOverlayModel.arcRpmTicks(56))
         assertEquals(50, HudOverlayModel.arcRpmTicks(75))
-    }
-
-    @Test
-    fun `arcs span 225 degrees, stop at the right horizontal, clear of the column`() {
-        val first = HudOverlayModel.arcTickDeg(0)
-        val last = HudOverlayModel.arcTickDeg(HudOverlayModel.ARC_TICKS - 1)
-        val slot = HudOverlayModel.ARC_SWEEP_DEG / HudOverlayModel.ARC_TICKS
-        assertEquals(HudOverlayModel.ARC_START_DEG + slot / 2, first, 0.01f)
-        assertEquals(360f - slot / 2, last, 0.01f) // ends at 0° (right), short of the native km/h
-        // Power ticks are longer and thicker than RPM ticks, and outside them.
-        assertTrue(HudOverlayModel.ARC_POWER_R_OUT - HudOverlayModel.ARC_POWER_R_IN > HudOverlayModel.ARC_RPM_R_OUT - HudOverlayModel.ARC_RPM_R_IN)
-        assertTrue(HudOverlayModel.ARC_POWER_TICK_W > HudOverlayModel.ARC_RPM_TICK_W)
-        assertTrue(HudOverlayModel.ARC_POWER_R_IN > HudOverlayModel.ARC_RPM_R_OUT)
-        // Inside the visible band, clear of the left column.
-        assertTrue(HudOverlayModel.ARC_CY - HudOverlayModel.ARC_POWER_R_OUT > 40f)
-        assertTrue(HudOverlayModel.ARC_CX - HudOverlayModel.ARC_POWER_R_OUT > HudOverlayModel.BOX_RIGHT)
     }
 
     @Test
