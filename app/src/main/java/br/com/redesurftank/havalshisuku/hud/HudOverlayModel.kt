@@ -802,7 +802,11 @@ object HudOverlayModel {
                 )
             } else if (t >= 48f) {
                 val s = t - 48f
-                val d = (200f - speed * s).coerceAtLeast(0f)
+                // To the entry, then (as AA does on the ring) the way round to the exit:
+                // 270° on a ~15 m ring.
+                val travelled = speed * s
+                val wayRound = (270f * Math.PI.toFloat() / 180f) * 15f
+                val d = if (travelled < 200f) 200f - travelled else (wayRound - (travelled - 200f)).coerceAtLeast(0f)
                 Step(
                     directions(d, "ROUNDABOUT", "Av. Brasil", 3_900f - speed * s, 600 - s.toInt(), emptyList())
                         .copy(exitNumber = 3, turnAngle = 270, roundaboutClockwise = false),

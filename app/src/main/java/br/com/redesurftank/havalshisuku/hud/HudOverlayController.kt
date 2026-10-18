@@ -137,6 +137,11 @@ object HudOverlayController {
             val previous = navDirections
             navDistanceStale = HudOverlayModel.distanceStale(previous, update, navDistanceStale)
             navDirections = update
+            roundaboutStep(update)?.let { step ->
+                if (update.distanceM != previous?.distanceM || step != roundaboutStep(previous)) {
+                    ClusterPersistentEventLogger.log("aa_nav_rb_distance", mapOf("m" to update.distanceM, "text" to update.distance, "step" to step))
+                }
+            }
             navReceivedAtMs = SystemClock.elapsedRealtime()
             // ~1 Hz feed: only redraw when what the HUD shows changes (turn, distance, trip line).
             val config = config()
@@ -227,17 +232,42 @@ object HudOverlayController {
 
     // ---- window ----
 
-    private fun currentFrame() = HudOverlayModel.frameFor(
-        config = config(),
-        directions = demoDirections ?: navDirections,
-        powerPercent = if (demoDriveStartMs != 0L) demoPower else powerPercent.get(),
-        rpmTenths = if (demoDriveStartMs != 0L) demoRpm else rpmTenths.get().takeIf { it != NO_RPM },
-        arMetersOverride = arMetersEstimate(),
-        arProgress = roundaboutProgress(),
-        arDistanceKnown = !distanceStale(),
-        radar = radar,
-        streets = HudMapFeed.lines
-    )
+    private fun currentFrame(): HudOverlayModel.Frame {
+        trackRoundabout()
+        return HudOverlayModel.frameFor(
+            config = config(),
+            directions = demoDirections ?: navDirections,
+            powerPercent = if (demoDriveStartMs != 0L) demoPower else powerPercent.get(),
+            rpmTenths = if (demoDriveStartMs != 0L) demoRpm else rpmTenths.get().takeIf { it != NO_RPM },
+            // On the ring AA's distance is to the exit: the roundabout itself is here.
+            arMetersOverride = if (rbTracker.entered) 0f else arMetersEstimate(),
+            arProgress = roundaboutProgress(),
+            arDistanceKnown = !distanceStale(),
+            radar = radar,
+            streets = HudMapFeed.lines
+        )
+    }
+
+    /** Roundabout progress from AA's own countdown to the exit (see [RoundaboutTracker]). */
+    private val rbTracker = RoundaboutTracker()
+
+    /** The current roundabout step's identity, or null on any other maneuver. */
+    private fun roundaboutStep(dirs: AndroidAutoNavigationTelemetry.Directions?): String? {
+        if (dirs == null || !dirs.active || HudOverlayModel.resolveTurnIcon(dirs.turn) != "ROUNDABOUT") return null
+        return "${dirs.turnId}|${dirs.street}|${dirs.exitNumber}|${dirs.turnAngle}"
+    }
+
+    private fun trackRoundabout() {
+        val dirs = demoDirections ?: navDirections
+        val step = roundaboutStep(dirs)
+        val meters = if (distanceStale()) null else dirs?.let { HudOverlayModel.distanceMeters(it.distance, it.distanceM)?.toFloat() }
+        if (rbTracker.onUpdate(step, meters)) {
+            ClusterPersistentEventLogger.log(
+                "hud_rb_entered",
+                mapOf("start_m" to rbTracker.startM, "exit" to dirs?.exitNumber, "angle" to dirs?.turnAngle, "demo" to (demoDirections != null))
+            )
+        }
+    }
 
     private fun distanceStale() = demoDirections == null && navDistanceStale
 
@@ -247,11 +277,16 @@ object HudOverlayController {
     private var roundaboutZeroAtMs = 0L
 
     /**
-     * AR roundabout: once the distance to it reaches ~0, how far round the ring we are, from the
-     * speed since then (AA doesn't send it). 0 before the roundabout or on other maneuvers.
+     * AR roundabout: how far round the ring we are. From AA's countdown to the exit once the car
+     * is on the ring ([rbTracker]); without it, from the speed since the distance reached ~0.
+     * 0 before the roundabout or on other maneuvers.
      */
     private fun roundaboutProgress(): Float {
         val dirs = (demoDirections ?: navDirections)?.takeIf { it.active }
+        if (rbTracker.entered && dirs != null) {
+            val now = arMetersEstimate() ?: HudOverlayModel.distanceMeters(dirs.distance, dirs.distanceM)?.toFloat()
+            if (now != null) return rbTracker.progress(now)
+        }
         val travel = dirs?.turnAngle?.takeIf { it in 1..360 }
         val isRoundabout = config().layout == HudOverlayModel.Layout.AR && travel != null &&
             HudOverlayModel.resolveTurnIcon(dirs.turn) == "ROUNDABOUT"

@@ -371,6 +371,44 @@ class HudArArrowTest {
     }
 
     @Test
+    fun `roundabout progress from AA's countdown to the exit`() {
+        val t = RoundaboutTracker()
+        val step = "35|Av. Brasil|3|270"
+        // Approaching: distances fall to the entry, no progress yet.
+        for (m in listOf(200f, 120f, 60f, 20f, 5f)) assertTrue(!t.onUpdate(step, m))
+        assertTrue(!t.entered)
+        // On the ring AA jumps to the way round to the exit: entered.
+        assertTrue(t.onUpdate(step, 70f))
+        assertEquals(70f, t.startM!!, 0f)
+        assertEquals(0f, t.progress(70f), 0f)
+        assertEquals(0.5f, t.progress(35f), 0.001f)
+        assertEquals(1f, t.progress(0f), 0f)
+        // A new step starts over; other maneuvers never enter.
+        assertTrue(!t.onUpdate("36|Next|0|0", 300f))
+        assertTrue(!t.entered)
+        val other = RoundaboutTracker()
+        for (m in listOf(30f, 5f, 80f)) other.onUpdate(null, m)
+        assertTrue(!other.entered)
+        // A wobble while still far away is not an entry.
+        val far = RoundaboutTracker()
+        for (m in listOf(300f, 250f, 265f)) far.onUpdate(step, m)
+        assertTrue(!far.entered)
+        // Unknown/stale distances are skipped, not taken as 0.
+        val stale = RoundaboutTracker()
+        stale.onUpdate(step, null)
+        assertTrue(!stale.onUpdate(step, 300f))
+    }
+
+    @Test
+    fun `drive demo - on the roundabout the distance counts down to the exit, as AA does`() {
+        val speed = 15f
+        val atEntry = HudOverlayModel.DemoDrive.at(48f + 13f, speed).directions.distanceM!!
+        val onRing = HudOverlayModel.DemoDrive.at(48f + 14f, speed).directions.distanceM!!
+        assertTrue("entry=$atEntry ring=$onRing", atEntry <= 10 && onRing > 40)
+        assertTrue(HudOverlayModel.DemoDrive.at(48f + 17.9f, speed).directions.distanceM!! <= 10)
+    }
+
+    @Test
     fun `power arc - one tick per 2 percent from the left, regen too`() {
         assertEquals(0, HudOverlayModel.arcPowerTicks(0))
         assertEquals(1, HudOverlayModel.arcPowerTicks(1)) // anything lights one
