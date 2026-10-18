@@ -19,10 +19,15 @@ import javax.net.ssl.SSLSocketFactory
  */
 object OsmRoadStore {
     private const val TAG = "OsmRoadStore"
-    private const val URL_OVERPASS = "https://overpass-api.de/api/interpreter"
+    /** Public Overpass servers, tried in turn: each is often busy (502/504/timeouts). */
+    private val ENDPOINTS = listOf(
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter"
+    )
     private const val TTL_MS = 30L * 24 * 3600 * 1000
     private const val RETRY_MS = 60_000L
-    private const val TIMEOUT_MS = 30_000
+    private const val TIMEOUT_MS = 20_000
 
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "OsmRoadStore") }
     private val tiles = ConcurrentHashMap<String, List<OsmRoad>>()
@@ -61,8 +66,15 @@ object OsmRoadStore {
         }
     }
 
-    private fun fetch(tile: OsmRoads.Tile): String? = try {
-        val conn = URL(URL_OVERPASS).openConnection() as HttpURLConnection
+    /** The tile from the first server that answers; null (and a back-off) when none does. */
+    private fun fetch(tile: OsmRoads.Tile): String? {
+        for (url in ENDPOINTS) fetch(url, tile)?.let { return it }
+        retryAfterMs = System.currentTimeMillis() + RETRY_MS
+        return null
+    }
+
+    private fun fetch(url: String, tile: OsmRoads.Tile): String? = try {
+        val conn = URL(url).openConnection() as HttpURLConnection
         // overpass-api.de takes TLS 1.3 only; Android 9 stops at 1.2 (same fix as the radar).
         if (conn is HttpsURLConnection) tls?.let { conn.sslSocketFactory = it }
         conn.connectTimeout = TIMEOUT_MS
@@ -74,15 +86,13 @@ object OsmRoadStore {
         conn.outputStream.use { it.write(("data=" + URLEncoder.encode(OsmRoads.query(tile), "UTF-8")).toByteArray()) }
         val code = conn.responseCode
         if (code != 200) {
-            retryAfterMs = System.currentTimeMillis() + RETRY_MS
-            Log.w(TAG, "tile ${tile.key}: HTTP $code")
+            Log.w(TAG, "tile ${tile.key}: HTTP $code from ${URL(url).host}")
             null
         } else {
             conn.inputStream.bufferedReader().use { it.readText() }
         }
     } catch (t: Throwable) {
-        retryAfterMs = System.currentTimeMillis() + RETRY_MS
-        Log.w(TAG, "tile ${tile.key}: ${t.message}")
+        Log.w(TAG, "tile ${tile.key}: ${t.message} from ${URL(url).host}")
         null
     }
 
