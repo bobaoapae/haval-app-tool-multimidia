@@ -25,8 +25,8 @@ import kotlin.math.sin
  *   through the windshield.
  */
 object HudArArrow {
-    /** Centred on the native speed and the power/RPM arcs (one axis, owner's request). */
-    const val CX = HudOverlayModel.ARC_CX
+    /** Centred on the native speed (one axis with it, owner's request). */
+    const val CX = HudOverlayModel.NATIVE_SPEED_CX
     // Viewport: the strip under the speed digits down to the bottom of the visible band.
     const val TOP = 126f
     const val BOTTOM = 200f

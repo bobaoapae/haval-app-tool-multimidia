@@ -94,7 +94,7 @@ class HudArArrowTest {
             assertEquals("m=$meters angle=$angle", 6, shape.head.size)
             for (k in 0 until 3) assertTrue("m=$meters angle=$angle head x=${shape.head[2 * k]}", shape.head[2 * k] in lo..hi)
         }
-        assertEquals(HudOverlayModel.ARC_CX, HudArArrow.CX, 0f)
+        assertEquals(HudOverlayModel.NATIVE_SPEED_CX, HudArArrow.CX, 0f)
         assertTrue(lo >= 0f && hi <= 480f)
         assertTrue(HudArArrow.shape(0f, 90f).blue.last().x > HudArArrow.CX + 100f)
         assertTrue(HudArArrow.shape(0f, -90f).blue.last().x < HudArArrow.CX - 100f)
@@ -194,11 +194,16 @@ class HudArArrowTest {
         assertEquals(HudOverlayModel.ARC_CY, mid, 0.01f)
         assertEquals(HudOverlayModel.ARC_CY - HudOverlayModel.ARC_POWER_R_OUT, HudOverlayModel.arcPoint(270f, HudOverlayModel.ARC_POWER_R_OUT).second, 0.01f)
         assertTrue(HudOverlayModel.ARC_X_SCALE > 1f)
-        // Up at the street line the arc stays clear of the left column.
+        // 6 px left of the speed; the street line is narrowed to keep clear of the arc.
+        assertEquals(HudOverlayModel.NATIVE_SPEED_CX - 6f, HudOverlayModel.ARC_CX, 0f)
+        val right = HudOverlayModel.columnRightAt(HudOverlayModel.AR_STREET_BASELINE, HudOverlayModel.AR_STREET_SIZE)
+        assertTrue(right < HudOverlayModel.BOX_RIGHT && right > HudOverlayModel.BOX_CENTER_X + 40f)
         for (i in 0 until HudOverlayModel.ARC_TICKS) {
             val (x, y) = HudOverlayModel.arcPoint(HudOverlayModel.arcTickDeg(i), HudOverlayModel.ARC_POWER_R_OUT)
-            if (y <= HudOverlayModel.AR_STREET_BASELINE + 2f) assertTrue("tick $i x=$x", x >= HudOverlayModel.BOX_RIGHT)
+            if (y in HudOverlayModel.AR_STREET_BASELINE - HudOverlayModel.AR_STREET_SIZE..HudOverlayModel.AR_STREET_BASELINE) assertTrue("tick $i x=$x", x > right)
         }
+        // Rows the arc doesn't reach keep the whole column.
+        assertEquals(HudOverlayModel.BOX_RIGHT, HudOverlayModel.columnRightAt(190f, 14f), 0f)
     }
 
     @Test

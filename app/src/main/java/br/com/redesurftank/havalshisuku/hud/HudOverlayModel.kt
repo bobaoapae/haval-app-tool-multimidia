@@ -377,9 +377,12 @@ object HudOverlayModel {
     // Centred on the native speed (measured on the car 2026-10-17: about x 222, y 100), then moved
     // down ~20 px then back up ~8 px at the owner's request (y 112). Each arc is 50 thin
     // radial ticks over 195° (150°..345°): 15° shorter at each end than the 225° version, so it
-    // stops well short of the native "km/h".
+    // stops well short of the native "km/h". 2026-10-18: 6 px left of the speed and ~8 % bigger
+    // (owner), so the centre is no longer the speed's.
 
-    const val ARC_CX = 222f
+    /** Native speed readout's centre (measured on the car 2026-10-17); the AR arrow sits on it. */
+    const val NATIVE_SPEED_CX = 222f
+    const val ARC_CX = 216f
     const val ARC_CY = 112f
     /** 195°: from 150° (canvas angles, clockwise, bottom-left) to 345° (just above the right). */
     const val ARC_START_DEG = 150f
@@ -387,13 +390,13 @@ object HudOverlayModel {
     const val ARC_TICKS = 50
 
     /** Outer arc, power: thicker, longer ticks. */
-    const val ARC_POWER_R_IN = 44f
-    const val ARC_POWER_R_OUT = 52f
+    const val ARC_POWER_R_IN = 47.5f
+    const val ARC_POWER_R_OUT = 56f
     const val ARC_POWER_TICK_W = 1.3f
 
     /** Inner arc, RPM: thinner, shorter ticks. */
-    const val ARC_RPM_R_IN = 35f
-    const val ARC_RPM_R_OUT = 39f
+    const val ARC_RPM_R_IN = 38f
+    const val ARC_RPM_R_OUT = 42f
     const val ARC_RPM_TICK_W = 0.8f
     /** RPM arc full scale. */
     const val ARC_RPM_MAX = 7_000
@@ -416,8 +419,23 @@ object HudOverlayModel {
     // ---- AR chevrons: animated turn arrows above the speed (Mercedes-style) ----
     /** They show from this distance to the maneuver. */
     const val CHEVRON_START_M = 120f
-    /** Band above the arcs (arc top is ARC_CY - ARC_POWER_R_OUT = 60). */
-    const val CHEVRON_CY = 50f
+    /** Band above the arcs (arc top is ARC_CY - ARC_POWER_R_OUT = 56). */
+    const val CHEVRON_CY = 48f
+
+    /**
+     * How far right a left-column text line on [baseline] may reach without touching the outer
+     * arc (rows the arc doesn't reach: the column's own edge). The street line got this when the
+     * arcs grew towards it.
+     */
+    fun columnRightAt(baseline: Float, textSize: Float): Float {
+        val top = baseline - textSize
+        var right = BOX_RIGHT
+        for (i in 0 until ARC_TICKS) {
+            val (x, y) = arcPoint(arcTickDeg(i), ARC_POWER_R_OUT)
+            if (y in top - 2f..baseline + 2f) right = minOf(right, x - 4f)
+        }
+        return right
+    }
     const val CHEVRON_HALF_H = 7f
     const val CHEVRON_W = 7f
     const val CHEVRON_STROKE = 4f

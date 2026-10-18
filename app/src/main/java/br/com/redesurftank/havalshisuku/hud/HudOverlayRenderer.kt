@@ -22,7 +22,7 @@ import br.com.redesurftank.havalshisuku.hud.HudOverlayModel as M
 class HudOverlayRenderer {
     private companion object {
         /** Native speed readout in the preview mock: centred on the arcs (measured on the car). */
-        const val NATIVE_SPEED_CX = M.ARC_CX
+        const val NATIVE_SPEED_CX = M.NATIVE_SPEED_CX
         const val NATIVE_SPEED_BASELINE = 133f
         val DRIVE = Color.rgb(63, 169, 255)
         val OFF = Color.argb(61, 255, 255, 255)
@@ -161,7 +161,7 @@ class HudOverlayRenderer {
                 M.TbtStyle.FAR -> drawRow(canvas, tbt, M.FAR_TOP)
                 M.TbtStyle.AR -> {
                     drawAr(canvas, tbt)
-                    drawArColumn(canvas, tbt) // draws its own trip line
+                    drawArColumn(canvas, tbt, f.arcs) // draws its own trip line
                 }
             }
             if (tbt.style != M.TbtStyle.AR) drawNavText(canvas, tbt)
@@ -305,7 +305,7 @@ class HudOverlayRenderer {
      * The arrow is in the middle, so the left box carries the driving info: street, a large
      * distance and the trip line; compacted round the lane row when there are lanes.
      */
-    private fun drawArColumn(canvas: Canvas, tbt: M.Tbt) {
+    private fun drawArColumn(canvas: Canvas, tbt: M.Tbt, arcs: Boolean) {
         val lanes = tbt.lanes.isNotEmpty()
         // Still far: street and distance smaller, the turn isn't shown yet either.
         val far = HudArArrow.isFar(tbt.arMeters)
@@ -315,7 +315,8 @@ class HudOverlayRenderer {
         val exit = tbt.exitNumber?.let { "${M.exitLabel(it)} saída" }
         val streetLine = listOfNotNull(exit, tbt.street.takeIf { it.isNotEmpty() }).joinToString(" · ")
         if (streetLine.isNotEmpty()) {
-            val maxW = M.BOX_RIGHT - M.BOX_LEFT
+            // Centred in the column; with the arcs on, narrow enough to keep clear of them.
+            val maxW = if (arcs) 2f * (M.columnRightAt(streetY, streetPaint.textSize) - M.BOX_CENTER_X) else M.BOX_RIGHT - M.BOX_LEFT
             // The next turn as a small icon before the street, the pair centred together.
             val iconSize = streetPaint.textSize * M.AR_STREET_ICON_SCALE
             val iconW = if (tbt.icon.isNotEmpty()) iconSize + M.AR_STREET_ICON_GAP else 0f
@@ -793,7 +794,7 @@ class HudOverlayRenderer {
     private fun drawNativeHud(canvas: Canvas, speedKmh: Int) {
         nativePaint.typeface = lightFace
         nativePaint.textSize = 58f
-        // Speed centred where it sits on the car (see HudOverlayModel.ARC_CX), km/h after it.
+        // Speed centred where it sits on the car (see HudOverlayModel.NATIVE_SPEED_CX), km/h after it.
         nativePaint.textAlign = Paint.Align.CENTER
         nativePaint.color = Color.argb(225, 255, 255, 255)
         val speed = speedKmh.toString()

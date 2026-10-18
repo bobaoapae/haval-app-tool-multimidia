@@ -587,9 +587,9 @@ function draw3dArrow(tbt, meters) {
 
 // ---- AR layout: left column + arcs (port of HudOverlayRenderer.drawArColumn / drawPowerArc) ----
 const ARC = {
-  CX: 222, CY: 112, START: 150, SWEEP: 195, TICKS: 50, X_SCALE: 1.3, // stretched for a 3-digit speed
-  POWER_R_IN: 44, POWER_R_OUT: 52, POWER_W: 1.3,
-  RPM_R_IN: 35, RPM_R_OUT: 39, RPM_W: 0.8, RPM_MAX: 7000,
+  CX: 216, CY: 112, START: 150, SWEEP: 195, TICKS: 50, X_SCALE: 1.3, // 6 px left of the speed, stretched for 3 digits
+  POWER_R_IN: 47.5, POWER_R_OUT: 56, POWER_W: 1.3,
+  RPM_R_IN: 38, RPM_R_OUT: 42, RPM_W: 0.8, RPM_MAX: 7000,
   POWER_OFF: 'rgba(255,255,255,0.35)', RPM_OFF: 'rgba(255,64,64,0.12)',
 };
 
@@ -652,7 +652,7 @@ function drawRpmArc(rpm) {
 }
 
 // Port of HudOverlayRenderer.drawChevrons / HudOverlayModel.chevronsFor.
-const CHEV = { START_M: 120, CY: 50, HALF_H: 7, W: 7, STROKE: 4, COUNT: 4, SPACING: 15, SHIFT: 46, PERIOD_FAR: 1100, PERIOD_NEAR: 380, MIN_DEG: 30 };
+const CHEV = { START_M: 120, CY: 48, HALF_H: 7, W: 7, STROKE: 4, COUNT: 4, SPACING: 15, SHIFT: 46, PERIOD_FAR: 1100, PERIOD_NEAR: 380, MIN_DEG: 30 };
 function chevronsFor(tbt, meters) {
   if (meters > CHEV.START_M) return null;
   const heading = tbt.ring ? 180 - tbt.ring : tbt.dest !== undefined ? 0 : tbt.angle;
