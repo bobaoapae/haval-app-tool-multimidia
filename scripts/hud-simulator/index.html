@@ -374,101 +374,123 @@ function drawNativeMock(speed) {
 // distance, so far away it is past the fade (no tip) and it slides down as the car closes in.
 // ---------------------------------------------------------------------------
 // Port of HudArArrow (Kotlin): keep the two in step.
+// One ribbon of fixed width on the road, all through one projection (base and tip share the
+// vanishing point). Roundabouts: grey ring + passed exits, the camera drives round inside.
 const P3 = {
-  CX: 222,                     // centred on the native speed and the arcs
-  TOP: 126, BOTTOM: 200,
-  BASE_W: 200, FILLET: 0.22,   // straight-sided stem, rounding into the arm over the last 22 %
-  HORIZON: 118, Z_NEAR: 4, Z_END: 7, Z_CAP: 10, K: 0.03,
-  F_X: 199, ARM_W: 30,
-  TURN_R: 1.4, TURN_LEN: 5.0,  // long tail: the turn sweeps across the HUD
-  HEAD_W_RATIO: 2.0, HEAD_L_RATIO: 1.1,
-  BEND_START: 180, BEND_FULL: 40,
-  FADE_TOP_TO: 132, FADE_BOTTOM_FROM: 180,
-  OPACITY: 0.65,
+  CX: 222, TOP: 126, BOTTOM: 200, HORIZON: 118, Z_NEAR: 4, F_X: 199,
+  BASE_W: 200, Z_CLIP: 2.5, Z_END: 5.5, Z_CAP: 8, K: 0.025,
+  TURN_R: 2.3, TURN_LEN: 2.5, TAIL_MIN_Z: 5, HEAD_HW: 3.0, HEAD_L: 3.5,
+  BEND_START: 200, BEND_FULL: 40,
+  FADE_TOP_TO: 132, FADE_BOTTOM_FROM: 180, OPACITY: 0.65,
   ROOM_LEFT: 212, ROOM_RIGHT: 240,
   NEAR_RGB: [120, 200, 255], FAR_RGB: [25, 105, 255],
-  RING_R: 2.0, RING_W_RATIO: 0.4, STUB_LEN: 0.9, RB_TAIL: 2.6,
+  RING_R: 3.5, RING_HW: 1.5, STUB_LEN: 2.5, STUB_HW: 1.1, ENTRY_GAP: 1, ENTRY_DEG: 30, EXIT_OUT: 2.5, LOOK_AHEAD: 4,
 };
+P3.HW = P3.BASE_W / 2 * P3.Z_NEAR / P3.F_X;
 
 const smooth = (t) => t * t * (3 - 2 * t);
 const bendAmount = (m) => smooth(Math.min(1, Math.max(0, (P3.BEND_START - m) / (P3.BEND_START - P3.BEND_FULL))));
 const cornerDepth = (m) => Math.min(P3.Z_CAP, P3.Z_END + P3.K * Math.max(0, m));
 const project = (x, z) => [P3.CX + P3.F_X * x / z, P3.HORIZON + (P3.BOTTOM - P3.HORIZON) * P3.Z_NEAR / z];
-const armWidth = (z) => Math.min(P3.ARM_W, P3.ARM_W * P3.Z_END / z);
-const rowAlpha = (y) => y <= P3.TOP || y >= P3.BOTTOM ? 0
-  : y < P3.FADE_TOP_TO ? (y - P3.TOP) / (P3.FADE_TOP_TO - P3.TOP)
-  : y > P3.FADE_BOTTOM_FROM ? (P3.BOTTOM - y) / (P3.BOTTOM - P3.FADE_BOTTOM_FROM) : 1;
-function rowColor(y, alpha) {
-  const t = Math.min(1, Math.max(0, (P3.BOTTOM - y) / (P3.BOTTOM - P3.TOP)));
-  const c = P3.NEAR_RGB.map((v, i) => Math.round(v + (P3.FAR_RGB[i] - v) * t));
-  return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`;
+const rgbAt = (y) => { const t = Math.min(1, Math.max(0, (P3.BOTTOM - y) / (P3.BOTTOM - P3.TOP))); return P3.NEAR_RGB.map((v, i) => Math.round(v + (P3.FAR_RGB[i] - v) * t)); };
+const camera = (x, z, h) => ({ x, z, h, c: Math.cos(h), s: Math.sin(h) });
+const AHEAD = camera(0, 0, 0);
+function toScreen(cam, px, pz) {
+  const dx = px - cam.x, dz = pz - cam.z, lx = dx * cam.c - dz * cam.s, lz = dx * cam.s + dz * cam.c;
+  return lz < P3.Z_CLIP ? null : project(lx, lz);
 }
-function stemWidth(t, cw) {
-  const slope = (P3.BASE_W - cw) / (1 - P3.FILLET / 2), tt = Math.min(1, Math.max(0, t));
-  return tt >= P3.FILLET ? cw + slope * (tt - P3.FILLET / 2) : cw + slope * tt * tt / (2 * P3.FILLET);
+function unit(a, b) { const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz); return l > 0 ? [dx / l, dz / l] : [0, 1]; }
+/** Road centreline `half` wide each side -> runs of {lx,ly,rx,ry} on screen. */
+function roadRibbon(line, half, cam) {
+  const runs = []; let run = [];
+  for (let i = 0; i < line.length; i++) {
+    const d = unit(line[Math.max(0, i - 1)], line[Math.min(line.length - 1, i + 1)]), p = line[i];
+    const l = toScreen(cam, p[0] - d[1] * half, p[1] + d[0] * half), r = toScreen(cam, p[0] + d[1] * half, p[1] - d[0] * half);
+    if (!l || !r) { if (run.length > 1) runs.push(run); run = []; continue; }
+    run.push({ lx: l[0], ly: l[1], rx: r[0], ry: r[1] });
+  }
+  if (run.length > 1) runs.push(run);
+  return runs;
 }
-function stem(cornerY, cw) {
-  const y0 = P3.BOTTOM + 4, out = [];
-  for (let i = 0; i <= 36; i++) { const y = y0 + (cornerY - y0) * i / 36; out.push({ x: P3.CX, y, w: stemWidth((y - cornerY) / (P3.BOTTOM - cornerY), cw) }); }
-  return out;
-}
-const toScreen = (world, ratio = 1) => world.filter(q => q[1] > 0.4).map(([x, z]) => { const [sx, sy] = project(x, z); return { x: sx, y: sy, w: armWidth(z) * ratio }; });
-function headOf(pts) {
-  const e = pts[pts.length - 1], prev = pts[Math.max(0, pts.length - 4)];
-  const len = Math.hypot(e.x - prev.x, e.y - prev.y) || 1, dx = (e.x - prev.x) / len, dy = (e.y - prev.y) / len;
-  const hw = e.w * P3.HEAD_W_RATIO, hl = e.w * P3.HEAD_L_RATIO;
-  return [e.x + dx * hl, e.y + dy * hl, e.x - dy * hw / 2, e.y + dx * hw / 2, e.x + dy * hw / 2, e.y - dx * hw / 2];
+function roadHead(line, cam) {
+  const end = line[line.length - 1], d = unit(line[Math.max(0, line.length - 4)], end);
+  const ez = (end[0] - cam.x) * cam.s + (end[1] - cam.z) * cam.c, dz = d[0] * cam.s + d[1] * cam.c;
+  const len = dz < 0 ? Math.min(P3.HEAD_L, Math.max(1, (ez - P3.Z_CLIP - 0.3) / -dz)) : P3.HEAD_L;
+  const tip = toScreen(cam, end[0] + d[0] * len, end[1] + d[1] * len);
+  const l = toScreen(cam, end[0] - d[1] * P3.HEAD_HW, end[1] + d[0] * P3.HEAD_HW), r = toScreen(cam, end[0] + d[1] * P3.HEAD_HW, end[1] - d[0] * P3.HEAD_HW);
+  return tip && l && r ? [tip[0], tip[1], l[0], l[1], r[0], r[1]] : [];
 }
 function fit(shape) {
   const room = (x) => x < P3.CX ? P3.ROOM_LEFT : P3.ROOM_RIGHT;
   let sq = 1;
-  for (const p of shape.blue.concat(...shape.gray)) { const d = Math.abs(p.x - P3.CX); if (d > 0.01) sq = Math.min(sq, Math.max(0, (room(p.x) - p.w / 2) / d)); }
-  for (let k = 0; k < 3; k++) { const d = Math.abs(shape.head[2 * k] - P3.CX); if (d > 0.01) sq = Math.min(sq, room(shape.head[2 * k]) / d); }
+  const take = (x) => { const d = Math.abs(x - P3.CX); if (d > 0.01) sq = Math.min(sq, room(x) / d); };
+  for (const p of shape.blue) if ((p.ly + p.ry) / 2 >= P3.TOP && (p.ly + p.ry) / 2 <= P3.BOTTOM) { take(p.lx); take(p.rx); }
+  for (let k = 0; k < shape.head.length / 2; k++) take(shape.head[2 * k]);
   if (sq >= 1) return shape;
-  const f = (l) => l.map(p => ({ ...p, x: P3.CX + (p.x - P3.CX) * sq }));
-  return { blue: f(shape.blue), gray: shape.gray.map(f), head: shape.head.map((v, i) => i % 2 === 0 ? P3.CX + (v - P3.CX) * sq : v) };
+  const sx = (x) => P3.CX + (x - P3.CX) * sq, f = (l) => l.map(p => ({ ...p, lx: sx(p.lx), rx: sx(p.rx) }));
+  return { ...shape, blue: f(shape.blue), gray: shape.gray.map(f), head: shape.head.map((v, i) => i % 2 === 0 ? sx(v) : v) };
+}
+function armCenterline(meters, angleDeg) {
+  const zc = cornerDepth(meters), ds = 0.1, pts = [];
+  let x = 0, z = P3.Z_CLIP - ds;
+  while (z < zc) { pts.push([x, z]); z += ds; }
+  z = zc; pts.push([x, z]);
+  let h = 0;
+  const target = angleDeg * bendAmount(meters) * Math.PI / 180, sgn = Math.sign(target) || 1;
+  for (let i = 0, n = Math.round(Math.abs(target) * P3.TURN_R / ds); i < n; i++) { h += sgn * ds / P3.TURN_R; x += Math.sin(h) * ds; z += Math.cos(h) * ds; pts.push([x, z]); }
+  for (let i = 0, n = Math.round(P3.TURN_LEN / ds); i < n; i++) {
+    const nz = z + Math.cos(h) * ds;
+    if (Math.cos(h) < 0 && nz < P3.TAIL_MIN_Z) break;
+    x += Math.sin(h) * ds; z = nz; pts.push([x, z]);
+  }
+  return pts;
 }
 function arShape(meters, angleDeg) {
-  const zc = cornerDepth(meters), world = [[0, zc]];
-  let x = 0, z = zc, h = 0;
-  const target = angleDeg * bendAmount(meters) * Math.PI / 180, sgn = Math.sign(target) || 1, ds = 0.06;
-  for (let i = 0, n = Math.round(Math.abs(target) * P3.TURN_R / ds); i < n; i++) { h += sgn * ds / P3.TURN_R; x += Math.sin(h) * ds; z += Math.cos(h) * ds; world.push([x, z]); }
-  for (let i = 0, n = Math.round(P3.TURN_LEN / ds); i < n; i++) { x += Math.sin(h) * ds; z += Math.cos(h) * ds; world.push([x, z]); }
-  const arm = toScreen(world);
-  const blue = stem(arm[0].y, arm[0].w).concat(arm.slice(1));
-  return fit({ blue, head: headOf(blue), gray: [] });
+  const line = armCenterline(meters, angleDeg), runs = roadRibbon(line, P3.HW, AHEAD);
+  return fit({ blue: runs[runs.length - 1] || [], head: roadHead(line, AHEAD), gray: [], grayAlpha: 1 });
 }
-// Roundabout in screen space (true perspective squashes the ring to ~14 px).
-const RB = { CY: 162, RX: 58, RY: 16, MIN_SCALE: 0.35, W_NEAR: 22, W_FAR: 9, RING_W: 0.5, STUB: 12, TAIL: 70 };
-const rbWidth = (y) => RB.W_FAR + (RB.W_NEAR - RB.W_FAR) * Math.min(1, Math.max(0, (y - P3.TOP) / (P3.BOTTOM - P3.TOP)));
-function rbShape(meters, travel, clockwise, passed, progress) {
-  const bend = bendAmount(meters);
-  if (bend <= 0.02) return arShape(meters, 0);
-  const sc = RB.MIN_SCALE + (1 - RB.MIN_SCALE) * bend, rx = RB.RX * sc, ry = RB.RY * sc, side = clockwise ? -1 : 1;
-  const ringXY = (deg) => { const a = deg * Math.PI / 180; return [P3.CX + side * rx * Math.sin(a), RB.CY + ry * Math.cos(a)]; };
-  const outward = (deg) => { const a = deg * Math.PI / 180, dx = side * Math.sin(a), dy = Math.cos(a) * 0.6, l = Math.hypot(dx, dy) || 1; return [dx / l, dy / l]; };
-  const pt = ([x, y], r = 1) => ({ x, y, w: rbWidth(y) * r });
-  const gray = [];
-  const ring = []; for (let i = 0; i <= 72; i++) ring.push(pt(ringXY(i * 5), RB.RING_W)); gray.push(ring);
-  for (const deg of passed) {
-    const [x0, y0] = ringXY(deg), [ox, oy] = outward(deg), st = [];
-    for (let k = 0; k <= 6; k++) { const d = RB.STUB * sc * k / 6; st.push(pt([x0 + ox * d, y0 + oy * d], RB.RING_W)); }
-    gray.push(st);
+function curve(p0, d0, p3, d3, n = 24) {
+  const k = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]) * 0.45, p1 = [p0[0] + d0[0] * k, p0[1] + d0[1] * k], p2 = [p3[0] - d3[0] * k, p3[1] - d3[1] * k], out = [];
+  for (let i = 1; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    out.push([0, 1].map(j => u * u * u * p0[j] + 3 * u * u * t * p1[j] + 3 * u * t * t * p2[j] + t * t * t * p3[j]));
   }
-  const shown = 180 + (travel - 180) * bend, steps = Math.max(2, Math.round(shown / 3)), around = [];
-  for (let i = 0; i <= steps; i++) around.push(pt(ringXY(shown * i / steps)));
-  const ex = around[around.length - 1], [dx, dy] = outward(shown);
-  const roomUp = dy < 0 ? (ex.y - (P3.FADE_TOP_TO + ex.w * P3.HEAD_L_RATIO)) / -dy : Infinity;
-  const tl = Math.min(RB.TAIL, Math.max(4, roomUp)), tail = [];
-  for (let k = 1; k <= 20; k++) { const d = tl * k / 20; tail.push(pt([ex.x + dx * d, ex.y + dy * d])); }
-  const route = around.concat(tail), entry = route[0], done = Math.min(1, Math.max(0, progress)) * steps;
-  let blue;
-  if (done >= 1) {
-    const n = Math.max(1, Math.min(steps, Math.round(done)));
-    gray.push(stem(entry.y, entry.w).concat(route.slice(1, n + 1)));
-    blue = route.slice(n);
-  } else blue = stem(entry.y, entry.w).concat(route.slice(1));
-  return fit({ blue, head: headOf(blue), gray });
+  return out;
+}
+function atLength(line, acc, s) {
+  if (s <= 0) return line[0];
+  for (let i = 1; i < line.length; i++) if (acc[i] >= s) {
+    const seg = acc[i] - acc[i - 1]; if (seg <= 0) return line[i];
+    const t = (s - acc[i - 1]) / seg; return [line[i - 1][0] + (line[i][0] - line[i - 1][0]) * t, line[i - 1][1] + (line[i][1] - line[i - 1][1]) * t];
+  }
+  return line[line.length - 1];
+}
+function rbShape(meters, travel, clockwise, passed, progress) {
+  const bend = bendAmount(meters), side = clockwise ? -1 : 1, zc = cornerDepth(meters);
+  const cz = zc + P3.ENTRY_GAP + P3.RING_R, rad = (d) => d * Math.PI / 180;
+  const ring = (deg, r = P3.RING_R) => [side * r * Math.sin(rad(deg)), cz - r * Math.cos(rad(deg))];
+  const along = (deg) => [side * Math.cos(rad(deg)), Math.sin(rad(deg))];
+  const outward = (deg) => [side * Math.sin(rad(deg)), -Math.cos(rad(deg))];
+  const aOut = Math.max(P3.ENTRY_DEG + 10, travel - P3.ENTRY_DEG), route = [];
+  for (let z = 0; z < zc; z += 0.1) route.push([0, z]);
+  route.push([0, zc]);
+  route.push(...curve([0, zc], [0, 1], ring(P3.ENTRY_DEG), along(P3.ENTRY_DEG)));
+  for (let d = P3.ENTRY_DEG + 2; d < aOut; d += 2) route.push(ring(d));
+  route.push(ring(aOut));
+  route.push(...curve(ring(aOut), along(aOut), ring(travel, P3.RING_R + P3.EXIT_OUT), outward(travel)));
+  const acc = [0]; for (let i = 1; i < route.length; i++) acc.push(acc[i - 1] + Math.hypot(route[i][0] - route[i - 1][0], route[i][1] - route[i - 1][1]));
+  const shown = route.map((p, i) => [p[0] * bend, acc[i] + (p[1] - acc[i]) * bend]);
+  const total = acc[acc.length - 1], sCam = Math.min(1, Math.max(0, progress)) * (total - P3.EXIT_OUT);
+  let cam = AHEAD;
+  if (sCam > 0) { const here = atLength(shown, acc, sCam), d = unit(here, atLength(shown, acc, Math.min(total, sCam + P3.LOOK_AHEAD))); cam = camera(here[0], here[1], Math.atan2(d[0], d[1])); }
+  const remaining = sCam > 0 ? shown.filter((_, i) => acc[i] >= sCam) : shown;
+  const runs = roadRibbon(remaining, P3.HW, cam), gray = [];
+  if (bend > 0.02) {
+    const ringLine = []; for (let i = 0; i <= 90; i++) ringLine.push(ring(i * 4));
+    gray.push(...roadRibbon(ringLine, P3.RING_HW, cam));
+    for (const deg of passed) { const st = []; for (let k = 0; k <= 8; k++) st.push(ring(deg, P3.RING_R + P3.STUB_LEN * k / 8)); gray.push(...roadRibbon(st, P3.STUB_HW, cam)); }
+  }
+  return fit({ blue: runs[runs.length - 1] || [], head: roadHead(remaining, cam), gray, grayAlpha: bend });
 }
 function passedExits(travel, n) {
   if (!n || n < 2) return [];
@@ -476,22 +498,23 @@ function passedExits(travel, n) {
   return Array.from({ length: n - 1 }, (_, i) => step * (i + 1));
 }
 
-/** One continuous ribbon of quads, each coloured by `color(y, alpha)`. */
-function ribbon(lc, pts, color) {
-  const normal = (i) => { const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)]; const l = Math.hypot(b.x - a.x, b.y - a.y) || 1; return [-(b.y - a.y) / l, (b.x - a.x) / l]; };
+/** Vertical gradient: colour by row plus the top/bottom fades (as HudOverlayRenderer.rowShader). */
+function rowGradient(lc, rgb, alpha) {
+  const g = lc.createLinearGradient(0, P3.TOP, 0, P3.BOTTOM), span = P3.BOTTOM - P3.TOP;
+  [[P3.TOP, 0], [P3.FADE_TOP_TO, 1], [P3.FADE_BOTTOM_FROM, 1], [P3.BOTTOM, 0]].forEach(([y, a]) => {
+    const c = rgb(y); g.addColorStop((y - P3.TOP) / span, `rgba(${c[0]},${c[1]},${c[2]},${a * alpha})`);
+  });
+  return g;
+}
+function fillRibbon(lc, pts) {
   for (let i = 0; i + 1 < pts.length; i++) {
-    const a = pts[i], b = pts[i + 1], alpha = rowAlpha(Math.min(a.y, b.y));
-    if (alpha <= 0) continue;
-    const na = normal(i), nb = normal(i + 1);
-    lc.fillStyle = color((a.y + b.y) / 2, alpha);
-    lc.beginPath();
-    lc.moveTo(a.x + na[0] * a.w / 2, a.y + na[1] * a.w / 2); lc.lineTo(b.x + nb[0] * b.w / 2, b.y + nb[1] * b.w / 2);
-    lc.lineTo(b.x - nb[0] * b.w / 2, b.y - nb[1] * b.w / 2); lc.lineTo(a.x - na[0] * a.w / 2, a.y - na[1] * a.w / 2);
-    lc.closePath(); lc.fill(); lc.strokeStyle = lc.fillStyle; lc.lineWidth = 0.6; lc.stroke();
+    const a = pts[i], b = pts[i + 1];
+    lc.beginPath(); lc.moveTo(a.lx, a.ly); lc.lineTo(b.lx, b.ly); lc.lineTo(b.rx, b.ry); lc.lineTo(a.rx, a.ry); lc.closePath();
+    lc.fill(); lc.stroke();
   }
 }
 
-/** Continuous ribbon arrow (or roundabout) on the speed axis, see-through. */
+/** The road ribbon arrow (or roundabout) on the speed axis, see-through. */
 function draw3dArrow(tbt, meters) {
   const shape = tbt.ring
     ? rbShape(meters, tbt.ring, false, passedExits(tbt.ring, tbt.exitNumber), state.rbProgress || 0)
@@ -502,10 +525,15 @@ function draw3dArrow(tbt, meters) {
   const lc = layer.getContext('2d');
   lc.setTransform(S, 0, 0, S, 0, 0);
   lc.beginPath(); lc.rect(left, P3.TOP, right - left, P3.BOTTOM - P3.TOP); lc.clip();
-  for (const g of shape.gray) ribbon(lc, g, (y, a) => `rgba(200,205,215,${a * 0.55})`);
-  ribbon(lc, shape.blue, rowColor);
-  const e = shape.blue[shape.blue.length - 1], ha = rowAlpha(e.y), h = shape.head;
-  if (ha > 0) { lc.fillStyle = rowColor(e.y, ha); lc.beginPath(); lc.moveTo(h[0], h[1]); lc.lineTo(h[2], h[3]); lc.lineTo(h[4], h[5]); lc.closePath(); lc.fill(); }
+  lc.lineWidth = 0.6;
+  if (shape.gray.length) {
+    lc.fillStyle = lc.strokeStyle = rowGradient(lc, () => [200, 205, 215], 0.55 * shape.grayAlpha);
+    shape.gray.forEach(g => fillRibbon(lc, g));
+  }
+  lc.fillStyle = lc.strokeStyle = rowGradient(lc, rgbAt, 1);
+  fillRibbon(lc, shape.blue);
+  const h = shape.head;
+  if (h.length === 6) { lc.beginPath(); lc.moveTo(h[0], h[1]); lc.lineTo(h[2], h[3]); lc.lineTo(h[4], h[5]); lc.closePath(); lc.fill(); }
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = P3.OPACITY;

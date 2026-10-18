@@ -521,6 +521,22 @@ object HudOverlayModel {
         val active: Boolean get() = layout != Layout.ORIGINAL
     }
 
+    /**
+     * Android Auto sends a new maneuver (code 10) before its distance (code 11), so for a moment
+     * the new step carries the last one's (~0 m) and the AR arrow would show the turn as if it
+     * were here. True from such a step change until the distance moves.
+     */
+    fun distanceStale(
+        previous: AndroidAutoNavigationTelemetry.Directions?,
+        update: AndroidAutoNavigationTelemetry.Directions,
+        wasStale: Boolean
+    ): Boolean {
+        if (previous == null) return false
+        val sameDistance = previous.distanceM == update.distanceM && previous.distance == update.distance
+        val newStep = previous.turnId != update.turnId || previous.turn != update.turn || previous.street != update.street
+        return if (newStep) sameDistance else sameDistance && wasStale
+    }
+
     fun tbtFor(d: AndroidAutoNavigationTelemetry.Directions, config: Config = Config()): Tbt? {
         if (!d.active) return null
         val (value, unit) = splitDistance(d.distance, d.distanceM)
@@ -562,12 +578,16 @@ object HudOverlayModel {
         powerPercent: Int,
         rpmTenths: Int?,
         arMetersOverride: Float? = null,
-        arProgress: Float = 0f
+        arProgress: Float = 0f,
+        arDistanceKnown: Boolean = true
     ): Frame = Frame(
         tbt = if (config.navigation) {
             directions?.let { tbtFor(it, config) }?.let { tbt ->
                 if (tbt.style != TbtStyle.AR) tbt
-                else tbt.copy(arMeters = arMetersOverride ?: tbt.arMeters, arProgress = arProgress)
+                else tbt.copy(
+                    arMeters = if (arDistanceKnown) arMetersOverride ?: tbt.arMeters else null,
+                    arProgress = arProgress
+                )
             }
         } else null,
         powerPercent = if (config.powerBar) powerPercent else null,

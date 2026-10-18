@@ -72,6 +72,8 @@ object HudOverlayController {
     private var launchBlockedUntilMs = 0L
     private var configCache: HudOverlayModel.Config? = null
     private var navReceivedAtMs = 0L
+    /** The current maneuver still carries the previous one's distance (see distanceStale). */
+    private var navDistanceStale = false
     private var demoSetAtMs = 0L
     private var arTickScheduled = false
     private var startedAtMs = 0L
@@ -132,6 +134,7 @@ object HudOverlayController {
             tbtHidePending = false
             main.removeCallbacks(hideTbtRunnable)
             val previous = navDirections
+            navDistanceStale = HudOverlayModel.distanceStale(previous, update, navDistanceStale)
             navDirections = update
             navReceivedAtMs = SystemClock.elapsedRealtime()
             // ~1 Hz feed: only redraw when what the HUD shows changes (turn, distance, trip line).
@@ -194,8 +197,11 @@ object HudOverlayController {
         powerPercent = if (demoDriveStartMs != 0L) demoPower else powerPercent.get(),
         rpmTenths = if (demoDriveStartMs != 0L) demoRpm else rpmTenths.get().takeIf { it != NO_RPM },
         arMetersOverride = arMetersEstimate(),
-        arProgress = roundaboutProgress()
+        arProgress = roundaboutProgress(),
+        arDistanceKnown = !distanceStale()
     )
+
+    private fun distanceStale() = demoDirections == null && navDistanceStale
 
     /** m/s the AR arrow moves at: the car's speed, or the demo drive's. */
     private fun speedMps(): Double = if (demoDriveStartMs != 0L) DEMO_DRIVE_SPEED_MPS.toDouble() else speedKmh / 3.6
@@ -211,7 +217,7 @@ object HudOverlayController {
         val travel = dirs?.turnAngle?.takeIf { it in 1..360 }
         val isRoundabout = config().layout == HudOverlayModel.Layout.AR && travel != null &&
             HudOverlayModel.resolveTurnIcon(dirs.turn) == "ROUNDABOUT"
-        val meters = if (isRoundabout) arMetersEstimate() ?: HudOverlayModel.distanceMeters(dirs!!.distance, dirs.distanceM)?.toFloat() else null
+        val meters = if (isRoundabout && !distanceStale()) arMetersEstimate() ?: HudOverlayModel.distanceMeters(dirs!!.distance, dirs.distanceM)?.toFloat() else null
         if (!isRoundabout || meters == null || meters > 3f) {
             roundaboutZeroAtMs = 0L
             return 0f
@@ -230,6 +236,7 @@ object HudOverlayController {
     private fun arMetersEstimate(): Float? {
         if (config().layout != HudOverlayModel.Layout.AR) return null
         val dirs = (demoDirections ?: navDirections)?.takeIf { it.active } ?: return null
+        if (distanceStale()) return null
         val base = HudOverlayModel.distanceMeters(dirs.distance, dirs.distanceM) ?: return null
         if (base > HudArArrow.SMOOTH_WITHIN_M) return null
         val since = if (demoDirections != null) demoSetAtMs else navReceivedAtMs

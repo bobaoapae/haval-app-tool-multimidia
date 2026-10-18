@@ -294,25 +294,41 @@ class HudOverlayRenderer {
     }
     private val arPath = Path()
 
-    /** Deep blue at the base to light blue at the top, faded out towards the top edge. */
-    /** Lighter blue at the base to deeper blue at the top (owner: "slightly darker on top"). */
-    private fun arColor(y: Float, alpha: Float): Int {
+    /**
+     * One vertical gradient carries both the colour (lighter blue at the base, deeper on top; owner:
+     * "slightly darker on top") and the fades at the top and bottom edges, so a wide stretch of
+     * ribbon running sideways fades per pixel, not per piece.
+     */
+    private val blueShader = rowShader { y -> arRgb(y) }
+    private val grayShader = rowShader { Color.rgb(200, 205, 215) }
+
+    private fun arRgb(y: Float): Int {
         val t = HudArArrow.rowGradient(y)
-        return Color.argb(
-            (alpha * 255).toInt(),
-            (120 + (25 - 120) * t).toInt(),
-            (200 + (105 - 200) * t).toInt(),
-            255
+        return Color.rgb((120 + (25 - 120) * t).toInt(), (200 + (105 - 200) * t).toInt(), 255)
+    }
+
+    private fun rowShader(rgb: (Float) -> Int): android.graphics.Shader {
+        // Transparent at both edges, opaque between the fades (HudArArrow.rowAlpha).
+        val ys = floatArrayOf(HudArArrow.TOP, HudArArrow.FADE_TOP_TO, HudArArrow.FADE_BOTTOM_FROM, HudArArrow.BOTTOM)
+        val alphas = intArrayOf(0, 255, 255, 0)
+        val colors = IntArray(ys.size) { i ->
+            val c = rgb(ys[i])
+            Color.argb(alphas[i], Color.red(c), Color.green(c), Color.blue(c))
+        }
+        val span = HudArArrow.BOTTOM - HudArArrow.TOP
+        return android.graphics.LinearGradient(
+            0f, HudArArrow.TOP, 0f, HudArArrow.BOTTOM, colors,
+            ys.map { (it - HudArArrow.TOP) / span }.toFloatArray(), android.graphics.Shader.TileMode.CLAMP
         )
     }
 
     /**
-     * The 3D arrow ([HudArArrow]) in the middle of the HUD, see-through ([HudArArrow.OPACITY]),
-     * then the distance in the left box. Each segment is a quad laid perpendicular to the
-     * on-screen path, coloured by its row.
+     * The 3D arrow ([HudArArrow]) in the middle of the HUD, see-through ([HudArArrow.OPACITY]):
+     * grey ring and passed exits first, the route on top, then its head.
      */
     private fun drawAr(canvas: Canvas, tbt: M.Tbt) {
-        val meters = tbt.arMeters ?: 0f
+        // Unknown distance: a plain straight arrow, never a turn drawn as if it were here.
+        val meters = tbt.arMeters ?: Float.MAX_VALUE
         val shape = if (tbt.dynamicRoundabout) {
             val travel = tbt.exitAngle!!.toFloat()
             HudArArrow.roundabout(
@@ -329,53 +345,45 @@ class HudOverlayRenderer {
         // Opaque into a layer, then composited once at OPACITY: drawing overlapping pieces
         // translucent would stack into visible stripes at the seams.
         canvas.saveLayerAlpha(left, HudArArrow.TOP, right, HudArArrow.BOTTOM, (HudArArrow.OPACITY * 255).toInt())
-        // Grey first (ring, passed exits, the part already driven), the route on top.
-        for (ribbon in shape.gray) drawRibbon(canvas, ribbon) { _, alpha -> Color.argb((alpha * 140).toInt(), 200, 205, 215) }
-        drawRibbon(canvas, shape.blue) { y, alpha -> arColor(y, alpha) }
+        if (shape.gray.isNotEmpty()) {
+            arPaint.shader = grayShader
+            arSeam.shader = grayShader
+            arPaint.alpha = (shape.grayAlpha * 140).toInt().coerceIn(0, 255)
+            arSeam.alpha = arPaint.alpha
+            for (ribbon in shape.gray) drawRibbon(canvas, ribbon)
+        }
+        arPaint.shader = blueShader
+        arSeam.shader = blueShader
+        arPaint.alpha = 255
+        arSeam.alpha = 255
+        drawRibbon(canvas, shape.blue)
         val h = shape.head
-        val end = shape.blue.last()
-        val headAlpha = HudArArrow.rowAlpha(end.y)
-        if (headAlpha > 0f) {
+        if (h.size == 6) {
             arPath.reset()
             arPath.moveTo(h[0], h[1])
             arPath.lineTo(h[2], h[3])
             arPath.lineTo(h[4], h[5])
             arPath.close()
-            arPaint.color = arColor(end.y, headAlpha)
             canvas.drawPath(arPath, arPaint)
         }
+        arPaint.shader = null
+        arSeam.shader = null
         canvas.restore() // layer
         canvas.restore() // clip
     }
 
-    /**
-     * One continuous ribbon: a quad per segment, laid perpendicular to the on-screen path (normals
-     * from both neighbours, so joins flow), each coloured by [color] for its row and fade.
-     */
-    private fun drawRibbon(canvas: Canvas, pts: List<HudArArrow.Pt>, color: (Float, Float) -> Int) {
-        if (pts.size < 2) return
-        fun normal(i: Int): Pair<Float, Float> {
-            val a = pts[maxOf(0, i - 1)]
-            val b = pts[minOf(pts.size - 1, i + 1)]
-            val len = kotlin.math.hypot(b.x - a.x, b.y - a.y).takeIf { it > 0f } ?: 1f
-            return -(b.y - a.y) / len to (b.x - a.x) / len
-        }
+    /** One ribbon: a quad between each pair of cross-sections, seams stroked over. */
+    private fun drawRibbon(canvas: Canvas, pts: List<HudArArrow.Pt>) {
         for (i in 0 until pts.size - 1) {
             val a = pts[i]
             val b = pts[i + 1]
-            val alpha = HudArArrow.rowAlpha(minOf(a.y, b.y))
-            if (alpha <= 0f) continue
-            val (nax, nay) = normal(i)
-            val (nbx, nby) = normal(i + 1)
+            if (maxOf(a.ly, a.ry, b.ly, b.ry) <= HudArArrow.TOP || minOf(a.ly, a.ry, b.ly, b.ry) >= HudArArrow.BOTTOM) continue
             arPath.reset()
-            arPath.moveTo(a.x + nax * a.w / 2, a.y + nay * a.w / 2)
-            arPath.lineTo(b.x + nbx * b.w / 2, b.y + nby * b.w / 2)
-            arPath.lineTo(b.x - nbx * b.w / 2, b.y - nby * b.w / 2)
-            arPath.lineTo(a.x - nax * a.w / 2, a.y - nay * a.w / 2)
+            arPath.moveTo(a.lx, a.ly)
+            arPath.lineTo(b.lx, b.ly)
+            arPath.lineTo(b.rx, b.ry)
+            arPath.lineTo(a.rx, a.ry)
             arPath.close()
-            val c = color((a.y + b.y) / 2, alpha)
-            arPaint.color = c
-            arSeam.color = c
             canvas.drawPath(arPath, arPaint)
             canvas.drawPath(arPath, arSeam) // hide the seams between quads
         }

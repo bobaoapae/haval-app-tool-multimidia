@@ -4,6 +4,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sign
@@ -13,14 +14,15 @@ import kotlin.math.sin
  * Geometry of the "Navegação AR" arrow, in HUD pixels and with no Android types (testable).
  * Keep the constants in step with the prototype in scripts/hud-simulator (draw3dArrow).
  *
- * One continuous ribbon on the road, centred on the native speed and the arcs:
- * - the stem, [BASE_W] wide at the bottom with straight sides, narrowing to exactly the arm's
- *   width at the corner through a short rounded fillet (no step between stem and arm);
- * - the arm, laid in perspective from the corner: straight ahead while far, bending into the
- *   maneuver between [BEND_START_M] and [BEND_FULL_M], with a head at its end;
- * - for roundabouts, a grey ring on the road with grey stubs for the exits passed first, and the
- *   route in blue round the ring to our exit. Inside the roundabout the part already driven turns
- *   grey ([Shape.gray]), from an estimated progress.
+ * Everything is a ribbon of one fixed width lying on the road (world x right, z ahead), and
+ * the whole ribbon goes through one projection: the base, the arm and the head share one
+ * vanishing point, so the arrow reads as flat on the road instead of rising at the top.
+ * - Turns: straight ahead to the corner, then an arc into the maneuver and a tail with a head.
+ *   Straight while far; the bend grows in between [BEND_START_M] and [BEND_FULL_M].
+ * - Roundabouts: a grey ring on the road with grey stubs for the exits passed first, the route
+ *   in blue round the ring to our exit with a head just past it. Inside the roundabout the
+ *   camera drives round with the car ([roundabout] `progress`), so the scene turns as it does
+ *   through the windshield.
  */
 object HudArArrow {
     /** Centred on the native speed and the power/RPM arcs (one axis, owner's request). */
@@ -28,31 +30,35 @@ object HudArArrow {
     // Viewport: the strip under the speed digits down to the bottom of the visible band.
     const val TOP = 126f
     const val BOTTOM = 200f
-    /** Stem width at the bottom edge. */
-    const val BASE_W = 200f
-    /** Fraction of the stem's height (from the corner) that rounds into the arm's width. */
-    const val FILLET = 0.22f
     /** Projection horizon (vanishing row) just above the viewport. */
     const val HORIZON = 118f
+    /** Depth of the bottom edge. */
     const val Z_NEAR = 4f
-    /** Corner depth at 0 m: mid-height, so the arm has room. */
-    const val Z_END = 7f
-    /** Corner depth while far: a straight arrow whose head is still inside the band. */
-    const val Z_CAP = 10f
-    /** Depth per metre between Z_END and Z_CAP (~100 m of travel). */
-    const val K = 0.03f
-    /** Lateral scale for the arm, px per world unit at depth 1. */
+    /** Lateral scale, px per world unit at depth 1. */
     const val F_X = 199f
-    /** Arm thickness at the 0 m corner depth; thinner further away. */
-    const val ARM_W = 30f
-    const val TURN_R = 1.4f
-    /** Tail after the corner: long, so a turn sweeps across the HUD instead of a stub. */
-    const val TURN_LEN = 5.0f
-    /** Head size relative to the arm thickness at its end. */
-    const val HEAD_W_RATIO = 2.0f
-    const val HEAD_L_RATIO = 1.1f
-    /** Straight -> full turn between these distances. */
-    const val BEND_START_M = 180f
+    /** Ribbon width at the bottom edge (px): sets its width on the road. */
+    const val BASE_W = 200f
+    /** Half the ribbon's width on the road (world units). */
+    const val HW = BASE_W / 2f * Z_NEAR / F_X
+    /** Nothing nearer than this is projected (it is below the band anyway). */
+    const val Z_CLIP = 2.5f
+    /** Corner depth at 0 m. */
+    const val Z_END = 5.5f
+    /** Corner depth while far. */
+    const val Z_CAP = 8f
+    /** Depth per metre between Z_END and Z_CAP (~100 m of travel). */
+    const val K = 0.025f
+    /** Turn radius on the road; above [HW] so the inner edge never folds over. */
+    const val TURN_R = 2.3f
+    /** Tail after the corner. */
+    const val TURN_LEN = 2.5f
+    /** A tail coming back towards the car (sharp turns, U-turns) stops here, head still in view. */
+    const val TAIL_MIN_Z = 5f
+    /** Head: half its base width and its length, on the road. */
+    const val HEAD_HW = 3.0f
+    const val HEAD_L = 3.5f
+    /** Straight -> full turn between these distances (owner: only within ~200 m). */
+    const val BEND_START_M = 200f
     const val BEND_FULL_M = 40f
     /** Short fade at the top edge, so the clip there doesn't show as a hard line. */
     const val FADE_TOP_TO = 132f
@@ -70,31 +76,44 @@ object HudArArrow {
     /** How far it may reach right of [CX] (x ~462). */
     const val ROOM_RIGHT = 240f
 
-    // Roundabout, laid in screen space: true perspective squashes the ring to ~14 px, unreadable.
-    /** Ring centre row and radii at full size: a flattened ellipse under the native speed. */
-    const val RB_CY = 162f
-    const val RB_RX = 58f
-    const val RB_RY = 16f
-    /** Ring size when it first appears; grows to full as the bend comes in. */
-    const val RB_MIN_SCALE = 0.35f
-    /** Route thickness at the bottom edge .. at the top edge. */
-    const val RB_W_NEAR = 22f
-    const val RB_W_FAR = 9f
-    /** Ring and passed-exit stubs: thinner than the route. */
-    const val RING_W_RATIO = 0.5f
-    const val STUB_PX = 12f
-    const val RB_TAIL_PX = 70f
+    // Roundabout, on the road (world units).
+    /** Ring radius (centre of its lane). */
+    const val RING_R = 3.5f
+    /** Ring and passed-exit stubs: narrower than the route, which is drawn over them. */
+    const val RING_HW = 1.5f
+    const val STUB_LEN = 2.5f
+    const val STUB_HW = 1.1f
+    /** Gap from the corner (end of the approach) to the near side of the ring. */
+    const val ENTRY_GAP = 1f
+    /** The route joins the ring this far round, and leaves it this far before the exit. */
+    const val ENTRY_DEG = 30f
+    /** How far past the ring the route runs before its head (no road beyond the exit). */
+    const val EXIT_OUT = 2.5f
+    /** The camera looks at the route this far ahead, so it turns smoothly round the ring. */
+    const val LOOK_AHEAD = 4f
     /** Real roundabout radius assumed for the progress estimate (m). A confirmar. */
     const val RB_RADIUS_M = 15f
 
-    /** One point of a ribbon on screen: position, thickness. */
-    data class Pt(val x: Float, val y: Float, val w: Float)
+    /**
+     * One cross-section of a ribbon on screen: its left and right edge points. [x], [y] are the
+     * middle, [w] the on-screen width.
+     */
+    data class Pt(val lx: Float, val ly: Float, val rx: Float, val ry: Float) {
+        val x: Float get() = (lx + rx) / 2f
+        val y: Float get() = (ly + ry) / 2f
+        val w: Float get() = hypot(rx - lx, ry - ly)
+    }
 
     /**
-     * The arrow for one frame: [blue] the route (stem, arm / way round the ring, tail), [head]
-     * at its end, [gray] the ring, passed-exit stubs and any part already driven.
+     * The arrow for one frame: [blue] the route, [head] at its end (tip, base corner, base corner;
+     * empty when out of view), [gray] the ring and passed-exit stubs, drawn at [grayAlpha].
      */
-    class Shape(val blue: List<Pt>, val head: FloatArray, val gray: List<List<Pt>> = emptyList())
+    class Shape(
+        val blue: List<Pt>,
+        val head: FloatArray,
+        val gray: List<List<Pt>> = emptyList(),
+        val grayAlpha: Float = 1f
+    )
 
     /**
      * Bend angle in degrees (+ right) for a maneuver token (AndroidAutoNavigationTelemetry
@@ -114,6 +133,7 @@ object HudArArrow {
         "OFF_RAMP_RIGHT" -> 35f
         "OFF_RAMP_LEFT" -> -35f
         "U_TURN_RIGHT" -> 180f
+        // No side given: left, as in right-hand traffic.
         "U_TURN_LEFT", "U_TURN" -> -180f
         else -> null
     }
@@ -129,9 +149,6 @@ object HudArArrow {
     fun project(x: Float, z: Float): Pair<Float, Float> =
         CX + F_X * x / z to HORIZON + (BOTTOM - HORIZON) * Z_NEAR / z
 
-    /** Arm thickness at depth [z]. */
-    fun armWidth(z: Float): Float = min(ARM_W, ARM_W * Z_END / z)
-
     /** Row fade: in over [TOP]..[FADE_TOP_TO], out over [FADE_BOTTOM_FROM]..[BOTTOM]. */
     fun rowAlpha(y: Float): Float = when {
         y <= TOP || y >= BOTTOM -> 0f
@@ -143,86 +160,144 @@ object HudArArrow {
     /** Gradient position for a row: 0 at the base (lighter blue) .. 1 at the top (deeper blue). */
     fun rowGradient(y: Float): Float = ((BOTTOM - y) / (BOTTOM - TOP)).coerceIn(0f, 1f)
 
+    /** A point on the road. */
+    data class W(val x: Float, val z: Float)
+
+    /** Where the camera stands on the road and its heading (radians, + right). */
+    private class Camera(val x: Float, val z: Float, val h: Float) {
+        private val c = cos(h)
+        private val s = sin(h)
+
+        /** Screen point for a road point, or null when it is behind [Z_CLIP]. */
+        fun screen(px: Float, pz: Float): Pair<Float, Float>? {
+            val dx = px - x
+            val dz = pz - z
+            val lx = dx * c - dz * s
+            val lz = dx * s + dz * c
+            return if (lz < Z_CLIP) null else project(lx, lz)
+        }
+    }
+
+    private val AHEAD = Camera(0f, 0f, 0f)
+
+    private fun unit(a: W, b: W): W {
+        val dx = b.x - a.x
+        val dz = b.z - a.z
+        val len = hypot(dx, dz).takeIf { it > 0f } ?: return W(0f, 1f)
+        return W(dx / len, dz / len)
+    }
+
     /**
-     * Stem width at [t] = 0 (the corner) .. 1 (the bottom edge): straight sides from [BASE_W]
-     * down to [cornerW], rounding into the arm over the last [FILLET] so the outline has no kink.
+     * A road centreline [half] wide on each side, on screen. Splits into runs where it goes out
+     * of view (behind the camera).
      */
-    fun stemWidth(t: Float, cornerW: Float): Float {
-        val slope = (BASE_W - cornerW) / (1f - FILLET / 2f)
-        val tt = t.coerceIn(0f, 1f)
-        return if (tt >= FILLET) cornerW + slope * (tt - FILLET / 2f) else cornerW + slope * tt * tt / (2f * FILLET)
-    }
-
-    /** Stem on screen: from below the bottom edge up to the corner row, widths from [stemWidth]. */
-    private fun stem(cornerY: Float, cornerW: Float): List<Pt> {
-        val yStart = BOTTOM + 4f
-        val n = 36
-        return (0..n).map { i ->
-            val y = yStart + (cornerY - yStart) * i / n
-            Pt(CX, y, stemWidth((y - cornerY) / (BOTTOM - cornerY), cornerW))
+    private fun ribbon(line: List<W>, half: Float, cam: Camera): List<List<Pt>> {
+        val runs = ArrayList<List<Pt>>()
+        var run = ArrayList<Pt>()
+        for (i in line.indices) {
+            val d = unit(line[maxOf(0, i - 1)], line[minOf(line.size - 1, i + 1)])
+            val p = line[i]
+            // Right of the heading (dx, dz) is (dz, -dx).
+            val l = cam.screen(p.x - d.z * half, p.z + d.x * half)
+            val r = cam.screen(p.x + d.z * half, p.z - d.x * half)
+            if (l == null || r == null) {
+                if (run.size > 1) runs += run
+                run = ArrayList()
+                continue
+            }
+            run += Pt(l.first, l.second, r.first, r.second)
         }
+        if (run.size > 1) runs += run
+        return runs
     }
 
-    private fun toScreen(world: List<Pair<Float, Float>>, widthRatio: Float = 1f): List<Pt> =
-        world.filter { it.second > 0.4f }.map { (x, z) ->
-            val (sx, sy) = project(x, z)
-            Pt(sx, sy, armWidth(z) * widthRatio)
-        }
-
-    private fun head(pts: List<Pt>): FloatArray {
-        val e = pts.last()
-        val prev = pts[maxOf(0, pts.size - 4)]
-        val len = hypot(e.x - prev.x, e.y - prev.y).takeIf { it > 0f } ?: 1f
-        val dx = (e.x - prev.x) / len
-        val dy = (e.y - prev.y) / len
-        val hw = e.w * HEAD_W_RATIO
-        val hl = e.w * HEAD_L_RATIO
-        return floatArrayOf(
-            e.x + dx * hl, e.y + dy * hl,          // tip
-            e.x - dy * hw / 2, e.y + dx * hw / 2,  // base, one side
-            e.x + dy * hw / 2, e.y - dx * hw / 2   // base, other side
-        )
+    /** Head on the road at the end of [line], pointing along its last stretch. */
+    private fun head(line: List<W>, cam: Camera): FloatArray {
+        val end = line.last()
+        val d = unit(line[maxOf(0, line.size - 4)], end)
+        // Pointing back towards the car: shortened so the tip stays in view.
+        val ez = end.x * sin(cam.h) + end.z * cos(cam.h) - (cam.x * sin(cam.h) + cam.z * cos(cam.h))
+        val dz = d.x * sin(cam.h) + d.z * cos(cam.h)
+        val len = if (dz < 0f) min(HEAD_L, max(1f, (ez - Z_CLIP - 0.3f) / -dz)) else HEAD_L
+        val tip = cam.screen(end.x + d.x * len, end.z + d.z * len)
+        val l = cam.screen(end.x - d.z * HEAD_HW, end.z + d.x * HEAD_HW)
+        val r = cam.screen(end.x + d.z * HEAD_HW, end.z - d.x * HEAD_HW)
+        if (tip == null || l == null || r == null) return FloatArray(0)
+        return floatArrayOf(tip.first, tip.second, l.first, l.second, r.first, r.second)
     }
 
-    /** Arm centreline in world space (x, z): from the corner, an arc, then the tail. */
-    fun armCenterline(meters: Float, angleDeg: Float): List<Pair<Float, Float>> {
+    /** Turn centreline on the road: straight to the corner, an arc, then the tail. */
+    fun armCenterline(meters: Float, angleDeg: Float): List<W> {
         val zc = cornerDepth(meters)
-        val pts = ArrayList<Pair<Float, Float>>(160)
-        pts += 0f to zc
+        val ds = 0.1f
+        val pts = ArrayList<W>(200)
         var x = 0f
-        var z = zc
+        var z = Z_CLIP - ds
+        while (z < zc) {
+            pts += W(x, z)
+            z += ds
+        }
+        z = zc
+        pts += W(x, z)
         var h = 0f
         val target = (angleDeg * bendAmount(meters) * PI / 180).toFloat()
         val sgn = if (target == 0f) 1f else sign(target)
-        val ds = 0.06f
         repeat((abs(target) * TURN_R / ds).roundToInt()) {
             h += sgn * ds / TURN_R
             x += sin(h) * ds
             z += cos(h) * ds
-            pts += x to z
+            pts += W(x, z)
         }
         repeat((TURN_LEN / ds).roundToInt()) {
+            val nz = z + cos(h) * ds
+            // Coming back towards the car: stop while the head is still in view.
+            if (cos(h) < 0f && nz < TAIL_MIN_Z) return pts
             x += sin(h) * ds
-            z += cos(h) * ds
-            pts += x to z
+            z = nz
+            pts += W(x, z)
         }
         return pts
     }
 
-    /** The arrow for [meters] to a maneuver bending by [angleDeg]: stem and arm as one ribbon. */
+    /** The arrow for [meters] to a maneuver bending by [angleDeg]. */
     fun shape(meters: Float, angleDeg: Float): Shape {
-        val arm = toScreen(armCenterline(meters, angleDeg))
-        val blue = stem(arm.first().y, arm.first().w) + arm.drop(1)
-        return fit(Shape(blue, head(blue)))
+        val line = armCenterline(meters, angleDeg)
+        val blue = ribbon(line, HW, AHEAD).lastOrNull().orEmpty()
+        return fit(Shape(blue, head(line, AHEAD)))
     }
 
-    /** Roundabout ribbon thickness for a row: thinner further up (further away). */
-    fun rbWidth(y: Float): Float = RB_W_FAR + (RB_W_NEAR - RB_W_FAR) * ((y - TOP) / (BOTTOM - TOP)).coerceIn(0f, 1f)
+    /** Cubic from [p0] heading [d0] to [p3] heading [d3], without [p0]. */
+    private fun curve(p0: W, d0: W, p3: W, d3: W, n: Int = 24): List<W> {
+        val k = hypot(p3.x - p0.x, p3.z - p0.z) * 0.45f
+        val p1 = W(p0.x + d0.x * k, p0.z + d0.z * k)
+        val p2 = W(p3.x - d3.x * k, p3.z - d3.z * k)
+        return (1..n).map { i ->
+            val t = i.toFloat() / n
+            val u = 1 - t
+            W(
+                u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
+                u * u * u * p0.z + 3 * u * u * t * p1.z + 3 * u * t * t * p2.z + t * t * t * p3.z
+            )
+        }
+    }
+
+    /** Point at arc length [s] along [line] (cumulative lengths in [acc]). */
+    private fun at(line: List<W>, acc: FloatArray, s: Float): W {
+        if (s <= 0f) return line.first()
+        for (i in 1 until line.size) {
+            if (acc[i] >= s) {
+                val seg = (acc[i] - acc[i - 1]).takeIf { it > 0f } ?: return line[i]
+                val t = (s - acc[i - 1]) / seg
+                return W(line[i - 1].x + (line[i].x - line[i - 1].x) * t, line[i - 1].z + (line[i].z - line[i - 1].z) * t)
+            }
+        }
+        return line.last()
+    }
 
     /**
      * A roundabout [meters] ahead whose exit is [travelDeg] round the ring ([clockwise] for
-     * left-hand traffic), with [passedDeg] the exits passed first and [progress] (0..1) how much
-     * of the way round has already been driven.
+     * left-hand traffic), with [passedDeg] the exits passed first and [progress] (0..1) how far
+     * the car has got from the approach to the exit.
      */
     fun roundabout(
         meters: Float,
@@ -232,76 +307,80 @@ object HudArArrow {
         progress: Float = 0f
     ): Shape {
         val bend = bendAmount(meters)
-        // Far away: a plain straight arrow, like any other maneuver.
-        if (bend <= 0.02f) return shape(meters, 0f)
-        val scale = RB_MIN_SCALE + (1f - RB_MIN_SCALE) * bend
-        val rx = RB_RX * scale
-        val ry = RB_RY * scale
         val side = if (clockwise) -1f else 1f
-        // 0° is the entry (near side, bottom of the ellipse), going round towards [side].
-        fun ringXY(deg: Float): Pair<Float, Float> {
-            val psi = (deg * PI / 180).toFloat()
-            return CX + side * rx * sin(psi) to RB_CY + ry * cos(psi)
+        val zc = cornerDepth(meters)
+        val centre = W(0f, zc + ENTRY_GAP + RING_R)
+        fun rad(deg: Float) = (deg * PI / 180).toFloat()
+        // 0° is the near side of the ring; angles grow in the direction of travel.
+        fun ring(deg: Float, r: Float = RING_R) =
+            W(centre.x + side * r * sin(rad(deg)), centre.z - r * cos(rad(deg)))
+        fun along(deg: Float) = W(side * cos(rad(deg)), sin(rad(deg)))
+        fun outward(deg: Float) = W(side * sin(rad(deg)), -cos(rad(deg)))
+
+        // Route on the road: approach, merge into the ring, round it, out to just past our exit.
+        val aOut = max(ENTRY_DEG + 10f, travelDeg - ENTRY_DEG)
+        val route = ArrayList<W>(300)
+        var z = 0f
+        while (z < zc) {
+            route += W(0f, z)
+            z += 0.1f
         }
-        fun outward(deg: Float): Pair<Float, Float> {
-            val psi = (deg * PI / 180).toFloat()
-            val dx = side * sin(psi)
-            val dy = cos(psi) * 0.6f
-            val len = hypot(dx, dy).takeIf { it > 0f } ?: 1f
-            return dx / len to dy / len
+        val approachEnd = W(0f, zc)
+        route += approachEnd
+        route += curve(approachEnd, W(0f, 1f), ring(ENTRY_DEG), along(ENTRY_DEG))
+        var deg = ENTRY_DEG + 2f
+        while (deg < aOut) {
+            route += ring(deg)
+            deg += 2f
         }
-        fun pt(xy: Pair<Float, Float>, ratio: Float = 1f) = Pt(xy.first, xy.second, rbWidth(xy.second) * ratio)
-        // Grey ring, and grey stubs for the exits passed before ours.
+        route += ring(aOut)
+        route += curve(ring(aOut), along(aOut), ring(travelDeg, RING_R + EXIT_OUT), outward(travelDeg))
+        val acc = FloatArray(route.size)
+        for (i in 1 until route.size) acc[i] = acc[i - 1] + hypot(route[i].x - route[i - 1].x, route[i].z - route[i - 1].z)
+
+        // While far it is a straight arrow of the same length, curling into the route.
+        val shown = route.mapIndexed { i, p -> W(p.x * bend, acc[i] + (p.z - acc[i]) * bend) }
+
+        // Inside the roundabout the camera rides the route, looking a little ahead.
+        val total = acc.last()
+        val sCam = progress.coerceIn(0f, 1f) * (total - EXIT_OUT)
+        val cam = if (sCam <= 0f) AHEAD else {
+            val here = at(shown, acc, sCam)
+            val ahead = at(shown, acc, min(total, sCam + LOOK_AHEAD))
+            val d = unit(here, ahead)
+            Camera(here.x, here.z, kotlin.math.atan2(d.x, d.z))
+        }
+        val remaining = if (sCam <= 0f) shown else shown.filterIndexed { i, _ -> acc[i] >= sCam }
+        val blue = ribbon(remaining, HW, cam).lastOrNull().orEmpty()
+
         val gray = ArrayList<List<Pt>>()
-        gray += (0..72).map { pt(ringXY(it * 5f), RING_W_RATIO) }
-        for (deg in passedDeg) {
-            val (x0, y0) = ringXY(deg)
-            val (ox, oy) = outward(deg)
-            gray += (0..6).map { k -> val d = STUB_PX * scale * k / 6; pt(x0 + ox * d to y0 + oy * d, RING_W_RATIO) }
+        if (bend > 0.02f) {
+            gray += ribbon((0..90).map { ring(it * 4f) }, RING_HW, cam)
+            for (p in passedDeg) {
+                gray += ribbon((0..8).map { k -> ring(p, RING_R + STUB_LEN * k / 8) }, STUB_HW, cam)
+            }
         }
-        // Route: half way round (straight through) curling on to the real exit as the bend comes in.
-        val shown = 180f + (travelDeg - 180f) * bend
-        val steps = maxOf(2, (shown / 3f).roundToInt())
-        val around = (0..steps).map { pt(ringXY(shown * it / steps)) }
-        val exit = around.last()
-        val (dx, dy) = outward(shown)
-        // Upward tails stop short of the top fade so the head stays visible.
-        val roomUp = if (dy < 0f) (exit.y - (FADE_TOP_TO + exit.w * HEAD_L_RATIO)) / -dy else Float.MAX_VALUE
-        val tailLen = min(RB_TAIL_PX, roomUp.coerceAtLeast(4f))
-        val tail = (1..20).map { k -> val d = tailLen * k / 20; pt(exit.x + dx * d to exit.y + dy * d) }
-        val route = around + tail
-        val entry = route.first()
-        val done = progress.coerceIn(0f, 1f) * steps
-        val blue = if (done >= 1f) {
-            // Inside the roundabout: the stem and the way round driven so far turn grey.
-            val n = done.roundToInt().coerceIn(1, steps)
-            gray += stem(entry.y, entry.w) + route.take(n + 1).drop(1)
-            route.drop(n)
-        } else {
-            stem(entry.y, entry.w) + route.drop(1)
-        }
-        return fit(Shape(blue, head(blue), gray))
+        return fit(Shape(blue, head(remaining, cam), gray, grayAlpha = bend))
     }
 
     /**
      * Sharp turns, U-turns and roundabout exits near the corner could sweep past the room on
-     * their side: squeeze everything sideways just enough; thickness is kept.
+     * their side: squeeze everything sideways just enough. Measured on the route and its head.
      */
     private fun fit(shape: Shape): Shape {
         fun room(x: Float) = if (x < CX) ROOM_LEFT else ROOM_RIGHT
         var squeeze = 1f
-        for (p in shape.blue + shape.gray.flatten()) {
-            val dxc = abs(p.x - CX)
-            if (dxc > 0.01f) squeeze = min(squeeze, ((room(p.x) - p.w / 2) / dxc).coerceAtLeast(0f))
+        fun take(x: Float) {
+            val dxc = abs(x - CX)
+            if (dxc > 0.01f) squeeze = min(squeeze, room(x) / dxc)
         }
-        for (k in 0 until 3) {
-            val dxc = abs(shape.head[2 * k] - CX)
-            if (dxc > 0.01f) squeeze = min(squeeze, room(shape.head[2 * k]) / dxc)
-        }
+        for (p in shape.blue) if (p.y in TOP..BOTTOM) { take(p.lx); take(p.rx) }
+        for (k in 0 until shape.head.size / 2) take(shape.head[2 * k])
         if (squeeze >= 1f) return shape
-        fun sq(list: List<Pt>) = list.map { it.copy(x = CX + (it.x - CX) * squeeze) }
-        val head = shape.head.copyOf().also { for (k in 0 until 3) it[2 * k] = CX + (it[2 * k] - CX) * squeeze }
-        return Shape(sq(shape.blue), head, shape.gray.map { sq(it) })
+        fun sx(x: Float) = CX + (x - CX) * squeeze
+        fun sq(list: List<Pt>) = list.map { it.copy(lx = sx(it.lx), rx = sx(it.rx)) }
+        val head = shape.head.copyOf().also { for (k in 0 until it.size / 2) it[2 * k] = sx(it[2 * k]) }
+        return Shape(sq(shape.blue), head, shape.gray.map { sq(it) }, shape.grayAlpha)
     }
 
     /**
