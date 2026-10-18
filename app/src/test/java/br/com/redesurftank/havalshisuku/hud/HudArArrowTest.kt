@@ -279,9 +279,11 @@ class HudArArrowTest {
         val right = Directions(active = true, distance = "100 m", distanceM = 100, turn = "TURN_RIGHT")
         val far = HudOverlayModel.frameFor(ar, right.copy(distance = "300 m", distanceM = 300), 0, null)
         assertNull(far.chevrons)
-        val near = HudOverlayModel.frameFor(ar, right, 0, null, arMetersOverride = 60f).chevrons!!
+        // Without the map they wait until 40 m (can't tell if a side street comes first).
+        assertNull(HudOverlayModel.frameFor(ar, right, 0, null, arMetersOverride = 60f).chevrons)
+        val near = HudOverlayModel.frameFor(ar, right, 0, null, arMetersOverride = 36f).chevrons!!
         assertEquals(1, near.side)
-        assertEquals(0.5f, near.intensity, 0.01f)
+        assertEquals(0.7f, near.intensity, 0.01f)
         val at = HudOverlayModel.frameFor(ar, right, 0, null, arMetersOverride = 0f).chevrons!!
         assertEquals(1f, at.intensity, 0f)
         val left = HudOverlayModel.frameFor(ar, right.copy(turn = "SHARP_LEFT"), 0, null, arMetersOverride = 30f).chevrons!!
@@ -294,9 +296,9 @@ class HudArArrowTest {
         assertNull(HudOverlayModel.frameFor(ar.copy(layout = HudOverlayModel.Layout.NAVIGATION), right, 0, null, 30f).chevrons)
         // Roundabout: the way out, 270° round a counter-clockwise ring is a left.
         val rb = Directions(active = true, distance = "50 m", distanceM = 50, turn = "ROUNDABOUT", exitNumber = 3, turnAngle = 270, roundaboutClockwise = false)
-        assertEquals(-1, HudOverlayModel.frameFor(ar, rb, 0, null).chevrons!!.side)
-        assertEquals(1, HudOverlayModel.frameFor(ar, rb.copy(turnAngle = 90, exitNumber = 1), 0, null).chevrons!!.side)
-        assertNull(HudOverlayModel.frameFor(ar, rb.copy(turnAngle = 180, exitNumber = 2), 0, null).chevrons)
+        assertEquals(-1, HudOverlayModel.frameFor(ar, rb, 0, null, arMetersOverride = 30f).chevrons!!.side)
+        assertEquals(1, HudOverlayModel.frameFor(ar, rb.copy(turnAngle = 90, exitNumber = 1), 0, null, arMetersOverride = 30f).chevrons!!.side)
+        assertNull(HudOverlayModel.frameFor(ar, rb.copy(turnAngle = 180, exitNumber = 2), 0, null, arMetersOverride = 30f).chevrons)
         // Band above the arcs, inside the optics.
         assertTrue(HudOverlayModel.CHEVRON_CY - HudOverlayModel.CHEVRON_HALF_H >= 40f)
         assertTrue(HudOverlayModel.CHEVRON_CY + HudOverlayModel.CHEVRON_HALF_H <= HudOverlayModel.ARC_CY - HudOverlayModel.ARC_POWER_R_OUT)
@@ -345,6 +347,27 @@ class HudArArrowTest {
         val arrive = Directions(active = true, distance = "80 m", distanceM = 80, turn = "DESTINATION_RIGHT")
         assertEquals(1, HudOverlayModel.tbtFor(arrive, ar)!!.arDestination)
         assertNull(HudOverlayModel.tbtFor(arrive.copy(turn = "TURN_RIGHT"), ar)!!.arDestination)
+    }
+
+    @Test
+    fun `chevrons with the map - only when ours is the next street on the turn's side`() {
+        val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR, mapStreets = true)
+        val streets = listOf(
+            br.com.redesurftank.havalshisuku.map.LocalRoad(floatArrayOf(0f, -30f, 0f, 60f, 0f, 110f, 0f, 300f), 1f),
+            br.com.redesurftank.havalshisuku.map.LocalRoad(floatArrayOf(0f, 60f, 80f, 60f), 1f),   // first right, 60 m
+            br.com.redesurftank.havalshisuku.map.LocalRoad(floatArrayOf(0f, 110f, 80f, 110f), 1f)  // second right, 110 m
+        )
+        val right = Directions(active = true, distance = "110 m", distanceM = 110, turn = "TURN_RIGHT")
+        // Ours is the second street on the right: the first could be mistaken for it.
+        val second = HudOverlayModel.frameFor(ar, right, 0, null, arMetersOverride = 100f, streets = streets)
+        assertTrue(second.tbt!!.routeMatched)
+        assertNull(second.chevrons)
+        // Ours is the first on the right: chevrons from 120 m.
+        val first = HudOverlayModel.frameFor(ar, right.copy(distance = "60 m", distanceM = 60), 0, null, arMetersOverride = 60f, streets = streets)
+        assertTrue(first.tbt!!.routeClear)
+        assertEquals(1, first.chevrons!!.side)
+        // The map view is used: a route on the roads.
+        assertTrue(first.tbt!!.route != null)
     }
 
     @Test

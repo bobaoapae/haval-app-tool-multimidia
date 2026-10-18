@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.HandlerThread
 import android.util.Log
 import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.map.LocalRoad
 import br.com.redesurftank.havalshisuku.map.OsmRoadStore
 import br.com.redesurftank.havalshisuku.map.OsmRoads
 
@@ -21,23 +22,27 @@ object HudMapFeed {
     private const val TAG = "HudMapFeed"
     private const val GPS_INTERVAL_MS = 1_000L
     /** Tiles loaded round the car. */
-    private const val LOAD_RADIUS_M = 700.0
+    private const val LOAD_RADIUS_M = 800.0
     /** What is kept for drawing: ahead (the HUD's far end at the far map scale) and to the sides. */
-    private const val AHEAD_M = 900.0
-    private const val SIDE_M = 400.0
-    private const val STEP_M = 12.0
+    private const val AHEAD_M = 720.0
+    private const val SIDE_M = 300.0
+    private const val STEP_M = 6.0
     /** Below this speed GPS bearing is noise: keep the last good one. */
     private const val BEARING_MIN_MPS = 2f
+    /** A moving fix's heading is trusted this long; then the road under the car gives it. */
+    private const val BEARING_FRESH_MS = 20_000L
     /** Rebuild this often anyway: retries tiles that failed while the car stands (no new fixes). */
     private const val REFRESH_MS = 5_000L
 
-    @Volatile var lines: List<FloatArray> = emptyList()
+    @Volatile var lines: List<LocalRoad> = emptyList()
         private set
     private var onChange: (() -> Unit)? = null
     private var thread: HandlerThread? = null
     @Volatile private var lat = Double.NaN
     @Volatile private var lon = Double.NaN
     @Volatile private var bearing = 0.0
+    /** When [bearing] last came from a moving fix (elapsed ms); 0 = never. */
+    @Volatile private var bearingAtMs = 0L
 
     private var handler: android.os.Handler? = null
     private val refresh = object : Runnable {
@@ -85,14 +90,20 @@ object HudMapFeed {
     private fun onLocation(location: Location) {
         lat = location.latitude
         lon = location.longitude
-        if (location.hasBearing() && location.hasSpeed() && location.speed >= BEARING_MIN_MPS) bearing = location.bearing.toDouble()
+        if (location.hasBearing() && location.hasSpeed() && location.speed >= BEARING_MIN_MPS) {
+            bearing = location.bearing.toDouble()
+            bearingAtMs = android.os.SystemClock.elapsedRealtime()
+        }
         rebuild()
     }
 
     private fun rebuild() {
         if (lat.isNaN()) return
         val roads = OsmRoadStore.roadsNear(lat, lon, LOAD_RADIUS_M) { rebuild() }
-        lines = OsmRoads.toLocal(roads, lat, lon, bearing, AHEAD_M, SIDE_M, STEP_M)
+        // Standing still (no heading for a while): face along the road the car is on.
+        val stale = android.os.SystemClock.elapsedRealtime() - bearingAtMs > BEARING_FRESH_MS || bearingAtMs == 0L
+        val heading = if (stale) OsmRoads.roadBearing(roads, lat, lon, bearing) ?: bearing else bearing
+        lines = OsmRoads.toLocal(roads, lat, lon, heading, AHEAD_M, SIDE_M, STEP_M)
         onChange?.invoke()
     }
 }

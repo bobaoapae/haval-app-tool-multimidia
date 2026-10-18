@@ -449,11 +449,21 @@ object HudOverlayModel {
     /** Below this bend (keep, merge: a lane choice, not a turn) there is no side to point to. */
     const val CHEVRON_MIN_DEG = 30f
 
-    /** Chevrons for an AR maneuver within [CHEVRON_START_M], or null. */
+    /**
+     * Without the map we can't tell whether a side street comes before ours, so the chevrons
+     * wait until this close (owner: they must not point at the wrong street).
+     */
+    const val CHEVRON_NO_MAP_M = 40f
+
+    /**
+     * Chevrons for an AR maneuver within [CHEVRON_START_M], only when ours is the next street on
+     * the turn's side (map matched), or within [CHEVRON_NO_MAP_M] without the map; else null.
+     */
     fun chevronsFor(tbt: Tbt?): Chevrons? {
         if (tbt == null || tbt.style != TbtStyle.AR) return null
         val meters = tbt.arMeters ?: return null
         if (meters > CHEVRON_START_M) return null
+        if (if (tbt.routeMatched) !tbt.routeClear else meters > CHEVRON_NO_MAP_M) return null
         // Roundabout: the way out relative to the way in (180° round is straight on).
         val heading = if (tbt.dynamicRoundabout) {
             val ccw = 180f - tbt.exitAngle!!
@@ -507,8 +517,14 @@ object HudOverlayModel {
         /** AR arriving: destination side (-1 left, +1 right, 0 unknown); null on other maneuvers. */
         val arDestination: Int? = null,
         val arPlacement: HudArArrow.Placement = HudArArrow.Placement.CENTER,
-        /** AR map: streets round the car, car frame in metres (x, y pairs); empty = none. */
-        val streets: List<FloatArray> = emptyList()
+        /** AR map: streets round the car, car frame in metres; empty = map off or not loaded. */
+        val streets: List<br.com.redesurftank.havalshisuku.map.LocalRoad> = emptyList(),
+        /** AR map: the route ahead (metres, car frame), drawn on the streets; null = no map view. */
+        val route: FloatArray? = null,
+        /** The route was matched to the real roads (not the plain fallback shape). */
+        val routeMatched: Boolean = false,
+        /** No other street leaves on the turn's side before ours (see RoutePath.Route). */
+        val routeClear: Boolean = false
     ) {
         /** Draw the roundabout with its real exit instead of the static icon. */
         val dynamicRoundabout: Boolean get() = icon == "ROUNDABOUT" && exitAngle != null
@@ -660,6 +676,18 @@ object HudOverlayModel {
         return if (newStep) sameDistance else sameDistance && wasStale
     }
 
+    /**
+     * The AR map view: with [streets] loaded, the route on the real roads (or the plain fallback
+     * shape at the same scale). Roundabouts keep their own view.
+     */
+    fun withMap(tbt: Tbt, streets: List<br.com.redesurftank.havalshisuku.map.LocalRoad>): Tbt {
+        if (streets.isEmpty() || tbt.dynamicRoundabout) return tbt
+        val turn = if (tbt.arDestination != null) 0f else tbt.arAngle
+        val route = br.com.redesurftank.havalshisuku.map.RoutePath.route(streets, tbt.arMeters, turn)
+            ?: br.com.redesurftank.havalshisuku.map.RoutePath.synthetic(tbt.arMeters, turn)
+        return tbt.copy(streets = streets, route = route.pts, routeMatched = route.matched, routeClear = route.nextOnSide)
+    }
+
     fun tbtFor(d: AndroidAutoNavigationTelemetry.Directions, config: Config = Config()): Tbt? {
         if (!d.active) return null
         val (value, unit) = splitDistance(d.distance, d.distanceM)
@@ -706,7 +734,7 @@ object HudOverlayModel {
         arProgress: Float = 0f,
         arDistanceKnown: Boolean = true,
         radar: Radar? = null,
-        streets: List<FloatArray> = emptyList()
+        streets: List<br.com.redesurftank.havalshisuku.map.LocalRoad> = emptyList()
     ): Frame {
         // "Original" layout: the window is only up for the radar, so draw nothing else.
         if (!config.active) return Frame(tbt = null, powerPercent = null, rpmTenths = null, radar = radar)
@@ -714,10 +742,12 @@ object HudOverlayModel {
         val tbt = if (config.navigation && radar == null) {
             directions?.let { tbtFor(it, config) }?.let { tbt ->
                 if (tbt.style != TbtStyle.AR) tbt
-                else tbt.copy(
-                    arMeters = if (arDistanceKnown) arMetersOverride ?: tbt.arMeters else null,
-                    arProgress = arProgress,
-                    streets = if (config.mapStreets) streets else emptyList()
+                else withMap(
+                    tbt.copy(
+                        arMeters = if (arDistanceKnown) arMetersOverride ?: tbt.arMeters else null,
+                        arProgress = arProgress
+                    ),
+                    if (config.mapStreets) streets else emptyList()
                 )
             }
         } else null

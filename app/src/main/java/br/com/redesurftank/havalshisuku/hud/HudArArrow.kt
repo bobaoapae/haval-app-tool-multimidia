@@ -4,6 +4,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -130,32 +131,120 @@ object HudArArrow {
         }
     }
 
-    // Map streets (beta): real OpenStreetMap roads, in light grey under the arrow.
-    /** Half width of a drawn street, world units (thin next to the route's [HW]). */
-    const val STREET_HW = 0.3f
-    /** Streets further than this (world units) melt into the horizon: not drawn. */
-    const val STREET_FAR_Z = 60f
+    // Map view (beta): the real roads round the car out to the horizon, the route on them.
+    /** Screen row of the horizon in the map view: right below the native speed (owner). */
+    const val MAP_HORIZON_Y = 136f
+    /** Nothing further than this ahead (metres). */
+    const val MAP_FAR_M = 700f
+    /**
+     * Depth scale (metres): distance is spread logarithmically between the bottom edge (the car)
+     * and the horizon, so the far path stays readable. True perspective with a road-wide route
+     * crushed everything past ~100 m into the last few rows under the horizon.
+     */
+    const val MAP_DEPTH_M = 40f
+    /** Pixels per metre sideways at the bottom edge: a 10 m street is 120 px wide there. */
+    const val MAP_PX_PER_M = 12f
+    /** The route: half a street's width (metres); roads scale this by their class. */
+    const val MAP_HALF_M = 5f
+    const val MAP_HEAD_L_M = 14f
+    const val MAP_HEAD_HALF_M = 10f
+    const val MAP_FLAG_GAP_M = 3f
+    const val MAP_FLAG_H_M = 6f
+    /**
+     * Minimum drawn thickness (px) of a street: one running sideways in the distance spans only a
+     * few metres of depth and would shrink to a hairline (the turn street included).
+     */
+    const val MAP_MIN_PX = 10f
+
+    /** Height above the map's horizon (px) of a point [d] metres ahead. */
+    fun mapOffset(d: Float): Float {
+        val dd = d.coerceAtLeast(-0.5f * MAP_DEPTH_M)
+        return (BOTTOM - MAP_HORIZON_Y) * (1f - ln(1f + dd / MAP_DEPTH_M) / ln(1f + MAP_FAR_M / MAP_DEPTH_M))
+    }
+
+    /** Pixels per metre sideways at [d] metres ahead: shrinks with the height above the horizon. */
+    fun mapPxPerM(d: Float): Float = MAP_PX_PER_M * mapOffset(d) / (BOTTOM - MAP_HORIZON_Y)
+
+    /** Screen point for (x right, d ahead) metres in the car's frame; null past [MAP_FAR_M]. */
+    fun mapProject(x: Float, d: Float): Pair<Float, Float>? =
+        if (d > MAP_FAR_M) null else CX + x * mapPxPerM(d) to MAP_HORIZON_Y + mapOffset(d)
 
     /**
-     * World units per metre for the map, tied to the arrow's corner: a maneuver [meters] ahead
-     * is drawn at [cornerDepth], so the real cross street lands under the arrow's turn. The map
-     * zooms in as the car closes in (real scale, 1, from ~5 m). Far or unknown: the 200 m scale.
+     * A centreline (metres, car frame) [half] metres wide each side, on screen, at least
+     * [minPx] thick; split where it leaves the view.
      */
-    fun mapScale(meters: Float?): Float =
-        if (meters == null || meters >= BEND_START_M) Z_CAP / BEND_START_M
-        else (cornerDepth(meters) / meters.coerceAtLeast(1f)).coerceAtMost(1f)
+    private fun mapRibbon(line: List<W>, half: Float, minPx: Float): List<List<Pt>> {
+        val runs = ArrayList<List<Pt>>()
+        var run = ArrayList<Pt>()
+        for (i in line.indices) {
+            val d = unit(line[maxOf(0, i - 1)], line[minOf(line.size - 1, i + 1)])
+            val p = line[i]
+            val l = mapProject(p.x - d.z * half, p.z + d.x * half)
+            val r = mapProject(p.x + d.z * half, p.z - d.x * half)
+            if (l == null || r == null) {
+                if (run.size > 1) runs += run
+                run = ArrayList()
+                continue
+            }
+            val w = hypot(r.first - l.first, r.second - l.second)
+            if (w >= minPx || w <= 0f) {
+                run += Pt(l.first, l.second, r.first, r.second)
+            } else {
+                // Too thin: widen about the middle, along the same cross direction.
+                val mx = (l.first + r.first) / 2
+                val my = (l.second + r.second) / 2
+                val ux = (r.first - l.first) / w * minPx / 2
+                val uy = (r.second - l.second) / w * minPx / 2
+                run += Pt(mx - ux, my - uy, mx + ux, my + uy)
+            }
+        }
+        if (run.size > 1) runs += run
+        return runs
+    }
 
-    /** [lines] (car frame, metres: x right, y ahead, as x, y pairs) as thin grey ribbons. */
-    fun streets(lines: List<FloatArray>, meters: Float?): List<List<Pt>> {
-        val s = mapScale(meters)
-        val out = ArrayList<List<Pt>>()
-        for (line in lines) {
-            val pts = ArrayList<W>(line.size / 2)
-            for (k in 0 until line.size / 2) pts += W(line[2 * k] * s, line[2 * k + 1] * s)
-            if (pts.none { it.z in Z_CLIP..STREET_FAR_Z }) continue
-            out += ribbon(pts, STREET_HW, AHEAD)
+    /** x, y metre pairs as points, long segments split (<= 5 m) so curves and edges stay smooth. */
+    private fun metres(pts: FloatArray): List<W> {
+        val out = ArrayList<W>(pts.size)
+        for (k in 0 until pts.size / 2) {
+            val p = W(pts[2 * k], pts[2 * k + 1])
+            val prev = out.lastOrNull()
+            if (prev != null) {
+                val n = (hypot(p.x - prev.x, p.z - prev.z) / 5f).toInt()
+                for (i in 1..n) out += W(prev.x + (p.x - prev.x) * i / (n + 1), prev.z + (p.z - prev.z) * i / (n + 1))
+            }
+            out += p
         }
         return out
+    }
+
+    /**
+     * The map view, in screen pixels: [roads] (car frame, metres) as grey ribbons as wide as
+     * their class, [route] (metres, from RoutePath) as the blue ribbon on top with its head, and
+     * on arrival a flag on [destSide] of the route's end.
+     */
+    fun mapScene(roads: List<br.com.redesurftank.havalshisuku.map.LocalRoad>, route: FloatArray, destSide: Int?): Shape {
+        val gray = ArrayList<List<Pt>>()
+        for (road in roads) gray += mapRibbon(metres(road.pts), MAP_HALF_M * road.width, MAP_MIN_PX * road.width)
+        val line = metres(route).filter { it.z <= MAP_FAR_M }
+        val blue = mapRibbon(line, MAP_HALF_M, MAP_MIN_PX).lastOrNull().orEmpty()
+        var head = FloatArray(0)
+        var flag: Flag? = null
+        if (line.size >= 2) {
+            val end = line.last()
+            val d = unit(line[maxOf(0, line.size - 4)], end)
+            val tip = mapProject(end.x + d.x * MAP_HEAD_L_M, end.z + d.z * MAP_HEAD_L_M)
+            val l = mapProject(end.x - d.z * MAP_HEAD_HALF_M, end.z + d.x * MAP_HEAD_HALF_M)
+            val r = mapProject(end.x + d.z * MAP_HEAD_HALF_M, end.z - d.x * MAP_HEAD_HALF_M)
+            if (tip != null && l != null && r != null) head = floatArrayOf(tip.first, tip.second, l.first, l.second, r.first, r.second)
+            if (destSide != null) {
+                val off = if (destSide == 0) 0f else destSide * (MAP_HALF_M + MAP_FLAG_GAP_M)
+                val ahead = if (destSide == 0) MAP_HEAD_L_M + 4f else 0f
+                mapProject(end.x + d.z * off + d.x * ahead, end.z - d.x * off + d.z * ahead)?.let { (fx, fy) ->
+                    flag = Flag(fx, fy, MAP_FLAG_H_M * mapPxPerM(end.z))
+                }
+            }
+        }
+        return Shape(blue, head, gray, 1f, flag)
     }
 
     /** Destination flag: pole foot ([x], [y]) on the road, [height] of the pole, unscaled picture. */

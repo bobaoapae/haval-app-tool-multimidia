@@ -88,7 +88,7 @@ object OsmRoads {
      * [roads] in the car's frame, in metres: x to the right, y ahead, for a car at [lat], [lon]
      * heading [bearingDeg] (0 = north). Only what lies within [aheadM] ahead (and a little
      * behind) and [sideM] to each side; long segments are split to at most [stepM] so a later
-     * perspective projection can clip them near the car. Each polyline is x, y pairs.
+     * perspective projection can clip them near the car.
      */
     fun toLocal(
         roads: List<OsmRoad>,
@@ -98,15 +98,16 @@ object OsmRoads {
         aheadM: Double,
         sideM: Double,
         stepM: Double
-    ): List<FloatArray> {
+    ): List<LocalRoad> {
         val mLat = M_PER_DEG_LAT
         val mLon = M_PER_DEG_LON_EQ * cos(lat * PI / 180)
         val b = bearingDeg * PI / 180
         val sb = sin(b)
         val cb = cos(b)
         val behindM = 30.0
-        val out = ArrayList<FloatArray>()
+        val out = ArrayList<LocalRoad>()
         for (road in roads) {
+            val width = widthOf(road.highway)
             val n = road.latLon.size / 2
             val run = ArrayList<Float>()
             var px = 0.0
@@ -124,7 +125,7 @@ object OsmRoads {
                         val sx = px + (x - px) * t
                         val sy = py + (y - py) * t
                         if (sy < -behindM || sy > aheadM || abs(sx) > sideM) {
-                            if (run.size >= 4) out += run.toFloatArray()
+                            if (run.size >= 4) out += LocalRoad(run.toFloatArray(), width)
                             run.clear()
                         } else {
                             run += sx.toFloat(); run += sy.toFloat()
@@ -136,8 +137,49 @@ object OsmRoads {
                 px = x
                 py = y
             }
-            if (run.size >= 4) out += run.toFloatArray()
+            if (run.size >= 4) out += LocalRoad(run.toFloatArray(), width)
         }
         return out
+    }
+
+    /**
+     * Bearing (degrees, 0 = north) along the nearest street within [maxM] of the point, of its
+     * two directions the one closer to [prefer]; null when none is that close. For a car that
+     * stands still, so GPS gives no heading.
+     */
+    fun roadBearing(roads: List<OsmRoad>, lat: Double, lon: Double, prefer: Double, maxM: Double = 30.0): Double? {
+        val local = toLocal(roads, lat, lon, 0.0, 1_000.0, 1_000.0, 10.0)
+        var best = Double.MAX_VALUE
+        var bearing: Double? = null
+        for (road in local) {
+            if (road.minor) continue
+            for (k in 0 until road.pts.size / 2 - 1) {
+                val ax = road.pts[2 * k].toDouble(); val ay = road.pts[2 * k + 1].toDouble()
+                val bx = road.pts[2 * k + 2].toDouble(); val by = road.pts[2 * k + 3].toDouble()
+                val dx = bx - ax; val dy = by - ay
+                val len2 = dx * dx + dy * dy
+                if (len2 <= 0.0) continue
+                val t = (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
+                val d = hypot(ax + dx * t, ay + dy * t)
+                if (d < best && d <= maxM) {
+                    best = d
+                    bearing = Math.toDegrees(kotlin.math.atan2(dx, dy))
+                }
+            }
+        }
+        val b = bearing ?: return null
+        // The two directions along the street: the one nearer [prefer].
+        fun diff(x: Double) = abs(((x - prefer) % 360 + 540) % 360 - 180)
+        val other = (b + 180) % 360
+        return if (diff(b) <= diff(other)) (b + 360) % 360 else other
+    }
+
+    /** Drawn width relative to the route's: avenues wider, driveways narrower. */
+    fun widthOf(highway: String): Float = when (highway) {
+        "motorway", "trunk" -> 1.5f
+        "primary" -> 1.3f
+        "secondary", "tertiary" -> 1.15f
+        "service" -> 0.55f
+        else -> if (highway.endsWith("_link")) 0.8f else 1f
     }
 }
