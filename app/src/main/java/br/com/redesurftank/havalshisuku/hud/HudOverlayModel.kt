@@ -368,12 +368,12 @@ object HudOverlayModel {
 
     // ---- AR layout: power / RPM arcs round the native speed readout ----
     // Centred on the native speed (measured on the car 2026-10-17: about x 222, y 100), then moved
-    // down ~20 px (a quarter of the arc's height) at the owner's request. Each arc is 50 thin
+    // down ~20 px then back up ~8 px at the owner's request (y 112). Each arc is 50 thin
     // radial ticks over 225°, from bottom-left over the top to the right-hand horizontal, so it
     // stops short of the native "km/h".
 
     const val ARC_CX = 222f
-    const val ARC_CY = 120f
+    const val ARC_CY = 112f
     /** 225° starting bottom-left (135°, canvas angles, clockwise) and ending at 0° (right). */
     const val ARC_START_DEG = 135f
     const val ARC_SWEEP_DEG = 225f
