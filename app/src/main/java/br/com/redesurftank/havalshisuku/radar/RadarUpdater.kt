@@ -41,8 +41,12 @@ object RadarUpdater {
     var onStateChanged: (() -> Unit)? = null
 
     /** Starts an update if the cooldown passed (or [force]). Any thread. */
-    fun maybeUpdate(context: Context, force: Boolean) {
-        val app = context.applicationContext
+    fun maybeUpdate(force: Boolean) {
+        // Always device-protected storage, where RadarRepository reads at startup (and the only
+        // storage there before the user unlocks). `context.applicationContext` would turn a DE
+        // context back into credential storage: on 2026-10-17 the download landed in
+        // /data/data/.../files/radar and every restart fell back to the APK copy.
+        val app = br.com.redesurftank.App.getDeviceProtectedContext()
         handler.post {
             if (running) return@post
             val last = RadarSettings.prefs().getLong(SharedPreferencesKeys.RADAR_LAST_UPDATE_MS.key, 0L)

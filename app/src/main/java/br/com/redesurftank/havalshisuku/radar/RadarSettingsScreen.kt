@@ -195,7 +195,7 @@ fun RadarSettingsScreen(onBackToFeatures: () -> Unit) {
                     enabled = !updating,
                     onClick = {
                         updating = true
-                        RadarUpdater.maybeUpdate(context, force = true)
+                        RadarUpdater.maybeUpdate(force = true)
                     }
                 ) { Text(if (updating) "Atualizando… (até alguns minutos)" else "Atualizar agora") }
                 Text(
