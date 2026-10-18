@@ -54,6 +54,17 @@ class RadarRoadsTest {
     }
 
     @Test
+    fun `camera on the road's end node still ties after rounding`() {
+        // Stretch ends at -22.8990; camera 0.5 m past it, as 5-decimal rounding leaves a junction node.
+        val road = RoadSnippet(0, doubleArrayOf(-22.9010, -22.8990), doubleArrayOf(-43.1, -43.1))
+        val atEnd = RadarCamera(-22.8990 + 0.5 / 111_320.0, -43.1, 60, null, RadarCamera.Source.OSM)
+        val farPast = RadarCamera(-22.8990 + 50 / 111_320.0, -43.1, 60, null, RadarCamera.Source.OSM)
+        val tied = RadarRoads.tie(listOf(atEnd, farPast), listOf(road))
+        assertNotNull(tied[0])
+        assertNull(tied[1])
+    }
+
+    @Test
     fun `projection extends past the ends of the stretch`() {
         val road = RoadSnippet(0, doubleArrayOf(-22.9010, -22.8990), doubleArrayOf(-43.1, -43.1))
         // 1 km south of the start, on the road's line.
