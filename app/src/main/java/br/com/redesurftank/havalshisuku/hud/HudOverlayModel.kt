@@ -365,6 +365,10 @@ object HudOverlayModel {
     const val AR_LANES_TOP = 114f
     const val AR_LANES_TRIP_BASELINE = 172f
     const val AR_LANES_TRIP_SIZE = 14f
+    /** While the maneuver is still far (straight arrow), street and distance at this scale. */
+    const val AR_FAR_TEXT_SCALE = 0.75f
+    /** ...and the distance baseline this much higher, closer to the street line. */
+    const val AR_FAR_DISTANCE_RAISE = 8f
 
     // ---- AR layout: power / RPM arcs round the native speed readout ----
     // Centred on the native speed (measured on the car 2026-10-17: about x 222, y 100), then moved
@@ -516,9 +520,19 @@ object HudOverlayModel {
         val smallArrowWhenFar: Boolean = true,
         val trip: Boolean = true,
         val powerBar: Boolean = true,
-        val rpmBar: Boolean = true
+        val rpmBar: Boolean = true,
+        /** Power/RPM as arcs round the native speed instead of the bottom bars, per layout. */
+        val navArcs: Boolean = false,
+        val arArcs: Boolean = true
     ) {
         val active: Boolean get() = layout != Layout.ORIGINAL
+
+        /** Arcs for the current layout. */
+        val arcs: Boolean get() = when (layout) {
+            Layout.NAVIGATION -> navArcs
+            Layout.AR -> arArcs
+            Layout.ORIGINAL -> false
+        }
     }
 
     /**
@@ -592,7 +606,7 @@ object HudOverlayModel {
         } else null,
         powerPercent = if (config.powerBar) powerPercent else null,
         rpmTenths = if (config.rpmBar) rpmTenths else null,
-        arcs = config.layout == Layout.AR
+        arcs = config.arcs
     )
 
     /**

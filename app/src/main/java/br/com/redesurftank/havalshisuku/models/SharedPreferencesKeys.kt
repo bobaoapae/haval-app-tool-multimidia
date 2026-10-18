@@ -415,6 +415,8 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     HUD_NAV_TRIP("hudNavTrip", "HUD: mostrar distância e tempo restantes"),
     HUD_POWER_BAR("hudPowerBar", "HUD: barra de potência/regeneração"),
     HUD_RPM_BAR("hudRpmBar", "HUD: barra de rotação do motor"),
+    HUD_NAV_ARCS("hudNavArcs", "HUD Navegação: potência/rotação em arcos (senão barras)"),
+    HUD_AR_ARCS("hudArArcs", "HUD Navegação AR: potência/rotação em arcos (senão barras)"),
     CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),
     AMBIENT_LIGHT_BLE_ENABLED("ambientLightBleEnabled", "Ativar Ambient Light BLE"),
     AMBIENT_LIGHT_BLE_DEVICE_MAC("ambientLightBleDeviceMac", "MAC do dispositivo Ambient Light BLE"),

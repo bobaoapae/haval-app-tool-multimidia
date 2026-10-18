@@ -23,7 +23,9 @@ object HudOverlaySettings {
             smallArrowWhenFar = prefs.getBoolean(SharedPreferencesKeys.HUD_NAV_SMALL_WHEN_FAR.key, defaults.smallArrowWhenFar),
             trip = prefs.getBoolean(SharedPreferencesKeys.HUD_NAV_TRIP.key, defaults.trip),
             powerBar = prefs.getBoolean(SharedPreferencesKeys.HUD_POWER_BAR.key, defaults.powerBar),
-            rpmBar = prefs.getBoolean(SharedPreferencesKeys.HUD_RPM_BAR.key, defaults.rpmBar)
+            rpmBar = prefs.getBoolean(SharedPreferencesKeys.HUD_RPM_BAR.key, defaults.rpmBar),
+            navArcs = prefs.getBoolean(SharedPreferencesKeys.HUD_NAV_ARCS.key, defaults.navArcs),
+            arArcs = prefs.getBoolean(SharedPreferencesKeys.HUD_AR_ARCS.key, defaults.arArcs)
         )
     }
 
@@ -36,6 +38,8 @@ object HudOverlaySettings {
             .putBoolean(SharedPreferencesKeys.HUD_NAV_TRIP.key, config.trip)
             .putBoolean(SharedPreferencesKeys.HUD_POWER_BAR.key, config.powerBar)
             .putBoolean(SharedPreferencesKeys.HUD_RPM_BAR.key, config.rpmBar)
+            .putBoolean(SharedPreferencesKeys.HUD_NAV_ARCS.key, config.navArcs)
+            .putBoolean(SharedPreferencesKeys.HUD_AR_ARCS.key, config.arArcs)
             .remove(LEGACY_ENABLED_KEY)
             .apply()
         HudOverlayController.setConfig(config)

@@ -381,7 +381,7 @@ const P3 = {
   BASE_W: 200, Z_CLIP: 2.5, Z_END: 5.5, Z_CAP: 8, K: 0.025,
   TURN_R: 2.3, TURN_LEN: 2.5, TAIL_MIN_Z: 5, HEAD_HW: 3.0, HEAD_L: 3.5,
   BEND_START: 200, BEND_FULL: 40,
-  FADE_TOP_TO: 132, FADE_BOTTOM_FROM: 180, OPACITY: 0.65,
+  FADE_TOP_TO: 132, FADE_BOTTOM_FROM: 180, OPACITY: 0.65, OPACITY_FAR: 0.35, FAR_TEXT_SCALE: 0.75, FAR_DISTANCE_RAISE: 8,
   ROOM_LEFT: 212, ROOM_RIGHT: 240,
   NEAR_RGB: [120, 200, 255], FAR_RGB: [25, 105, 255],
   RING_R: 3.5, RING_HW: 1.5, STUB_LEN: 2.5, STUB_HW: 1.1, ENTRY_GAP: 1, ENTRY_DEG: 30, EXIT_OUT: 2.5, LOOK_AHEAD: 4,
@@ -543,7 +543,7 @@ function draw3dArrow(tbt, meters) {
   lc.fill();
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.globalAlpha = P3.OPACITY;
+  ctx.globalAlpha = P3.OPACITY_FAR + (P3.OPACITY - P3.OPACITY_FAR) * bendAmount(meters); // more see-through while far
   ctx.drawImage(layer, 0, 0);
   ctx.restore();
 }
@@ -556,20 +556,22 @@ const ARC = {
   POWER_OFF: 'rgba(255,255,255,0.35)', RPM_OFF: 'rgba(255,64,64,0.12)',
 };
 
-function arColumn(tbt) {
+function arColumn(tbt, meters) {
   const lanes = tbt.lanes.length > 0;
+  // Still far (straight arrow): street and distance smaller.
+  const far = !(meters < P3.BEND_START), k = far ? P3.FAR_TEXT_SCALE : 1;
   const ord = (n) => n + 'ª';
   const street = [tbt.ring && tbt.exitNumber ? ord(tbt.exitNumber) + ' saída' : '', tbt.street || ''].filter(Boolean).join(' · ');
   if (street) {
-    ctx.font = font(lanes ? 14 : 16);
+    ctx.font = font((lanes ? 14 : 16) * k);
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
     let t = street;
     while (ctx.measureText(t).width > M.BOX_RIGHT - M.BOX_LEFT && t.length > 1) t = t.slice(0, -2) + '…';
     ctx.fillText(t, M.BOX_CENTER_X - ctx.measureText(t).width / 2, lanes ? 74 : 80);
   }
-  const vs = lanes ? 28 : 38, us = lanes ? 16 : 20;
+  const vs = (lanes ? 28 : 38) * k, us = (lanes ? 16 : 20) * k;
   const w = distanceWidth(tbt, vs, us);
-  drawDistance(tbt, M.BOX_CENTER_X - w / 2, lanes ? 104 : 128, vs, us);
+  drawDistance(tbt, M.BOX_CENTER_X - w / 2, lanes ? 104 : 128 - (far ? P3.FAR_DISTANCE_RAISE : 0), vs, us);
   if (lanes) {
     const saved = M.LANES_TOP; M.LANES_TOP = 114; drawLanes(tbt.lanes); M.LANES_TOP = saved;
   }
@@ -623,7 +625,7 @@ function render() {
   const meters = base ? (state.dist ?? base.meters) : 0;
   const tbt = base && (state.dist == null ? base : { ...base, meters, ...formatDistance(meters) });
   if (tbt) {
-    if (opt.d3.checked && tbt.angle !== undefined) { draw3dArrow(tbt, meters); arColumn(tbt); }
+    if (opt.d3.checked && tbt.angle !== undefined) { draw3dArrow(tbt, meters); arColumn(tbt, meters); }
     else if (tbt.lanes.length) drawCompact(tbt);
     else if (opt.far.checked && tbt.meters >= M.FAR_THRESHOLD_M) drawRow(tbt, M.FAR_TOP);
     else drawHero(tbt);

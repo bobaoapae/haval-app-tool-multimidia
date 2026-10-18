@@ -234,6 +234,31 @@ class HudArArrowTest {
     }
 
     @Test
+    fun `each layout picks bars or arcs, Navegação bars and AR arcs by default`() {
+        val turn = Directions(active = true, distance = "90 m", distanceM = 90, turn = "TURN_RIGHT")
+        val nav = HudOverlayModel.Config(layout = HudOverlayModel.Layout.NAVIGATION)
+        val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR)
+        assertTrue(!HudOverlayModel.frameFor(nav, turn, 30, 24).arcs)
+        assertTrue(HudOverlayModel.frameFor(ar, turn, 30, 24).arcs)
+        assertTrue(HudOverlayModel.frameFor(nav.copy(navArcs = true), turn, 30, 24).arcs)
+        assertTrue(!HudOverlayModel.frameFor(ar.copy(arArcs = false), turn, 30, 24).arcs)
+        // One layout's choice doesn't touch the other's.
+        assertTrue(HudOverlayModel.frameFor(ar.copy(navArcs = false), turn, 30, 24).arcs)
+        assertTrue(!HudOverlayModel.frameFor(nav.copy(arArcs = false), turn, 30, 24).arcs)
+    }
+
+    @Test
+    fun `AR arrow is more see-through while far and the column knows it is far`() {
+        assertEquals(HudArArrow.OPACITY_FAR, HudArArrow.opacityFor(1_000f), 0f)
+        assertEquals(HudArArrow.OPACITY, HudArArrow.opacityFor(0f), 0f)
+        assertTrue(HudArArrow.opacityFor(120f) in HudArArrow.OPACITY_FAR..HudArArrow.OPACITY)
+        assertTrue(HudArArrow.OPACITY_FAR < HudArArrow.OPACITY)
+        assertTrue(HudArArrow.isFar(null))
+        assertTrue(HudArArrow.isFar(HudArArrow.BEND_START_M))
+        assertTrue(!HudArArrow.isFar(150f))
+    }
+
+    @Test
     fun `power arc - one tick per 2 percent from the left, regen too`() {
         assertEquals(0, HudOverlayModel.arcPowerTicks(0))
         assertEquals(1, HudOverlayModel.arcPowerTicks(1)) // anything lights one

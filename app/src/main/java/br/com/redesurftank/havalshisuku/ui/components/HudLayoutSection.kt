@@ -271,10 +271,27 @@ private fun HudNavigationSettingsDialog(
                                 ) { onChange(config.copy(trip = it)) }
                             }
                             HudSettingsTab.BARS -> {
-                                OptionRow("Potência / regeneração", "Canto inferior esquerdo. Azul acelerando, verde regenerando.", config.powerBar) {
+                                // Each layout keeps its own style: Navegação bars, Navegação AR arcs by default.
+                                val arcs = config.copy(layout = layout).arcs
+                                OptionRow(
+                                    "Arcos em volta da velocidade",
+                                    "Potência e rotação em arcos sobre a velocidade do carro; desligado, barras nos cantos de baixo.",
+                                    arcs
+                                ) {
+                                    onChange(if (layout == HudOverlayModel.Layout.AR) config.copy(arArcs = it) else config.copy(navArcs = it))
+                                }
+                                OptionRow(
+                                    "Potência / regeneração",
+                                    if (arcs) "Arco externo. Azul acelerando, verde regenerando." else "Canto inferior esquerdo. Azul acelerando, verde regenerando.",
+                                    config.powerBar
+                                ) {
                                     onChange(config.copy(powerBar = it))
                                 }
-                                OptionRow("Rotação do motor", "Canto inferior direito, só com o motor ligado.", config.rpmBar) {
+                                OptionRow(
+                                    "Rotação do motor",
+                                    if (arcs) "Arco interno, só com o motor ligado." else "Canto inferior direito, só com o motor ligado.",
+                                    config.rpmBar
+                                ) {
                                     onChange(config.copy(rpmBar = it))
                                 }
                             }

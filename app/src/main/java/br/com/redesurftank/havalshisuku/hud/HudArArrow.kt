@@ -64,8 +64,10 @@ object HudArArrow {
     const val FADE_TOP_TO = 132f
     /** Fades out over the bottom of the visible band, so the optics' edge doesn't crop it hard. */
     const val FADE_BOTTOM_FROM = 180f
-    /** Overall opacity over the road and the native HUD. */
+    /** Overall opacity over the road and the native HUD, near the maneuver. */
     const val OPACITY = 0.65f
+    /** ...and while it is still far (straight arrow): more see-through. */
+    const val OPACITY_FAR = 0.35f
     /** Within this distance the controller interpolates between AA updates for smooth motion. */
     const val SMOOTH_WITHIN_M = 200
     /**
@@ -143,6 +145,12 @@ object HudArArrow {
     /** 0 = straight arrow, 1 = the full turn. */
     fun bendAmount(meters: Float): Float =
         smooth(((BEND_START_M - meters) / (BEND_START_M - BEND_FULL_M)).coerceIn(0f, 1f))
+
+    /** Far -> [OPACITY_FAR], rising with the bend to [OPACITY] near the maneuver. */
+    fun opacityFor(meters: Float): Float = OPACITY_FAR + (OPACITY - OPACITY_FAR) * bendAmount(meters)
+
+    /** True while the maneuver is too far to show its turn (no or unknown distance included). */
+    fun isFar(meters: Float?): Boolean = meters == null || meters >= BEND_START_M
 
     fun cornerDepth(meters: Float): Float = min(Z_CAP, Z_END + K * meters.coerceAtLeast(0f))
 

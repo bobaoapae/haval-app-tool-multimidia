@@ -202,8 +202,11 @@ class HudOverlayRenderer {
      */
     private fun drawArColumn(canvas: Canvas, tbt: M.Tbt) {
         val lanes = tbt.lanes.isNotEmpty()
+        // Still far: street and distance smaller, the turn isn't shown yet either.
+        val far = HudArArrow.isFar(tbt.arMeters)
+        val scale = if (far) M.AR_FAR_TEXT_SCALE else 1f
         val streetY = if (lanes) M.AR_LANES_STREET_BASELINE else M.AR_STREET_BASELINE
-        streetPaint.textSize = if (lanes) M.AR_LANES_STREET_SIZE else M.AR_STREET_SIZE
+        streetPaint.textSize = scale * if (lanes) M.AR_LANES_STREET_SIZE else M.AR_STREET_SIZE
         val exit = tbt.exitNumber?.let { "${M.exitLabel(it)} saída" }
         val streetLine = listOfNotNull(exit, tbt.street.takeIf { it.isNotEmpty() }).joinToString(" · ")
         if (streetLine.isNotEmpty()) {
@@ -211,10 +214,11 @@ class HudOverlayRenderer {
             val text = android.text.TextUtils.ellipsize(streetLine, streetPaint, maxW, android.text.TextUtils.TruncateAt.END).toString()
             canvas.drawText(text, M.BOX_CENTER_X - streetPaint.measureText(text) / 2, streetY, streetPaint)
         }
-        if (lanes) setTextSizes(M.AR_LANES_DISTANCE_VALUE_SIZE, M.AR_LANES_DISTANCE_UNIT_SIZE)
-        else setTextSizes(M.AR_DISTANCE_VALUE_SIZE, M.AR_DISTANCE_UNIT_SIZE)
+        if (lanes) setTextSizes(scale * M.AR_LANES_DISTANCE_VALUE_SIZE, scale * M.AR_LANES_DISTANCE_UNIT_SIZE)
+        else setTextSizes(scale * M.AR_DISTANCE_VALUE_SIZE, scale * M.AR_DISTANCE_UNIT_SIZE)
         val width = distanceWidth(tbt)
-        drawDistance(canvas, tbt, M.BOX_CENTER_X - width / 2, if (lanes) M.AR_LANES_DISTANCE_BASELINE else M.AR_DISTANCE_BASELINE)
+        val distanceY = if (lanes) M.AR_LANES_DISTANCE_BASELINE else M.AR_DISTANCE_BASELINE - if (far) M.AR_FAR_DISTANCE_RAISE else 0f
+        drawDistance(canvas, tbt, M.BOX_CENTER_X - width / 2, distanceY)
         if (lanes) drawLanes(canvas, tbt.lanes, M.AR_LANES_TOP)
         if (tbt.trip.isNotEmpty()) {
             // Destination flag before the trip line, as in the Navegação layout; the pair is
@@ -341,7 +345,7 @@ class HudOverlayRenderer {
         canvas.clipRect(left, HudArArrow.TOP, right, HudArArrow.BOTTOM)
         // Opaque into a layer, then composited once at OPACITY: drawing overlapping pieces
         // translucent would stack into visible stripes at the seams.
-        canvas.saveLayerAlpha(left, HudArArrow.TOP, right, HudArArrow.BOTTOM, (HudArArrow.OPACITY * 255).toInt())
+        canvas.saveLayerAlpha(left, HudArArrow.TOP, right, HudArArrow.BOTTOM, (HudArArrow.opacityFor(meters) * 255).toInt())
         if (shape.gray.isNotEmpty()) {
             arPaint.shader = grayShader
             arPaint.alpha = (shape.grayAlpha * 140).toInt().coerceIn(0, 255)
