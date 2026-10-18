@@ -24,8 +24,8 @@ data class RadarConfig(
     val enabled: Boolean = false,
     val showOnHud: Boolean = true,
     val showOnTheme: Boolean = true,
-    val approachM: Int = 500,
-    val nearM: Int = 150,
+    val approachM: Int = 300,
+    val nearM: Int = 50,
     val approachSound: RadarSound = RadarSound.BEEP,
     val approachVolume: Int = 70,
     val nearSound: RadarSound = RadarSound.DOUBLE_BEEP,
@@ -36,8 +36,9 @@ data class RadarConfig(
     val engineConfig: RadarAlertEngine.Config get() = RadarAlertEngine.Config(approachM, nearM)
 
     companion object {
-        val APPROACH_OPTIONS = listOf(300, 500, 800, 1_000)
-        val NEAR_OPTIONS = listOf(100, 150, 200, 300)
+        /** Long range (approach) and close range (near) choices; every near is below every approach. */
+        val APPROACH_OPTIONS = listOf(200, 250, 300, 350, 500)
+        val NEAR_OPTIONS = listOf(50, 100, 150)
     }
 }
 
@@ -50,9 +51,7 @@ object RadarSettings {
         val approach = prefs.getInt(SharedPreferencesKeys.RADAR_APPROACH_M.key, d.approachM)
             .takeIf { it in RadarConfig.APPROACH_OPTIONS } ?: d.approachM
         val near = prefs.getInt(SharedPreferencesKeys.RADAR_NEAR_M.key, d.nearM)
-            .takeIf { it in RadarConfig.NEAR_OPTIONS && it < approach }
-            ?: RadarConfig.NEAR_OPTIONS.lastOrNull { it < approach && it <= d.nearM }
-            ?: RadarConfig.NEAR_OPTIONS.first()
+            .takeIf { it in RadarConfig.NEAR_OPTIONS && it < approach } ?: d.nearM
         return RadarConfig(
             enabled = prefs.getBoolean(SharedPreferencesKeys.RADAR_ENABLED.key, d.enabled),
             showOnHud = prefs.getBoolean(SharedPreferencesKeys.RADAR_SHOW_HUD.key, d.showOnHud),

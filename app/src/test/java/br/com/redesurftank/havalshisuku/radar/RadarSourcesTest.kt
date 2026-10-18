@@ -84,7 +84,17 @@ class RadarSourcesTest {
         val m = merged.first { it.source == RadarCamera.Source.ANTT }
         assertEquals(50, m.limitKmh)
         assertEquals(0f, m.bearing!!, 0.01f)
+        // The OSM position wins: it is the one on the road.
+        assertEquals(-22.0, m.lat, 1e-9)
         assertTrue(merged.contains(osmOther))
+    }
+
+    @Test
+    fun `antt radars with no osm camera nearby are listed for the roads query`() {
+        val osm = listOf(RadarCamera(-22.0, -41.0, 60, null, RadarCamera.Source.OSM))
+        val near = RadarCamera(-21.99973, -41.0, 60, null, RadarCamera.Source.ANTT)
+        val alone = RadarCamera(-21.5, -41.0, 80, null, RadarCamera.Source.ANTT)
+        assertEquals(listOf(alone), RadarSources.anttOnly(osm, listOf(near, alone)))
     }
 
     @Test

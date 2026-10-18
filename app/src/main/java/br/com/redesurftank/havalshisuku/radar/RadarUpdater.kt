@@ -109,15 +109,34 @@ object RadarUpdater {
         }
 
         if (osm.value != null || anttCount >= 0) RadarRepository.load(context)
+
+        // Roads under the cameras: monthly (they change slowly and cost ~6 MB to fetch).
+        var roadsCount = -1
+        if (roadsDue(prefs)) {
+            val cameras = RadarRepository.index?.cameras.orEmpty()
+            val extra = RadarSources.anttOnly(RadarRepository.osmCameras, RadarRepository.anttCameras)
+            val scratch = java.io.File(context.cacheDir, "radar-roads.json")
+            val roads = downloader.fetchRoads(cameras, extra, scratch)
+            roads.value?.let {
+                RadarRepository.writeRoads(context, RadarRoads.Contents(now(), it))
+                prefs.edit().putLong(SharedPreferencesKeys.RADAR_ROADS_LAST_UPDATE_MS.key, System.currentTimeMillis()).apply()
+                roadsCount = it.size
+                RadarRepository.load(context)
+            }
+            roads.error?.let { errors.add(it) }
+        }
         val ok = osm.value != null
         val edit = prefs.edit()
         if (ok) edit.putLong(SharedPreferencesKeys.RADAR_LAST_UPDATE_MS.key, System.currentTimeMillis())
         edit.putString(SharedPreferencesKeys.RADAR_LAST_ERROR.key, errors.joinToString(" | ")).apply()
         val tookS = (System.currentTimeMillis() - started) / 1000
-        Log.w(TAG, "update ok=$ok osm=${osm.value?.size} antt=$anttCount took=${tookS}s errors=$errors")
+        Log.w(TAG, "update ok=$ok osm=${osm.value?.size} antt=$anttCount roads=$roadsCount took=${tookS}s errors=$errors")
         ClusterPersistentEventLogger.log(
             "radar_update",
-            mapOf("ok" to ok, "osm" to (osm.value?.size ?: -1), "antt" to anttCount, "s" to tookS, "err" to errors.joinToString(" | ").take(200))
+            mapOf(
+                "ok" to ok, "osm" to (osm.value?.size ?: -1), "antt" to anttCount, "roads" to roadsCount,
+                "s" to tookS, "err" to errors.joinToString(" | ").take(200)
+            )
         )
         return ok
     }
@@ -132,6 +151,20 @@ object RadarUpdater {
         context.init(null, null, null)
         context.socketFactory
     }.onFailure { Log.w(TAG, "Conscrypt unavailable: ${it.message}") }.getOrNull()
+
+    /**
+     * Roads are due a month after the newest of: the last download here, or the copy the APK
+     * shipped with (so a fresh install doesn't fetch 6 MB on day one).
+     */
+    private fun roadsDue(prefs: android.content.SharedPreferences): Boolean {
+        val downloaded = prefs.getLong(SharedPreferencesKeys.RADAR_ROADS_LAST_UPDATE_MS.key, 0L)
+        val shipped = parseIso(RadarRepository.status?.roadsUpdated.orEmpty())
+        return System.currentTimeMillis() - maxOf(downloaded, shipped) >= RadarRoads.COOLDOWN_MS
+    }
+
+    private fun parseIso(value: String): Long = runCatching {
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(value)!!.time
+    }.getOrDefault(0L)
 
     private fun saveError(message: String) {
         RadarSettings.prefs().edit().putString(SharedPreferencesKeys.RADAR_LAST_ERROR.key, message).apply()

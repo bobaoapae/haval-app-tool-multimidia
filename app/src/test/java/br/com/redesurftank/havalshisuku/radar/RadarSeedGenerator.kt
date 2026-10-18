@@ -38,9 +38,17 @@ class RadarSeedGenerator {
         File(dir, "antt.csv.gzip").writeBytes(RadarFile.encode(RadarFile.Contents(RadarCamera.Source.ANTT, r.modified, anttCams)))
 
         val merged = RadarSources.merge(osmCams, anttCams)
+        val extra = RadarSources.anttOnly(osmCams, anttCams)
+        val scratch = File.createTempFile("radar-roads", ".json")
+        val roads = downloader.fetchRoads(merged, extra, scratch)
+        val snippets = roads.value ?: error(roads.error ?: "roads failed")
+        File(dir, "roads.csv.gzip").writeBytes(RadarRoads.encode(RadarRoads.Contents(stamp, snippets)))
+        val tied = RadarRoads.tie(merged, snippets)
+        val oneway = tied.count { it != null && it.allowed != 0 }
         println(
             "radar seed: osm=${osmCams.size} (bearing ${osmCams.count { it.bearing != null }}) " +
-                "antt=${anttCams.size} (bearing ${anttCams.count { it.bearing != null }}) merged=${merged.size} antt-resource=${r.id}"
+                "antt=${anttCams.size} (bearing ${anttCams.count { it.bearing != null }}, not in osm ${extra.size}) merged=${merged.size} " +
+                "roads=${snippets.size} on-road=${tied.count { it != null }} directed=$oneway antt-resource=${r.id}"
         )
     }
 }

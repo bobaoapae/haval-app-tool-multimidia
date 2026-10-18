@@ -193,6 +193,16 @@ object RadarSources {
         else RadarGeo.bearingDeg(other.lat, other.lon, r.lat, r.lon)
     }
 
+    /** ANTT radars with no OSM camera nearby: their roads must be asked for by position. */
+    fun anttOnly(osm: List<RadarCamera>, antt: List<RadarCamera>): List<RadarCamera> {
+        val index = RadarIndex(osm)
+        return antt.filter { a ->
+            var near = false
+            index.forEachNear(a.lat, a.lon, MERGE_RADIUS_M) { _, _, _ -> near = true }
+            !near
+        }
+    }
+
     // ---- merge ----
 
     /** An ANTT radar and an OSM camera this close (and pointing the same way) are one camera. */
@@ -201,7 +211,8 @@ object RadarSources {
 
     /**
      * OSM + ANTT without duplicates. ANTT is the operator's own record, so it wins on the
-     * limit and direction when both have them; OSM fills what ANTT lacks.
+     * limit and direction when both have them; OSM fills what ANTT lacks. The OSM position is
+     * kept: mappers put the node on the road, which is what ties the camera to its road.
      */
     fun merge(osm: List<RadarCamera>, antt: List<RadarCamera>): List<RadarCamera> {
         if (antt.isEmpty()) return osm
@@ -223,7 +234,7 @@ object RadarSources {
             }
             used[best] = true
             val o = osm[best]
-            merged.add(a.copy(limitKmh = a.limitKmh ?: o.limitKmh, bearing = a.bearing ?: o.bearing))
+            merged.add(a.copy(lat = o.lat, lon = o.lon, limitKmh = a.limitKmh ?: o.limitKmh, bearing = a.bearing ?: o.bearing))
         }
         osm.forEachIndexed { i, cam -> if (!used[i]) merged.add(cam) }
         return merged

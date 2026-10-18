@@ -19,8 +19,8 @@ class RadarDownloader(private val userAgent: String, private val tls: SSLSocketF
 
     private companion object {
         const val CONNECT_TIMEOUT_MS = 20_000
-        /** Overpass spends most of a minute searching before it sends a byte. */
-        const val READ_TIMEOUT_MS = 300_000
+        /** Overpass spends minutes searching (roads: ~2 min) before it sends a byte. */
+        const val READ_TIMEOUT_MS = 600_000
     }
 
     /** All Brazil from the first Overpass server that answers with plausible data. */
@@ -57,22 +57,62 @@ class RadarDownloader(private val userAgent: String, private val tls: SSLSocketF
         Result(null, "ANTT: ${t.message ?: t.javaClass.simpleName}")
     }
 
+    /**
+     * Roads under [cameras] (OSM cameras by node, [extra] by position), cut down to the
+     * stretches around them. The answer (~30 MB of JSON) goes to [scratch] and is streamed
+     * from there, so it is never held in memory. Uses the first Overpass server that answers.
+     */
+    fun fetchRoads(cameras: List<RadarCamera>, extra: List<RadarCamera>, scratch: java.io.File): Result<List<RoadSnippet>> {
+        val errors = ArrayList<String>()
+        val body = "data=" + URLEncoder.encode(RadarRoads.overpassQuery(extra.map { it.lat to it.lon }), "UTF-8")
+        for (url in RadarSources.OVERPASS_URLS) {
+            try {
+                download(url, body, scratch)
+                val snippets = RadarRoads.buildSnippets({ scratch.bufferedReader(Charsets.UTF_8) }, cameras)
+                if (snippets.size >= RadarRoads.MIN_SNIPPETS) return Result(snippets, null)
+                errors.add("${host(url)}: só ${snippets.size} trechos")
+            } catch (t: Throwable) {
+                errors.add("${host(url)}: ${t.message ?: t.javaClass.simpleName}")
+            } finally {
+                scratch.delete()
+            }
+        }
+        return Result(null, "Vias: " + errors.joinToString("; "))
+    }
+
     private fun host(url: String) = runCatching { URL(url).host }.getOrDefault(url)
+
+    /** POST [body] to [url] and save the answer in [file]. */
+    private fun download(url: String, body: String, file: java.io.File) {
+        val conn = open(url, body)
+        try {
+            if (conn.responseCode != HttpURLConnection.HTTP_OK) throw IOException("HTTP ${conn.responseCode}")
+            val stream = if (conn.contentEncoding.equals("gzip", ignoreCase = true)) GZIPInputStream(conn.inputStream) else conn.inputStream
+            stream.use { input -> file.outputStream().use { input.copyTo(it) } }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun open(url: String, body: String?): HttpURLConnection {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        if (tls != null && conn is HttpsURLConnection) conn.sslSocketFactory = tls
+        conn.connectTimeout = CONNECT_TIMEOUT_MS
+        conn.readTimeout = READ_TIMEOUT_MS
+        conn.setRequestProperty("User-Agent", userAgent)
+        if (body != null) {
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        }
+        return conn
+    }
 
     /** GET, or POST of a form [body]. Throws on any non-200 answer. */
     private fun request(url: String, body: String?, charset: Charset): String {
-        val conn = URL(url).openConnection() as HttpURLConnection
-        if (tls != null && conn is HttpsURLConnection) conn.sslSocketFactory = tls
+        val conn = open(url, body)
         try {
-            conn.connectTimeout = CONNECT_TIMEOUT_MS
-            conn.readTimeout = READ_TIMEOUT_MS
-            conn.setRequestProperty("User-Agent", userAgent)
-            if (body != null) {
-                conn.requestMethod = "POST"
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-            }
             val code = conn.responseCode
             // 429 / 504 are Overpass saying "busy": the caller moves on to the next server.
             if (code != HttpURLConnection.HTTP_OK) throw IOException("HTTP $code")

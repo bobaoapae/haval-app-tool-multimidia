@@ -1,4 +1,4 @@
-# Refreshes the radar copy shipped in the APK (app/src/main/assets/radar/{osm,antt}.csv.gzip)
+# Refreshes the radar copy shipped in the APK (app/src/main/assets/radar/{osm,antt,roads}.csv.gzip)
 # from OpenStreetMap (Overpass) and ANTT, using the app's own Kotlin download/parse code
 # (RadarSeedGenerator). Run before a release; the car refreshes itself daily afterwards.
 #
