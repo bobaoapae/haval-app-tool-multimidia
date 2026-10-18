@@ -67,6 +67,8 @@ Grey shading = outside the optics; the native HUD on the right is a rough mock f
     <h2 style="margin-top:12px">3D arrow (prototype)</h2>
     <div class="checks">
       <label><input type="checkbox" id="opt3d" checked> Navegação AR theme (centre arrow, left column, arcs)</label>
+      <label><input type="checkbox" id="optRight"> AR arrow on the right, between the lane-assist lines</label>
+      <label><input type="checkbox" id="optChev" checked> AR animated chevrons near the turn</label>
     </div>
     <label class="row">Distance <input type="range" id="dist" min="0" max="1500" step="10"><output id="distOut"></output></label>
     <div class="scen"><button id="play">▶ Play approach<small>1.2 km down to 0 m, ~12 s</small></button></div>
@@ -387,6 +389,13 @@ const P3 = {
   RING_R: 3.5, RING_HW: 1.5, STUB_LEN: 2.5, STUB_HW: 1.1, ENTRY_GAP: 1, ENTRY_DEG: 30, EXIT_OUT: 2.5, LOOK_AHEAD: 4,
 };
 P3.HW = P3.BASE_W / 2 * P3.Z_NEAR / P3.F_X;
+Object.assign(P3, { FLAG_GAP: 0.9, FLAG_H: 1.8 });
+// As HudArArrow.Placement: RIGHT is the same picture scaled about (CX, BOTTOM) onto the lane lines.
+const PLACES = {
+  center: { cx: 222, sx: 1, sy: 1, top: 126, roomLeft: 212, roomRight: 240 },
+  right: { cx: 429, sx: 0.4, sy: 2.4, top: 140, roomLeft: 320, roomRight: 115 },
+};
+let place = PLACES.center;
 
 const smooth = (t) => t * t * (3 - 2 * t);
 const bendAmount = (m) => smooth(Math.min(1, Math.max(0, (P3.BEND_START - m) / (P3.BEND_START - P3.BEND_FULL))));
@@ -421,14 +430,15 @@ function roadHead(line, cam) {
   return tip && l && r ? [tip[0], tip[1], l[0], l[1], r[0], r[1]] : [];
 }
 function fit(shape) {
-  const room = (x) => x < P3.CX ? P3.ROOM_LEFT : P3.ROOM_RIGHT;
+  const room = (x) => x < P3.CX ? place.roomLeft : place.roomRight;
   let sq = 1;
   const take = (x) => { const d = Math.abs(x - P3.CX); if (d > 0.01) sq = Math.min(sq, room(x) / d); };
-  for (const p of shape.blue) if ((p.ly + p.ry) / 2 >= P3.TOP && (p.ly + p.ry) / 2 <= P3.BOTTOM) { take(p.lx); take(p.rx); }
+  for (const p of shape.blue) if ((p.ly + p.ry) / 2 >= place.top && (p.ly + p.ry) / 2 <= P3.BOTTOM) { take(p.lx); take(p.rx); }
   for (let k = 0; k < shape.head.length / 2; k++) take(shape.head[2 * k]);
+  if (shape.flag) take(shape.flag.x);
   if (sq >= 1) return shape;
   const sx = (x) => P3.CX + (x - P3.CX) * sq, f = (l) => l.map(p => ({ ...p, lx: sx(p.lx), rx: sx(p.rx) }));
-  return { ...shape, blue: f(shape.blue), gray: shape.gray.map(f), head: shape.head.map((v, i) => i % 2 === 0 ? sx(v) : v) };
+  return { ...shape, blue: f(shape.blue), gray: shape.gray.map(f), head: shape.head.map((v, i) => i % 2 === 0 ? sx(v) : v), flag: shape.flag && { ...shape.flag, x: sx(shape.flag.x) } };
 }
 function armCenterline(meters, angleDeg) {
   const zc = cornerDepth(meters), ds = 0.1, pts = [];
@@ -449,6 +459,16 @@ function arShape(meters, angleDeg) {
   const line = armCenterline(meters, angleDeg), runs = roadRibbon(line, P3.HW, AHEAD);
   return fit({ blue: runs[runs.length - 1] || [], head: roadHead(line, AHEAD), gray: [], grayAlpha: 1 });
 }
+/** Arriving: straight to the destination's depth, flag beside it on `side` (0: just past the head). */
+function destShape(meters, side) {
+  const zc = cornerDepth(meters), line = [];
+  for (let z = P3.Z_CLIP - 0.1; z < zc; z += 0.1) line.push([0, z]);
+  line.push([0, zc]);
+  const runs = roadRibbon(line, P3.HW, AHEAD);
+  const fx = side === 0 ? 0 : side * (P3.HW + P3.FLAG_GAP), fz = side === 0 ? zc + P3.HEAD_L + 0.6 : zc, [x, y] = project(fx, fz);
+  return fit({ blue: runs[runs.length - 1] || [], head: roadHead(line, AHEAD), gray: [], grayAlpha: 1, flag: { x, y, height: P3.FLAG_H * P3.F_X / fz } });
+}
+
 function curve(p0, d0, p3, d3, n = 24) {
   const k = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]) * 0.45, p1 = [p0[0] + d0[0] * k, p0[1] + d0[1] * k], p2 = [p3[0] - d3[0] * k, p3[1] - d3[1] * k], out = [];
   for (let i = 1; i <= n; i++) {
@@ -500,9 +520,9 @@ function passedExits(travel, n) {
 
 /** Vertical gradient: colour by row plus the top/bottom fades (as HudOverlayRenderer.rowShader). */
 function rowGradient(lc, rgb, alpha) {
-  const g = lc.createLinearGradient(0, P3.TOP, 0, P3.BOTTOM), span = P3.BOTTOM - P3.TOP;
-  [[P3.TOP, 0], [P3.FADE_TOP_TO, 1], [P3.FADE_BOTTOM_FROM, 1], [P3.BOTTOM, 0]].forEach(([y, a]) => {
-    const c = rgb(y); g.addColorStop((y - P3.TOP) / span, `rgba(${c[0]},${c[1]},${c[2]},${a * alpha})`);
+  const top = place.top, g = lc.createLinearGradient(0, top, 0, P3.BOTTOM), span = P3.BOTTOM - top;
+  [[top, 0], [top + (P3.FADE_TOP_TO - P3.TOP), 1], [P3.FADE_BOTTOM_FROM, 1], [P3.BOTTOM, 0]].forEach(([y, a]) => {
+    const c = rgb(y); g.addColorStop((y - top) / span, `rgba(${c[0]},${c[1]},${c[2]},${a * alpha})`);
   });
   return g;
 }
@@ -519,15 +539,17 @@ function addRibbon(lc, pts) {
 
 /** The road ribbon arrow (or roundabout) on the speed axis, see-through. */
 function draw3dArrow(tbt, meters) {
+  place = opt.right.checked ? PLACES.right : PLACES.center;
   const shape = tbt.ring
     ? rbShape(meters, tbt.ring, false, passedExits(tbt.ring, tbt.exitNumber), state.rbProgress || 0)
-    : arShape(meters, tbt.angle);
-  const left = P3.CX - Math.max(P3.ROOM_LEFT, P3.BASE_W / 2) - 2, right = P3.CX + Math.max(P3.ROOM_RIGHT, P3.BASE_W / 2) + 2;
+    : tbt.dest !== undefined ? destShape(meters, tbt.dest) : arShape(meters, tbt.angle);
+  const left = P3.CX - Math.max(place.roomLeft, P3.BASE_W / 2) - 2, right = P3.CX + Math.max(place.roomRight, P3.BASE_W / 2) + 2;
   const layer = document.createElement('canvas');
   layer.width = canvas.width; layer.height = canvas.height;
   const lc = layer.getContext('2d');
-  lc.setTransform(S, 0, 0, S, 0, 0);
-  lc.beginPath(); lc.rect(left, P3.TOP, right - left, P3.BOTTOM - P3.TOP); lc.clip();
+  // x' = cx + (x - CX) * sx, y' = BOTTOM - (BOTTOM - y) * sy (identity for the centre).
+  lc.setTransform(S * place.sx, 0, 0, S * place.sy, S * (place.cx - P3.CX * place.sx), S * P3.BOTTOM * (1 - place.sy));
+  lc.beginPath(); lc.rect(left, place.top, right - left, P3.BOTTOM - place.top); lc.clip();
   if (shape.gray.length) {
     lc.fillStyle = rowGradient(lc, () => [200, 205, 215], 0.55 * shape.grayAlpha);
     lc.beginPath(); shape.gray.forEach(g => addRibbon(lc, g)); lc.fill();
@@ -541,16 +563,31 @@ function draw3dArrow(tbt, meters) {
     lc.closePath();
   }
   lc.fill();
+  const opacity = P3.OPACITY_FAR + (P3.OPACITY - P3.OPACITY_FAR) * bendAmount(meters); // more see-through while far
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.globalAlpha = P3.OPACITY_FAR + (P3.OPACITY - P3.OPACITY_FAR) * bendAmount(meters); // more see-through while far
+  ctx.globalAlpha = opacity;
   ctx.drawImage(layer, 0, 0);
   ctx.restore();
+  if (shape.flag) {
+    // Upright in screen space, as HudOverlayRenderer.drawArFlag.
+    const y = P3.BOTTOM - (P3.BOTTOM - shape.flag.y) * place.sy;
+    const size = Math.min(Math.max(shape.flag.height * Math.sqrt(place.sx * place.sy), 10), y - 40);
+    const x = Math.min(place.cx + (shape.flag.x - P3.CX) * place.sx, 480 - size * 0.7); // pennant stays on the panel
+    ctx.save(); ctx.globalAlpha = Math.min(1, 0.35 + opacity);
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = size / 24 * 2.6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - size * 20 / 24); ctx.stroke();
+    const k = size / 24, ox = x - 5 * k, oy = y - size + k;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.beginPath();
+    ctx.moveTo(ox + 5 * k, oy + 3.5 * k); ctx.lineTo(ox + 20 * k, oy + 3.5 * k); ctx.lineTo(ox + 16.5 * k, oy + 8.5 * k);
+    ctx.lineTo(ox + 20 * k, oy + 13.5 * k); ctx.lineTo(ox + 5 * k, oy + 13.5 * k); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
 }
 
 // ---- AR layout: left column + arcs (port of HudOverlayRenderer.drawArColumn / drawPowerArc) ----
 const ARC = {
-  CX: 222, CY: 112, START: 150, SWEEP: 195, TICKS: 50,
+  CX: 222, CY: 112, START: 150, SWEEP: 195, TICKS: 50, X_SCALE: 1.3, // stretched for a 3-digit speed
   POWER_R_IN: 44, POWER_R_OUT: 52, POWER_W: 1.3,
   RPM_R_IN: 35, RPM_R_OUT: 39, RPM_W: 0.8, RPM_MAX: 7000,
   POWER_OFF: 'rgba(255,255,255,0.35)', RPM_OFF: 'rgba(255,64,64,0.12)',
@@ -565,9 +602,12 @@ function arColumn(tbt, meters) {
   if (street) {
     ctx.font = font((lanes ? 14 : 16) * k);
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    const size = (lanes ? 14 : 16) * k, iconSize = size * 1.25, iconW = tbt.icon ? iconSize + 4 : 0, y = lanes ? 74 : 80;
     let t = street;
-    while (ctx.measureText(t).width > M.BOX_RIGHT - M.BOX_LEFT && t.length > 1) t = t.slice(0, -2) + '…';
-    ctx.fillText(t, M.BOX_CENTER_X - ctx.measureText(t).width / 2, lanes ? 74 : 80);
+    while (ctx.measureText(t).width > M.BOX_RIGHT - M.BOX_LEFT - iconW && t.length > 1) t = t.slice(0, -2) + '…';
+    const x0 = M.BOX_CENTER_X - (iconW + ctx.measureText(t).width) / 2;
+    if (iconW) { const f = ctx.font; drawTurn(resolveTurnIcon(tbt.icon), x0, y - iconSize * 0.85, iconSize); ctx.font = f; ctx.fillStyle = 'rgba(255,255,255,0.9)'; }
+    ctx.fillText(t, x0 + iconW, y);
   }
   const vs = (lanes ? 28 : 38) * k, us = (lanes ? 16 : 20) * k;
   const w = distanceWidth(tbt, vs, us);
@@ -591,8 +631,8 @@ function arcTicks(rIn, rOut, w, lit, on, off) {
     const a = (ARC.START + (i + 0.5) * ARC.SWEEP / ARC.TICKS) * Math.PI / 180;
     ctx.strokeStyle = i < lit ? on : off;
     ctx.beginPath();
-    ctx.moveTo(ARC.CX + Math.cos(a) * rIn, ARC.CY + Math.sin(a) * rIn);
-    ctx.lineTo(ARC.CX + Math.cos(a) * rOut, ARC.CY + Math.sin(a) * rOut);
+    ctx.moveTo(ARC.CX + Math.cos(a) * rIn * ARC.X_SCALE, ARC.CY + Math.sin(a) * rIn);
+    ctx.lineTo(ARC.CX + Math.cos(a) * rOut * ARC.X_SCALE, ARC.CY + Math.sin(a) * rOut);
     ctx.stroke();
   }
 }
@@ -611,6 +651,30 @@ function drawRpmArc(rpm) {
   arcTicks(ARC.RPM_R_IN, ARC.RPM_R_OUT, ARC.RPM_W, lit, COLORS.red, ARC.RPM_OFF);
 }
 
+// Port of HudOverlayRenderer.drawChevrons / HudOverlayModel.chevronsFor.
+const CHEV = { START_M: 120, CY: 50, HALF_H: 7, W: 7, STROKE: 4, COUNT: 4, SPACING: 15, SHIFT: 46, PERIOD_FAR: 1100, PERIOD_NEAR: 380, MIN_DEG: 30 };
+function chevronsFor(tbt, meters) {
+  if (meters > CHEV.START_M) return null;
+  const heading = tbt.ring ? 180 - tbt.ring : tbt.dest !== undefined ? 0 : tbt.angle;
+  if (!(Math.abs(heading) >= CHEV.MIN_DEG)) return null;
+  return { side: heading > 0 ? 1 : -1, t: Math.min(1, Math.max(0, 1 - meters / CHEV.START_M)) };
+}
+function drawChevrons(ch, now) {
+  const period = CHEV.PERIOD_FAR + (CHEV.PERIOD_NEAR - CHEV.PERIOD_FAR) * ch.t, phase = (now % period) / period;
+  const appear = Math.min(1, ch.t * 4), base = 0.25 + 0.25 * ch.t, gx = 222 + ch.side * ch.t * CHEV.SHIFT, s = ch.side;
+  for (let k = 0; k < CHEV.COUNT; k++) {
+    const x = gx + s * (k - (CHEV.COUNT - 1) / 2) * CHEV.SPACING;
+    let d = phase - k / CHEV.COUNT; d -= Math.floor(d);
+    const pulse = (1 - d) ** 3, y = CHEV.CY, h = CHEV.HALF_H;
+    ctx.fillStyle = `rgba(90,180,255,${appear * (base + (1 - base) * pulse)})`;
+    ctx.beginPath();
+    ctx.moveTo(x - s * CHEV.W, y - h); ctx.lineTo(x - s * (CHEV.W - CHEV.STROKE), y - h); ctx.lineTo(x + s * CHEV.STROKE, y);
+    ctx.lineTo(x - s * (CHEV.W - CHEV.STROKE), y + h); ctx.lineTo(x - s * CHEV.W, y + h); ctx.lineTo(x, y);
+    ctx.closePath(); ctx.fill();
+  }
+}
+let chevTimer = null;
+
 function formatDistance(m) {
   if (m >= 1000) return { value: (Math.round(m / 100) / 10).toFixed(1), unit: 'km' };
   return { value: String(Math.round(m / 10) * 10), unit: 'm' };
@@ -625,7 +689,11 @@ function render() {
   const meters = base ? (state.dist ?? base.meters) : 0;
   const tbt = base && (state.dist == null ? base : { ...base, meters, ...formatDistance(meters) });
   if (tbt) {
-    if (opt.d3.checked && tbt.angle !== undefined) { draw3dArrow(tbt, meters); arColumn(tbt, meters); }
+    if (opt.d3.checked && tbt.angle !== undefined) {
+      draw3dArrow(tbt, meters); arColumn(tbt, meters);
+      const ch = opt.chev.checked ? chevronsFor(tbt, meters) : null;
+      if (ch) { drawChevrons(ch, performance.now()); if (!chevTimer) chevTimer = requestAnimationFrame(() => { chevTimer = null; render(); }); }
+    }
     else if (tbt.lanes.length) drawCompact(tbt);
     else if (opt.far.checked && tbt.meters >= M.FAR_THRESHOLD_M) drawRow(tbt, M.FAR_TOP);
     else drawHero(tbt);
@@ -666,7 +734,7 @@ const NAV = {
   roundabout: { street: 'Pç. Panamericana', label: 'Roundabout, 2nd exit (straight), 80 m', ring: 180, exitNumber: 2, angle: 0, icon: 'ROUNDABOUT', value: '80', unit: 'm', meters: 80, eta: '2.1 km · 6 min', lanes: [] },
   uturn_lanes: { street: 'Av. Paulista', label: 'U-turn, 500 m, 5 lanes', angle: -180, icon: 'U_TURN', value: '500', unit: 'm', meters: 500, eta: '61 km · 1 h 4 min', lanes: [[[8, 1]], [[1, 0]], [[1, 0]], [[1, 0], [3, 0]], [[5, 0]]] },
   exit: { street: 'Rod. dos Bandeirantes', label: 'Exit right, 2.4 km', angle: 35, icon: resolveTurnIcon('OFF_RAMP_RIGHT'), value: '2.4', unit: 'km', meters: 2400, eta: '19.6 km · 18 min', lanes: [] },
-  arrive: { street: 'R. Oscar Freire', label: 'Destination, 30 m', angle: 0, icon: 'DESTINATION', value: '30', unit: 'm', meters: 30, eta: '30 m · <1 min', lanes: [] },
+  arrive: { street: 'R. Oscar Freire', label: 'Destination (right), 30 m', angle: 0, dest: 1, icon: 'DESTINATION', value: '30', unit: 'm', meters: 30, eta: '30 m · <1 min', lanes: [] },
 };
 
 const SCENARIOS = [
@@ -687,6 +755,7 @@ const opt = {
   nav: document.getElementById('optNav'), far: document.getElementById('optFar'), eta: document.getElementById('optEta'),
   power: document.getElementById('optPower'), rpm: document.getElementById('optRpm'),
   d3: document.getElementById('opt3d'),
+  right: document.getElementById('optRight'), chev: document.getElementById('optChev'),
 };
 const kwIn = document.getElementById('kw'), rpmIn = document.getElementById('rpm'), navIn = document.getElementById('nav');
 const kwOut = document.getElementById('kwOut'), rpmOut = document.getElementById('rpmOut');

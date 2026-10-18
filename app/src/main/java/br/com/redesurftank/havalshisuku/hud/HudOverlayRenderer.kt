@@ -102,10 +102,53 @@ class HudOverlayRenderer {
         style = Paint.Style.FILL
     }
 
-    /** Clears [canvas] and draws [frame] (nothing when null). Canvas units = HUD pixels. */
-    fun draw(canvas: Canvas, frame: M.Frame?) {
+    /**
+     * Clears [canvas] and draws [frame] (nothing when null). Canvas units = HUD pixels. [nowMs]
+     * drives the chevron animation.
+     */
+    fun draw(canvas: Canvas, frame: M.Frame?, nowMs: Long = android.os.SystemClock.uptimeMillis()) {
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         drawContent(canvas, frame)
+        frame?.chevrons?.let { drawChevrons(canvas, it, nowMs) }
+    }
+
+    // ---- AR chevrons above the speed ----
+
+    private val chevronPaint = fillPaint(Color.rgb(90, 180, 255))
+    private val chevronPath = Path()
+
+    /**
+     * A row of chevrons pointing to the turn side, sliding that way as the car closes in; a pulse
+     * of light runs along the row towards the turn, faster the closer it is.
+     */
+    private fun drawChevrons(canvas: Canvas, ch: M.Chevrons, nowMs: Long) {
+        val t = ch.intensity
+        val period = M.CHEVRON_PERIOD_FAR_MS + (M.CHEVRON_PERIOD_NEAR_MS - M.CHEVRON_PERIOD_FAR_MS) * t
+        val phase = (nowMs % period.toLong()) / period
+        val appear = (t * 4f).coerceAtMost(1f) // fade in over the first ~30 m
+        val base = 0.25f + 0.25f * t
+        val groupX = HudArArrow.CX + ch.side * t * M.CHEVRON_SHIFT
+        val n = M.CHEVRON_COUNT
+        for (k in 0 until n) {
+            // k = 0 trails, k = n-1 leads towards the turn side.
+            val x = groupX + ch.side * (k - (n - 1) / 2f) * M.CHEVRON_SPACING
+            var d = phase - k.toFloat() / n
+            d -= kotlin.math.floor(d)
+            val pulse = (1f - d) * (1f - d) * (1f - d)
+            chevronPaint.alpha = (255 * appear * (base + (1f - base) * pulse)).toInt().coerceIn(0, 255)
+            val s = ch.side.toFloat()
+            val y = M.CHEVRON_CY
+            val h = M.CHEVRON_HALF_H
+            chevronPath.reset()
+            chevronPath.moveTo(x - s * M.CHEVRON_W, y - h)
+            chevronPath.lineTo(x - s * (M.CHEVRON_W - M.CHEVRON_STROKE), y - h)
+            chevronPath.lineTo(x + s * M.CHEVRON_STROKE, y)
+            chevronPath.lineTo(x - s * (M.CHEVRON_W - M.CHEVRON_STROKE), y + h)
+            chevronPath.lineTo(x - s * M.CHEVRON_W, y + h)
+            chevronPath.lineTo(x, y)
+            chevronPath.close()
+            canvas.drawPath(chevronPath, chevronPaint)
+        }
     }
 
     private fun drawContent(canvas: Canvas, frame: M.Frame?) {
@@ -273,8 +316,13 @@ class HudOverlayRenderer {
         val streetLine = listOfNotNull(exit, tbt.street.takeIf { it.isNotEmpty() }).joinToString(" · ")
         if (streetLine.isNotEmpty()) {
             val maxW = M.BOX_RIGHT - M.BOX_LEFT
-            val text = android.text.TextUtils.ellipsize(streetLine, streetPaint, maxW, android.text.TextUtils.TruncateAt.END).toString()
-            canvas.drawText(text, M.BOX_CENTER_X - streetPaint.measureText(text) / 2, streetY, streetPaint)
+            // The next turn as a small icon before the street, the pair centred together.
+            val iconSize = streetPaint.textSize * M.AR_STREET_ICON_SCALE
+            val iconW = if (tbt.icon.isNotEmpty()) iconSize + M.AR_STREET_ICON_GAP else 0f
+            val text = android.text.TextUtils.ellipsize(streetLine, streetPaint, maxW - iconW, android.text.TextUtils.TruncateAt.END).toString()
+            val x0 = M.BOX_CENTER_X - (iconW + streetPaint.measureText(text)) / 2
+            if (iconW > 0f) drawTurn(canvas, tbt, x0, streetY - iconSize * 0.85f, iconSize)
+            canvas.drawText(text, x0 + iconW, streetY, streetPaint)
         }
         if (lanes) setTextSizes(scale * M.AR_LANES_DISTANCE_VALUE_SIZE, scale * M.AR_LANES_DISTANCE_UNIT_SIZE)
         else setTextSizes(scale * M.AR_DISTANCE_VALUE_SIZE, scale * M.AR_DISTANCE_UNIT_SIZE)
@@ -316,15 +364,15 @@ class HudOverlayRenderer {
         var nLit = 0
         var nOff = 0
         for (i in 0 until M.ARC_TICKS) {
-            val rad = Math.toRadians(M.arcTickDeg(i).toDouble())
-            val c = kotlin.math.cos(rad).toFloat()
-            val sn = kotlin.math.sin(rad).toFloat()
+            val deg = M.arcTickDeg(i)
+            val (xIn, yIn) = M.arcPoint(deg, rIn)
+            val (xOut, yOut) = M.arcPoint(deg, rOut)
             val buf = if (i < lit) tickLit else tickOff
             var k = if (i < lit) nLit else nOff
-            buf[k++] = M.ARC_CX + c * rIn
-            buf[k++] = M.ARC_CY + sn * rIn
-            buf[k++] = M.ARC_CX + c * rOut
-            buf[k++] = M.ARC_CY + sn * rOut
+            buf[k++] = xIn
+            buf[k++] = yIn
+            buf[k++] = xOut
+            buf[k++] = yOut
             if (i < lit) nLit = k else nOff = k
         }
         arcPaint.strokeWidth = width
@@ -362,26 +410,26 @@ class HudOverlayRenderer {
      * "slightly darker on top") and the fades at the top and bottom edges, so a wide stretch of
      * ribbon running sideways fades per pixel, not per piece.
      */
-    private val blueShader = rowShader { y -> arRgb(y) }
-    private val grayShader = rowShader { Color.rgb(200, 205, 215) }
+    private val blueShaders = HudArArrow.Placement.entries.associateWith { p -> rowShader(p.top) { y -> arRgb(y) } }
+    private val grayShaders = HudArArrow.Placement.entries.associateWith { p -> rowShader(p.top) { Color.rgb(200, 205, 215) } }
 
     private fun arRgb(y: Float): Int {
         val t = HudArArrow.rowGradient(y)
         return Color.rgb((120 + (25 - 120) * t).toInt(), (200 + (105 - 200) * t).toInt(), 255)
     }
 
-    private fun rowShader(rgb: (Float) -> Int): android.graphics.Shader {
+    private fun rowShader(top: Float, rgb: (Float) -> Int): android.graphics.Shader {
         // Transparent at both edges, opaque between the fades (HudArArrow.rowAlpha).
-        val ys = floatArrayOf(HudArArrow.TOP, HudArArrow.FADE_TOP_TO, HudArArrow.FADE_BOTTOM_FROM, HudArArrow.BOTTOM)
+        val ys = floatArrayOf(top, top + (HudArArrow.FADE_TOP_TO - HudArArrow.TOP), HudArArrow.FADE_BOTTOM_FROM, HudArArrow.BOTTOM)
         val alphas = intArrayOf(0, 255, 255, 0)
         val colors = IntArray(ys.size) { i ->
             val c = rgb(ys[i])
             Color.argb(alphas[i], Color.red(c), Color.green(c), Color.blue(c))
         }
-        val span = HudArArrow.BOTTOM - HudArArrow.TOP
+        val span = HudArArrow.BOTTOM - top
         return android.graphics.LinearGradient(
-            0f, HudArArrow.TOP, 0f, HudArArrow.BOTTOM, colors,
-            ys.map { (it - HudArArrow.TOP) / span }.toFloatArray(), android.graphics.Shader.TileMode.CLAMP
+            0f, top, 0f, HudArArrow.BOTTOM, colors,
+            ys.map { (it - top) / span }.toFloatArray(), android.graphics.Shader.TileMode.CLAMP
         )
     }
 
@@ -392,33 +440,38 @@ class HudOverlayRenderer {
     private fun drawAr(canvas: Canvas, tbt: M.Tbt) {
         // Unknown distance: a plain straight arrow, never a turn drawn as if it were here.
         val meters = tbt.arMeters ?: Float.MAX_VALUE
-        val shape = if (tbt.dynamicRoundabout) {
-            val travel = tbt.exitAngle!!.toFloat()
-            HudArArrow.roundabout(
-                meters, travel, tbt.roundaboutClockwise,
-                M.passedExitAngles(tbt.exitAngle, tbt.exitNumber), tbt.arProgress
+        val place = tbt.arPlacement
+        val shape = when {
+            tbt.dynamicRoundabout -> HudArArrow.roundabout(
+                meters, tbt.exitAngle!!.toFloat(), tbt.roundaboutClockwise,
+                M.passedExitAngles(tbt.exitAngle, tbt.exitNumber), tbt.arProgress, place
             )
-        } else {
-            HudArArrow.shape(meters, tbt.arAngle ?: 0f)
+            tbt.arDestination != null -> HudArArrow.destination(meters, tbt.arDestination, place)
+            else -> HudArArrow.shape(meters, tbt.arAngle ?: 0f, place)
         }
-        val left = HudArArrow.CX - maxOf(HudArArrow.ROOM_LEFT, HudArArrow.BASE_W / 2) - 2f
-        val right = HudArArrow.CX + maxOf(HudArArrow.ROOM_RIGHT, HudArArrow.BASE_W / 2) + 2f
+        val left = HudArArrow.CX - maxOf(place.roomLeft, HudArArrow.BASE_W / 2) - 2f
+        val right = HudArArrow.CX + maxOf(place.roomRight, HudArArrow.BASE_W / 2) + 2f
+        val opacity = HudArArrow.opacityFor(meters)
         canvas.save()
-        canvas.clipRect(left, HudArArrow.TOP, right, HudArArrow.BOTTOM)
-        // Opaque into a layer, then composited once at OPACITY: drawing overlapping pieces
-        // translucent would stack into visible stripes at the seams.
-        canvas.saveLayerAlpha(left, HudArArrow.TOP, right, HudArArrow.BOTTOM, (HudArArrow.opacityFor(meters) * 255).toInt())
+        // RIGHT: the same picture scaled about (CX, BOTTOM) onto the lane-assist lines.
+        canvas.translate(place.cx, HudArArrow.BOTTOM)
+        canvas.scale(place.sx, place.sy)
+        canvas.translate(-HudArArrow.CX, -HudArArrow.BOTTOM)
+        canvas.clipRect(left, place.top, right, HudArArrow.BOTTOM)
+        // Opaque into a layer, then composited once: drawing overlapping pieces translucent
+        // would stack into visible stripes at the seams.
+        canvas.saveLayerAlpha(left, place.top, right, HudArArrow.BOTTOM, (opacity * 255).toInt())
         if (shape.gray.isNotEmpty()) {
-            arPaint.shader = grayShader
+            arPaint.shader = grayShaders.getValue(place)
             arPaint.alpha = (shape.grayAlpha * 140).toInt().coerceIn(0, 255)
             arPath.reset()
-            for (ribbon in shape.gray) addRibbon(ribbon)
+            for (ribbon in shape.gray) addRibbon(ribbon, place.top)
             canvas.drawPath(arPath, arPaint)
         }
-        arPaint.shader = blueShader
+        arPaint.shader = blueShaders.getValue(place)
         arPaint.alpha = 255
         arPath.reset()
-        addRibbon(shape.blue)
+        addRibbon(shape.blue, place.top)
         val h = shape.head
         if (h.size == 6) {
             // Same winding as the ribbon's pieces, so the overlap fills once.
@@ -430,18 +483,35 @@ class HudOverlayRenderer {
         canvas.drawPath(arPath, arPaint)
         arPaint.shader = null
         canvas.restore() // layer
-        canvas.restore() // clip
+        canvas.restore() // transform + clip
+        shape.flag?.let { drawArFlag(canvas, it, place, opacity) }
+    }
+
+    /**
+     * The destination flag standing on the road, drawn upright in screen space (the RIGHT
+     * placement's stretch would make it tall and thin) and as see-through as the arrow.
+     */
+    private fun drawArFlag(canvas: Canvas, flag: HudArArrow.Flag, place: HudArArrow.Placement, opacity: Float) {
+        val (fx, y) = place.map(flag.x, flag.y)
+        if (y <= M.CHEVRON_CY || y > HudArArrow.BOTTOM) return
+        val size = (flag.height * kotlin.math.sqrt(place.sx * place.sy)).coerceIn(10f, y - 40f)
+        // The pennant flies right of the pole: keep it on the panel (RIGHT placement, right side).
+        val x = fx.coerceAtMost(480f - size * 0.7f)
+        canvas.saveLayerAlpha(x - size, y - size - 2f, x + size, y + 2f, (255 * (0.35f + opacity)).toInt().coerceAtMost(255))
+        // drawFlag's pole runs at x 5, y 3..23 of its 24 box: stand it on (x, y).
+        drawFlag(canvas, x - 5f * size / 24f, y + size / 24f, size)
+        canvas.restore()
     }
 
     /**
      * One ribbon into [arPath]: a quad between each pair of cross-sections, all wound the same
      * way so the overlaps of neighbouring quads fill once.
      */
-    private fun addRibbon(pts: List<HudArArrow.Pt>) {
+    private fun addRibbon(pts: List<HudArArrow.Pt>, top: Float) {
         for (i in 0 until pts.size - 1) {
             val a = pts[i]
             val b = pts[i + 1]
-            if (maxOf(a.ly, a.ry, b.ly, b.ry) <= HudArArrow.TOP || minOf(a.ly, a.ry, b.ly, b.ry) >= HudArArrow.BOTTOM) continue
+            if (maxOf(a.ly, a.ry, b.ly, b.ry) <= top || minOf(a.ly, a.ry, b.ly, b.ry) >= HudArArrow.BOTTOM) continue
             val cross = (b.lx - a.lx) * (a.ry - a.ly) - (b.ly - a.ly) * (a.rx - a.lx)
             arPath.moveTo(a.lx, a.ly)
             if (cross >= 0f) {

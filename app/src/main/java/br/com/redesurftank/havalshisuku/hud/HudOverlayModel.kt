@@ -365,6 +365,9 @@ object HudOverlayModel {
     const val AR_LANES_TOP = 114f
     const val AR_LANES_TRIP_BASELINE = 172f
     const val AR_LANES_TRIP_SIZE = 14f
+    /** Next-turn icon before the AR street line: size relative to the text, gap after it. */
+    const val AR_STREET_ICON_SCALE = 1.25f
+    const val AR_STREET_ICON_GAP = 4f
     /** While the maneuver is still far (straight arrow), street and distance at this scale. */
     const val AR_FAR_TEXT_SCALE = 0.75f
     /** ...and the distance baseline this much higher, closer to the street line. */
@@ -397,6 +400,53 @@ object HudOverlayModel {
 
     /** Canvas angle (degrees) of tick [i] of [ARC_TICKS], at the middle of its slot. */
     fun arcTickDeg(i: Int): Float = ARC_START_DEG + (i + 0.5f) * ARC_SWEEP_DEG / ARC_TICKS
+
+    /**
+     * Arcs stretched sideways into a flat ellipse, so a three-digit speed fits inside; the
+     * height stays as it was (owner). Kept clear of the left column's street line.
+     */
+    const val ARC_X_SCALE = 1.3f
+
+    /** Point [r] out from the arc centre at canvas angle [deg], on the stretched ellipse. */
+    fun arcPoint(deg: Float, r: Float): Pair<Float, Float> {
+        val rad = Math.toRadians(deg.toDouble())
+        return ARC_CX + (kotlin.math.cos(rad) * r * ARC_X_SCALE).toFloat() to ARC_CY + (kotlin.math.sin(rad) * r).toFloat()
+    }
+
+    // ---- AR chevrons: animated turn arrows above the speed (Mercedes-style) ----
+    /** They show from this distance to the maneuver. */
+    const val CHEVRON_START_M = 120f
+    /** Band above the arcs (arc top is ARC_CY - ARC_POWER_R_OUT = 60). */
+    const val CHEVRON_CY = 50f
+    const val CHEVRON_HALF_H = 7f
+    const val CHEVRON_W = 7f
+    const val CHEVRON_STROKE = 4f
+    const val CHEVRON_COUNT = 4
+    const val CHEVRON_SPACING = 15f
+    /** How far the group slides towards the turn side at the turn. */
+    const val CHEVRON_SHIFT = 46f
+    /** One sweep of the light along the row: slow when just in range, fast at the turn. */
+    const val CHEVRON_PERIOD_FAR_MS = 1_100f
+    const val CHEVRON_PERIOD_NEAR_MS = 380f
+    /** Below this bend (keep, merge: a lane choice, not a turn) there is no side to point to. */
+    const val CHEVRON_MIN_DEG = 30f
+
+    /** Chevrons for an AR maneuver within [CHEVRON_START_M], or null. */
+    fun chevronsFor(tbt: Tbt?): Chevrons? {
+        if (tbt == null || tbt.style != TbtStyle.AR) return null
+        val meters = tbt.arMeters ?: return null
+        if (meters > CHEVRON_START_M) return null
+        // Roundabout: the way out relative to the way in (180° round is straight on).
+        val heading = if (tbt.dynamicRoundabout) {
+            val ccw = 180f - tbt.exitAngle!!
+            if (tbt.roundaboutClockwise) -ccw else ccw
+        } else {
+            tbt.arAngle ?: return null
+        }
+        if (kotlin.math.abs(heading) < CHEVRON_MIN_DEG) return null
+        val side = if (heading > 0f) 1 else -1
+        return Chevrons(side, (1f - meters / CHEVRON_START_M).coerceIn(0f, 1f))
+    }
 
     /**
      * Lit power ticks, from the left end: one per 2 % of [powerPercent] (drive blue, regen green,
@@ -435,7 +485,10 @@ object HudOverlayModel {
         val exitAngle: Int? = null,
         val roundaboutClockwise: Boolean = false,
         /** AR roundabout: how much of the way round has been driven (0..1), estimated. */
-        val arProgress: Float = 0f
+        val arProgress: Float = 0f,
+        /** AR arriving: destination side (-1 left, +1 right, 0 unknown); null on other maneuvers. */
+        val arDestination: Int? = null,
+        val arPlacement: HudArArrow.Placement = HudArArrow.Placement.CENTER
     ) {
         /** Draw the roundabout with its real exit instead of the static icon. */
         val dynamicRoundabout: Boolean get() = icon == "ROUNDABOUT" && exitAngle != null
@@ -498,8 +551,13 @@ object HudOverlayModel {
         /** AR layout: power and RPM as arcs round the native speed instead of the bottom bars. */
         val arcs: Boolean = false,
         /** Speed camera ahead: drawn in the turn-by-turn box, in place of the turn-by-turn. */
-        val radar: Radar? = null
+        val radar: Radar? = null,
+        /** AR: animated turn chevrons above the speed (null = none). */
+        val chevrons: Chevrons? = null
     )
+
+    /** Chevrons pointing to [side] (+1 right, -1 left), [intensity] 0 (just in range) .. 1 (at the turn). */
+    data class Chevrons(val side: Int, val intensity: Float)
 
     /** Radar alert for the HUD (see RadarManager): metres to the camera, its limit, over it. */
     data class Radar(val distanceM: Int, val limitKmh: Int?, val over: Boolean)
@@ -548,7 +606,11 @@ object HudOverlayModel {
         val rpmBar: Boolean = true,
         /** Power/RPM as arcs round the native speed instead of the bottom bars, per layout. */
         val navArcs: Boolean = false,
-        val arArcs: Boolean = true
+        val arArcs: Boolean = true,
+        /** AR: animated chevrons above the speed when close to a turn. */
+        val chevrons: Boolean = true,
+        /** AR: arrow in the centre (under the speed) or between the native lane-assist lines. */
+        val arPlacement: HudArArrow.Placement = HudArArrow.Placement.CENTER
     ) {
         val active: Boolean get() = layout != Layout.ORIGINAL
 
@@ -606,7 +668,9 @@ object HudOverlayModel {
             street = d.street.trim(),
             exitNumber = d.exitNumber?.takeIf { icon == "ROUNDABOUT" && it > 0 },
             exitAngle = exitAngle,
-            roundaboutClockwise = d.roundaboutClockwise == true
+            roundaboutClockwise = d.roundaboutClockwise == true,
+            arDestination = HudArArrow.destinationSide(d.turn).takeIf { style == TbtStyle.AR },
+            arPlacement = config.arPlacement
         )
     }
 
@@ -620,12 +684,11 @@ object HudOverlayModel {
         arProgress: Float = 0f,
         arDistanceKnown: Boolean = true,
         radar: Radar? = null
-    ): Frame = if (!config.active) {
+    ): Frame {
         // "Original" layout: the window is only up for the radar, so draw nothing else.
-        Frame(tbt = null, powerPercent = null, rpmTenths = null, radar = radar)
-    } else Frame(
+        if (!config.active) return Frame(tbt = null, powerPercent = null, rpmTenths = null, radar = radar)
         // A camera ahead takes the turn-by-turn box while it is alerted.
-        tbt = if (config.navigation && radar == null) {
+        val tbt = if (config.navigation && radar == null) {
             directions?.let { tbtFor(it, config) }?.let { tbt ->
                 if (tbt.style != TbtStyle.AR) tbt
                 else tbt.copy(
@@ -633,12 +696,16 @@ object HudOverlayModel {
                     arProgress = arProgress
                 )
             }
-        } else null,
-        powerPercent = if (config.powerBar) powerPercent else null,
-        rpmTenths = if (config.rpmBar) rpmTenths else null,
-        arcs = config.arcs,
-        radar = radar
-    )
+        } else null
+        return Frame(
+            tbt = tbt,
+            powerPercent = if (config.powerBar) powerPercent else null,
+            rpmTenths = if (config.rpmBar) rpmTenths else null,
+            arcs = config.arcs,
+            radar = radar,
+            chevrons = if (config.chevrons) chevronsFor(tbt) else null
+        )
+    }
 
     /**
      * Scripted drive for the debug `hudDemo drive`: what the HUD would get [t] seconds into a
@@ -647,7 +714,7 @@ object HudOverlayModel {
      * from 200 m taken at the 3rd exit (left, 270° round a counter-clockwise ring).
      */
     object DemoDrive {
-        const val LOOP_MS = 66_000L
+        const val LOOP_MS = 84_000L
         class Step(
             val directions: AndroidAutoNavigationTelemetry.Directions,
             val powerPercent: Int,
@@ -669,6 +736,15 @@ object HudOverlayModel {
                         else -> -40
                     },
                     rpmTenths = if (t < 12f) 28 else null
+                )
+            } else if (t >= 66f) {
+                // Arriving: destination on the right.
+                val s = t - 66f
+                val d = (240f - speed * s).coerceAtLeast(0f)
+                Step(
+                    directions(d, "DESTINATION_RIGHT", "R. Oscar Freire", 240f - speed * s, 30 - s.toInt(), emptyList()),
+                    powerPercent = if (s < 8f) 10 else -35,
+                    rpmTenths = null
                 )
             } else if (t >= 48f) {
                 val s = t - 48f

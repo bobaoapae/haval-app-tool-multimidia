@@ -25,7 +25,10 @@ object HudOverlaySettings {
             powerBar = prefs.getBoolean(SharedPreferencesKeys.HUD_POWER_BAR.key, defaults.powerBar),
             rpmBar = prefs.getBoolean(SharedPreferencesKeys.HUD_RPM_BAR.key, defaults.rpmBar),
             navArcs = prefs.getBoolean(SharedPreferencesKeys.HUD_NAV_ARCS.key, defaults.navArcs),
-            arArcs = prefs.getBoolean(SharedPreferencesKeys.HUD_AR_ARCS.key, defaults.arArcs)
+            arArcs = prefs.getBoolean(SharedPreferencesKeys.HUD_AR_ARCS.key, defaults.arArcs),
+            chevrons = prefs.getBoolean(SharedPreferencesKeys.HUD_AR_CHEVRONS.key, defaults.chevrons),
+            arPlacement = HudArArrow.Placement.fromKey(prefs.getString(SharedPreferencesKeys.HUD_AR_PLACEMENT.key, null))
+                ?: defaults.arPlacement
         )
     }
 
@@ -40,6 +43,8 @@ object HudOverlaySettings {
             .putBoolean(SharedPreferencesKeys.HUD_RPM_BAR.key, config.rpmBar)
             .putBoolean(SharedPreferencesKeys.HUD_NAV_ARCS.key, config.navArcs)
             .putBoolean(SharedPreferencesKeys.HUD_AR_ARCS.key, config.arArcs)
+            .putBoolean(SharedPreferencesKeys.HUD_AR_CHEVRONS.key, config.chevrons)
+            .putString(SharedPreferencesKeys.HUD_AR_PLACEMENT.key, config.arPlacement.key)
             .remove(LEGACY_ENABLED_KEY)
             .apply()
         HudOverlayController.setConfig(config)

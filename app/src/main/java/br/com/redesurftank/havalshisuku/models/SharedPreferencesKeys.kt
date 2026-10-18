@@ -417,6 +417,8 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     HUD_RPM_BAR("hudRpmBar", "HUD: barra de rotação do motor"),
     HUD_NAV_ARCS("hudNavArcs", "HUD Navegação: potência/rotação em arcos (senão barras)"),
     HUD_AR_ARCS("hudArArcs", "HUD Navegação AR: potência/rotação em arcos (senão barras)"),
+    HUD_AR_CHEVRONS("hudArChevrons", "HUD Navegação AR: setas animadas acima da velocidade perto da curva"),
+    HUD_AR_PLACEMENT("hudArPlacement", "HUD Navegação AR: seta no centro (center) ou entre as linhas de faixa (right)"),
     // Alerta de radar (Recursos). Read through RadarSettings.
     RADAR_ENABLED("radarEnabled", "Alerta de radar: ativo"),
     RADAR_SHOW_HUD("radarShowHud", "Alerta de radar: mostrar no HUD"),

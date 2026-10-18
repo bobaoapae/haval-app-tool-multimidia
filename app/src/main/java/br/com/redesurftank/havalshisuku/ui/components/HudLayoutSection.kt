@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import br.com.redesurftank.havalshisuku.hud.HudArArrow
 import br.com.redesurftank.havalshisuku.hud.HudOverlayModel
 import br.com.redesurftank.havalshisuku.hud.HudOverlayRenderer
 import br.com.redesurftank.havalshisuku.hud.HudOverlaySettings
@@ -209,7 +210,7 @@ private fun HudLayoutCard(
 }
 
 /** Tabs of the Navegação settings dialog. */
-private enum class HudSettingsTab(val title: String) { NAVIGATION("Navegação"), BARS("Barras") }
+private enum class HudSettingsTab(val title: String) { NAVIGATION("Navegação"), ARROW("Seta AR"), BARS("Barras") }
 
 /**
  * Wide two-pane dialog for the 1920x720 head unit: the options on the left split into tabs so
@@ -247,7 +248,11 @@ private fun HudNavigationSettingsDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                     // Left: one tab of options at a time.
                     Column(modifier = Modifier.weight(1f)) {
-                        HudTabs(selected = tab, onSelect = { tab = it })
+                        HudTabs(
+                            selected = tab,
+                            tabs = HudSettingsTab.entries.filter { it != HudSettingsTab.ARROW || layout == HudOverlayModel.Layout.AR },
+                            onSelect = { tab = it }
+                        )
                         Spacer(Modifier.height(8.dp))
                         when (tab) {
                             HudSettingsTab.NAVIGATION -> {
@@ -269,6 +274,22 @@ private fun HudNavigationSettingsDialog(
                                     config.trip,
                                     enabled = config.navigation
                                 ) { onChange(config.copy(trip = it)) }
+                            }
+                            HudSettingsTab.ARROW -> {
+                                OptionRow(
+                                    "Seta à direita, entre as linhas de faixa",
+                                    "Seta menor sobre as linhas do assistente de faixa do HUD; desligado, no centro sob a velocidade.",
+                                    config.arPlacement == HudArArrow.Placement.RIGHT,
+                                    enabled = config.navigation
+                                ) {
+                                    onChange(config.copy(arPlacement = if (it) HudArArrow.Placement.RIGHT else HudArArrow.Placement.CENTER))
+                                }
+                                OptionRow(
+                                    "Setas animadas na curva",
+                                    "Setas azuis acima da velocidade a partir de 120 m; deslizam para o lado da curva e piscam mais rápido ao chegar.",
+                                    config.chevrons,
+                                    enabled = config.navigation
+                                ) { onChange(config.copy(chevrons = it)) }
                             }
                             HudSettingsTab.BARS -> {
                                 // Each layout keeps its own style: Navegação bars, Navegação AR arcs by default.
@@ -317,9 +338,9 @@ private fun HudNavigationSettingsDialog(
 }
 
 @Composable
-private fun HudTabs(selected: HudSettingsTab, onSelect: (HudSettingsTab) -> Unit) {
+private fun HudTabs(selected: HudSettingsTab, tabs: List<HudSettingsTab>, onSelect: (HudSettingsTab) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        for (t in HudSettingsTab.entries) {
+        for (t in tabs) {
             val on = t == selected
             Box(
                 modifier = Modifier

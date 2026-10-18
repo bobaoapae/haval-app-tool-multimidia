@@ -21,5 +21,11 @@ class HudOverlayView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         renderer.draw(canvas, frame)
+        // Chevrons animate: keep redrawing (~30 fps) only while they are up.
+        if (frame?.chevrons != null) postInvalidateDelayed(CHEVRON_FRAME_MS)
+    }
+
+    private companion object {
+        const val CHEVRON_FRAME_MS = 33L
     }
 }
