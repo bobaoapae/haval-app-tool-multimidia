@@ -45,7 +45,8 @@ object HudArArrow {
     /** Arm thickness at the 0 m corner depth; thinner further away. */
     const val ARM_W = 30f
     const val TURN_R = 1.4f
-    const val TURN_LEN = 2.0f
+    /** Tail after the corner: long, so a turn sweeps across the HUD instead of a stub. */
+    const val TURN_LEN = 5.0f
     /** Head size relative to the arm thickness at its end. */
     const val HEAD_W_RATIO = 2.0f
     const val HEAD_L_RATIO = 1.1f
@@ -60,10 +61,13 @@ object HudArArrow {
     const val OPACITY = 0.65f
     /** Within this distance the controller interpolates between AA updates for smooth motion. */
     const val SMOOTH_WITHIN_M = 200
-    /** How far the turn arm may reach left of [CX]: stops short of the left column (x ~162). */
-    const val ROOM_LEFT = 60f
-    /** How far it may reach right of [CX] (x ~368). */
-    const val ROOM_RIGHT = 146f
+    /**
+     * How far the turn arm may reach left of [CX] (x ~10): it passes under the left column,
+     * whose text is drawn on top of the translucent arrow.
+     */
+    const val ROOM_LEFT = 212f
+    /** How far it may reach right of [CX] (x ~462), under the native lane-keeping lines' row. */
+    const val ROOM_RIGHT = 240f
 
     /** One point of the arm on screen: position, thickness. */
     data class Pt(val x: Float, val y: Float, val w: Float)

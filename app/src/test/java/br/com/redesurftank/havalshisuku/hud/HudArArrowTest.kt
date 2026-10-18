@@ -90,10 +90,12 @@ class HudArArrowTest {
                 for (k in 0 until 3) assertTrue("m=$meters angle=$angle head x=${h[2 * k]}", h[2 * k] in lo..hi)
             }
         }
-        // Centred on the arcs; the arm never reaches under the left column, and stays on the panel.
+        // Centred on the arcs; the arm uses the HUD's width but stays on the panel.
         assertEquals(HudOverlayModel.ARC_CX, HudArArrow.CX, 0f)
-        assertTrue(lo >= HudOverlayModel.BOX_RIGHT - 8f)
-        assertTrue(hi < 480f)
+        assertTrue(lo >= 0f && hi <= 480f)
+        // A right turn at the corner now sweeps well across, not a stub.
+        assertTrue(HudArArrow.shape(0f, 90f).arm.last().x > HudArArrow.CX + 150f)
+        assertTrue(HudArArrow.shape(0f, -90f).arm.last().x < HudArArrow.CX - 150f)
     }
 
     @Test

@@ -382,12 +382,12 @@ const P3 = {
   HORIZON: 118, Z_NEAR: 4, Z_END: 7, Z_CAP: 15, K: 0.08,
   F_X: 199,                    // lateral scale for the arm
   ARM_W: 30,                   // arm thickness at the 0 m corner depth
-  TURN_R: 1.4, TURN_LEN: 2.0,
+  TURN_R: 1.4, TURN_LEN: 5.0,             // long tail: the turn sweeps across the HUD
   HEAD_W_RATIO: 2.0, HEAD_L_RATIO: 1.1,
   BEND_START: 180, BEND_FULL: 40,
   FADE_TOP_TO: 132, FADE_BOTTOM_FROM: 180, // short fade at the top, fade out over the bottom
   OPACITY: 0.65,
-  ROOM_LEFT: 60, ROOM_RIGHT: 146,          // arm stops short of the left column
+  ROOM_LEFT: 212, ROOM_RIGHT: 240,         // arm may cross the HUD (under the left column's text)
   NEAR_RGB: [120, 200, 255], FAR_RGB: [25, 105, 255], // lighter at the base, deeper on top
 };
 
