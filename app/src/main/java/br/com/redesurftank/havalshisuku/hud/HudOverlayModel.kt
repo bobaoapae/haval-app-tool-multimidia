@@ -496,8 +496,33 @@ object HudOverlayModel {
         val powerPercent: Int?,
         val rpmTenths: Int?,
         /** AR layout: power and RPM as arcs round the native speed instead of the bottom bars. */
-        val arcs: Boolean = false
+        val arcs: Boolean = false,
+        /** Speed camera ahead: drawn in the turn-by-turn box, in place of the turn-by-turn. */
+        val radar: Radar? = null
     )
+
+    /** Radar alert for the HUD (see RadarManager): metres to the camera, its limit, over it. */
+    data class Radar(val distanceM: Int, val limitKmh: Int?, val over: Boolean)
+
+    // Radar card in the turn-by-turn area: a speed-limit sign (red ring, limit inside, a small
+    // camera badge on its lower right) with the distance under it, centred like the big arrow.
+    const val RADAR_SIGN = 62f
+    const val RADAR_RING = 6f
+    const val RADAR_LIMIT_SIZE = 26f
+    const val RADAR_LIMIT_SIZE_3DIGITS = 21f
+    const val RADAR_BADGE = 24f
+    const val RADAR_TEXT_GAP = 26f // sign bottom to distance baseline
+    const val RADAR_VALUE_SIZE = 22f
+    const val RADAR_UNIT_SIZE = 14f
+    const val RADAR_TOP = TBT_TOP + (TBT_BOTTOM - TBT_TOP - (RADAR_SIGN + RADAR_TEXT_GAP)) / 2
+
+    /** "350" + "m", or "1.2" + "km" from 1 km, as the turn-by-turn distance reads. */
+    fun radarDistance(meters: Int): Pair<String, String> {
+        val m = meters.coerceAtLeast(0)
+        if (m < 1_000) return ((m / 10.0).roundToInt() * 10).toString() to "m"
+        val tenths = (m / 100.0).roundToInt()
+        return "${tenths / 10}.${tenths % 10}" to "km"
+    }
 
     /** HUD layouts the owner picks from in the Telas tab. */
     enum class Layout(val key: String) {
@@ -593,9 +618,14 @@ object HudOverlayModel {
         rpmTenths: Int?,
         arMetersOverride: Float? = null,
         arProgress: Float = 0f,
-        arDistanceKnown: Boolean = true
-    ): Frame = Frame(
-        tbt = if (config.navigation) {
+        arDistanceKnown: Boolean = true,
+        radar: Radar? = null
+    ): Frame = if (!config.active) {
+        // "Original" layout: the window is only up for the radar, so draw nothing else.
+        Frame(tbt = null, powerPercent = null, rpmTenths = null, radar = radar)
+    } else Frame(
+        // A camera ahead takes the turn-by-turn box while it is alerted.
+        tbt = if (config.navigation && radar == null) {
             directions?.let { tbtFor(it, config) }?.let { tbt ->
                 if (tbt.style != TbtStyle.AR) tbt
                 else tbt.copy(
@@ -606,7 +636,8 @@ object HudOverlayModel {
         } else null,
         powerPercent = if (config.powerBar) powerPercent else null,
         rpmTenths = if (config.rpmBar) rpmTenths else null,
-        arcs = config.arcs
+        arcs = config.arcs,
+        radar = radar
     )
 
     /**

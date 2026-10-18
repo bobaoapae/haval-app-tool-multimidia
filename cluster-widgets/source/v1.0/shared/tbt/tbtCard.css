@@ -288,3 +288,20 @@
   color: var(--color-green);
   text-shadow: 0 0 8px rgba(0, 255, 136, 0.3), 0 0 4px rgba(0, 0, 0, 0.9);
 }
+
+/* Radar mode (setRadar): the speed-limit sign takes the glyph slot and the
+   trip figures step aside (hidden, not removed, so the card keeps its size).
+   Over the limit, the card's edge and the distance turn red. Static colours
+   only: nothing here animates. */
+.dashboard-tbt-strip.is-radar .dashboard-tbt-remaining {
+  visibility: hidden;
+}
+
+.dashboard-tbt-strip.is-radar.is-over::before {
+  border-color: rgba(229, 57, 53, 0.9);
+  background: rgba(48, 8, 10, 0.72);
+}
+
+.dashboard-tbt-strip.is-radar.is-over .dashboard-tbt-distance {
+  color: #ff6b66;
+}

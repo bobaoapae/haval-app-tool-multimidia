@@ -613,6 +613,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "app.launcher.apps",
             "app.androidauto.session",
             "app.navigation.directions",
+            "app.navigation.radar",
             "app.media.state",
             "app.media.title",
             "app.media.artist",

@@ -110,6 +110,7 @@ class HudOverlayRenderer {
 
     private fun drawContent(canvas: Canvas, frame: M.Frame?) {
         val f = frame ?: return
+        f.radar?.let { drawRadar(canvas, it) }
         f.tbt?.let { tbt ->
             when (tbt.style) {
                 M.TbtStyle.HERO -> drawHero(canvas, tbt)
@@ -129,6 +130,67 @@ class HudOverlayRenderer {
             f.powerPercent?.let { drawPowerBar(canvas, it) }
             f.rpmTenths?.let { drawRpmBar(canvas, it) }
         }
+    }
+
+    // Radar card: red ring like a speed-limit sign; the limit (and the distance) turn red while
+    // the car is over it. No fill: black is transparent on the HUD, white would glare.
+    private val radarRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = RED
+        style = Paint.Style.STROKE
+        strokeWidth = M.RADAR_RING
+    }
+    private val radarLimit = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        textAlign = Paint.Align.CENTER
+    }
+    private val radarBadge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 1.8f
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val badgeRect = RectF()
+
+    private fun drawRadar(canvas: Canvas, radar: M.Radar) {
+        val r = M.RADAR_SIGN / 2
+        val cx = M.BOX_CENTER_X
+        val cy = M.RADAR_TOP + r
+        canvas.drawCircle(cx, cy, r - M.RADAR_RING / 2, radarRing)
+        val limit = radar.limitKmh
+        if (limit != null) {
+            radarLimit.color = if (radar.over) RED else Color.WHITE
+            radarLimit.textSize = if (limit >= 100) M.RADAR_LIMIT_SIZE_3DIGITS else M.RADAR_LIMIT_SIZE
+            canvas.drawText(limit.toString(), cx, cy - (radarLimit.descent() + radarLimit.ascent()) / 2, radarLimit)
+            drawCamera(canvas, cx + r * 0.78f, cy + r * 0.78f, M.RADAR_BADGE)
+        } else {
+            // No known limit: the camera itself fills the sign.
+            drawCamera(canvas, cx, cy, M.RADAR_SIGN * 0.5f)
+        }
+        val (value, unit) = M.radarDistance(radar.distanceM)
+        setTextSizes(M.RADAR_VALUE_SIZE, M.RADAR_UNIT_SIZE)
+        val color = if (radar.over) RED else Color.WHITE
+        valuePaint.color = color
+        unitPaint.color = color
+        val width = valuePaint.measureText(value) + M.UNIT_GAP + unitPaint.measureText(unit)
+        val x = cx - width / 2
+        val baseline = M.RADAR_TOP + M.RADAR_SIGN + M.RADAR_TEXT_GAP
+        canvas.drawText(value, x, baseline, valuePaint)
+        canvas.drawText(unit, x + valuePaint.measureText(value) + M.UNIT_GAP, baseline, unitPaint)
+        valuePaint.color = Color.WHITE
+        unitPaint.color = Color.WHITE
+    }
+
+    /** Camera outline centred on [cx], [cy], [size] wide: body, lens and the top bump. */
+    private fun drawCamera(canvas: Canvas, cx: Float, cy: Float, size: Float) {
+        val w = size * 0.8f
+        val h = size * 0.55f
+        badgeRect.set(cx - w / 2, cy - h / 2 + size * 0.06f, cx + w / 2, cy + h / 2 + size * 0.06f)
+        canvas.drawRoundRect(badgeRect, size * 0.08f, size * 0.08f, radarBadge)
+        canvas.drawCircle(cx, badgeRect.centerY(), h * 0.3f, radarBadge)
+        canvas.drawLine(cx - w * 0.15f, badgeRect.top, cx - w * 0.05f, badgeRect.top - size * 0.1f, radarBadge)
+        canvas.drawLine(cx - w * 0.05f, badgeRect.top - size * 0.1f, cx + w * 0.15f, badgeRect.top - size * 0.1f, radarBadge)
+        canvas.drawLine(cx + w * 0.15f, badgeRect.top - size * 0.1f, cx + w * 0.25f, badgeRect.top, radarBadge)
     }
 
     /**

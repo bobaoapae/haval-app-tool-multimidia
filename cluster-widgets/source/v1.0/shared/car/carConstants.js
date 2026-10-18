@@ -54,6 +54,7 @@ export const KEYS = {
 
     APP_LAUNCHER_APPS: "app.launcher.apps",
     APP_NAVIGATION_DIRECTIONS: "app.navigation.directions",
+    APP_NAVIGATION_RADAR: "app.navigation.radar",
     APP_ANDROID_AUTO_SESSION: "app.androidauto.session",
     
     // Media & Telephony

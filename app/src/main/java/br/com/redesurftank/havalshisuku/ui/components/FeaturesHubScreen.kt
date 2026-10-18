@@ -20,10 +20,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Construction
+import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +44,8 @@ import androidx.compose.ui.unit.sp
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightSettingsScreen
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
+import br.com.redesurftank.havalshisuku.radar.RadarSettings
+import br.com.redesurftank.havalshisuku.radar.RadarSettingsScreen
 import br.com.redesurftank.havalshisuku.ui.theme.Michroma
 
 @Composable
@@ -50,15 +55,17 @@ fun FeaturesHubScreen() {
     when (selectedFeature) {
         "score" -> TripConsistencyScreen(onBackToFeatures = { selectedFeature = null })
         "ambient_light" -> AmbientLightSettingsScreen(onBackToFeatures = { selectedFeature = null })
+        "radar" -> RadarSettingsScreen(onBackToFeatures = { selectedFeature = null })
         else -> FeaturesHome(
             onOpenScore = { selectedFeature = "score" },
-            onOpenAmbientLight = { selectedFeature = "ambient_light" }
+            onOpenAmbientLight = { selectedFeature = "ambient_light" },
+            onOpenRadar = { selectedFeature = "radar" }
         )
     }
 }
 
 @Composable
-private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit) {
+private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit, onOpenRadar: () -> Unit) {
     val prefs =
         App.getDeviceProtectedContext()
             .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
@@ -81,6 +88,8 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
                 fontSize = 18.sp
             )
         }
+
+        RadarFeatureCard(onConfigure = onOpenRadar)
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             FeatureCard(
@@ -142,6 +151,49 @@ private fun FeaturesHome(onOpenScore: () -> Unit, onOpenAmbientLight: () -> Unit
                         fontSize = 15.sp
                     )
                 }
+            }
+        }
+    }
+}
+
+/** Radar alert: switched on/off right here; the button opens its settings. */
+@Composable
+private fun RadarFeatureCard(onConfigure: () -> Unit) {
+    var config by remember { mutableStateOf(RadarSettings.load()) }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = ImpTokens.Container
+    ) {
+        Row(modifier = Modifier.padding(22.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.Radar,
+                contentDescription = null,
+                tint = if (config.enabled) ImpTokens.Accent else ImpTokens.TextMuted,
+                modifier = Modifier.size(38.dp)
+            )
+            Spacer(Modifier.width(18.dp))
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Alerta de Radar", color = AppColors.TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Radares fixos à frente no HUD e no painel, com limite, distância e som.",
+                    color = AppColors.TextSecondary,
+                    fontSize = 15.sp
+                )
+            }
+            Spacer(Modifier.width(18.dp))
+            Switch(
+                checked = config.enabled,
+                onCheckedChange = {
+                    config = config.copy(enabled = it)
+                    RadarSettings.save(config)
+                }
+            )
+            Spacer(Modifier.width(14.dp))
+            OutlinedButton(onClick = onConfigure) {
+                Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Configurar")
             }
         }
     }

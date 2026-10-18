@@ -17,6 +17,11 @@ import { laneSvg, readLanes } from './tbtLanes.js';
  * is handed, and holds no subscriptions. Each theme wires its own state to
  * update(), so the themes show one card rather than copies that drift apart.
  * Styles live alongside in tbtCard.css.
+ *
+ * setRadar() hands it the host's speed-camera alert (app.navigation.radar,
+ * additive in v1.0). While one is active the card shows the camera instead
+ * of the maneuver (a speed-limit sign and the distance), even with no route,
+ * and goes back to the guidance when it ends.
  */
 export function createTbtCard() {
     const strip = div({ className: 'dashboard-tbt-strip' });
@@ -106,7 +111,34 @@ export function createTbtCard() {
         lanesRow.style.display = 'flex';
     };
 
+    let lastDirections = null;
+    let radar = null;
+
+    const isActive = (value) => !!value && (value.active === true || value.active === 'true');
+
+    // Speed camera ahead: the limit sign in the glyph slot, the distance under it,
+    // "Radar · 60 km/h" in the street line; the trip figures step aside.
+    const renderRadar = (r) => {
+        strip.style.display = 'flex';
+        strip.classList.add('is-radar');
+        strip.classList.toggle('is-over', r.over === true || r.over === 'true');
+        const limit = readRadarLimit(r.limit_kmh);
+        glyph.classList.add('is-svg');
+        glyph.innerHTML = radarSignSvg(limit);
+        street.textContent = limit ? `Radar · ${limit} km/h` : 'Radar';
+        turnDistance.textContent = formatRadarDistance(r.distance_m);
+        lanesKey = '';
+        lanesRow.style.display = 'none';
+        lanesRow.innerHTML = '';
+    };
+
     const update = (directions) => {
+        lastDirections = directions;
+        if (isActive(radar)) {
+            renderRadar(radar);
+            return;
+        }
+        strip.classList.remove('is-radar', 'is-over');
         const d = directions || {};
         const active = d.active === true || d.active === 'true';
         strip.style.display = active ? 'flex' : 'none';
@@ -132,7 +164,56 @@ export function createTbtCard() {
         arrival.cell.style.visibility = arrivalClock ? '' : 'hidden';
     };
 
-    return { element: strip, update };
+    const setRadar = (value) => {
+        const wasActive = isActive(radar);
+        radar = value || null;
+        if (isActive(radar)) renderRadar(radar);
+        else if (wasActive) update(lastDirections);
+    };
+
+    return { element: strip, update, setRadar };
+}
+
+/** Limit inside the sign: a whole km/h 10..150, else 0 (camera icon instead). */
+export function readRadarLimit(raw) {
+    if (raw == null || raw === '') return 0;
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 10 && n <= 150 ? n : 0;
+}
+
+/** "340 m" in 10 m steps, "1,2 km" from 1 km (pt-BR, as the other figures). */
+export function formatRadarDistance(raw) {
+    if (raw == null || raw === '') return '';
+    const m = Number(raw);
+    if (!Number.isFinite(m)) return '';
+    if (m < 1000) return `${Math.max(0, Math.round(m / 10) * 10)} m`;
+    return `${(Math.round(m / 100) / 10).toFixed(1).replace('.', ',')} km`;
+}
+
+/**
+ * Brazilian speed-limit sign (R-19): white disc, red ring, the limit in black,
+ * and a small camera badge on its lower right. Without a limit, a camera.
+ */
+export function radarSignSvg(limit) {
+    const camera = (cx, cy, s) => {
+        const w = s * 0.8;
+        const h = s * 0.55;
+        const top = cy - h / 2 + s * 0.06;
+        return `<rect x="${cx - w / 2}" y="${top}" width="${w}" height="${h}" rx="${s * 0.08}" fill="none" stroke="#fff" stroke-width="${s * 0.09}"/>` +
+            `<circle cx="${cx}" cy="${top + h / 2}" r="${h * 0.3}" fill="none" stroke="#fff" stroke-width="${s * 0.09}"/>` +
+            `<path d="M${cx - w * 0.15} ${top}L${cx - w * 0.05} ${top - s * 0.1}H${cx + w * 0.15}L${cx + w * 0.25} ${top}" fill="none" stroke="#fff" stroke-width="${s * 0.09}" stroke-linejoin="round"/>`;
+    };
+    const ring = '<circle cx="12" cy="12" r="10.4" fill="#fff" stroke="#e53935" stroke-width="2.6"/>';
+    if (!limit) {
+        return `<svg viewBox="0 0 24 24" class="dashboard-tbt-radar-sign">` +
+            '<circle cx="12" cy="12" r="10.4" fill="#1b1f27" stroke="#e53935" stroke-width="2.6"/>' +
+            camera(12, 12, 11) + '</svg>';
+    }
+    const size = limit >= 100 ? 8.2 : 10;
+    return `<svg viewBox="0 0 24 24" class="dashboard-tbt-radar-sign">${ring}` +
+        `<text x="12" y="12" text-anchor="middle" dominant-baseline="central" font-size="${size}" font-weight="700" fill="#111">${limit}</text>` +
+        '<circle cx="19.6" cy="19.6" r="4.4" fill="#1b1f27" stroke="#fff" stroke-width="0.6"/>' +
+        camera(19.6, 19.6, 5.2) + '</svg>';
 }
 
 /** Roundabout exit from exit_number: a whole number 1..20, else 0 (none). */
@@ -141,6 +222,11 @@ export function readExitNumber(raw) {
     if (raw == null || raw === '') return 0;
     const n = Number(raw);
     return Number.isInteger(n) && n >= 1 && n <= 20 ? n : 0;
+}
+
+/** Host radar alert JSON (app.navigation.radar); unreadable = no alert. */
+export function parseRadarAlert(raw) {
+    return parseNavigationDirections(raw);
 }
 
 /** Bridge values arrive as JSON strings; anything unreadable means no guidance. */

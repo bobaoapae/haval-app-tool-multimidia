@@ -380,6 +380,7 @@ export function createDashboardInfo() {
     const tbtCard = createTbtCard();
     container.appendChild(tbtCard.element);
     tbtCard.update(getState('navigationDirections'));
+    tbtCard.setRadar(getState('radarAlert'));
 
     // Subscriptions
     const updateBarSegments = (tracks, percent) => {
@@ -431,6 +432,7 @@ export function createDashboardInfo() {
 
     const subscriptions = [
         subscribe('navigationDirections', directions => tbtCard.update(directions)),
+        subscribe('radarAlert', radar => tbtCard.setRadar(radar)),
         subscribe('clockTime', val => clock.textContent = val),
         subscribe('gearState', val => {
             gear.textContent = val;

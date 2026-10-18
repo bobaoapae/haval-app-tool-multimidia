@@ -22,5 +22,8 @@ object AndroidAutoTelemetryKeys {
     const val API_VERSION_VALUE = "1"
 
     @JvmField
-    val SYNTHETIC_KEYS: Array<String> = arrayOf(SESSION, DIRECTIONS, PowerFlow.KEY_FLOW, PowerFlow.KEY_ICE)
+    val SYNTHETIC_KEYS: Array<String> = arrayOf(
+        SESSION, DIRECTIONS, PowerFlow.KEY_FLOW, PowerFlow.KEY_ICE,
+        br.com.redesurftank.havalshisuku.radar.RadarManager.KEY
+    )
 }

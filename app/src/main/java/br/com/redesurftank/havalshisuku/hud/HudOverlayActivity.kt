@@ -33,8 +33,8 @@ class HudOverlayActivity : Activity() {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         )
         Log.w(TAG, "created on display=${windowManager.defaultDisplay.displayId}")
-        // Debug builds only: `--es hudDemo on|nolanes|far|drive|off` puts a sample frame up for layout checks.
-        if (BuildConfig.DEBUG) intent?.getStringExtra(EXTRA_DEMO)?.let { HudOverlayController.demo(it) }
+        // Debug builds only (see handleDebugExtras).
+        if (BuildConfig.DEBUG) handleDebugExtras(intent)
         if (HudOverlayController.adoptDisplay(this)) {
             finishQuietly()
             return
@@ -45,12 +45,23 @@ class HudOverlayActivity : Activity() {
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-        if (BuildConfig.DEBUG) intent?.getStringExtra(EXTRA_DEMO)?.let { HudOverlayController.demo(it) }
+        if (BuildConfig.DEBUG) handleDebugExtras(intent)
         if (view == null) {
             if (HudOverlayController.adoptDisplay(this)) finishQuietly()
             return
         }
         HudOverlayController.attach(this)
+    }
+
+    /**
+     * `--es hudDemo on|nolanes|far|drive|off` puts a sample frame up for layout checks;
+     * `--es radarDemo on|over` drives past a 60 km/h camera (sounds, HUD card, theme key).
+     */
+    private fun handleDebugExtras(intent: Intent?) {
+        intent?.getStringExtra(EXTRA_DEMO)?.let { HudOverlayController.demo(it) }
+        intent?.getStringExtra(EXTRA_RADAR_DEMO)?.let {
+            br.com.redesurftank.havalshisuku.radar.RadarManager.demo(over = it == "over")
+        }
     }
 
     fun show(frame: HudOverlayModel.Frame?) {
@@ -80,5 +91,6 @@ class HudOverlayActivity : Activity() {
     companion object {
         private const val TAG = "HudOverlay"
         private const val EXTRA_DEMO = "hudDemo"
+        private const val EXTRA_RADAR_DEMO = "radarDemo"
     }
 }

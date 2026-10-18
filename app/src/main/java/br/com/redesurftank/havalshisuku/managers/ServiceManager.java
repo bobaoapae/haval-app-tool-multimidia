@@ -1271,6 +1271,7 @@ public class ServiceManager {
         AndroidAutoClusterController.INSTANCE.start();
         br.com.redesurftank.havalshisuku.services.AndroidAutoNavigationMonitor.INSTANCE.start(context);
         br.com.redesurftank.havalshisuku.hud.HudOverlayController.INSTANCE.start();
+        br.com.redesurftank.havalshisuku.radar.RadarManager.INSTANCE.start();
         synchronized (pendingTasks) {
             for (Runnable task : pendingTasks) backgroundHandler.post(task);
             pendingTasks.clear();

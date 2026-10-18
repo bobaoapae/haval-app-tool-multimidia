@@ -433,6 +433,7 @@ export function createDashboardInfo() {
     container.appendChild(tbtCard.element);
     const updateTbtStrip = () => tbtCard.update(getState('navigationDirections'));
     updateTbtStrip();
+    tbtCard.setRadar(getState('radarAlert'));
 
     const clockInterval = setInterval(() => {
         const now = new Date();
@@ -496,6 +497,7 @@ export function createDashboardInfo() {
     const subscriptions = [
         subscribe('cardId', updateCardTitle),
         subscribe('navigationDirections', updateTbtStrip),
+        subscribe('radarAlert', radar => tbtCard.setRadar(radar)),
         subscribe('projectionMirrorInDash', updateTbtStrip),
         subscribe('carPlayInDash', updateTbtStrip),
         subscribe('aaClusterInDash', updateTbtStrip),

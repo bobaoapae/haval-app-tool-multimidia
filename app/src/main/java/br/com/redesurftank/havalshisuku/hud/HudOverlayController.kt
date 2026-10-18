@@ -18,6 +18,7 @@ import br.com.redesurftank.havalshisuku.models.PowerFlow
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.roundToInt
 
 /**
  * Owns the HUD overlay window (display 4096) while the owner has a layout other than "original"
@@ -116,7 +117,7 @@ object HudOverlayController {
             configCache = config
             // The owner's pick wins: a debug demo must not keep the HUD up past "original".
             endDemo()
-            if (config.active) publish() else closeHosts()
+            if (wanted()) publish() else closeHosts()
         }
     }
 
@@ -147,11 +148,46 @@ object HudOverlayController {
 
     private fun config(): HudOverlayModel.Config {
         val saved = configCache ?: HudOverlaySettings.load().also { configCache = it }
-        // The drive demo shows the AR theme whatever the owner picked.
-        return if (demoDriveStartMs != 0L) saved.copy(layout = HudOverlayModel.Layout.AR) else saved
+        return when {
+            // The drive demo shows the AR theme whatever the owner picked.
+            demoDriveStartMs != 0L -> saved.copy(layout = HudOverlayModel.Layout.AR)
+            // Static demos draw on "original" too; that layout now draws only the radar.
+            demoDirections != null && !saved.active -> saved.copy(layout = HudOverlayModel.Layout.NAVIGATION)
+            else -> saved
+        }
     }
 
-    private fun wanted(): Boolean = config().active || demoDirections != null
+    /**
+     * The radar alert keeps the window up while it is on with "show on HUD", even on the
+     * "original" layout (where only the radar card is drawn), so an alert never has to wait
+     * for a launch through Shizuku.
+     */
+    private fun wanted(): Boolean = config().active || demoDirections != null || radarWanted
+
+    // ---- radar ----
+
+    private var radarWanted = false
+    private var radar: HudOverlayModel.Radar? = null
+
+    /** RadarManager: the alert feature (with "show on HUD") switched on or off. Any thread. */
+    fun setRadarHudWanted(wanted: Boolean) {
+        main.post {
+            if (radarWanted == wanted) return@post
+            radarWanted = wanted
+            if (!wanted) radar = null
+            publish()
+        }
+    }
+
+    /** RadarManager: camera ahead (null = none). ~1 Hz; redraws only on a visible change. Any thread. */
+    fun onRadar(update: HudOverlayModel.Radar?) {
+        main.post {
+            val shown = update?.copy(distanceM = (update.distanceM / 10.0).roundToInt() * 10)
+            if (shown == radar) return@post
+            radar = shown
+            publish()
+        }
+    }
 
     // ---- car data ----
 
@@ -198,7 +234,8 @@ object HudOverlayController {
         rpmTenths = if (demoDriveStartMs != 0L) demoRpm else rpmTenths.get().takeIf { it != NO_RPM },
         arMetersOverride = arMetersEstimate(),
         arProgress = roundaboutProgress(),
-        arDistanceKnown = !distanceStale()
+        arDistanceKnown = !distanceStale(),
+        radar = radar
     )
 
     private fun distanceStale() = demoDirections == null && navDistanceStale

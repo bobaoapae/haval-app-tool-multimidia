@@ -169,6 +169,9 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.coil.compose)
     implementation(libs.material.icons.extended)
+    // TLS 1.3 for the radar data downloads only (RadarUpdater): Android 9 stops at TLS 1.2 and
+    // overpass-api.de refuses it (checked 2026-10-17). Not installed as the global provider.
+    implementation("org.conscrypt:conscrypt-android:2.5.2")
     annotationProcessor(libs.annotation.processor)
     compileOnly(libs.annotation)
     testImplementation(libs.junit)
