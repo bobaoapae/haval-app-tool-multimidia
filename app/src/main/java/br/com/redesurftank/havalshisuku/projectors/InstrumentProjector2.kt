@@ -70,6 +70,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     /** Grace period before the layout follows a warning that cleared by itself, so it does
      *  not snap back while the car's own popup is still finishing its own close. */
     private val WARNING_CLEAR_HOLDOFF_MS = 2000L
+
+    /** Cap on the traced alarm-list payload; its shape is unknown, so keep a line readable. */
+    private val ALARM_LIST_TRACE_MAX_CHARS = 400
     /** Mask crossfade when an app/map hole opens or closes; in step with the theme's own fades. */
     private val MASK_FADE_MS = 300L
     private val MAX_PENDING_JS_COMMANDS = 250
@@ -1565,6 +1568,19 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun handleDataChanged(key: String, value: String) {
+
+            // Trace only, changes nothing. The badge today reconstructs the car's warning
+            // cards from individual CAN keys, which is a guess: on 2026-10-18 the car showed
+            // and dismissed a tyre card 38 min after car.basic.tirepress_warning had gone
+            // inactive, so the dismissal landed on the belt card instead. This key is named
+            // like the car's own alarm list and nothing has ever subscribed to it, so capture
+            // its payload and see whether it names the cards actually on screen.
+            if (key == CarConstants.CAR_IPK_SETTING_ALARM_HIS_INFO_LIST.value) {
+                logClusterPerfEvent(
+                        "alarm_list_changed",
+                        mapOf("value" to value.take(ALARM_LIST_TRACE_MAX_CHARS))
+                )
+            }
 
             if (isNativeProjectionPanelKey(key)) {
                 ensureUi {
@@ -3772,6 +3788,18 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     mapOf(
                             "card" to cardId,
                             "cardsShowing" to cardsShowing,
+                            // Trace only. [cardId] above is inferred from CAN keys; this is
+                            // the car's own list at the moment of the press, so a mismatch
+                            // between the two is visible rather than having to be deduced.
+                            "alarmList" to
+                                    (ServiceManager.getInstance()
+                                                    .getData(
+                                                            CarConstants
+                                                                    .CAR_IPK_SETTING_ALARM_HIS_INFO_LIST
+                                                                    .value
+                                                    )
+                                                    ?.take(ALARM_LIST_TRACE_MAX_CHARS)
+                                            ?: "null"),
                             "timeSinceWarningMs" to timeSinceWarning,
                             "keyOnsetAgeMs" to
                                     (keyOnsetMs?.let { System.currentTimeMillis() - it } ?: -1L),
