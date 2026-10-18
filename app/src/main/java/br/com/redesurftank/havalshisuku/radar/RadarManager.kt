@@ -18,6 +18,7 @@ import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.hud.HudOverlayController
 import br.com.redesurftank.havalshisuku.hud.HudOverlayModel
 import br.com.redesurftank.havalshisuku.listeners.IDataChanged
+import br.com.redesurftank.havalshisuku.managers.AndroidAutoTelemetryKeys
 import br.com.redesurftank.havalshisuku.managers.PowerFlowMapper
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.models.CarConstants
@@ -55,8 +56,15 @@ object RadarManager {
 
     private val context: Context get() = App.getDeviceProtectedContext()
 
+    /** Android Auto's next maneuver: when it comes before the camera, the TBT keeps the slot. */
+    @Volatile private var nav: RadarPriority.Nav = RadarPriority.NONE
+    private val soundGate = RadarSoundGate()
+
     private val speedListener = IDataChanged { key, value ->
-        if (key == KEY_SPEED) carSpeedKmh = PowerFlowMapper.parseNumber(value).takeIf { it.isFinite() && it in 0.0..300.0 }
+        when (key) {
+            KEY_SPEED -> carSpeedKmh = PowerFlowMapper.parseNumber(value).takeIf { it.isFinite() && it in 0.0..300.0 }
+            AndroidAutoTelemetryKeys.DIRECTIONS -> nav = RadarPriority.parseNav(value)
+        }
     }
 
     private val locationListener = object : LocationListener {
@@ -115,6 +123,7 @@ object RadarManager {
         }
         ServiceManager.getInstance().addDataChangedListener(speedListener)
         speedListener.onDataChanged(KEY_SPEED, ServiceManager.getInstance().getData(KEY_SPEED))
+        speedListener.onDataChanged(AndroidAutoTelemetryKeys.DIRECTIONS, ServiceManager.getInstance().peekCachedData(AndroidAutoTelemetryKeys.DIRECTIONS))
         engine.reset()
         tracking = true
         Log.w(TAG, "tracking on (${RadarRepository.status?.total ?: 0} cameras)")
@@ -144,16 +153,25 @@ object RadarManager {
 
     private fun handle(update: RadarAlertEngine.Update, demo: Boolean = false) {
         val alert = update.alert
+        // A maneuver before the camera keeps the TBT slot on the HUD and the theme; the camera's
+        // sound waits until it is shown (RadarSoundGate).
+        val tbtFirst = alert != null && RadarPriority.tbtFirst(nav, alert.distanceM)
+        val shown = if (tbtFirst) null else alert
         update.event?.let { event ->
-            playFor(event, alert)
             ClusterPersistentEventLogger.log(
                 "radar_alert",
-                mapOf("event" to event.name, "m" to alert?.distanceM, "limit" to alert?.limitKmh, "over" to alert?.over, "src" to alert?.camera?.source?.code)
+                mapOf(
+                    "event" to event.name, "m" to alert?.distanceM, "limit" to alert?.limitKmh, "over" to alert?.over,
+                    "src" to alert?.camera?.source?.code, "tbtFirst" to tbtFirst, "road" to alert?.onRoad,
+                    // The camera's own (public) position, to look up a wrong alert afterwards.
+                    "cam" to alert?.camera?.let { String.format(java.util.Locale.US, "%.5f,%.5f", it.lat, it.lon) }
+                )
             )
         }
-        lastAlert = alert
+        soundGate.onUpdate(update.event, targeted = alert != null, shown = shown != null)?.let { playFor(it, alert) }
+        lastAlert = shown
         // The demo shows on both outputs, even with the feature off, so it can be tried first.
-        if (demo) publish(alert, showHud = true, showTheme = true) else publish(alert)
+        if (demo) publish(shown, showHud = true, showTheme = true) else publish(shown)
     }
 
     private fun playFor(event: RadarAlertEngine.Event, alert: RadarAlertEngine.Alert?) {
@@ -208,7 +226,10 @@ object RadarManager {
         handler.post {
             handler.removeCallbacks(demoTick)
             demoEngine = RadarAlertEngine()
-            demoIndex = RadarIndex(listOf(RadarCamera(DEMO_LAT + 700.0 / 111_320.0, DEMO_LON, 60, null, RadarCamera.Source.OSM)))
+            // On a straight two-way road running north, so the road matching is exercised too.
+            val cameras = listOf(RadarCamera(DEMO_LAT + 700.0 / 111_320.0, DEMO_LON, 60, null, RadarCamera.Source.OSM))
+            val road = RoadSnippet(0, doubleArrayOf(DEMO_LAT - 0.005, DEMO_LAT + 0.015), doubleArrayOf(DEMO_LON, DEMO_LON))
+            demoIndex = RadarIndex(cameras, RadarRoads.tie(cameras, listOf(road)))
             demoMeters = 0.0
             demoOver = over
             demoTicks = 0

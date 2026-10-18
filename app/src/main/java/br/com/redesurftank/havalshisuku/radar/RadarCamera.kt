@@ -33,6 +33,8 @@ data class RadarCamera(
 /** Flat-earth maths: good to well under 1 % at the few-km range alerts work in. */
 object RadarGeo {
     private const val EARTH_M = 6_371_000.0
+    /** Metres per degree of latitude (and of longitude at the equator). */
+    const val METERS_PER_DEG = 111_320.0
 
     fun distanceM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
         val x = Math.toRadians(lon2 - lon1) * cos(Math.toRadians((lat1 + lat2) / 2))

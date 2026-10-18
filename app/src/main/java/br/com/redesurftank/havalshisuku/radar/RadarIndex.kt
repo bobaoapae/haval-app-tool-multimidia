@@ -5,9 +5,10 @@ import kotlin.math.floor
 
 /**
  * Grid over the cameras (cells of [CELL_DEG], ~2.2 km) so a GPS fix only looks at the few
- * cameras around it instead of all ~11k. Immutable; build a new one when the data changes.
+ * cameras around it instead of all ~11k, with each camera's road when it has one ([roads],
+ * aligned with [cameras]; see RadarRoads.tie). Immutable; build a new one when the data changes.
  */
-class RadarIndex(val cameras: List<RadarCamera>) {
+class RadarIndex(val cameras: List<RadarCamera>, private val roads: Array<CameraRoad?> = arrayOfNulls(cameras.size)) {
     private companion object {
         const val CELL_DEG = 0.02
         const val METERS_PER_DEG = 111_320.0
@@ -20,6 +21,11 @@ class RadarIndex(val cameras: List<RadarCamera>) {
     }
 
     val size: Int get() = cameras.size
+
+    /** The road camera [i] sits on, or null (no OSM road near it, or no road data yet). */
+    fun roadOf(i: Int): CameraRoad? = roads.getOrNull(i)
+
+    val withRoad: Int get() = roads.count { it != null }
 
     private fun cell(deg: Double): Int = floor(deg / CELL_DEG).toInt()
     private fun key(row: Int, col: Int): Long = (row.toLong() shl 32) xor (col.toLong() and 0xffffffffL)

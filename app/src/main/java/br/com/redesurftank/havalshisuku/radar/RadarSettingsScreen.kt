@@ -113,19 +113,12 @@ fun RadarSettingsScreen(onBackToFeatures: () -> Unit) {
         StyledCard {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 SectionTitle("Distâncias")
-                Text("Aviso de aproximação", color = AppColors.TextPrimary, fontSize = 17.sp)
-                ChipRow(RadarConfig.APPROACH_OPTIONS, config.approachM, label = { "$it m" }) { approach ->
-                    // Keep the near alert inside the approach one.
-                    val near = if (config.nearM < approach) config.nearM
-                    else RadarConfig.NEAR_OPTIONS.last { it < approach }
-                    save(config.copy(approachM = approach, nearM = near))
+                Text("Aviso de aproximação (longe)", color = AppColors.TextPrimary, fontSize = 17.sp)
+                ChipRow(RadarConfig.APPROACH_OPTIONS, config.approachM, label = { "$it m" }) {
+                    save(config.copy(approachM = it))
                 }
-                Text("Alerta próximo", color = AppColors.TextPrimary, fontSize = 17.sp)
-                ChipRow(
-                    RadarConfig.NEAR_OPTIONS, config.nearM,
-                    label = { "$it m" },
-                    enabled = { it < config.approachM }
-                ) { save(config.copy(nearM = it)) }
+                Text("Alerta próximo (perto)", color = AppColors.TextPrimary, fontSize = 17.sp)
+                ChipRow(RadarConfig.NEAR_OPTIONS, config.nearM, label = { "$it m" }) { save(config.copy(nearM = it)) }
             }
         }
 
@@ -162,7 +155,7 @@ fun RadarSettingsScreen(onBackToFeatures: () -> Unit) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SectionTitle("Testar")
                 Text(
-                    "Simula a passagem por um radar de 60 km/h a 700 m (cerca de 50 s), no HUD, no painel e com os sons.",
+                    "Simula a passagem por um radar de 60 km/h a 700 m numa via reta (cerca de 50 s), no HUD, no painel e com os sons.",
                     color = AppColors.TextSecondary,
                     fontSize = 14.sp
                 )
@@ -183,6 +176,11 @@ fun RadarSettingsScreen(onBackToFeatures: () -> Unit) {
                     Text("${s.total} radares", color = AppColors.TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                     Text("OpenStreetMap: ${s.osm}${dateSuffix(s.osmUpdated)}", color = AppColors.TextSecondary, fontSize = 15.sp)
                     Text("ANTT (rodovias federais concedidas): ${s.antt}${dateSuffix(s.anttUpdated)}", color = AppColors.TextSecondary, fontSize = 15.sp)
+                    Text(
+                        "Na via certa: ${s.withRoad} de ${s.total} ligados à sua rua/rodovia${dateSuffix(s.roadsUpdated)} (vias atualizadas 1x por mês)",
+                        color = AppColors.TextSecondary,
+                        fontSize = 15.sp
+                    )
                     if (s.fromApk) Text("Usando a cópia que veio com o app.", color = AppColors.TextSecondary, fontSize = 15.sp)
                 }
                 Text(

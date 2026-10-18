@@ -433,6 +433,7 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     RADAR_LAST_UPDATE_MS("radarLastUpdateMs", "Alerta de radar: última atualização bem-sucedida da base (controle interno)"),
     RADAR_LAST_ERROR("radarLastError", "Alerta de radar: último erro de atualização (controle interno)"),
     RADAR_ANTT_RESOURCE("radarAnttResource", "Alerta de radar: recurso ANTT já baixado (controle interno)"),
+    RADAR_ROADS_LAST_UPDATE_MS("radarRoadsLastUpdateMs", "Alerta de radar: última atualização das vias sob os radares (controle interno)"),
     CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),
     AMBIENT_LIGHT_BLE_ENABLED("ambientLightBleEnabled", "Ativar Ambient Light BLE"),
     AMBIENT_LIGHT_BLE_DEVICE_MAC("ambientLightBleDeviceMac", "MAC do dispositivo Ambient Light BLE"),
