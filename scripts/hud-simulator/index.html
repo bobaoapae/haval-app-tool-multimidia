@@ -587,7 +587,9 @@ function draw3dArrow(tbt, meters) {
 
 // ---- AR layout: left column + arcs (port of HudOverlayRenderer.drawArColumn / drawPowerArc) ----
 const ARC = {
-  CX: 216, CY: 112, START: 150, SWEEP: 195, TICKS: 50, X_SCALE: 1.3, // 6 px left of the speed, stretched for 3 digits
+  CX: 216, CY: 112, START: 150, SWEEP: 195, TICKS: 50, X_SCALE: 1.3, // 6 px left of the speed, stretched
+  // From 100 km/h (back below 95): wider and starting later, clear of the leading "1".
+  WIDE_START: 165, WIDE_SWEEP: 180, WIDE_X_SCALE: 1.45,
   POWER_R_IN: 47.5, POWER_R_OUT: 56, POWER_W: 1.3,
   RPM_R_IN: 38, RPM_R_OUT: 42, RPM_W: 0.8, RPM_MAX: 7000,
   POWER_OFF: 'rgba(255,255,255,0.35)', RPM_OFF: 'rgba(255,64,64,0.12)',
@@ -628,11 +630,12 @@ function arColumn(tbt, meters) {
 function arcTicks(rIn, rOut, w, lit, on, off) {
   ctx.lineWidth = w; ctx.lineCap = 'butt';
   for (let i = 0; i < ARC.TICKS; i++) {
-    const a = (ARC.START + (i + 0.5) * ARC.SWEEP / ARC.TICKS) * Math.PI / 180;
+    const wide = state.speed >= 100, start = wide ? ARC.WIDE_START : ARC.START, sweep = wide ? ARC.WIDE_SWEEP : ARC.SWEEP, xs = wide ? ARC.WIDE_X_SCALE : ARC.X_SCALE;
+    const a = (start + (i + 0.5) * sweep / ARC.TICKS) * Math.PI / 180;
     ctx.strokeStyle = i < lit ? on : off;
     ctx.beginPath();
-    ctx.moveTo(ARC.CX + Math.cos(a) * rIn * ARC.X_SCALE, ARC.CY + Math.sin(a) * rIn);
-    ctx.lineTo(ARC.CX + Math.cos(a) * rOut * ARC.X_SCALE, ARC.CY + Math.sin(a) * rOut);
+    ctx.moveTo(ARC.CX + Math.cos(a) * rIn * xs, ARC.CY + Math.sin(a) * rIn);
+    ctx.lineTo(ARC.CX + Math.cos(a) * rOut * xs, ARC.CY + Math.sin(a) * rOut);
     ctx.stroke();
   }
 }

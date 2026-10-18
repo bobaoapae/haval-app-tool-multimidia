@@ -409,6 +409,29 @@ class HudArArrowTest {
     }
 
     @Test
+    fun `three-digit speeds - wider arcs starting later, with hysteresis`() {
+        assertTrue(!HudOverlayModel.wideArcs(99.0, wasWide = false))
+        assertTrue(HudOverlayModel.wideArcs(100.0, wasWide = false))
+        assertTrue(HudOverlayModel.wideArcs(96.0, wasWide = true))   // stays wide down to 95
+        assertTrue(!HudOverlayModel.wideArcs(94.0, wasWide = true))
+        // Same 50 ticks and the same end; starts later at the bottom-left (where the "1" sits).
+        val last = HudOverlayModel.ARC_TICKS - 1
+        assertEquals(HudOverlayModel.arcTickDeg(last), HudOverlayModel.arcTickDeg(last, wide = true), 0.5f)
+        assertTrue(HudOverlayModel.arcTickDeg(0, wide = true) > HudOverlayModel.arcTickDeg(0) + 10f)
+        // Wider at the sides, same height.
+        val (xn, _) = HudOverlayModel.arcPoint(180f, HudOverlayModel.ARC_RPM_R_IN)
+        val (xw, _) = HudOverlayModel.arcPoint(180f, HudOverlayModel.ARC_RPM_R_IN, wide = true)
+        assertTrue(xw < xn - 2f)
+        assertEquals(HudOverlayModel.arcPoint(270f, 56f).second, HudOverlayModel.arcPoint(270f, 56f, wide = true).second, 0.01f)
+        // The street line still clears it, a little narrower.
+        val narrow = HudOverlayModel.columnRightAt(HudOverlayModel.AR_STREET_BASELINE, HudOverlayModel.AR_STREET_SIZE, wide = true)
+        assertTrue(narrow > HudOverlayModel.BOX_CENTER_X + 30f)
+        // Frames carry it.
+        val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR)
+        assertTrue(HudOverlayModel.frameFor(ar, null, 0, null, wideArcs = true).wideArcs)
+    }
+
+    @Test
     fun `power arc - one tick per 2 percent from the left, regen too`() {
         assertEquals(0, HudOverlayModel.arcPowerTicks(0))
         assertEquals(1, HudOverlayModel.arcPowerTicks(1)) // anything lights one

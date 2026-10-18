@@ -163,14 +163,14 @@ class HudOverlayRenderer {
                 M.TbtStyle.FAR -> drawRow(canvas, tbt, M.FAR_TOP)
                 M.TbtStyle.AR -> {
                     drawAr(canvas, tbt)
-                    drawArColumn(canvas, tbt, f.arcs) // draws its own trip line
+                    drawArColumn(canvas, tbt, f.arcs, f.wideArcs) // draws its own trip line
                 }
             }
             if (tbt.style != M.TbtStyle.AR) drawNavText(canvas, tbt)
         }
         if (f.arcs) {
-            f.powerPercent?.let { drawPowerArc(canvas, it) }
-            f.rpmTenths?.let { drawRpmArc(canvas, it) }
+            f.powerPercent?.let { drawPowerArc(canvas, it, f.wideArcs) }
+            f.rpmTenths?.let { drawRpmArc(canvas, it, f.wideArcs) }
         } else {
             f.powerPercent?.let { drawPowerBar(canvas, it) }
             f.rpmTenths?.let { drawRpmBar(canvas, it) }
@@ -307,7 +307,7 @@ class HudOverlayRenderer {
      * The arrow is in the middle, so the left box carries the driving info: street, a large
      * distance and the trip line; compacted round the lane row when there are lanes.
      */
-    private fun drawArColumn(canvas: Canvas, tbt: M.Tbt, arcs: Boolean) {
+    private fun drawArColumn(canvas: Canvas, tbt: M.Tbt, arcs: Boolean, wideArcs: Boolean) {
         val lanes = tbt.lanes.isNotEmpty()
         // Still far: street and distance smaller, the turn isn't shown yet either.
         val far = HudArArrow.isFar(tbt.arMeters)
@@ -318,7 +318,7 @@ class HudOverlayRenderer {
         val streetLine = listOfNotNull(exit, tbt.street.takeIf { it.isNotEmpty() }).joinToString(" · ")
         if (streetLine.isNotEmpty()) {
             // Centred in the column; with the arcs on, narrow enough to keep clear of them.
-            val maxW = if (arcs) 2f * (M.columnRightAt(streetY, streetPaint.textSize) - M.BOX_CENTER_X) else M.BOX_RIGHT - M.BOX_LEFT
+            val maxW = if (arcs) 2f * (M.columnRightAt(streetY, streetPaint.textSize, wideArcs) - M.BOX_CENTER_X) else M.BOX_RIGHT - M.BOX_LEFT
             // The next turn as a small icon before the street, the pair centred together.
             val iconSize = streetPaint.textSize * M.AR_STREET_ICON_SCALE
             val iconW = if (tbt.icon.isNotEmpty()) iconSize + M.AR_STREET_ICON_GAP else 0f
@@ -363,13 +363,13 @@ class HudOverlayRenderer {
      * 100 radial ticks from [rIn] to [rOut]; the first [lit] (from the left end) in [litColor],
      * the rest in [offColor]. Batched into two drawLines calls.
      */
-    private fun drawTicks(canvas: Canvas, rIn: Float, rOut: Float, width: Float, lit: Int, litColor: Int, offColor: Int) {
+    private fun drawTicks(canvas: Canvas, rIn: Float, rOut: Float, width: Float, lit: Int, litColor: Int, offColor: Int, wide: Boolean) {
         var nLit = 0
         var nOff = 0
         for (i in 0 until M.ARC_TICKS) {
-            val deg = M.arcTickDeg(i)
-            val (xIn, yIn) = M.arcPoint(deg, rIn)
-            val (xOut, yOut) = M.arcPoint(deg, rOut)
+            val deg = M.arcTickDeg(i, wide)
+            val (xIn, yIn) = M.arcPoint(deg, rIn, wide)
+            val (xOut, yOut) = M.arcPoint(deg, rOut, wide)
             val buf = if (i < lit) tickLit else tickOff
             var k = if (i < lit) nLit else nOff
             buf[k++] = xIn
@@ -390,16 +390,16 @@ class HudOverlayRenderer {
     }
 
     /** Outer arc: thick, long ticks; drive blue / regen green, both filling from the left. */
-    private fun drawPowerArc(canvas: Canvas, percent: Int) {
+    private fun drawPowerArc(canvas: Canvas, percent: Int, wide: Boolean) {
         drawTicks(
             canvas, M.ARC_POWER_R_IN, M.ARC_POWER_R_OUT, M.ARC_POWER_TICK_W,
-            M.arcPowerTicks(percent), if (percent >= 0) DRIVE else REGEN, POWER_OFF
+            M.arcPowerTicks(percent), if (percent >= 0) DRIVE else REGEN, POWER_OFF, wide
         )
     }
 
     /** Inner arc: thin, short red ticks over 0..7000 rpm. Hidden with the engine off. */
-    private fun drawRpmArc(canvas: Canvas, tenths: Int) {
-        drawTicks(canvas, M.ARC_RPM_R_IN, M.ARC_RPM_R_OUT, M.ARC_RPM_TICK_W, M.arcRpmTicks(tenths), RED, RPM_OFF)
+    private fun drawRpmArc(canvas: Canvas, tenths: Int, wide: Boolean) {
+        drawTicks(canvas, M.ARC_RPM_R_IN, M.ARC_RPM_R_OUT, M.ARC_RPM_TICK_W, M.arcRpmTicks(tenths), RED, RPM_OFF, wide)
     }
 
     // ---- AR arrow (Navegação AR) ----
@@ -779,7 +779,13 @@ class HudOverlayRenderer {
         drawScene(canvas)
         drawNativeHud(canvas, scenario.speedKmh)
         if (config.active) {
-            drawContent(canvas, M.frameFor(config, scenario.route, scenario.powerPercent, scenario.rpmTenths))
+            drawContent(
+                canvas,
+                M.frameFor(
+                    config, scenario.route, scenario.powerPercent, scenario.rpmTenths,
+                    wideArcs = M.wideArcs(scenario.speedKmh.toDouble(), wasWide = false)
+                )
+            )
         }
         return bitmap
     }

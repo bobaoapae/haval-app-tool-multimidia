@@ -86,6 +86,8 @@ object HudOverlayController {
     @Volatile private var engineOn = false
     /** km/h; drives the AR arrow between Android Auto's ~1 Hz distance updates. */
     @Volatile private var speedKmh = 0.0
+    /** Three-digit speed: wide arcs, with hysteresis (HudOverlayModel.wideArcs). */
+    @Volatile private var wideArcs = false
     private val powerPercent = AtomicInteger(0)
     private val rpmTenths = AtomicInteger(NO_RPM)
     private const val NO_RPM = Int.MIN_VALUE
@@ -213,8 +215,13 @@ object HudOverlayController {
             KEY_RPM -> rpm = PowerFlowMapper.parseNumber(value)
             PowerFlow.KEY_ICE -> engineOn = value?.trim() == "1"
             KEY_SPEED -> {
-                // Only feeds the AR extrapolation, which redraws on its own tick.
+                // Feeds the AR extrapolation (redraws on its own tick) and the wide arcs (redraw on a change).
                 speedKmh = PowerFlowMapper.parseNumber(value).takeIf { it.isFinite() && it in 0.0..300.0 } ?: 0.0
+                val wide = HudOverlayModel.wideArcs(speedKmh, wideArcs)
+                if (wide != wideArcs) {
+                    wideArcs = wide
+                    main.post { publish() }
+                }
                 return
             }
             else -> return
@@ -244,7 +251,8 @@ object HudOverlayController {
             arProgress = roundaboutProgress(),
             arDistanceKnown = !distanceStale(),
             radar = radar,
-            streets = HudMapFeed.lines
+            streets = HudMapFeed.lines,
+            wideArcs = wideArcs
         )
     }
 

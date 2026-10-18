@@ -402,7 +402,9 @@ object HudOverlayModel {
     const val ARC_RPM_MAX = 7_000
 
     /** Canvas angle (degrees) of tick [i] of [ARC_TICKS], at the middle of its slot. */
-    fun arcTickDeg(i: Int): Float = ARC_START_DEG + (i + 0.5f) * ARC_SWEEP_DEG / ARC_TICKS
+    fun arcTickDeg(i: Int, wide: Boolean = false): Float =
+        if (wide) ARC_WIDE_START_DEG + (i + 0.5f) * ARC_WIDE_SWEEP_DEG / ARC_TICKS
+        else ARC_START_DEG + (i + 0.5f) * ARC_SWEEP_DEG / ARC_TICKS
 
     /**
      * Arcs stretched sideways into a flat ellipse, so a three-digit speed fits inside; the
@@ -410,10 +412,26 @@ object HudOverlayModel {
      */
     const val ARC_X_SCALE = 1.3f
 
+    /**
+     * Three-digit speeds (owner, 2026-10-18): from [ARC_WIDE_ON_KMH] the arcs widen and start
+     * later at the bottom-left, where the leading "1" sits; same 50 ticks and end. Back to normal
+     * below [ARC_WIDE_OFF_KMH], so cruising at ~100 doesn't make them flicker.
+     */
+    const val ARC_WIDE_X_SCALE = 1.45f
+    const val ARC_WIDE_START_DEG = 165f
+    const val ARC_WIDE_SWEEP_DEG = 180f
+    const val ARC_WIDE_ON_KMH = 100.0
+    const val ARC_WIDE_OFF_KMH = 95.0
+
+    /** Wide arcs for [speedKmh], given whether they were wide ([wasWide]): with hysteresis. */
+    fun wideArcs(speedKmh: Double, wasWide: Boolean): Boolean =
+        if (wasWide) speedKmh >= ARC_WIDE_OFF_KMH else speedKmh >= ARC_WIDE_ON_KMH
+
     /** Point [r] out from the arc centre at canvas angle [deg], on the stretched ellipse. */
-    fun arcPoint(deg: Float, r: Float): Pair<Float, Float> {
+    fun arcPoint(deg: Float, r: Float, wide: Boolean = false): Pair<Float, Float> {
         val rad = Math.toRadians(deg.toDouble())
-        return ARC_CX + (kotlin.math.cos(rad) * r * ARC_X_SCALE).toFloat() to ARC_CY + (kotlin.math.sin(rad) * r).toFloat()
+        val xs = if (wide) ARC_WIDE_X_SCALE else ARC_X_SCALE
+        return ARC_CX + (kotlin.math.cos(rad) * r * xs).toFloat() to ARC_CY + (kotlin.math.sin(rad) * r).toFloat()
     }
 
     // ---- AR chevrons: animated turn arrows above the speed (Mercedes-style) ----
@@ -427,11 +445,11 @@ object HudOverlayModel {
      * arc (rows the arc doesn't reach: the column's own edge). The street line got this when the
      * arcs grew towards it.
      */
-    fun columnRightAt(baseline: Float, textSize: Float): Float {
+    fun columnRightAt(baseline: Float, textSize: Float, wide: Boolean = false): Float {
         val top = baseline - textSize
         var right = BOX_RIGHT
         for (i in 0 until ARC_TICKS) {
-            val (x, y) = arcPoint(arcTickDeg(i), ARC_POWER_R_OUT)
+            val (x, y) = arcPoint(arcTickDeg(i, wide), ARC_POWER_R_OUT, wide)
             if (y in top - 2f..baseline + 2f) right = minOf(right, x - 4f)
         }
         return right
@@ -588,6 +606,8 @@ object HudOverlayModel {
         val arcs: Boolean = false,
         /** Speed camera ahead: drawn in the turn-by-turn box, in place of the turn-by-turn. */
         val radar: Radar? = null,
+        /** Three-digit speed: the wide arcs (see [wideArcs]). */
+        val wideArcs: Boolean = false,
         /** AR: animated turn chevrons above the speed (null = none). */
         val chevrons: Chevrons? = null
     )
@@ -734,7 +754,8 @@ object HudOverlayModel {
         arProgress: Float = 0f,
         arDistanceKnown: Boolean = true,
         radar: Radar? = null,
-        streets: List<br.com.redesurftank.havalshisuku.map.LocalRoad> = emptyList()
+        streets: List<br.com.redesurftank.havalshisuku.map.LocalRoad> = emptyList(),
+        wideArcs: Boolean = false
     ): Frame {
         // "Original" layout: the window is only up for the radar, so draw nothing else.
         if (!config.active) return Frame(tbt = null, powerPercent = null, rpmTenths = null, radar = radar)
@@ -757,6 +778,7 @@ object HudOverlayModel {
             rpmTenths = if (config.rpmBar) rpmTenths else null,
             arcs = config.arcs,
             radar = radar,
+            wideArcs = wideArcs,
             chevrons = if (config.chevrons) chevronsFor(tbt) else null
         )
     }
