@@ -145,10 +145,62 @@ internal object ClusterWarningPolicy {
                 normalized != "nan"
     }
 
-    /** Whether this key/value pair is one the driver sees as a warning badge. */
-    fun raisesWarningBadge(key: String, value: String?): Boolean {
-        return key !in badgeExemptWarningKeys && isWarningValueActive(value)
+    /**
+     * Per-wheel flag vectors mapped to the lamp that decides whether the driver sees anything.
+     *
+     * These vectors say WHICH wheel, not whether there is a warning on screen. The car keeps
+     * them set at a finer grain than it ever displays: car.basic.tirepress_warning sat at
+     * {0,0,1,0} for 47 unbroken minutes on 2026-10-18 with car.ipk_light.tpms_warning off and
+     * no card on the cluster. Taken alone the vector put the badge up with nothing behind it,
+     * and because it never clears, [cardsToRearm] resurrected it on every real warning that
+     * followed — three times that morning — so no dismissal could ever stick.
+     *
+     * Gating on the lamp restores this file's own test, what the car itself puts on screen,
+     * without losing the vector: the theme is still told which wheel, and the lamp decides
+     * whether a badge is raised at all.
+     *
+     * CAR_BASIC_TIRETEMP_WARNING is not listed because it is still in
+     * [badgeExemptWarningKeys] and so never reaches this gate; lifting that exemption is what
+     * should add it here.
+     */
+    val wheelVectorLampGates: Map<String, String> =
+            mapOf(
+                    CarConstants.CAR_BASIC_TIREPRESS_WARNING.value to
+                            CarConstants.CAR_IPK_LIGHT_TPMS_WARNING.value
+            )
+
+    /**
+     * Whether this key/value pair is one the driver sees as a warning badge.
+     *
+     * [valueOf] reads any other monitored key, which the per-wheel vectors in
+     * [wheelVectorLampGates] need to consult their lamp. It must be the same view the rest of
+     * the badge computation uses, or the gate and the badge can disagree.
+     */
+    fun raisesWarningBadge(
+            key: String,
+            value: String?,
+            valueOf: (String) -> String?
+    ): Boolean {
+        if (key in badgeExemptWarningKeys) return false
+        if (!isWarningValueActive(value)) return false
+        val lamp = wheelVectorLampGates[key] ?: return true
+        return isWarningValueActive(valueOf(lamp))
     }
+
+    /**
+     * Keys held back by [wheelVectorLampGates] right now: active vector, dark lamp.
+     *
+     * Logged alongside the badge state so a gate that is wrong is visible rather than silent.
+     * If a real tyre card ever appears on the cluster while the badge stays down, these are
+     * the keys that suppressed it, and the gate — not the card model — is what to revisit.
+     */
+    fun lampGatedKeys(valueOf: (String) -> String?): List<String> =
+            wheelVectorLampGates
+                    .filter { (vector, lamp) ->
+                        isWarningValueActive(valueOf(vector)) &&
+                                !isWarningValueActive(valueOf(lamp))
+                    }
+                    .map { (vector, _) -> vector }
 
     /**
      * Instant used for the BACK dismiss lockout.

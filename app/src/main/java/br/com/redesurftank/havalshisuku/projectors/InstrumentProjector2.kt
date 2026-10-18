@@ -2456,6 +2456,13 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                             }
                                             .take(10)
                                             .joinToString("|")
+                                            .ifEmpty { "none" },
+                            // Per-wheel vectors reading active while their lamp is dark, so a
+                            // badge the gate suppressed is never silent. See
+                            // ClusterWarningPolicy.lampGatedKeys.
+                            "gated" to
+                                    ClusterWarningPolicy.lampGatedKeys(::currentWarningValue)
+                                            .joinToString("|")
                                             .ifEmpty { "none" }
                     )
             )
@@ -2581,7 +2588,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         return monitoredWarningKeys
                 .mapNotNull { key -> currentWarningValue(key)?.let { key to it } }
                 .filter { (key, value) ->
-                    ClusterWarningPolicy.raisesWarningBadge(key, value) &&
+                    ClusterWarningPolicy.raisesWarningBadge(
+                            key,
+                            value,
+                            ::currentWarningValue
+                    ) &&
                             ClusterWarningPolicy.cardIdFor(key) !in dismissedCards
                 }
                 .sortedByDescending { (key, _) -> warningOnsetTimes[key] ?: 0L }
@@ -2618,7 +2629,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     /** True while any key behind [cardId] still reports an active value. */
     private fun isCardConditionStanding(cardId: String): Boolean =
             ClusterWarningPolicy.cardKeysFor(cardId).any { key ->
-                ClusterWarningPolicy.raisesWarningBadge(key, currentWarningValue(key))
+                ClusterWarningPolicy.raisesWarningBadge(
+                        key,
+                        currentWarningValue(key),
+                        ::currentWarningValue
+                )
             }
 
     private fun getClusterFuelDisplayUnit(): String {
