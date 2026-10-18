@@ -28,6 +28,8 @@ object HudMapFeed {
     private const val STEP_M = 12.0
     /** Below this speed GPS bearing is noise: keep the last good one. */
     private const val BEARING_MIN_MPS = 2f
+    /** Rebuild this often anyway: retries tiles that failed while the car stands (no new fixes). */
+    private const val REFRESH_MS = 5_000L
 
     @Volatile var lines: List<FloatArray> = emptyList()
         private set
@@ -36,6 +38,14 @@ object HudMapFeed {
     @Volatile private var lat = Double.NaN
     @Volatile private var lon = Double.NaN
     @Volatile private var bearing = 0.0
+
+    private var handler: android.os.Handler? = null
+    private val refresh = object : Runnable {
+        override fun run() {
+            rebuild()
+            handler?.postDelayed(this, REFRESH_MS)
+        }
+    }
 
     private val listener = object : LocationListener {
         override fun onLocationChanged(location: Location) = onLocation(location)
@@ -53,6 +63,7 @@ object HudMapFeed {
         if (enabled) {
             val t = HandlerThread("HudMapFeed").also { it.start() }
             thread = t
+            handler = android.os.Handler(t.looper).also { it.postDelayed(refresh, REFRESH_MS) }
             try {
                 lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let { onLocation(it) }
                 lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, GPS_INTERVAL_MS, 0f, listener, t.looper)
@@ -62,6 +73,8 @@ object HudMapFeed {
             }
         } else {
             runCatching { lm.removeUpdates(listener) }
+            handler?.removeCallbacks(refresh)
+            handler = null
             thread?.quitSafely()
             thread = null
             lines = emptyList()
