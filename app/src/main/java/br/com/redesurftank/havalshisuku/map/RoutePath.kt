@@ -219,7 +219,8 @@ object RoutePath {
 
     /**
      * A drive for the map demo (debug), from the street under the car: its centreline in the
-     * car's frame through a real junction 150..400 m ahead and into the side street there whose
+     * car's frame through a real junction 80..400 m ahead (or the T where the street ends) and
+     * into the side street there whose
      * turn is closest to 90°, a little past it. [junctionM] is along [pts]; [street] is the
      * side street's name. Without such a junction: just the street ahead ([turnDeg] 0).
      */
@@ -238,12 +239,14 @@ object RoutePath {
         val pts = ArrayList<Float>()
         pts += start.first; pts += start.second
         for (i in 1 until path.size) { pts += path[i].x; pts += path[i].y }
-        for (i in 1 until path.size - 1) {
-            if (cum[i] !in 150f..400f || path[i].next.size < 3) continue
+        // A junction 80..400 m ahead, or where the street ends in a T (its last node).
+        for (i in 1 until path.size) {
+            val last = i == path.size - 1
+            if (cum[i] !in 80f..400f || path[i].next.size < (if (last) 2 else 3)) continue
             val cur = path[i]
             val inDeg = heading(cur.x - path[i - 1].x, cur.y - path[i - 1].y)
             val k = cur.next.indices
-                .filter { cur.next[it] !== path[i - 1] && cur.next[it] !== path[i + 1] && !cur.minor[it] }
+                .filter { cur.next[it] !== path[i - 1] && (last || cur.next[it] !== path[i + 1]) && !cur.minor[it] }
                 .minByOrNull { abs(abs(turn(inDeg, heading(cur.next[it].x - cur.x, cur.next[it].y - cur.y))) - 90f) }
                 ?: continue
             val exit = cur.next[k]

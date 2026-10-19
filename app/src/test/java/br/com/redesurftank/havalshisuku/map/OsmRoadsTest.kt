@@ -69,6 +69,14 @@ class OsmRoadsTest {
         assertEquals(90f, plan.turnDeg, 1f)
         assertEquals("Rua B", plan.street)
         assertTrue(plan.pts[plan.pts.size - 2] > 50f) // ends along Rua B
+        // The street ends in a T at 160 m: the demo turns there.
+        val t = RoutePath.demoPlan(listOf(
+            LocalRoad(floatArrayOf(0f, -30f, 0f, 160f), 1f, "Rua A"),
+            LocalRoad(floatArrayOf(-200f, 160f, 0f, 160f, 200f, 160f), 1f, "Rua T")
+        ))!!
+        assertEquals(160f, t.junctionM, 1f)
+        assertEquals(90f, kotlin.math.abs(t.turnDeg), 1f)
+        assertEquals("Rua T", t.street)
         // No junction in range: just the street ahead.
         val straight = RoutePath.demoPlan(listOf(LocalRoad(floatArrayOf(0f, -30f, 0f, 500f), 1f, "Rua A")))!!
         assertEquals(0f, straight.turnDeg, 0f)
