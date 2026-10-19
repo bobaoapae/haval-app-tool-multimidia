@@ -52,9 +52,36 @@ object OsmRoads {
     }
 
     /** Overpass QL for the drivable roads of [tile], with their geometry inline. */
-    fun query(tile: Tile): String {
-        val bbox = "%.4f,%.4f,%.4f,%.4f".format(java.util.Locale.US, tile.south, tile.west, tile.north, tile.east)
+    fun query(tile: Tile): String = query(tile.south, tile.west, tile.north, tile.east)
+
+    /** Overpass QL for the drivable roads in a box (several tiles at once). */
+    fun query(south: Double, west: Double, north: Double, east: Double): String {
+        val bbox = "%.4f,%.4f,%.4f,%.4f".format(java.util.Locale.US, south, west, north, east)
         return "[out:json][timeout:25];way[\"highway\"~\"^(${DRIVABLE.joinToString("|")})$\"]($bbox);out tags geom;"
+    }
+
+    /** The roads of a box answer that touch [tile] (their extent overlaps it; a road can be in several). */
+    fun inTile(roads: List<OsmRoad>, tile: Tile): List<OsmRoad> = roads.filter { r ->
+        var s = Double.MAX_VALUE; var n = -Double.MAX_VALUE; var w = Double.MAX_VALUE; var e = -Double.MAX_VALUE
+        for (k in 0 until r.latLon.size / 2) {
+            val la = r.latLon[2 * k]; val lo = r.latLon[2 * k + 1]
+            if (la < s) s = la; if (la > n) n = la; if (lo < w) w = lo; if (lo > e) e = lo
+        }
+        n >= tile.south && s <= tile.north && e >= tile.west && w <= tile.east
+    }
+
+    /** [roads] back as an Overpass-shaped answer, for one tile's cache file ([parse] reads it). */
+    fun toJson(roads: List<OsmRoad>): String {
+        val elements = org.json.JSONArray()
+        for (r in roads) {
+            val geometry = org.json.JSONArray()
+            for (k in 0 until r.latLon.size / 2) geometry.put(JSONObject().put("lat", r.latLon[2 * k]).put("lon", r.latLon[2 * k + 1]))
+            val tags = JSONObject().put("highway", r.highway)
+            if (r.name.isNotEmpty()) tags.put("name", r.name)
+            if (r.oneway) tags.put("oneway", "yes")
+            elements.put(JSONObject().put("type", "way").put("id", r.id).put("tags", tags).put("geometry", geometry))
+        }
+        return JSONObject().put("elements", elements).toString()
     }
 
     /** Roads in an Overpass `out geom` answer. */

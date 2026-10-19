@@ -22,6 +22,28 @@ class OsmRoadsTest {
     }
 
     @Test
+    fun `one box request split back into tiles, cached and read back`() {
+        val a = OsmRoads.Tile(-4311, -2291)
+        val b = OsmRoads.Tile(-4310, -2291)
+        // One road inside a, one crossing from a into b.
+        val inA = OsmRoad(1, "A", "residential", false, doubleArrayOf(a.south + 0.002, a.west + 0.002, a.south + 0.003, a.west + 0.003))
+        val across = OsmRoad(2, "X", "primary", true, doubleArrayOf(a.south + 0.005, a.east - 0.001, a.south + 0.005, a.east + 0.001))
+        val roads = listOf(inA, across)
+        assertEquals(listOf(1L, 2L), OsmRoads.inTile(roads, a).map { it.id })
+        assertEquals(listOf(2L), OsmRoads.inTile(roads, b).map { it.id })
+        // The cache file holds the tile's roads as an Overpass-shaped answer.
+        val back = OsmRoads.parse(OsmRoads.toJson(OsmRoads.inTile(roads, a)))
+        assertEquals(2, back.size)
+        assertEquals("X", back[1].name)
+        assertTrue(back[1].oneway)
+        assertEquals("primary", back[1].highway)
+        assertEquals(across.latLon.toList(), back[1].latLon.toList())
+        // The box query covers both tiles.
+        val q = OsmRoads.query(a.south, a.west, b.north, b.east)
+        assertTrue(q, q.contains("(-22.9100,-43.1100,-22.9000,-43.0900)"))
+    }
+
+    @Test
     fun `parses an Overpass out geom answer`() {
         val json = """
             {"elements":[
