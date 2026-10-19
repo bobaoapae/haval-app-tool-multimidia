@@ -291,6 +291,12 @@ private fun HudNavigationSettingsDialog(
                                     enabled = config.navigation
                                 ) { onChange(config.copy(mapStreets = it)) }
                                 OptionRow(
+                                    "Mapa: horizonte no topo do HUD (teste)",
+                                    "Com as ruas do mapa ligadas: o horizonte vai para o topo do HUD em vez de logo abaixo da velocidade, deixando o mapa bem mais alto.",
+                                    config.mapHorizonTop,
+                                    enabled = config.navigation && config.mapStreets
+                                ) { onChange(config.copy(mapHorizonTop = it)) }
+                                OptionRow(
                                     "Setas animadas na curva",
                                     "Setas azuis acima da velocidade a partir de 120 m; deslizam para o lado da curva e piscam mais rápido ao chegar.",
                                     config.chevrons,

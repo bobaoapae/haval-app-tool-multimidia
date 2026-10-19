@@ -129,7 +129,7 @@ class HudOverlayRenderer {
         val phase = (nowMs % period.toLong()) / period
         val appear = (t * 4f).coerceAtMost(1f) // fade in over the first ~30 m
         val base = 0.25f + 0.25f * t
-        val groupX = HudArArrow.CX + ch.side * t * M.CHEVRON_SHIFT
+        val groupX = M.CHEVRON_CX + ch.side * t * M.CHEVRON_SHIFT
         val n = M.CHEVRON_COUNT
         for (k in 0 until n) {
             // k = 0 trails, k = n-1 leads towards the turn side.
@@ -315,23 +315,40 @@ class HudOverlayRenderer {
         val streetY = if (lanes) M.AR_LANES_STREET_BASELINE else M.AR_STREET_BASELINE
         streetPaint.textSize = scale * if (lanes) M.AR_LANES_STREET_SIZE else M.AR_STREET_SIZE
         val exit = tbt.exitNumber?.let { "${M.exitLabel(it)} saída" }
-        val streetLine = listOfNotNull(exit, tbt.street.takeIf { it.isNotEmpty() }).joinToString(" · ")
+        // Roundabout without lanes: the exit gets its own line under the street (owner).
+        val exitOwnLine = exit != null && !lanes && tbt.street.isNotEmpty()
+        val streetLine = if (exitOwnLine) tbt.street else listOfNotNull(exit, tbt.street.takeIf { it.isNotEmpty() }).joinToString(" · ")
+        // Centred in the column; with the arcs on, narrow enough to keep clear of them.
+        fun lineMaxW(baseline: Float, size: Float) =
+            if (arcs) 2f * (M.columnRightAt(baseline, size, wideArcs) - M.BOX_CENTER_X) else M.BOX_RIGHT - M.BOX_LEFT
         if (streetLine.isNotEmpty()) {
-            // Centred in the column; with the arcs on, narrow enough to keep clear of them.
-            val maxW = if (arcs) 2f * (M.columnRightAt(streetY, streetPaint.textSize, wideArcs) - M.BOX_CENTER_X) else M.BOX_RIGHT - M.BOX_LEFT
-            // The next turn as a small icon before the street, the pair centred together.
-            val iconSize = streetPaint.textSize * M.AR_STREET_ICON_SCALE
-            val iconW = if (tbt.icon.isNotEmpty()) iconSize + M.AR_STREET_ICON_GAP else 0f
-            val text = android.text.TextUtils.ellipsize(streetLine, streetPaint, maxW - iconW, android.text.TextUtils.TruncateAt.END).toString()
-            val x0 = M.BOX_CENTER_X - (iconW + streetPaint.measureText(text)) / 2
-            if (iconW > 0f) drawTurn(canvas, tbt, x0, streetY - iconSize * 0.85f, iconSize)
-            canvas.drawText(text, x0 + iconW, streetY, streetPaint)
+            val text = android.text.TextUtils.ellipsize(streetLine, streetPaint, lineMaxW(streetY, streetPaint.textSize), android.text.TextUtils.TruncateAt.END).toString()
+            canvas.drawText(text, M.BOX_CENTER_X - streetPaint.measureText(text) / 2, streetY, streetPaint)
+        }
+        if (exitOwnLine) {
+            streetPaint.textSize = scale * M.AR_EXIT_SIZE
+            val text = android.text.TextUtils.ellipsize(exit!!, streetPaint, lineMaxW(M.AR_EXIT_BASELINE, streetPaint.textSize), android.text.TextUtils.TruncateAt.END).toString()
+            canvas.drawText(text, M.BOX_CENTER_X - streetPaint.measureText(text) / 2, M.AR_EXIT_BASELINE, streetPaint)
         }
         if (lanes) setTextSizes(scale * M.AR_LANES_DISTANCE_VALUE_SIZE, scale * M.AR_LANES_DISTANCE_UNIT_SIZE)
         else setTextSizes(scale * M.AR_DISTANCE_VALUE_SIZE, scale * M.AR_DISTANCE_UNIT_SIZE)
         val width = distanceWidth(tbt)
-        val distanceY = if (lanes) M.AR_LANES_DISTANCE_BASELINE else M.AR_DISTANCE_BASELINE - if (far) M.AR_FAR_DISTANCE_RAISE else 0f
-        drawDistance(canvas, tbt, M.BOX_CENTER_X - width / 2, distanceY)
+        val distanceY = when {
+            lanes -> M.AR_LANES_DISTANCE_BASELINE
+            exitOwnLine -> M.AR_DISTANCE_BASELINE + M.AR_EXIT_DISTANCE_DROP
+            far -> M.AR_DISTANCE_BASELINE - M.AR_FAR_DISTANCE_RAISE
+            else -> M.AR_DISTANCE_BASELINE
+        }
+        // The next turn as an icon before the distance (owner), the pair centred together.
+        val iconSize = valuePaint.textSize * M.AR_DISTANCE_ICON_SCALE
+        val iconW = if (tbt.icon.isNotEmpty() && width > 0f) iconSize + M.AR_DISTANCE_ICON_GAP else 0f
+        val x0 = M.BOX_CENTER_X - (iconW + width) / 2
+        if (iconW > 0f) {
+            // Centred on the digits' height (~0.72 of the text size).
+            val digitsMid = distanceY - valuePaint.textSize * 0.36f
+            drawTurn(canvas, tbt, x0, digitsMid - iconSize / 2, iconSize)
+        }
+        drawDistance(canvas, tbt, x0 + iconW, distanceY)
         if (lanes) drawLanes(canvas, tbt.lanes, M.AR_LANES_TOP)
         if (tbt.trip.isNotEmpty()) {
             // Destination flag before the trip line, as in the Navegação layout; the pair is
@@ -442,14 +459,16 @@ class HudOverlayRenderer {
         val meters = tbt.arMeters ?: Float.MAX_VALUE
         val place = tbt.arPlacement
         val route = tbt.route
-        // Map view: real roads to the horizon just under the native speed, already in screen
-        // pixels (full panel, centred on the speed; the RIGHT placement doesn't apply).
+        // Map view: real roads to the horizon (under the speed, or the HUD's top as an option),
+        // drawn in the centre picture's pixels; the RIGHT placement scales it onto the lane
+        // lines like the arrow (taller, so less squeezed).
         val map = route != null
-        val view = if (map) HudArArrow.Placement.CENTER else place
+        val view = place
         val sy = view.sy
-        val top = if (map) HudArArrow.MAP_HORIZON_Y else place.top
+        // Never above the visible band (y 40) once scaled.
+        val top = if (map) maxOf(tbt.mapHorizon, HudArArrow.BOTTOM - (HudArArrow.BOTTOM - 40f) / sy) else place.top
         val shape = when {
-            route != null -> HudArArrow.mapScene(tbt.streets, route, tbt.arDestination)
+            route != null -> HudArArrow.mapScene(tbt.streets, route, tbt.arDestination, tbt.mapHorizon)
             tbt.dynamicRoundabout -> HudArArrow.roundabout(
                 meters, tbt.exitAngle!!.toFloat(), tbt.roundaboutClockwise,
                 M.passedExitAngles(tbt.exitAngle, tbt.exitNumber), tbt.arProgress, place
@@ -457,9 +476,9 @@ class HudOverlayRenderer {
             tbt.arDestination != null -> HudArArrow.destination(meters, tbt.arDestination, place)
             else -> HudArArrow.shape(meters, tbt.arAngle ?: 0f, place)
         }
-        // Map: the whole panel; else the arrow's room.
-        val left = if (map) 0f else HudArArrow.CX - maxOf(place.roomLeft, HudArArrow.BASE_W / 2) - 2f
-        val right = if (map) 480f else HudArArrow.CX + maxOf(place.roomRight, HudArArrow.BASE_W / 2) + 2f
+        // Map: the whole panel (in the picture's own units); else the arrow's room.
+        val left = if (map) HudArArrow.CX - view.cx / view.sx else HudArArrow.CX - maxOf(place.roomLeft, HudArArrow.BASE_W / 2) - 2f
+        val right = if (map) HudArArrow.CX + (480f - view.cx) / view.sx else HudArArrow.CX + maxOf(place.roomRight, HudArArrow.BASE_W / 2) + 2f
         val opacity = HudArArrow.opacityFor(meters)
         canvas.save()
         // RIGHT / map: the same picture scaled about (CX, BOTTOM).

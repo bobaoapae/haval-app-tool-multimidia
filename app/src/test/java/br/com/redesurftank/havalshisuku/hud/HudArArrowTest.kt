@@ -195,7 +195,9 @@ class HudArArrowTest {
         assertEquals(HudOverlayModel.ARC_CY - HudOverlayModel.ARC_POWER_R_OUT, HudOverlayModel.arcPoint(270f, HudOverlayModel.ARC_POWER_R_OUT).second, 0.01f)
         assertTrue(HudOverlayModel.ARC_X_SCALE > 1f)
         // 6 px left of the speed; the street line is narrowed to keep clear of the arc.
-        assertEquals(HudOverlayModel.NATIVE_SPEED_CX - 6f, HudOverlayModel.ARC_CX, 0f)
+        // Two digits: 2 px left of the speed; three digits (wide): 6 px left, room for the "1".
+        assertEquals(HudOverlayModel.NATIVE_SPEED_CX - 2f, HudOverlayModel.ARC_CX, 0f)
+        assertEquals(HudOverlayModel.NATIVE_SPEED_CX - 6f, HudOverlayModel.ARC_WIDE_CX, 0f)
         val right = HudOverlayModel.columnRightAt(HudOverlayModel.AR_STREET_BASELINE, HudOverlayModel.AR_STREET_SIZE)
         assertTrue(right < HudOverlayModel.BOX_RIGHT && right > HudOverlayModel.BOX_CENTER_X + 40f)
         for (i in 0 until HudOverlayModel.ARC_TICKS) {
@@ -429,6 +431,21 @@ class HudArArrowTest {
         // Frames carry it.
         val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR)
         assertTrue(HudOverlayModel.frameFor(ar, null, 0, null, wideArcs = true).wideArcs)
+    }
+
+    @Test
+    fun `chevrons centred on the HUD, map horizon option at the top`() {
+        assertEquals(240f, HudOverlayModel.CHEVRON_CX, 0f)
+        // Default horizon under the speed; the option puts it at the top of the visible band.
+        assertEquals(HudArArrow.MAP_HORIZON_Y, HudArArrow.mapProject(0f, HudArArrow.MAP_FAR_M)!!.second, 0.5f)
+        assertEquals(HudArArrow.MAP_HORIZON_TOP_Y, HudArArrow.mapProject(0f, HudArArrow.MAP_FAR_M, HudArArrow.MAP_HORIZON_TOP_Y)!!.second, 0.5f)
+        // A taller map: 100 m ahead sits much higher up the HUD.
+        assertTrue(HudArArrow.mapProject(0f, 100f, HudArArrow.MAP_HORIZON_TOP_Y)!!.second < HudArArrow.mapProject(0f, 100f)!!.second - 30f)
+        assertTrue(HudArArrow.MAP_HORIZON_TOP_Y >= 40f)
+        val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR, mapHorizonTop = true)
+        val turn = Directions(active = true, distance = "90 m", distanceM = 90, turn = "TURN_RIGHT")
+        assertEquals(HudArArrow.MAP_HORIZON_TOP_Y, HudOverlayModel.frameFor(ar, turn, 0, null).tbt!!.mapHorizon, 0f)
+        assertEquals(HudArArrow.MAP_HORIZON_Y, HudOverlayModel.frameFor(ar.copy(mapHorizonTop = false), turn, 0, null).tbt!!.mapHorizon, 0f)
     }
 
     @Test

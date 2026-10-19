@@ -368,6 +368,14 @@ object HudOverlayModel {
     /** Next-turn icon before the AR street line: size relative to the text, gap after it. */
     const val AR_STREET_ICON_SCALE = 1.25f
     const val AR_STREET_ICON_GAP = 4f
+    /** The turn icon now sits before the distance (owner): size relative to the digits. */
+    const val AR_DISTANCE_ICON_SCALE = 0.8f
+    const val AR_DISTANCE_ICON_GAP = 6f
+    /** Roundabout without lanes: "3ª saída" on its own line under the street. */
+    const val AR_EXIT_BASELINE = 97f
+    const val AR_EXIT_SIZE = 14f
+    /** ...and the distance a little lower to make room. */
+    const val AR_EXIT_DISTANCE_DROP = 5f
     /** While the maneuver is still far (straight arrow), street and distance at this scale. */
     const val AR_FAR_TEXT_SCALE = 0.75f
     /** ...and the distance baseline this much higher, closer to the street line. */
@@ -382,7 +390,10 @@ object HudOverlayModel {
 
     /** Native speed readout's centre (measured on the car 2026-10-17); the AR arrow sits on it. */
     const val NATIVE_SPEED_CX = 222f
-    const val ARC_CX = 216f
+    /** Two-digit speeds: 2 px left of the speed (owner: the right digit sat too close at 216). */
+    const val ARC_CX = 220f
+    /** Three-digit speeds (wide arcs): 6 px left, room for the leading "1". */
+    const val ARC_WIDE_CX = 216f
     const val ARC_CY = 112f
     /** 195°: from 150° (canvas angles, clockwise, bottom-left) to 345° (just above the right). */
     const val ARC_START_DEG = 150f
@@ -431,7 +442,8 @@ object HudOverlayModel {
     fun arcPoint(deg: Float, r: Float, wide: Boolean = false): Pair<Float, Float> {
         val rad = Math.toRadians(deg.toDouble())
         val xs = if (wide) ARC_WIDE_X_SCALE else ARC_X_SCALE
-        return ARC_CX + (kotlin.math.cos(rad) * r * xs).toFloat() to ARC_CY + (kotlin.math.sin(rad) * r).toFloat()
+        val cx = if (wide) ARC_WIDE_CX else ARC_CX
+        return cx + (kotlin.math.cos(rad) * r * xs).toFloat() to ARC_CY + (kotlin.math.sin(rad) * r).toFloat()
     }
 
     // ---- AR chevrons: animated turn arrows above the speed (Mercedes-style) ----
@@ -439,6 +451,8 @@ object HudOverlayModel {
     const val CHEVRON_START_M = 120f
     /** Band above the arcs (arc top is ARC_CY - ARC_POWER_R_OUT = 56). */
     const val CHEVRON_CY = 48f
+    /** Centred on the HUD (owner), not on the speed or the arcs. */
+    const val CHEVRON_CX = 240f
 
     /**
      * How far right a left-column text line on [baseline] may reach without touching the outer
@@ -542,7 +556,9 @@ object HudOverlayModel {
         /** The route was matched to the real roads (not the plain fallback shape). */
         val routeMatched: Boolean = false,
         /** No other street leaves on the turn's side before ours (see RoutePath.Route). */
-        val routeClear: Boolean = false
+        val routeClear: Boolean = false,
+        /** AR map: screen row of its horizon. */
+        val mapHorizon: Float = HudArArrow.MAP_HORIZON_Y
     ) {
         /** Draw the roundabout with its real exit instead of the static icon. */
         val dynamicRoundabout: Boolean get() = icon == "ROUNDABOUT" && exitAngle != null
@@ -668,7 +684,9 @@ object HudOverlayModel {
         /** AR: arrow in the centre (under the speed) or between the native lane-assist lines. */
         val arPlacement: HudArArrow.Placement = HudArArrow.Placement.CENTER,
         /** AR: real streets round the car from OpenStreetMap, in light grey (beta, off by default). */
-        val mapStreets: Boolean = false
+        val mapStreets: Boolean = false,
+        /** AR map: horizon at the top of the HUD instead of under the speed (to test). */
+        val mapHorizonTop: Boolean = false
     ) {
         val active: Boolean get() = layout != Layout.ORIGINAL
 
@@ -766,7 +784,8 @@ object HudOverlayModel {
                 else withMap(
                     tbt.copy(
                         arMeters = if (arDistanceKnown) arMetersOverride ?: tbt.arMeters else null,
-                        arProgress = arProgress
+                        arProgress = arProgress,
+                        mapHorizon = if (config.mapHorizonTop) HudArArrow.MAP_HORIZON_TOP_Y else HudArArrow.MAP_HORIZON_Y
                     ),
                     if (config.mapStreets) streets else emptyList()
                 )
