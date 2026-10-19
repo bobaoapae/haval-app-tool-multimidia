@@ -52,6 +52,19 @@ object OsmRoadStore {
     /** Pause between region blocks: the public servers are shared. */
     private const val PREFETCH_PAUSE_MS = 3_000L
     private val tiles = ConcurrentHashMap<String, List<OsmRoad>>()
+
+    // ---- retention (owner, 2026-10-19): by last use, not by area ----
+    /** A tile not used (shown or downloaded) for this long is deleted. */
+    private const val UNUSED_MS = 30L * 24 * 3600 * 1000
+    /** Past this, the least recently used tiles go first. */
+    private const val MAX_BYTES = 100L * 1024 * 1024
+    /** When each tile was last used (epoch ms), kept in [USE_FILE]. */
+    private val lastUse = ConcurrentHashMap<String, Long>()
+    private const val USE_FILE = "last-use.txt"
+    @Volatile private var useLoaded = false
+    @Volatile private var useSavedAtMs = 0L
+    private const val USE_SAVE_EVERY_MS = 5 * 60_000L
+    @Volatile private var trimmedThisRun = false
     private val queued = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var retryAfterMs = 0L
 
@@ -63,13 +76,19 @@ object OsmRoadStore {
         val seen = HashSet<Long>()
         val out = ArrayList<OsmRoad>()
         val missing = ArrayList<OsmRoads.Tile>()
+        val now = System.currentTimeMillis()
         for (tile in OsmRoads.tilesAround(lat, lon, radiusM)) {
             val roads = tiles[tile.key]
             if (roads == null) {
                 if (queued.add(tile.key)) missing += tile
                 continue
             }
+            lastUse[tile.key] = now
             for (r in roads) if (seen.add(r.id)) out += r
+        }
+        if (now - useSavedAtMs > USE_SAVE_EVERY_MS) {
+            useSavedAtMs = now
+            background.execute { runCatching { saveUse() } }
         }
         if (missing.isNotEmpty()) io.execute { load(missing, onLoaded) }
         return Near(out, OsmRoads.tilesAround(lat, lon, radiusM).all { tiles.containsKey(it.key) })
@@ -97,6 +116,7 @@ object OsmRoadStore {
                         val own = OsmRoads.inTile(roads, tile)
                         tiles[tile.key] = own
                         file(tile).writeText(OsmRoads.toJson(own))
+                        lastUse[tile.key] = System.currentTimeMillis()
                     }
                     trace(true, toFetch.size, roads.size, SystemClock.elapsedRealtime() - started)
                 } else {
@@ -135,6 +155,7 @@ object OsmRoadStore {
     }
 
     private fun prefetchRegion(lat: Double, lon: Double, radiusM: Double) {
+        trim()
         val now = System.currentTimeMillis()
         val missing = OsmRoads.tilesAround(lat, lon, radiusM).filter { t ->
             val f = file(t)
@@ -160,6 +181,7 @@ object OsmRoadStore {
             for (tile in block) {
                 val own = OsmRoads.inTile(roads, tile)
                 file(tile).writeText(OsmRoads.toJson(own))
+                lastUse[tile.key] = System.currentTimeMillis()
                 // Already shown somewhere? Refresh the copy in memory too.
                 if (tiles.containsKey(tile.key)) tiles[tile.key] = own
             }
@@ -168,6 +190,57 @@ object OsmRoadStore {
             Thread.sleep(PREFETCH_PAUSE_MS)
         }
         ClusterPersistentEventLogger.log("hud_map_prefetch", mapOf("state" to "end", "blocks_ok" to done, "blocks_failed" to failed))
+        saveUse()
+    }
+
+    /**
+     * Deletes tiles unused for [UNUSED_MS] (a tile with no record counts from its file date),
+     * then, past [MAX_BYTES], the least recently used ones. Background thread.
+     */
+    private fun trim() {
+        loadUse()
+        val files = dir().listFiles { f -> f.name.endsWith(".json") }?.toList().orEmpty()
+        val now = System.currentTimeMillis()
+        fun used(f: File) = lastUse[f.name.removeSuffix(".json")] ?: f.lastModified()
+        var deleted = 0
+        val kept = ArrayList<File>()
+        for (f in files) {
+            if (now - used(f) > UNUSED_MS && f.delete()) {
+                lastUse.remove(f.name.removeSuffix(".json")); deleted++
+            } else kept += f
+        }
+        var total = kept.sumOf { it.length() }
+        for (f in kept.sortedBy { used(it) }) {
+            if (total <= MAX_BYTES) break
+            val size = f.length()
+            if (f.delete()) {
+                total -= size
+                lastUse.remove(f.name.removeSuffix(".json"))
+                tiles.remove(f.name.removeSuffix(".json"))
+                deleted++
+            }
+        }
+        if (deleted > 0 || !trimmedThisRun) {
+            ClusterPersistentEventLogger.log("hud_map_cache", mapOf("files" to (files.size - deleted), "deleted" to deleted, "mb" to total / (1024 * 1024)))
+        }
+        trimmedThisRun = true
+        saveUse()
+    }
+
+    private fun loadUse() {
+        if (useLoaded) return
+        useLoaded = true
+        runCatching {
+            File(dir(), USE_FILE).takeIf { it.isFile }?.readLines()?.forEach { line ->
+                val key = line.substringBefore('=')
+                line.substringAfter('=').toLongOrNull()?.let { t -> lastUse.merge(key, t) { a, b -> maxOf(a, b) } }
+            }
+        }
+    }
+
+    private fun saveUse() {
+        loadUse()
+        File(dir(), USE_FILE).writeText(lastUse.entries.joinToString("\n") { "${it.key}=${it.value}" })
     }
 
     private fun trace(ok: Boolean, tileCount: Int, roads: Int, ms: Long) {

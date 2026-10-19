@@ -112,7 +112,7 @@ class HudOverlayRenderer {
      */
     fun draw(canvas: Canvas, frame: M.Frame?, nowMs: Long = android.os.SystemClock.uptimeMillis()) {
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-        drawContent(canvas, frame)
+        drawContent(canvas, frame, nowMs)
         frame?.chevrons?.let { drawChevrons(canvas, it, nowMs) }
     }
 
@@ -155,7 +155,7 @@ class HudOverlayRenderer {
         }
     }
 
-    private fun drawContent(canvas: Canvas, frame: M.Frame?) {
+    private fun drawContent(canvas: Canvas, frame: M.Frame?, nowMs: Long = 0L) {
         val f = frame ?: return
         f.radar?.let { drawRadar(canvas, it) }
         f.tbt?.let { tbt ->
@@ -164,7 +164,8 @@ class HudOverlayRenderer {
                 M.TbtStyle.COMPACT -> drawRow(canvas, tbt, M.COMPACT_TOP).also { drawLanes(canvas, tbt.lanes, M.LANES_TOP) }
                 M.TbtStyle.FAR -> drawRow(canvas, tbt, M.FAR_TOP)
                 M.TbtStyle.AR -> {
-                    if (tbt.mapPending) drawMapPending(canvas) else drawAr(canvas, tbt)
+                    drawAr(canvas, tbt)
+                    if (tbt.mapPending && M.mapPendingVisible(nowMs)) drawMapPending(canvas)
                     drawArColumn(canvas, tbt, f.arcs, f.wideArcs) // draws its own trip line
                 }
             }
@@ -465,12 +466,16 @@ class HudOverlayRenderer {
         // drawn in the centre picture's pixels; the RIGHT placement scales it onto the lane
         // lines like the arrow (taller, so less squeezed).
         val map = route != null
-        val view = place
-        val sy = view.sy
+        // Map on the right: a plain perspective like the thumbnail's road, narrowed, not stretched.
+        val mapRight = map && place == HudArArrow.Placement.RIGHT
+        val cx = if (mapRight) HudArArrow.MAP_RIGHT_CX else place.cx
+        val sx = if (mapRight) HudArArrow.MAP_RIGHT_SX else place.sx
+        val sy = if (mapRight) 1f else place.sy
+        val horizon = if (mapRight) HudArArrow.MAP_RIGHT_HORIZON_Y else tbt.mapHorizon
         // Never above the visible band (y 40) once scaled.
-        val top = if (map) maxOf(tbt.mapHorizon, HudArArrow.BOTTOM - (HudArArrow.BOTTOM - 40f) / sy) else place.top
+        val top = if (map) maxOf(horizon, HudArArrow.BOTTOM - (HudArArrow.BOTTOM - 40f) / sy) else place.top
         val shape = when {
-            route != null -> HudArArrow.mapScene(tbt.streets, route, tbt.arDestination, tbt.mapHorizon)
+            route != null -> HudArArrow.mapScene(tbt.streets, route, tbt.arDestination, horizon)
             tbt.dynamicRoundabout -> HudArArrow.roundabout(
                 meters, tbt.exitAngle!!.toFloat(), tbt.roundaboutClockwise,
                 M.passedExitAngles(tbt.exitAngle, tbt.exitNumber), tbt.arProgress, place
@@ -479,26 +484,28 @@ class HudOverlayRenderer {
             else -> HudArArrow.shape(meters, tbt.arAngle ?: 0f, place)
         }
         // Map: the whole panel (in the picture's own units); else the arrow's room.
-        val left = if (map) HudArArrow.CX - view.cx / view.sx else HudArArrow.CX - maxOf(place.roomLeft, HudArArrow.BASE_W / 2) - 2f
-        val right = if (map) HudArArrow.CX + (480f - view.cx) / view.sx else HudArArrow.CX + maxOf(place.roomRight, HudArArrow.BASE_W / 2) + 2f
+        val left = if (map) HudArArrow.CX - cx / sx else HudArArrow.CX - maxOf(place.roomLeft, HudArArrow.BASE_W / 2) - 2f
+        val right = if (map) HudArArrow.CX + (480f - cx) / sx else HudArArrow.CX + maxOf(place.roomRight, HudArArrow.BASE_W / 2) + 2f
         val opacity = HudArArrow.opacityFor(meters)
         canvas.save()
         // RIGHT / map: the same picture scaled about (CX, BOTTOM).
-        canvas.translate(view.cx, HudArArrow.BOTTOM)
-        canvas.scale(view.sx, sy)
+        canvas.translate(cx, HudArArrow.BOTTOM)
+        canvas.scale(sx, sy)
         canvas.translate(-HudArArrow.CX, -HudArArrow.BOTTOM)
         canvas.clipRect(left, top, right, HudArArrow.BOTTOM)
         // Opaque into a layer, then composited once: drawing overlapping pieces translucent
         // would stack into visible stripes at the seams.
         canvas.saveLayerAlpha(left, top, right, HudArArrow.BOTTOM, (opacity * 255).toInt())
         if (shape.gray.isNotEmpty()) {
-            arPaint.shader = shaderFor(grayShaders, top)
+            arPaint.shader = if (map) mapShader(top, blue = false) else shaderFor(grayShaders, top)
             arPaint.alpha = ((if (map) MAP_ROAD_ALPHA else 140) * shape.grayAlpha).toInt().coerceIn(0, 255)
             arPath.reset()
             for (ribbon in shape.gray) addRibbon(ribbon, top)
             canvas.drawPath(arPath, arPaint)
+            // The grey roads fade out to the sides too (before the route goes on top).
+            if (map) fadeSides(canvas, left, right, top, HudArArrow.CX)
         }
-        arPaint.shader = shaderFor(blueShaders, top)
+        arPaint.shader = if (map) mapShader(top, blue = true) else shaderFor(blueShaders, top)
         arPaint.alpha = 255
         arPath.reset()
         addRibbon(shape.blue, top)
@@ -514,19 +521,54 @@ class HudOverlayRenderer {
         arPaint.shader = null
         canvas.restore() // layer
         canvas.restore() // transform + clip
-        shape.flag?.let { drawArFlag(canvas, it, view, sy, opacity) }
+        shape.flag?.let { drawArFlag(canvas, it, cx, sx, sy, opacity) }
     }
 
     private val mapPendingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(170, 200, 205, 215)
+        color = Color.argb(150, 190, 195, 205)
         typeface = lightFace
         textAlign = Paint.Align.CENTER
-        textSize = 15f
+        textSize = 14f
     }
 
-    /** Map option on, area not loaded: say so where the map goes (the column keeps the turn). */
+    /** Map on, area not loaded: a grey note on the right (the arrows carry on meanwhile). */
     private fun drawMapPending(canvas: Canvas) {
-        canvas.drawText("carregando mapa…", HudArArrow.CX, 176f, mapPendingPaint)
+        canvas.drawText("carregando mapa…", M.MAP_PENDING_X, M.MAP_PENDING_Y, mapPendingPaint)
+    }
+
+    // ---- map view fades (owner): far = more see-through; grey roads also fade to the sides; the
+    // blue route only a little, so it stays the clearest thing on the map ----
+
+    private val mapGrayShaders = HashMap<Float, android.graphics.Shader>()
+    private val mapBlueShaders = HashMap<Float, android.graphics.Shader>()
+
+    private fun mapShader(top: Float, blue: Boolean): android.graphics.Shader =
+        (if (blue) mapBlueShaders else mapGrayShaders).getOrPut(top) {
+            val span = HudArArrow.BOTTOM - top
+            val ys = floatArrayOf(top, top + span * 0.15f, top + span * 0.5f, HudArArrow.BOTTOM - 10f, HudArArrow.BOTTOM)
+            val alphas = if (blue) floatArrayOf(0.5f, 0.85f, 1f, 1f, 0.75f) else floatArrayOf(0f, 0.25f, 0.7f, 1f, 0.75f)
+            val colors = IntArray(ys.size) { i ->
+                val c = if (blue) arRgb(ys[i]) else Color.rgb(200, 205, 215)
+                Color.argb((alphas[i] * 255).toInt(), Color.red(c), Color.green(c), Color.blue(c))
+            }
+            android.graphics.LinearGradient(
+                0f, top, 0f, HudArArrow.BOTTOM, colors,
+                ys.map { (it - top) / span }.toFloatArray(), android.graphics.Shader.TileMode.CLAMP
+            )
+        }
+
+    private val sideMaskPaint = Paint().apply { xfermode = android.graphics.PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
+
+    /** Fades what is already in the layer towards [left] / [right], fully kept round [centre]. */
+    private fun fadeSides(canvas: Canvas, left: Float, right: Float, top: Float, centre: Float) {
+        val c = ((centre - left) / (right - left)).coerceIn(0.05f, 0.95f)
+        sideMaskPaint.shader = android.graphics.LinearGradient(
+            left, 0f, right, 0f,
+            intArrayOf(Color.argb(40, 0, 0, 0), Color.argb(255, 0, 0, 0), Color.argb(255, 0, 0, 0), Color.argb(40, 0, 0, 0)),
+            floatArrayOf(0f, (c - 0.25f).coerceAtLeast(0.01f), (c + 0.25f).coerceAtMost(0.99f), 1f),
+            android.graphics.Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(left, top, right, HudArArrow.BOTTOM, sideMaskPaint)
     }
 
     /** Vertical gradients per band top (the arrow's bands, the map's band up to the horizon). */
@@ -542,11 +584,11 @@ class HudOverlayRenderer {
      * The destination flag standing on the road, drawn upright in screen space (the RIGHT
      * placement's stretch would make it tall and thin) and as see-through as the arrow.
      */
-    private fun drawArFlag(canvas: Canvas, flag: HudArArrow.Flag, place: HudArArrow.Placement, sy: Float, opacity: Float) {
-        val fx = place.cx + (flag.x - HudArArrow.CX) * place.sx
+    private fun drawArFlag(canvas: Canvas, flag: HudArArrow.Flag, cx: Float, sx: Float, sy: Float, opacity: Float) {
+        val fx = cx + (flag.x - HudArArrow.CX) * sx
         val y = HudArArrow.BOTTOM - (HudArArrow.BOTTOM - flag.y) * sy
         if (y <= M.CHEVRON_CY || y > HudArArrow.BOTTOM) return
-        val size = (flag.height * kotlin.math.sqrt(place.sx * sy)).coerceIn(10f, y - 40f)
+        val size = (flag.height * kotlin.math.sqrt(sx * sy)).coerceIn(10f, y - 40f)
         // The pennant flies right of the pole: keep it on the panel (RIGHT placement, right side).
         val x = fx.coerceAtMost(480f - size * 0.7f)
         canvas.saveLayerAlpha(x - size, y - size - 2f, x + size, y + 2f, (255 * (0.35f + opacity)).toInt().coerceAtMost(255))

@@ -365,6 +365,14 @@ object HudOverlayModel {
     const val AR_LANES_TOP = 114f
     const val AR_LANES_TRIP_BASELINE = 172f
     const val AR_LANES_TRIP_SIZE = 14f
+    /** "carregando mapa…": on the right, grey; shown 5 s, hidden 10 s, round and round (owner). */
+    const val MAP_PENDING_X = 420f
+    const val MAP_PENDING_Y = 188f
+    const val MAP_PENDING_ON_MS = 5_000L
+    const val MAP_PENDING_CYCLE_MS = 15_000L
+
+    fun mapPendingVisible(nowMs: Long): Boolean = nowMs % MAP_PENDING_CYCLE_MS < MAP_PENDING_ON_MS
+
     /** Next-turn icon before the AR street line: size relative to the text, gap after it. */
     const val AR_STREET_ICON_SCALE = 1.25f
     const val AR_STREET_ICON_GAP = 4f

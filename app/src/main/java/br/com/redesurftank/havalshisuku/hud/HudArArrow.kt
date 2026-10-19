@@ -136,6 +136,14 @@ object HudArArrow {
     const val MAP_HORIZON_Y = 136f
     /** Option (owner, to test): the horizon at the top of the visible band, a much taller map. */
     const val MAP_HORIZON_TOP_Y = 44f
+    /**
+     * The map on the right, between the lane lines: a plain perspective like the Telas
+     * thumbnail's road (horizon ~120, no vertical stretch), narrowed to [MAP_RIGHT_SX] about
+     * [MAP_RIGHT_CX]. The arrow's RIGHT placement stretch (x0.4, y2.4) looked wrong for a map.
+     */
+    const val MAP_RIGHT_HORIZON_Y = 120f
+    const val MAP_RIGHT_CX = 429f
+    const val MAP_RIGHT_SX = 0.45f
     /** Nothing further than this ahead (metres). */
     const val MAP_FAR_M = 700f
     /**

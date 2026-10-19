@@ -468,6 +468,17 @@ class HudArArrowTest {
     }
 
     @Test
+    fun `carregando mapa - 5 s shown, 10 s hidden, round and round`() {
+        assertTrue(HudOverlayModel.mapPendingVisible(0L))
+        assertTrue(HudOverlayModel.mapPendingVisible(4_999L))
+        assertTrue(!HudOverlayModel.mapPendingVisible(5_000L))
+        assertTrue(!HudOverlayModel.mapPendingVisible(14_999L))
+        assertTrue(HudOverlayModel.mapPendingVisible(15_000L))
+        // On the right, inside the panel.
+        assertTrue(HudOverlayModel.MAP_PENDING_X > 300f && HudOverlayModel.MAP_PENDING_X < 470f)
+    }
+
+    @Test
     fun `power arc - one tick per 2 percent from the left, regen too`() {
         assertEquals(0, HudOverlayModel.arcPowerTicks(0))
         assertEquals(1, HudOverlayModel.arcPowerTicks(1)) // anything lights one
