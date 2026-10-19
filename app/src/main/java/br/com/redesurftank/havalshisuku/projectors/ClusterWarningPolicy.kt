@@ -173,7 +173,11 @@ internal object ClusterWarningPolicy {
         return saved.filter { dismissal ->
                     dismissal.values.isNotEmpty() &&
                             dismissal.values.all { (key, value) -> (valueOf(key) ?: "") == value } &&
-                            dismissal.values.any { (key, value) -> raisesWarningBadge(key, value) }
+                            dismissal.values.any { (key, value) ->
+                                raisesWarningBadge(key, value) { lamp ->
+                                    isWarningValueActive(dismissal.values[lamp])
+                                }
+                            }
                 }
                 .mapTo(mutableSetOf()) { it.cardId }
     }
@@ -193,10 +197,58 @@ internal object ClusterWarningPolicy {
                 normalized != "nan"
     }
 
-    /** Whether this key/value pair is one the driver sees as a warning badge. */
-    fun raisesWarningBadge(key: String, value: String?): Boolean {
-        return key !in badgeExemptWarningKeys && isWarningValueActive(value)
+    /**
+     * Per-seat belt vector mapped to the lamp that decides whether the car is showing it.
+     *
+     * The vector says which seat, not whether there is a warning on screen. It stood at
+     * {1,0,0,0,0} for 24 min on 2026-10-18 and 20 min on 2026-10-19 (18:43-19:04) with the belt
+     * lamp dark and no card on the cluster, holding our label up and re-arming every dismissed
+     * card each time it rose. On a real unbuckle the lamp follows within ~150 ms, driver and
+     * passenger alike, so gating costs a genuine warning nothing that can be seen.
+     *
+     * The tyre vector is deliberately NOT gated: car.ipk_light.tpms_warning has never been seen
+     * lit on this car, so a tyre gate could silence a real warning (reverted in ba4444fb).
+     */
+    val vectorLampGates: Map<String, String> =
+            mapOf(
+                    CarConstants.CAR_BASIC_SEAT_BELT_WARNING.value to
+                            CarConstants.CAR_IPK_LIGHT_SEAT_BELT_WARNING_INDICATOR.value
+            )
+
+    /**
+     * How long a lamp still counts as lit after going dark. The belt lamp blinks at ~1 Hz while
+     * driving, dark ~500 ms at a time; without a latch every dark phase would read as the warning
+     * clearing and drop the driver's dismissal.
+     */
+    const val LAMP_OFF_LATCH_MS = 2_000L
+
+    /** Lit now, or lit within [LAMP_OFF_LATCH_MS]. */
+    fun isLampLitWithLatch(currentValue: String?, lastLitAtMs: Long?, nowMs: Long): Boolean =
+            isWarningValueActive(currentValue) ||
+                    (lastLitAtMs != null && nowMs - lastLitAtMs < LAMP_OFF_LATCH_MS)
+
+    /**
+     * Whether this key/value pair is one the driver sees as a warning badge.
+     *
+     * [isLampLit] answers for the lamps in [vectorLampGates]; it must be the latched view, or a
+     * blink reads as the warning clearing.
+     */
+    fun raisesWarningBadge(key: String, value: String?, isLampLit: (String) -> Boolean): Boolean {
+        if (key in badgeExemptWarningKeys) return false
+        if (!isWarningValueActive(value)) return false
+        val lamp = vectorLampGates[key] ?: return true
+        return isLampLit(lamp)
     }
+
+    /**
+     * Vectors the gate is holding back right now: active, lamp dark. Logged with the badge state
+     * so a wrong gate is visible, not silent.
+     */
+    fun lampGatedKeys(valueOf: (String) -> String?, isLampLit: (String) -> Boolean): List<String> =
+            vectorLampGates
+                    .filter { (vector, lamp) -> isWarningValueActive(valueOf(vector)) && !isLampLit(lamp) }
+                    .keys
+                    .toList()
 
     /**
      * Instant used for the BACK dismiss lockout.

@@ -29,43 +29,50 @@ class ClusterWarningPolicyTest {
         assertFalse(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_INFO_WARNING_TTS_NOTIFY.value,
-                        "1121"
+                        "1121",
+                        noLampLit
                 )
         )
         assertFalse(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQLEFT.value,
-                        "1"
+                        "1",
+                        noLampLit
                 )
         )
         assertFalse(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_INFO_BSD_LCA_WARNING_REQRIGHT.value,
-                        "1"
+                        "1",
+                        noLampLit
                 )
         )
         assertTrue(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_BASIC_SEAT_BELT_WARNING.value,
-                        "1"
+                        "1",
+                        lampLit
                 )
         )
         assertTrue(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_LIGHT_DOOR_WARNING.value,
-                        "1"
+                        "1",
+                        noLampLit
                 )
         )
         assertTrue(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_LIGHT_FUEL_LOW.value,
-                        "1"
+                        "1",
+                        noLampLit
                 )
         )
         assertTrue(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_IPK_LIGHT_TPMS_WARNING.value,
-                        "1"
+                        "1",
+                        noLampLit
                 )
         )
     }
@@ -75,16 +82,21 @@ class ClusterWarningPolicyTest {
         assertTrue(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_BASIC_TIREPRESS_WARNING.value,
-                        "1"
+                        "1",
+                        noLampLit
                 )
         )
         assertFalse(
                 ClusterWarningPolicy.raisesWarningBadge(
                         CarConstants.CAR_BASIC_TIREPRESS_WARNING.value,
-                        "0"
+                        "0",
+                        noLampLit
                 )
         )
     }
+
+    private val noLampLit: (String) -> Boolean = { false }
+    private val lampLit: (String) -> Boolean = { true }
 
     private val belt = CarConstants.CAR_BASIC_SEAT_BELT_WARNING.value
     private val door = CarConstants.CAR_IPK_LIGHT_DOOR_WARNING.value
@@ -199,6 +211,42 @@ class ClusterWarningPolicyTest {
                     mapOf(belt to "0", indicator to "0")[it]
                 }
         )
+    }
+
+    @Test
+    fun beltVectorRaisesOnlyWhileItsLampIsLit() {
+        // 2026-10-19 18:43-19:04: {1,0,0,0,0} with the lamp dark and nothing on the cluster.
+        assertFalse(ClusterWarningPolicy.raisesWarningBadge(belt, "{1,0,0,0,0}", noLampLit))
+        assertTrue(ClusterWarningPolicy.raisesWarningBadge(belt, "{1,0,0,0,0}", lampLit))
+        // The lamp itself is never gated.
+        assertTrue(
+                ClusterWarningPolicy.raisesWarningBadge(
+                        CarConstants.CAR_IPK_LIGHT_SEAT_BELT_WARNING_INDICATOR.value,
+                        "1",
+                        noLampLit
+                )
+        )
+        // The tyre vector stays ungated: its lamp has never been seen lit (ba4444fb).
+        assertTrue(ClusterWarningPolicy.raisesWarningBadge(tirepress, "{0,0,1,0}", noLampLit))
+    }
+
+    @Test
+    fun lampLatchCoversTheBlinkButNotARealClear() {
+        // Lit now.
+        assertTrue(ClusterWarningPolicy.isLampLitWithLatch("1", null, 10_000L))
+        // A ~500 ms dark phase of the 1 Hz blink: still lit.
+        assertTrue(ClusterWarningPolicy.isLampLitWithLatch("0", 10_000L, 10_500L))
+        // Dark past the latch: genuinely off.
+        assertFalse(ClusterWarningPolicy.isLampLitWithLatch("0", 10_000L, 12_001L))
+        // Never lit.
+        assertFalse(ClusterWarningPolicy.isLampLitWithLatch("0", null, 10_000L))
+    }
+
+    @Test
+    fun lampGatedKeysNamesTheHeldBackBeltVector() {
+        val values = mapOf(belt to "{1,0,0,0,0}")
+        assertEquals(listOf(belt), ClusterWarningPolicy.lampGatedKeys({ values[it] }, noLampLit))
+        assertEquals(emptyList<String>(), ClusterWarningPolicy.lampGatedKeys({ values[it] }, lampLit))
     }
 
     @Test

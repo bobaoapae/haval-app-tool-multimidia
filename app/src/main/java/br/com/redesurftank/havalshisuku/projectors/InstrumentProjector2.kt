@@ -158,6 +158,22 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
      */
     private val dismissedCardSnapshots =
             java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>()
+    /** Elapsed-realtime ms each gate lamp was last seen lit; see ClusterWarningPolicy.LAMP_OFF_LATCH_MS. */
+    private val lampLastLitAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /**
+     * Re-judges the badge once a lamp's latch has run out. A lamp that stays dark sends no more
+     * telemetry, so without this a gated vector would keep the label up until some other key moved.
+     */
+    private val lampLatchExpired = Runnable {
+        for (cardId in dismissedCards.toList()) {
+            if (!isCardConditionStanding(cardId)) {
+                dismissedCards.remove(cardId)
+                dismissedCardSnapshots.remove(cardId)
+            }
+        }
+        persistDismissals()
+        recomputeWarningState("LAMP_LATCH_EXPIRED")
+    }
     /** Saved acknowledgements read back once; null until loaded. */
     private var savedDismissals: List<ClusterWarningPolicy.SavedDismissal>? = null
     private var savedDismissalsSameBoot = false
@@ -1517,6 +1533,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         handler.removeCallbacks(clockRunnable)
         handler.removeCallbacks(watchdogRunnable)
         cancelPendingWarningClear()
+        handler.removeCallbacks(lampLatchExpired)
         handler.removeCallbacks(mediaRunnable)
         clearPendingSportTelemetryBatch()
         tsrJob?.cancel()
@@ -1810,6 +1827,22 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     val currentValue = value?.toString() ?: "0"
                     val cardId = ClusterWarningPolicy.cardIdFor(key)
                     val cardWasStanding = isCardConditionStanding(cardId)
+                    if (key in ClusterWarningPolicy.vectorLampGates.values) {
+                        // Stamp before the new value lands: a blink's dark phase must still read
+                        // as lit, or it looks like the warning clearing and drops the dismissal.
+                        if (ClusterWarningPolicy.isWarningValueActive(currentWarningValue(key)) ||
+                                        ClusterWarningPolicy.isWarningValueActive(currentValue)
+                        ) {
+                            lampLastLitAt[key] = SystemClock.elapsedRealtime()
+                        }
+                        handler.removeCallbacks(lampLatchExpired)
+                        if (!ClusterWarningPolicy.isWarningValueActive(currentValue)) {
+                            handler.postDelayed(
+                                    lampLatchExpired,
+                                    ClusterWarningPolicy.LAMP_OFF_LATCH_MS + 100
+                            )
+                        }
+                    }
                     trackWarningOnset(key, currentValue)
                     val cardStanding = isCardConditionStanding(cardId)
 
@@ -2499,6 +2532,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                             .take(10)
                                             .joinToString("|")
                                             .ifEmpty { "none" },
+                            // Vectors reading active while their lamp is dark, so a badge the
+                            // gate held back is never silent.
+                            "gated" to
+                                    ClusterWarningPolicy.lampGatedKeys(::currentWarningValue, ::isLampLit)
+                                            .joinToString("|")
+                                            .ifEmpty { "none" },
                             // Trace only: what the car itself says is active, next to what the
                             // CAN keys above made of it.
                             "alarmList" to alarmListForTrace()
@@ -2720,6 +2759,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         )
     }
 
+    /** The lamp is lit now, or was within ClusterWarningPolicy.LAMP_OFF_LATCH_MS. */
+    private fun isLampLit(lamp: String): Boolean =
+            ClusterWarningPolicy.isLampLitWithLatch(
+                    currentWarningValue(lamp),
+                    lampLastLitAt[lamp],
+                    SystemClock.elapsedRealtime()
+            )
+
     /** Last alarm-list value traced, so the car re-emitting an unchanged list logs nothing. */
     @Volatile private var lastTracedAlarmList: String? = null
 
@@ -2738,7 +2785,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         return monitoredWarningKeys
                 .mapNotNull { key -> currentWarningValue(key)?.let { key to it } }
                 .filter { (key, value) ->
-                    ClusterWarningPolicy.raisesWarningBadge(key, value) &&
+                    ClusterWarningPolicy.raisesWarningBadge(key, value, ::isLampLit) &&
                             ClusterWarningPolicy.cardIdFor(key) !in dismissedCards
                 }
                 .sortedByDescending { (key, _) -> warningOnsetTimes[key] ?: 0L }
@@ -2775,7 +2822,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     /** True while any key behind [cardId] still reports an active value. */
     private fun isCardConditionStanding(cardId: String): Boolean =
             ClusterWarningPolicy.cardKeysFor(cardId).any { key ->
-                ClusterWarningPolicy.raisesWarningBadge(key, currentWarningValue(key))
+                ClusterWarningPolicy.raisesWarningBadge(key, currentWarningValue(key), ::isLampLit)
             }
 
     private fun getClusterFuelDisplayUnit(): String {
