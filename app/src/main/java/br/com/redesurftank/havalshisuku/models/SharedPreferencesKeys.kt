@@ -417,6 +417,9 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     HUD_RPM_BAR("hudRpmBar", "HUD: barra de rotação do motor"),
     HUD_NAV_ARCS("hudNavArcs", "HUD Navegação: potência/rotação em arcos (senão barras)"),
     HUD_AR_ARCS("hudArArcs", "HUD Navegação AR: potência/rotação em arcos (senão barras)"),
+    // Replace the two above (read as a fallback): none | bars | arcs, per layout.
+    HUD_NAV_GAUGES("hudNavGauges", "HUD Navegação: indicadores de potência/RPM (none, bars, arcs)"),
+    HUD_AR_GAUGES("hudArGauges", "HUD Navegação AR: indicadores de potência/RPM (none, bars, arcs)"),
     HUD_AR_CHEVRONS("hudArChevrons", "HUD Navegação AR: setas animadas acima da velocidade perto da curva"),
     HUD_AR_PLACEMENT("hudArPlacement", "HUD Navegação AR: seta no centro (center) ou entre as linhas de faixa (right)"),
     HUD_AR_MAP("hudArMap", "HUD Navegação AR: ruas do OpenStreetMap em cinza (beta)"),

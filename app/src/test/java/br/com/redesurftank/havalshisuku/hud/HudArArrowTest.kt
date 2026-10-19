@@ -257,11 +257,17 @@ class HudArArrowTest {
         val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR)
         assertTrue(!HudOverlayModel.frameFor(nav, turn, 30, 24).arcs)
         assertTrue(HudOverlayModel.frameFor(ar, turn, 30, 24).arcs)
-        assertTrue(HudOverlayModel.frameFor(nav.copy(navArcs = true), turn, 30, 24).arcs)
-        assertTrue(!HudOverlayModel.frameFor(ar.copy(arArcs = false), turn, 30, 24).arcs)
+        assertTrue(HudOverlayModel.frameFor(nav.copy(navGauges = HudOverlayModel.Gauges.ARCS), turn, 30, 24).arcs)
+        assertTrue(!HudOverlayModel.frameFor(ar.copy(arGauges = HudOverlayModel.Gauges.BARS), turn, 30, 24).arcs)
         // One layout's choice doesn't touch the other's.
-        assertTrue(HudOverlayModel.frameFor(ar.copy(navArcs = false), turn, 30, 24).arcs)
-        assertTrue(!HudOverlayModel.frameFor(nav.copy(arArcs = false), turn, 30, 24).arcs)
+        assertTrue(HudOverlayModel.frameFor(ar.copy(navGauges = HudOverlayModel.Gauges.BARS), turn, 30, 24).arcs)
+        assertTrue(!HudOverlayModel.frameFor(nav.copy(arGauges = HudOverlayModel.Gauges.BARS), turn, 30, 24).arcs)
+        // "Nenhum": no power, no RPM, whatever the two switches say.
+        val none = HudOverlayModel.frameFor(ar.copy(arGauges = HudOverlayModel.Gauges.NONE), turn, 30, 24)
+        assertNull(none.powerPercent)
+        assertNull(none.rpmTenths)
+        assertEquals(HudOverlayModel.Gauges.ARCS, nav.withGauges(HudOverlayModel.Layout.NAVIGATION, HudOverlayModel.Gauges.ARCS).navGauges)
+        assertEquals(HudOverlayModel.Gauges.ARCS, ar.withGauges(HudOverlayModel.Layout.NAVIGATION, HudOverlayModel.Gauges.ARCS).navGauges)
     }
 
     @Test

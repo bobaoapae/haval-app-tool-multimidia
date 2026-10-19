@@ -24,8 +24,8 @@ object HudOverlaySettings {
             trip = prefs.getBoolean(SharedPreferencesKeys.HUD_NAV_TRIP.key, defaults.trip),
             powerBar = prefs.getBoolean(SharedPreferencesKeys.HUD_POWER_BAR.key, defaults.powerBar),
             rpmBar = prefs.getBoolean(SharedPreferencesKeys.HUD_RPM_BAR.key, defaults.rpmBar),
-            navArcs = prefs.getBoolean(SharedPreferencesKeys.HUD_NAV_ARCS.key, defaults.navArcs),
-            arArcs = prefs.getBoolean(SharedPreferencesKeys.HUD_AR_ARCS.key, defaults.arArcs),
+            navGauges = gauges(prefs, SharedPreferencesKeys.HUD_NAV_GAUGES, SharedPreferencesKeys.HUD_NAV_ARCS, defaults.navGauges),
+            arGauges = gauges(prefs, SharedPreferencesKeys.HUD_AR_GAUGES, SharedPreferencesKeys.HUD_AR_ARCS, defaults.arGauges),
             chevrons = prefs.getBoolean(SharedPreferencesKeys.HUD_AR_CHEVRONS.key, defaults.chevrons),
             arPlacement = HudArArrow.Placement.fromKey(prefs.getString(SharedPreferencesKeys.HUD_AR_PLACEMENT.key, null))
                 ?: defaults.arPlacement,
@@ -33,6 +33,18 @@ object HudOverlaySettings {
             mapHorizonTop = prefs.getBoolean(SharedPreferencesKeys.HUD_AR_MAP_HORIZON_TOP.key, defaults.mapHorizonTop)
         )
     }
+
+    /** The indicators pref, else the older arcs on/off one (arcs, or bars), else [default]. */
+    private fun gauges(
+        prefs: SharedPreferences,
+        key: SharedPreferencesKeys,
+        legacyArcs: SharedPreferencesKeys,
+        default: HudOverlayModel.Gauges
+    ): HudOverlayModel.Gauges =
+        HudOverlayModel.Gauges.fromKey(prefs.getString(key.key, null))
+            ?: if (prefs.contains(legacyArcs.key)) {
+                if (prefs.getBoolean(legacyArcs.key, false)) HudOverlayModel.Gauges.ARCS else HudOverlayModel.Gauges.BARS
+            } else default
 
     /** Saves [config] and applies it to the HUD at once. */
     fun save(config: HudOverlayModel.Config, prefs: SharedPreferences = prefs()) {
@@ -43,8 +55,8 @@ object HudOverlaySettings {
             .putBoolean(SharedPreferencesKeys.HUD_NAV_TRIP.key, config.trip)
             .putBoolean(SharedPreferencesKeys.HUD_POWER_BAR.key, config.powerBar)
             .putBoolean(SharedPreferencesKeys.HUD_RPM_BAR.key, config.rpmBar)
-            .putBoolean(SharedPreferencesKeys.HUD_NAV_ARCS.key, config.navArcs)
-            .putBoolean(SharedPreferencesKeys.HUD_AR_ARCS.key, config.arArcs)
+            .putString(SharedPreferencesKeys.HUD_NAV_GAUGES.key, config.navGauges.key)
+            .putString(SharedPreferencesKeys.HUD_AR_GAUGES.key, config.arGauges.key)
             .putBoolean(SharedPreferencesKeys.HUD_AR_CHEVRONS.key, config.chevrons)
             .putString(SharedPreferencesKeys.HUD_AR_PLACEMENT.key, config.arPlacement.key)
             .putBoolean(SharedPreferencesKeys.HUD_AR_MAP.key, config.mapStreets)

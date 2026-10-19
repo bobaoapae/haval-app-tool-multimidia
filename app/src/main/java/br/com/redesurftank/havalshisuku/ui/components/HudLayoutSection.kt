@@ -27,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -210,7 +211,7 @@ private fun HudLayoutCard(
 }
 
 /** Tabs of the Navegação settings dialog. */
-private enum class HudSettingsTab(val title: String) { NAVIGATION("Navegação"), ARROW("Seta AR"), BARS("Barras") }
+private enum class HudSettingsTab(val title: String) { NAVIGATION("Navegação"), ARROW("Seta AR"), BARS("Indicadores") }
 
 /**
  * Wide two-pane dialog for the 1920x720 head unit: the options on the left split into tabs so
@@ -256,77 +257,85 @@ private fun HudNavigationSettingsDialog(
                         Spacer(Modifier.height(8.dp))
                         when (tab) {
                             HudSettingsTab.NAVIGATION -> {
-                                OptionRow("Mostrar navegação", "Seta, distância e faixas enquanto o Android Auto guia.", config.navigation) {
-                                    onChange(config.copy(navigation = it))
-                                }
+                                OptionRow(
+                                    "Mostrar navegação",
+                                    "Seta, distância e faixas do Android Auto.",
+                                    config.navigation,
+                                    info = "Mostra a próxima manobra enquanto o Android Auto está guiando: seta, distância, faixas e a rua."
+                                ) { onChange(config.copy(navigation = it)) }
                                 // The AR arrow already shows distance by itself (straight when far).
                                 if (layout != HudOverlayModel.Layout.AR) {
                                     OptionRow(
                                         "Seta menor quando longe",
-                                        "Seta pequena até faltar 1 km para a manobra; depois fica grande.",
+                                        "Pequena até faltar 1 km.",
                                         config.smallArrowWhenFar,
-                                        enabled = config.navigation
+                                        enabled = config.navigation,
+                                        info = "A seta fica pequena até faltar 1 km para a manobra; depois fica grande."
                                     ) { onChange(config.copy(smallArrowWhenFar = it)) }
                                 }
                                 OptionRow(
                                     "Distância e tempo restantes",
-                                    "Quanto falta até o destino, ex.: 4.8 km · 12 min.",
+                                    "Até o destino, ex.: 4.8 km · 12 min.",
                                     config.trip,
                                     enabled = config.navigation
                                 ) { onChange(config.copy(trip = it)) }
                             }
                             HudSettingsTab.ARROW -> {
-                                OptionRow(
-                                    "Seta à direita, entre as linhas de faixa",
-                                    "Seta menor sobre as linhas do assistente de faixa do HUD; desligado, no centro sob a velocidade.",
-                                    config.arPlacement == HudArArrow.Placement.RIGHT,
-                                    enabled = config.navigation
-                                ) {
-                                    onChange(config.copy(arPlacement = if (it) HudArArrow.Placement.RIGHT else HudArArrow.Placement.CENTER))
-                                }
+                                ChoiceRow(
+                                    "Tipo das setas",
+                                    "Onde fica a seta azul.",
+                                    listOf("Ao centro", "À direita"),
+                                    if (config.arPlacement == HudArArrow.Placement.RIGHT) 1 else 0,
+                                    enabled = config.navigation,
+                                    info = "Ao centro: sob a velocidade do carro. À direita: menor, entre as linhas do assistente de faixa do HUD."
+                                ) { onChange(config.copy(arPlacement = if (it == 1) HudArArrow.Placement.RIGHT else HudArArrow.Placement.CENTER)) }
                                 OptionRow(
                                     "Ruas do mapa (beta)",
-                                    "Ruas reais em volta do carro, em cinza claro, do OpenStreetMap. Usa o GPS e baixa a região (~1 km) pela internet do celular.",
+                                    "Ruas reais em cinza, rota em azul.",
                                     config.mapStreets,
-                                    enabled = config.navigation
+                                    enabled = config.navigation,
+                                    info = "Troca as setas pelo mapa: ruas reais em volta do carro em cinza e a rota em azul sobre elas, até onde dá para desenhar. Usa o GPS e o OpenStreetMap (baixado pela internet do celular)."
                                 ) { onChange(config.copy(mapStreets = it)) }
                                 OptionRow(
-                                    "Mapa: horizonte no topo do HUD (teste)",
-                                    "Com as ruas do mapa ligadas: o horizonte vai para o topo do HUD em vez de logo abaixo da velocidade, deixando o mapa bem mais alto.",
+                                    "Mapa: horizonte no topo (teste)",
+                                    "Mapa mais alto, até o topo do HUD.",
                                     config.mapHorizonTop,
-                                    enabled = config.navigation && config.mapStreets
+                                    enabled = config.navigation && config.mapStreets,
+                                    info = "Com as ruas do mapa ligadas: o horizonte vai para o topo do HUD em vez de logo abaixo da velocidade."
                                 ) { onChange(config.copy(mapHorizonTop = it)) }
                                 OptionRow(
-                                    "Setas animadas na curva",
-                                    "Setas azuis acima da velocidade a partir de 120 m; deslizam para o lado da curva e piscam mais rápido ao chegar.",
+                                    "Setas de aproximação",
+                                    "Piscam rumo ao lado da curva, perto dela.",
                                     config.chevrons,
-                                    enabled = config.navigation
+                                    enabled = config.navigation,
+                                    info = "Setas azuis no alto do HUD quando a sua rua é a próxima do lado da curva (sem mapa, nos últimos 40 m). Deslizam para o lado da curva e piscam mais rápido ao chegar."
                                 ) { onChange(config.copy(chevrons = it)) }
                             }
                             HudSettingsTab.BARS -> {
-                                // Each layout keeps its own style: Navegação bars, Navegação AR arcs by default.
-                                val arcs = config.copy(layout = layout).arcs
-                                OptionRow(
-                                    "Arcos em volta da velocidade",
-                                    "Potência e rotação em arcos sobre a velocidade do carro; desligado, barras nos cantos de baixo.",
-                                    arcs
-                                ) {
-                                    onChange(if (layout == HudOverlayModel.Layout.AR) config.copy(arArcs = it) else config.copy(navArcs = it))
-                                }
+                                // Each layout keeps its own: Navegação bars, Navegação AR arcs by default.
+                                val gauges = config.copy(layout = layout).gauges
+                                val arcs = gauges == HudOverlayModel.Gauges.ARCS
+                                ChoiceRow(
+                                    "Exibir indicadores de potência e RPM",
+                                    "Como mostrar potência e rotação.",
+                                    listOf("Nenhum", "Barras", "Arcos"),
+                                    HudOverlayModel.Gauges.entries.indexOf(gauges),
+                                    info = "Barras: nos cantos de baixo do HUD. Arcos: em volta da velocidade do carro."
+                                ) { onChange(config.withGauges(layout, HudOverlayModel.Gauges.entries[it])) }
                                 OptionRow(
                                     "Potência / regeneração",
-                                    if (arcs) "Arco externo. Azul acelerando, verde regenerando." else "Canto inferior esquerdo. Azul acelerando, verde regenerando.",
-                                    config.powerBar
-                                ) {
-                                    onChange(config.copy(powerBar = it))
-                                }
+                                    if (arcs) "Arco externo." else "Canto inferior esquerdo.",
+                                    config.powerBar,
+                                    enabled = gauges != HudOverlayModel.Gauges.NONE,
+                                    info = "Azul acelerando, verde regenerando."
+                                ) { onChange(config.copy(powerBar = it)) }
                                 OptionRow(
                                     "Rotação do motor",
-                                    if (arcs) "Arco interno, só com o motor ligado." else "Canto inferior direito, só com o motor ligado.",
-                                    config.rpmBar
-                                ) {
-                                    onChange(config.copy(rpmBar = it))
-                                }
+                                    if (arcs) "Arco interno, com o motor ligado." else "Canto inferior direito, com o motor ligado.",
+                                    config.rpmBar,
+                                    enabled = gauges != HudOverlayModel.Gauges.NONE,
+                                    info = "Só aparece com o motor a combustão ligado; vermelho a partir de 5 mil rpm."
+                                ) { onChange(config.copy(rpmBar = it)) }
                             }
                         }
                     }
@@ -373,27 +382,98 @@ private fun HudTabs(selected: HudSettingsTab, tabs: List<HudSettingsTab>, onSele
     }
 }
 
+/**
+ * Title and a one-line description, readable at arm's length; the longer explanation sits behind
+ * the (i) and opens under the row.
+ */
+@Composable
+private fun OptionText(title: String, description: String, enabled: Boolean, info: String?, modifier: Modifier = Modifier) {
+    var open by remember { mutableStateOf(false) }
+    Column(modifier = modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = if (enabled) Color.White else ImpTokens.TextMuted, fontSize = 16.sp)
+            if (info != null) {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = "Mais informações sobre $title",
+                    tint = if (open) ImpTokens.Accent else ImpTokens.TextSecondary,
+                    modifier = Modifier.padding(start = 8.dp).size(22.dp).clip(RoundedCornerShape(11.dp)).clickable { open = !open }
+                )
+            }
+        }
+        Text(
+            description,
+            color = if (enabled) ImpTokens.TextSecondary else ImpTokens.TextMuted,
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+        )
+        if (open && info != null) {
+            Text(info, color = ImpTokens.TextSecondary, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
+/** An on/off option; tapping anywhere on the row toggles it. */
 @Composable
 private fun OptionRow(
     title: String,
     description: String,
     checked: Boolean,
     enabled: Boolean = true,
+    info: String? = null,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(vertical = 6.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = if (enabled) Color.White else ImpTokens.TextMuted, fontSize = 14.sp)
-            Text(description, color = if (enabled) ImpTokens.TextSecondary else ImpTokens.TextMuted, fontSize = 12.sp)
-        }
+        OptionText(title, description, enabled, info, Modifier.weight(1f))
         Switch(
             checked = checked,
             enabled = enabled,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = ImpTokens.Accent)
         )
+    }
+}
+
+/** A pick among a few options, as chips beside the title. */
+@Composable
+private fun ChoiceRow(
+    title: String,
+    description: String,
+    options: List<String>,
+    selected: Int,
+    enabled: Boolean = true,
+    info: String? = null,
+    onSelect: (Int) -> Unit
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        OptionText(title, description, enabled, info, Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            options.forEachIndexed { i, label ->
+                val on = i == selected
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (on && enabled) ImpTokens.Accent.copy(alpha = 0.25f) else Color.Transparent)
+                        .border(1.dp, if (on && enabled) ImpTokens.Accent else ImpTokens.TrackOff, RoundedCornerShape(16.dp))
+                        .clickable(enabled = enabled) { onSelect(i) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        label,
+                        color = if (!enabled) ImpTokens.TextMuted else if (on) Color.White else ImpTokens.TextSecondary,
+                        fontSize = 14.sp,
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+        }
     }
 }

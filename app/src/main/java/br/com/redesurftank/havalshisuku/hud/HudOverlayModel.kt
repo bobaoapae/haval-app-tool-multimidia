@@ -668,6 +668,15 @@ object HudOverlayModel {
         }
     }
 
+    /** Power/RPM indicators: none, bars at the bottom corners, or arcs round the native speed. */
+    enum class Gauges(val key: String) {
+        NONE("none"), BARS("bars"), ARCS("arcs");
+
+        companion object {
+            fun fromKey(key: String?): Gauges? = entries.firstOrNull { it.key == key }
+        }
+    }
+
     /** Owner's choices for the Navigation layout; everything on by default. */
     data class Config(
         val layout: Layout = Layout.ORIGINAL,
@@ -676,9 +685,9 @@ object HudOverlayModel {
         val trip: Boolean = true,
         val powerBar: Boolean = true,
         val rpmBar: Boolean = true,
-        /** Power/RPM as arcs round the native speed instead of the bottom bars, per layout. */
-        val navArcs: Boolean = false,
-        val arArcs: Boolean = true,
+        /** Power/RPM indicators per layout: none, bottom bars, or arcs round the native speed. */
+        val navGauges: Gauges = Gauges.BARS,
+        val arGauges: Gauges = Gauges.ARCS,
         /** AR: animated chevrons above the speed when close to a turn. */
         val chevrons: Boolean = true,
         /** AR: arrow in the centre (under the speed) or between the native lane-assist lines. */
@@ -690,12 +699,19 @@ object HudOverlayModel {
     ) {
         val active: Boolean get() = layout != Layout.ORIGINAL
 
-        /** Arcs for the current layout. */
-        val arcs: Boolean get() = when (layout) {
-            Layout.NAVIGATION -> navArcs
-            Layout.AR -> arArcs
-            Layout.ORIGINAL -> false
+        /** Indicators for the current layout. */
+        val gauges: Gauges get() = when (layout) {
+            Layout.NAVIGATION -> navGauges
+            Layout.AR -> arGauges
+            Layout.ORIGINAL -> Gauges.NONE
         }
+
+        /** Arcs for the current layout. */
+        val arcs: Boolean get() = gauges == Gauges.ARCS
+
+        /** This config with [layout]'s indicators set to [g]. */
+        fun withGauges(layout: Layout, g: Gauges): Config =
+            if (layout == Layout.AR) copy(arGauges = g) else copy(navGauges = g)
     }
 
     /**
@@ -793,8 +809,8 @@ object HudOverlayModel {
         } else null
         return Frame(
             tbt = tbt,
-            powerPercent = if (config.powerBar) powerPercent else null,
-            rpmTenths = if (config.rpmBar) rpmTenths else null,
+            powerPercent = if (config.powerBar && config.gauges != Gauges.NONE) powerPercent else null,
+            rpmTenths = if (config.rpmBar && config.gauges != Gauges.NONE) rpmTenths else null,
             arcs = config.arcs,
             radar = radar,
             wideArcs = wideArcs,

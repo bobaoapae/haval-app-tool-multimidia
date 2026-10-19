@@ -23,6 +23,8 @@ class HudOverlayRenderer {
     private companion object {
         /** Native speed readout in the preview mock: centred on the arcs (measured on the car). */
         const val NATIVE_SPEED_CX = M.NATIVE_SPEED_CX
+        /** Chevrons in the Telas previews: a moment with the pulse half way along the row. */
+        const val PREVIEW_PULSE_MS = 190L
         /** Map view roads: soft grey under the blue route. */
         const val MAP_ROAD_ALPHA = 215
         const val NATIVE_SPEED_BASELINE = 133f
@@ -798,13 +800,13 @@ class HudOverlayRenderer {
         drawScene(canvas)
         drawNativeHud(canvas, scenario.speedKmh)
         if (config.active) {
-            drawContent(
-                canvas,
-                M.frameFor(
-                    config, scenario.route, scenario.powerPercent, scenario.rpmTenths,
-                    wideArcs = M.wideArcs(scenario.speedKmh.toDouble(), wasWide = false)
-                )
+            val frame = M.frameFor(
+                config, scenario.route, scenario.powerPercent, scenario.rpmTenths,
+                wideArcs = M.wideArcs(scenario.speedKmh.toDouble(), wasWide = false)
             )
+            drawContent(canvas, frame)
+            // A still of the approach chevrons (the sharp-left preview), mid-pulse.
+            frame.chevrons?.let { drawChevrons(canvas, it, PREVIEW_PULSE_MS) }
         }
         return bitmap
     }
