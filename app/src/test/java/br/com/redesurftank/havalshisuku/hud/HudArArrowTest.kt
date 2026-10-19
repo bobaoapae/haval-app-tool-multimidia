@@ -195,8 +195,8 @@ class HudArArrowTest {
         assertEquals(HudOverlayModel.ARC_CY - HudOverlayModel.ARC_POWER_R_OUT, HudOverlayModel.arcPoint(270f, HudOverlayModel.ARC_POWER_R_OUT).second, 0.01f)
         assertTrue(HudOverlayModel.ARC_X_SCALE > 1f)
         // 6 px left of the speed; the street line is narrowed to keep clear of the arc.
-        // Two digits: 2 px left of the speed; three digits (wide): 6 px left, room for the "1".
-        assertEquals(HudOverlayModel.NATIVE_SPEED_CX - 2f, HudOverlayModel.ARC_CX, 0f)
+        // Two digits: 4 px left of the speed; three digits (wide): 6 px left, room for the "1".
+        assertEquals(HudOverlayModel.NATIVE_SPEED_CX - 4f, HudOverlayModel.ARC_CX, 0f)
         assertEquals(HudOverlayModel.NATIVE_SPEED_CX - 6f, HudOverlayModel.ARC_WIDE_CX, 0f)
         val right = HudOverlayModel.columnRightAt(HudOverlayModel.AR_STREET_BASELINE, HudOverlayModel.AR_STREET_SIZE)
         assertTrue(right < HudOverlayModel.BOX_RIGHT && right > HudOverlayModel.BOX_CENTER_X + 40f)

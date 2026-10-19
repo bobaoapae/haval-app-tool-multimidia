@@ -390,8 +390,11 @@ object HudOverlayModel {
 
     /** Native speed readout's centre (measured on the car 2026-10-17); the AR arrow sits on it. */
     const val NATIVE_SPEED_CX = 222f
-    /** Two-digit speeds: 2 px left of the speed (owner: the right digit sat too close at 216). */
-    const val ARC_CX = 220f
+    /**
+     * Two-digit speeds: 4 px left of the speed. 216 sat too close to the right digit, 220 looked
+     * off to the right on the windshield; owner: halfway (2026-10-19).
+     */
+    const val ARC_CX = 218f
     /** Three-digit speeds (wide arcs): 6 px left, room for the leading "1". */
     const val ARC_WIDE_CX = 216f
     const val ARC_CY = 112f
