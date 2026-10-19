@@ -30,7 +30,7 @@ object OsmRoadStore {
      */
     private val ENDPOINTS = listOf(
         "https://overpass.private.coffee/api/interpreter" to 30_000,
-        "https://overpass-api.de/api/interpreter" to 70_000,
+        "https://overpass-api.de/api/interpreter" to 100_000,
         "https://overpass.kumi.systems/api/interpreter" to 30_000
     )
     private const val TTL_MS = 30L * 24 * 3600 * 1000
@@ -81,8 +81,9 @@ object OsmRoadStore {
             val toFetch = ArrayList<OsmRoads.Tile>()
             for (tile in wanted) {
                 val file = file(tile)
-                if (file.isFile && System.currentTimeMillis() - file.lastModified() < TTL_MS) {
-                    tiles[tile.key] = OsmRoads.parse(file.readText())
+                val cached = file.takeIf { it.isFile && System.currentTimeMillis() - it.lastModified() < TTL_MS }?.readText()
+                if (cached != null && OsmRoads.cacheOk(cached)) {
+                    tiles[tile.key] = OsmRoads.parse(cached)
                 } else {
                     toFetch += tile
                 }
@@ -101,7 +102,7 @@ object OsmRoadStore {
                 } else {
                     trace(false, toFetch.size, 0, SystemClock.elapsedRealtime() - started)
                     // Stale copies on disk are better than nothing while the servers are down.
-                    for (tile in toFetch) file(tile).takeIf { it.isFile }?.let { tiles[tile.key] = OsmRoads.parse(it.readText()) }
+                    for (tile in toFetch) file(tile).takeIf { it.isFile }?.readText()?.takeIf { OsmRoads.cacheOk(it) }?.let { tiles[tile.key] = OsmRoads.parse(it) }
                 }
             }
             // Only when something arrived: a call during the back-off must not re-queue at once.
@@ -137,7 +138,7 @@ object OsmRoadStore {
         val now = System.currentTimeMillis()
         val missing = OsmRoads.tilesAround(lat, lon, radiusM).filter { t ->
             val f = file(t)
-            !(f.isFile && now - f.lastModified() < TTL_MS)
+            !(f.isFile && now - f.lastModified() < TTL_MS && OsmRoads.cacheOk(f.readText()))
         }
         if (missing.isEmpty()) return
         val blocks = missing.groupBy { Math.floorDiv(it.x, 3) to Math.floorDiv(it.y, 3) }.values
@@ -219,7 +220,8 @@ object OsmRoadStore {
             Log.w(TAG, "HTTP $code from ${URL(url).host}")
             null to code.toString()
         } else {
-            conn.inputStream.bufferedReader().use { it.readText() } to "200"
+            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            if (OsmRoads.answerOk(body)) body to "200" else null to "remark"
         }
     } catch (t: Throwable) {
         Log.w(TAG, "${t.message} from ${URL(url).host}")

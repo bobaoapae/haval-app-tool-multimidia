@@ -44,6 +44,20 @@ class OsmRoadsTest {
     }
 
     @Test
+    fun `a busy server's empty 200 is not an answer, and not cached`() {
+        val busy = """{"version":0.6,"osm3s":{},"remark":"runtime error: Query timed out in \"query\" at line 1 after 26 seconds.","elements":[]}"""
+        assertTrue(!OsmRoads.answerOk(busy))
+        assertTrue(!OsmRoads.cacheOk(busy))
+        val good = """{"version":0.6,"osm3s":{},"elements":[]}"""
+        assertTrue(OsmRoads.answerOk(good))
+        assertTrue(OsmRoads.cacheOk(good)) // an old raw answer without errors (sea: no roads is fine)
+        // Our own cache files carry the mark; one without it (written from an unchecked answer) is stale.
+        assertTrue(OsmRoads.cacheOk(OsmRoads.toJson(emptyList())))
+        assertTrue(!OsmRoads.cacheOk("""{"elements":[]}"""))
+        assertTrue(OsmRoads.query(OsmRoads.Tile(0, 0)).contains("[timeout:90]"))
+    }
+
+    @Test
     fun `parses an Overpass out geom answer`() {
         val json = """
             {"elements":[

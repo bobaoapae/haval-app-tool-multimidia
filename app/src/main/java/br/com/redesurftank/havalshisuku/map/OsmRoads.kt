@@ -57,7 +57,8 @@ object OsmRoads {
     /** Overpass QL for the drivable roads in a box (several tiles at once). */
     fun query(south: Double, west: Double, north: Double, east: Double): String {
         val bbox = "%.4f,%.4f,%.4f,%.4f".format(java.util.Locale.US, south, west, north, east)
-        return "[out:json][timeout:25];way[\"highway\"~\"^(${DRIVABLE.joinToString("|")})$\"]($bbox);out tags geom;"
+        // The server-side limit: at 25 s a busy overpass-api.de answered "200" with no roads.
+        return "[out:json][timeout:90];way[\"highway\"~\"^(${DRIVABLE.joinToString("|")})$\"]($bbox);out tags geom;"
     }
 
     /** The roads of a box answer that touch [tile] (their extent overlaps it; a road can be in several). */
@@ -70,6 +71,26 @@ object OsmRoads {
         n >= tile.south && s <= tile.north && e >= tile.west && w <= tile.east
     }
 
+    /**
+     * Whether an Overpass answer is a real one: a busy server answers "200" with a "remark" such
+     * as "runtime error: Query timed out" and no elements (2026-10-19, cached as empty tiles).
+     */
+    fun answerOk(json: String): Boolean = runCatching {
+        val remark = JSONObject(json).optString("remark")
+        !(remark.contains("error", ignoreCase = true) || remark.contains("timed out", ignoreCase = true))
+    }.getOrDefault(false)
+
+    /**
+     * Whether a tile's cache file can be trusted: one written from a checked answer carries
+     * [COMPLETE_MARK]; an older raw answer is fine unless it holds an error remark.
+     */
+    fun cacheOk(json: String): Boolean = runCatching {
+        val o = JSONObject(json)
+        o.optBoolean(COMPLETE_MARK) || (o.has("osm3s") && answerOk(json))
+    }.getOrDefault(false)
+
+    const val COMPLETE_MARK = "impulse_complete"
+
     /** [roads] back as an Overpass-shaped answer, for one tile's cache file ([parse] reads it). */
     fun toJson(roads: List<OsmRoad>): String {
         val elements = org.json.JSONArray()
@@ -81,7 +102,7 @@ object OsmRoads {
             if (r.oneway) tags.put("oneway", "yes")
             elements.put(JSONObject().put("type", "way").put("id", r.id).put("tags", tags).put("geometry", geometry))
         }
-        return JSONObject().put("elements", elements).toString()
+        return JSONObject().put(COMPLETE_MARK, true).put("elements", elements).toString()
     }
 
     /** Roads in an Overpass `out geom` answer. */
