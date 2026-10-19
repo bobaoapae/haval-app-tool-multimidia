@@ -23,15 +23,24 @@ import javax.net.ssl.SSLSocketFactory
  */
 object OsmRoadStore {
     private const val TAG = "OsmRoadStore"
-    /** Public Overpass servers, tried in turn: each is often busy (502/504/timeouts). */
+    /**
+     * Public Overpass servers, tried in turn, each with its own read timeout: measured
+     * 2026-10-19 for a 3x3-tile box, private.coffee answered in 2 s, overpass-api.de in 45 s
+     * (past the old 25 s limit), kumi.systems with 500.
+     */
     private val ENDPOINTS = listOf(
-        "https://overpass-api.de/api/interpreter",
-        "https://overpass.private.coffee/api/interpreter",
-        "https://overpass.kumi.systems/api/interpreter"
+        "https://overpass.private.coffee/api/interpreter" to 30_000,
+        "https://overpass-api.de/api/interpreter" to 70_000,
+        "https://overpass.kumi.systems/api/interpreter" to 30_000
     )
     private const val TTL_MS = 30L * 24 * 3600 * 1000
     private const val RETRY_MS = 30_000L
-    private const val TIMEOUT_MS = 25_000
+    /** A server that answered 429 (too many requests) is skipped this long. */
+    private const val RATE_LIMIT_MS = 5 * 60_000L
+    private const val CONNECT_TIMEOUT_MS = 15_000
+    private val limitedUntil = ConcurrentHashMap<String, Long>()
+    /** Per server, what the last request got (code or error), for the durable trace. */
+    @Volatile private var lastOutcome = ""
 
     /** The roads round a point and whether every tile there is loaded (else the view isn't whole). */
     class Near(val roads: List<OsmRoad>, val complete: Boolean)
@@ -161,8 +170,11 @@ object OsmRoadStore {
     }
 
     private fun trace(ok: Boolean, tileCount: Int, roads: Int, ms: Long) {
-        Log.w(TAG, "fetch ok=$ok tiles=$tileCount roads=$roads ms=$ms")
-        ClusterPersistentEventLogger.log("hud_map_tiles", mapOf("ok" to ok, "tiles" to tileCount, "roads" to roads, "ms" to ms))
+        Log.w(TAG, "fetch ok=$ok tiles=$tileCount roads=$roads ms=$ms servers=$lastOutcome")
+        ClusterPersistentEventLogger.log(
+            "hud_map_tiles",
+            mapOf("ok" to ok, "tiles" to tileCount, "roads" to roads, "ms" to ms, "servers" to lastOutcome)
+        )
     }
 
     /** The box of [tiles] from the first server that answers; null (and a back-off) when none does. */
@@ -170,17 +182,33 @@ object OsmRoadStore {
         val query = OsmRoads.query(
             tiles.minOf { it.south }, tiles.minOf { it.west }, tiles.maxOf { it.north }, tiles.maxOf { it.east }
         )
-        for (url in ENDPOINTS) fetch(url, query)?.let { return it }
-        retryAfterMs = System.currentTimeMillis() + RETRY_MS
-        return null
+        val outcomes = ArrayList<String>()
+        try {
+            for ((url, timeout) in ENDPOINTS) {
+                val host = URL(url).host.substringBefore('.').let { if (it == "overpass") URL(url).host.split('.')[1] else it }
+                if (System.currentTimeMillis() < (limitedUntil[url] ?: 0L)) {
+                    outcomes += "$host:limited"
+                    continue
+                }
+                val (json, outcome) = fetch(url, query, timeout)
+                outcomes += "$host:$outcome"
+                if (outcome == "429") limitedUntil[url] = System.currentTimeMillis() + RATE_LIMIT_MS
+                if (json != null) return json
+            }
+            retryAfterMs = System.currentTimeMillis() + RETRY_MS
+            return null
+        } finally {
+            lastOutcome = outcomes.joinToString(",")
+        }
     }
 
-    private fun fetch(url: String, query: String): String? = try {
+    /** The answer and what happened ("200", an HTTP code, or the error's class). */
+    private fun fetch(url: String, query: String, timeout: Int): Pair<String?, String> = try {
         val conn = URL(url).openConnection() as HttpURLConnection
         // overpass-api.de takes TLS 1.3 only; Android 9 stops at 1.2 (same fix as the radar).
         if (conn is HttpsURLConnection) tls?.let { conn.sslSocketFactory = it }
-        conn.connectTimeout = TIMEOUT_MS
-        conn.readTimeout = TIMEOUT_MS
+        conn.connectTimeout = CONNECT_TIMEOUT_MS
+        conn.readTimeout = timeout
         conn.requestMethod = "POST"
         conn.doOutput = true
         conn.setRequestProperty("User-Agent", "Impulse/${BuildConfig.VERSION_NAME} (HUD map; Android)")
@@ -189,13 +217,13 @@ object OsmRoadStore {
         val code = conn.responseCode
         if (code != 200) {
             Log.w(TAG, "HTTP $code from ${URL(url).host}")
-            null
+            null to code.toString()
         } else {
-            conn.inputStream.bufferedReader().use { it.readText() }
+            conn.inputStream.bufferedReader().use { it.readText() } to "200"
         }
     } catch (t: Throwable) {
         Log.w(TAG, "${t.message} from ${URL(url).host}")
-        null
+        null to (t.javaClass.simpleName.ifEmpty { "error" })
     }
 
     private val tls: SSLSocketFactory? by lazy {
