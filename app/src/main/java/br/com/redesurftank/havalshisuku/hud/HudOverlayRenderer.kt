@@ -656,6 +656,11 @@ class HudOverlayRenderer {
     private fun drawTurn(canvas: Canvas, tbt: M.Tbt, left: Float, top: Float, size: Float): Float {
         val icon = tbt.icon
         if (icon.isEmpty()) return top + size
+        // Last section: the destination flag (as on the trip line) instead of the round glyph.
+        if (icon == "DESTINATION") {
+            drawFlag(canvas, left, top + size, size)
+            return top + size
+        }
         val exitAngle = tbt.exitAngle
         if (tbt.dynamicRoundabout && exitAngle != null) {
             drawRoundabout(canvas, left, top, size, exitAngle, tbt.roundaboutClockwise, tbt.exitNumber)

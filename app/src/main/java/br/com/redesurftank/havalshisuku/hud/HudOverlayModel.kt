@@ -798,7 +798,9 @@ object HudOverlayModel {
             distanceUnit = unit,
             lanes = lanes,
             style = style,
-            trip = if (config.trip) tripLabel(d.remainingM, d.remainingS) else "",
+            // Last section (owner): the next maneuver is the destination, so the trip totals
+            // would only repeat the section's distance; the flag by the distance says it instead.
+            trip = if (config.trip && icon != "DESTINATION") tripLabel(d.remainingM, d.remainingS) else "",
             arAngle = arAngle.takeIf { style == TbtStyle.AR },
             arMeters = meters?.toFloat().takeIf { style == TbtStyle.AR },
             street = d.street.trim(),

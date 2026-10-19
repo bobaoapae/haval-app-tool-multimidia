@@ -510,6 +510,16 @@ class HudArArrowTest {
     }
 
     @Test
+    fun `last section - no trip totals, in both themes`() {
+        val arrive = Directions(active = true, distance = "200 m", distanceM = 200, turn = "DESTINATION_RIGHT", remainingM = 200, remainingS = 40)
+        for (layout in listOf(HudOverlayModel.Layout.AR, HudOverlayModel.Layout.NAVIGATION)) {
+            val cfg = HudOverlayModel.Config(layout = layout)
+            assertEquals("", HudOverlayModel.tbtFor(arrive, cfg)!!.trip)
+            assertTrue(HudOverlayModel.tbtFor(arrive.copy(turn = "TURN_RIGHT", remainingM = 4_800, remainingS = 700), cfg)!!.trip.isNotEmpty())
+        }
+    }
+
+    @Test
     fun `power arc - one tick per 2 percent from the left, regen too`() {
         assertEquals(0, HudOverlayModel.arcPowerTicks(0))
         assertEquals(1, HudOverlayModel.arcPowerTicks(1)) // anything lights one
