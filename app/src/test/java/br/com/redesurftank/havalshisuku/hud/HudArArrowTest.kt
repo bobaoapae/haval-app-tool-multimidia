@@ -479,10 +479,10 @@ class HudArArrowTest {
         // A taller map: 100 m ahead sits much higher up the HUD.
         assertTrue(HudArArrow.mapProject(0f, 100f, HudArArrow.MAP_HORIZON_TOP_Y)!!.second < HudArArrow.mapProject(0f, 100f)!!.second - 30f)
         assertTrue(HudArArrow.MAP_HORIZON_TOP_Y >= 40f)
-        val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR, mapHorizonTop = true)
+        // The map always uses the top horizon now (owner: default, no switch).
+        val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR)
         val turn = Directions(active = true, distance = "90 m", distanceM = 90, turn = "TURN_RIGHT")
         assertEquals(HudArArrow.MAP_HORIZON_TOP_Y, HudOverlayModel.frameFor(ar, turn, 0, null).tbt!!.mapHorizon, 0f)
-        assertEquals(HudArArrow.MAP_HORIZON_Y, HudOverlayModel.frameFor(ar.copy(mapHorizonTop = false), turn, 0, null).tbt!!.mapHorizon, 0f)
     }
 
     @Test

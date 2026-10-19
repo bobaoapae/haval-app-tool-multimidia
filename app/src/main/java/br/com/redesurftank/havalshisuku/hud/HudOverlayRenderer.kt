@@ -992,6 +992,23 @@ private val AR_BENDING = PreviewScenario(
 private val AR_AT_TURN = PreviewScenario(18, arTurn("SHARP_LEFT", 10, "10 m", "R. Augusta"), -45, null)
 
 /** Three moments per layout; the Telas previews cycle through them. */
+/** What a settings change affects, to show it on the example where it is visible. */
+enum class PreviewFocus { ARROW, CHEVRONS, FAR, GAUGES }
+
+/** Index into [previewScenarios] of the example that shows [focus] for [layout]. */
+fun previewFocusIndex(layout: M.Layout, focus: PreviewFocus): Int {
+    val list = previewScenarios(layout)
+    return when (focus) {
+        // The sharp left at 10 m is the one with chevrons; the bending turn shows the arrow.
+        PreviewFocus.CHEVRONS -> if (layout == M.Layout.AR) list.indexOf(AR_AT_TURN) else 0
+        PreviewFocus.ARROW -> if (layout == M.Layout.AR) list.indexOf(AR_BENDING) else 0
+        // The highway exit 2.4 km away is the far one (small arrow).
+        PreviewFocus.FAR -> list.indexOf(HIGHWAY_EXIT).takeIf { it >= 0 } ?: 0
+        // One with the engine running, so both power and RPM show.
+        PreviewFocus.GAUGES -> list.indexOfFirst { it.rpmTenths != null }.takeIf { it >= 0 } ?: 0
+    }.coerceAtLeast(0)
+}
+
 fun previewScenarios(layout: M.Layout): List<PreviewScenario> = when (layout) {
     // The car's own HUD only: what changes is the speed.
     M.Layout.ORIGINAL -> listOf(

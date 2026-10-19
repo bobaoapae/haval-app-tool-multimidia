@@ -725,9 +725,7 @@ object HudOverlayModel {
         /** AR: arrow in the centre (under the speed) or between the native lane-assist lines. */
         val arPlacement: HudArArrow.Placement = HudArArrow.Placement.CENTER,
         /** AR: real streets round the car from OpenStreetMap, in light grey (beta, off by default). */
-        val mapStreets: Boolean = false,
-        /** AR map: horizon at the top of the HUD instead of under the speed (to test). */
-        val mapHorizonTop: Boolean = false
+        val mapStreets: Boolean = false
     ) {
         val active: Boolean get() = layout != Layout.ORIGINAL
 
@@ -837,7 +835,8 @@ object HudOverlayModel {
                     tbt.copy(
                         arMeters = if (arDistanceKnown) arMetersOverride ?: tbt.arMeters else null,
                         arProgress = arProgress,
-                        mapHorizon = if (config.mapHorizonTop) HudArArrow.MAP_HORIZON_TOP_Y else HudArArrow.MAP_HORIZON_Y,
+                        // The map's horizon at the top of the HUD (owner: the default, no switch).
+                        mapHorizon = HudArArrow.MAP_HORIZON_TOP_Y,
                         mapPending = config.mapStreets && mapPending && streets.isEmpty() && !tbt.dynamicRoundabout,
                         onRoundabout = onRoundabout && tbt.exitNumber != null
                     ),

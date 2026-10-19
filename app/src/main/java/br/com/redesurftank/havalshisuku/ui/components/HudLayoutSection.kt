@@ -4,6 +4,8 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
+import br.com.redesurftank.havalshisuku.hud.PreviewFocus
+import br.com.redesurftank.havalshisuku.hud.previewFocusIndex
 import br.com.redesurftank.havalshisuku.hud.previewScenarios
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.BorderStroke
@@ -125,25 +127,41 @@ fun HudLayoutSection(modifier: Modifier = Modifier) {
 
 /** How long each sample scenario stays up in a preview before the next one fades in. */
 private const val PREVIEW_CYCLE_MS = 3_000L
+/** After a settings change: the focused example is held this long before cycling again. */
+private const val PREVIEW_FOCUS_HOLD_MS = 4_000L
+/** ...and the change shows this long after the preview moved to it (owner: ~300 ms). */
+private const val PREVIEW_APPLY_DELAY_MS = 300L
 
 /**
  * The layout preview, cycling through its sample scenarios (town turn, highway exit, roundabout
  * regen...) with a crossfade. Bitmaps are rendered once per [config] by the HUD's own renderer.
  */
 @Composable
-private fun HudPreview(config: HudOverlayModel.Config, description: String, modifier: Modifier = Modifier) {
+private fun HudPreview(
+    config: HudOverlayModel.Config,
+    description: String,
+    modifier: Modifier = Modifier,
+    focus: Int? = null,
+    focusTick: Int = 0
+) {
     val frames = remember(config) {
         val renderer = HudOverlayRenderer()
         previewScenarios(config.layout).map { renderer.preview(config, it).asImageBitmap() }
     }
-    var index by remember(config) { mutableIntStateOf(0) }
-    LaunchedEffect(frames) {
+    var index by remember { mutableIntStateOf(0) }
+    // A settings change: jump to the example that shows it (the dialog applies it ~300 ms later).
+    LaunchedEffect(focusTick) {
+        if (focusTick > 0 && focus != null) index = focus.coerceIn(0, frames.size - 1)
+    }
+    LaunchedEffect(frames.size, focusTick) {
+        // Hold the focused example a while, then cycle again.
+        if (focusTick > 0) delay(PREVIEW_FOCUS_HOLD_MS)
         while (true) {
             delay(PREVIEW_CYCLE_MS)
             index = (index + 1) % frames.size
         }
     }
-    Crossfade(targetState = index, animationSpec = tween(600), label = "hudPreview", modifier = modifier) { i ->
+    Crossfade(targetState = index.coerceIn(0, frames.size - 1), animationSpec = tween(600), label = "hudPreview", modifier = modifier) { i ->
         Image(
             bitmap = frames[i],
             contentDescription = description,
@@ -226,6 +244,28 @@ private fun HudNavigationSettingsDialog(
     onDismiss: () -> Unit
 ) {
     var tab by remember { mutableStateOf(HudSettingsTab.NAVIGATION) }
+    // The preview shows [shown]: a change is saved at once, but the preview first moves to the
+    // example where it is visible and applies it ~300 ms later (owner), so it reads as a change.
+    var shown by remember { mutableStateOf(config) }
+    var focus by remember { mutableStateOf<Int?>(null) }
+    var focusTick by remember { mutableIntStateOf(0) }
+    var pending by remember { mutableStateOf<HudOverlayModel.Config?>(null) }
+    LaunchedEffect(focusTick) {
+        val next = pending ?: return@LaunchedEffect
+        delay(PREVIEW_APPLY_DELAY_MS)
+        shown = next
+        pending = null
+    }
+    fun change(next: HudOverlayModel.Config, what: PreviewFocus? = null) {
+        onChange(next)
+        if (what == null) {
+            shown = next
+        } else {
+            focus = previewFocusIndex(layout, what)
+            pending = next
+            focusTick++
+        }
+    }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Card(
             modifier = Modifier.fillMaxWidth(0.82f).padding(16.dp),
@@ -262,7 +302,7 @@ private fun HudNavigationSettingsDialog(
                                     "Seta, distância e faixas do Android Auto.",
                                     config.navigation,
                                     info = "Mostra a próxima manobra enquanto o Android Auto está guiando: seta, distância, faixas e a rua."
-                                ) { onChange(config.copy(navigation = it)) }
+                                ) { change(config.copy(navigation = it)) }
                                 // The AR arrow already shows distance by itself (straight when far).
                                 if (layout != HudOverlayModel.Layout.AR) {
                                     OptionRow(
@@ -271,14 +311,14 @@ private fun HudNavigationSettingsDialog(
                                         config.smallArrowWhenFar,
                                         enabled = config.navigation,
                                         info = "A seta fica pequena até faltar 1 km para a manobra; depois fica grande."
-                                    ) { onChange(config.copy(smallArrowWhenFar = it)) }
+                                    ) { change(config.copy(smallArrowWhenFar = it), PreviewFocus.FAR) }
                                 }
                                 OptionRow(
                                     "Distância e tempo restantes",
                                     "Até o destino, ex.: 4.8 km · 12 min.",
                                     config.trip,
                                     enabled = config.navigation
-                                ) { onChange(config.copy(trip = it)) }
+                                ) { change(config.copy(trip = it)) }
                             }
                             HudSettingsTab.ARROW -> {
                                 ChoiceRow(
@@ -288,28 +328,21 @@ private fun HudNavigationSettingsDialog(
                                     if (config.arPlacement == HudArArrow.Placement.RIGHT) 1 else 0,
                                     enabled = config.navigation,
                                     info = "Ao centro: sob a velocidade do carro. À direita: menor, entre as linhas do assistente de faixa do HUD."
-                                ) { onChange(config.copy(arPlacement = if (it == 1) HudArArrow.Placement.RIGHT else HudArArrow.Placement.CENTER)) }
+                                ) { change(config.copy(arPlacement = if (it == 1) HudArArrow.Placement.RIGHT else HudArArrow.Placement.CENTER), PreviewFocus.ARROW) }
                                 OptionRow(
                                     "Ruas do mapa (beta)",
                                     "Ruas reais em cinza, rota em azul.",
                                     config.mapStreets,
                                     enabled = config.navigation,
                                     info = "Troca as setas pelo mapa: ruas reais em volta do carro em cinza e a rota em azul sobre elas, até onde dá para desenhar. Usa o GPS e o OpenStreetMap (baixado pela internet do celular)."
-                                ) { onChange(config.copy(mapStreets = it)) }
-                                OptionRow(
-                                    "Mapa: horizonte no topo (teste)",
-                                    "Mapa mais alto, até o topo do HUD.",
-                                    config.mapHorizonTop,
-                                    enabled = config.navigation && config.mapStreets,
-                                    info = "Com as ruas do mapa ligadas: o horizonte vai para o topo do HUD em vez de logo abaixo da velocidade."
-                                ) { onChange(config.copy(mapHorizonTop = it)) }
+                                ) { change(config.copy(mapStreets = it)) }
                                 OptionRow(
                                     "Setas de aproximação",
                                     "Piscam rumo ao lado da curva, perto dela.",
                                     config.chevrons,
                                     enabled = config.navigation,
                                     info = "Setas azuis no alto do HUD quando a sua rua é a próxima do lado da curva (sem mapa, nos últimos 40 m). Deslizam para o lado da curva e piscam mais rápido ao chegar."
-                                ) { onChange(config.copy(chevrons = it)) }
+                                ) { change(config.copy(chevrons = it), PreviewFocus.CHEVRONS) }
                             }
                             HudSettingsTab.BARS -> {
                                 // Each layout keeps its own: Navegação bars, Navegação AR arcs by default.
@@ -321,30 +354,32 @@ private fun HudNavigationSettingsDialog(
                                     listOf("Nenhum", "Barras", "Arcos"),
                                     HudOverlayModel.Gauges.entries.indexOf(gauges),
                                     info = "Barras: nos cantos de baixo do HUD. Arcos: em volta da velocidade do carro."
-                                ) { onChange(config.withGauges(layout, HudOverlayModel.Gauges.entries[it])) }
+                                ) { change(config.withGauges(layout, HudOverlayModel.Gauges.entries[it]), PreviewFocus.GAUGES) }
                                 OptionRow(
                                     "Potência / regeneração",
                                     if (arcs) "Arco externo." else "Canto inferior esquerdo.",
                                     config.powerBar,
                                     enabled = gauges != HudOverlayModel.Gauges.NONE,
                                     info = "Azul acelerando, verde regenerando."
-                                ) { onChange(config.copy(powerBar = it)) }
+                                ) { change(config.copy(powerBar = it), PreviewFocus.GAUGES) }
                                 OptionRow(
                                     "Rotação do motor",
                                     if (arcs) "Arco interno, com o motor ligado." else "Canto inferior direito, com o motor ligado.",
                                     config.rpmBar,
                                     enabled = gauges != HudOverlayModel.Gauges.NONE,
                                     info = "Só aparece com o motor a combustão ligado; vermelho a partir de 5 mil rpm."
-                                ) { onChange(config.copy(rpmBar = it)) }
+                                ) { change(config.copy(rpmBar = it), PreviewFocus.GAUGES) }
                             }
                         }
                     }
                     // Right: what the HUD will show with these options.
                     Column(modifier = Modifier.weight(1.1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         HudPreview(
-                            config = config.copy(layout = layout),
+                            config = shown.copy(layout = layout),
                             description = "Prévia com estas opções",
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
+                            focus = focus,
+                            focusTick = focusTick
                         )
                         Text(
                             "Prévia com estas opções, alternando cidade, rodovia e rotatória. O Impulse desenha só nos cantos livres do HUD.",
