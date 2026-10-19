@@ -129,29 +129,33 @@ class HudOverlayRenderer {
         val t = ch.intensity
         val period = M.CHEVRON_PERIOD_FAR_MS + (M.CHEVRON_PERIOD_NEAR_MS - M.CHEVRON_PERIOD_FAR_MS) * t
         val phase = (nowMs % period.toLong()) / period
-        val appear = (t * 4f).coerceAtMost(1f) // fade in over the first ~30 m
+        val appear = (t * 5f).coerceAtMost(1f) // fade in over the first ~10 m
         val base = 0.25f + 0.25f * t
-        val groupX = M.CHEVRON_CX + ch.side * t * M.CHEVRON_SHIFT
-        val n = M.CHEVRON_COUNT
+        val (lead, dir, n) = M.chevronPose(ch.side, t)
+        val rad = Math.toRadians(dir.toDouble())
+        val ux = kotlin.math.cos(rad).toFloat()
+        val uy = kotlin.math.sin(rad).toFloat()
+        // A right-pointing chevron round the origin, turned to [dir] for each one.
+        chevronPath.reset()
+        chevronPath.moveTo(-M.CHEVRON_W, -M.CHEVRON_HALF_H)
+        chevronPath.lineTo(-(M.CHEVRON_W - M.CHEVRON_STROKE), -M.CHEVRON_HALF_H)
+        chevronPath.lineTo(M.CHEVRON_STROKE, 0f)
+        chevronPath.lineTo(-(M.CHEVRON_W - M.CHEVRON_STROKE), M.CHEVRON_HALF_H)
+        chevronPath.lineTo(-M.CHEVRON_W, M.CHEVRON_HALF_H)
+        chevronPath.lineTo(0f, 0f)
+        chevronPath.close()
         for (k in 0 until n) {
-            // k = 0 trails, k = n-1 leads towards the turn side.
-            val x = groupX + ch.side * (k - (n - 1) / 2f) * M.CHEVRON_SPACING
-            var d = phase - k.toFloat() / n
+            // k = 0 trails, k = n-1 is the lead (pulse runs towards it, as before).
+            val back = (n - 1 - k) * M.CHEVRON_SPACING
+            var d = phase - k.toFloat() / M.CHEVRON_COUNT
             d -= kotlin.math.floor(d)
             val pulse = (1f - d) * (1f - d) * (1f - d)
             chevronPaint.alpha = (255 * appear * (base + (1f - base) * pulse)).toInt().coerceIn(0, 255)
-            val s = ch.side.toFloat()
-            val y = M.CHEVRON_CY
-            val h = M.CHEVRON_HALF_H
-            chevronPath.reset()
-            chevronPath.moveTo(x - s * M.CHEVRON_W, y - h)
-            chevronPath.lineTo(x - s * (M.CHEVRON_W - M.CHEVRON_STROKE), y - h)
-            chevronPath.lineTo(x + s * M.CHEVRON_STROKE, y)
-            chevronPath.lineTo(x - s * (M.CHEVRON_W - M.CHEVRON_STROKE), y + h)
-            chevronPath.lineTo(x - s * M.CHEVRON_W, y + h)
-            chevronPath.lineTo(x, y)
-            chevronPath.close()
+            canvas.save()
+            canvas.translate(lead.first - ux * back, lead.second - uy * back)
+            canvas.rotate(dir)
             canvas.drawPath(chevronPath, chevronPaint)
+            canvas.restore()
         }
     }
 
@@ -318,9 +322,9 @@ class HudOverlayRenderer {
         val streetY = if (lanes) M.AR_LANES_STREET_BASELINE else M.AR_STREET_BASELINE
         streetPaint.textSize = scale * if (lanes) M.AR_LANES_STREET_SIZE else M.AR_STREET_SIZE
         val exit = tbt.exitNumber?.let { "${M.exitLabel(it)} saída" }
-        // Roundabout without lanes: the exit gets its own line under the street (owner).
-        val exitOwnLine = exit != null && !lanes && tbt.street.isNotEmpty()
-        val streetLine = if (exitOwnLine) tbt.street else listOfNotNull(exit, tbt.street.takeIf { it.isNotEmpty() }).joinToString(" · ")
+        // Roundabout (owner, option C): the exit, at full size, until the car is on the ring;
+        // then the street it leads to.
+        val streetLine = if (exit != null && !(tbt.onRoundabout && tbt.street.isNotEmpty())) exit else tbt.street
         // Centred in the column; with the arcs on, narrow enough to keep clear of them.
         fun lineMaxW(baseline: Float, size: Float) =
             if (arcs) 2f * (M.columnRightAt(baseline, size, wideArcs) - M.BOX_CENTER_X) else M.BOX_RIGHT - M.BOX_LEFT
@@ -328,17 +332,11 @@ class HudOverlayRenderer {
             val text = android.text.TextUtils.ellipsize(streetLine, streetPaint, lineMaxW(streetY, streetPaint.textSize), android.text.TextUtils.TruncateAt.END).toString()
             canvas.drawText(text, M.BOX_CENTER_X - streetPaint.measureText(text) / 2, streetY, streetPaint)
         }
-        if (exitOwnLine) {
-            streetPaint.textSize = scale * M.AR_EXIT_SIZE
-            val text = android.text.TextUtils.ellipsize(exit!!, streetPaint, lineMaxW(M.AR_EXIT_BASELINE, streetPaint.textSize), android.text.TextUtils.TruncateAt.END).toString()
-            canvas.drawText(text, M.BOX_CENTER_X - streetPaint.measureText(text) / 2, M.AR_EXIT_BASELINE, streetPaint)
-        }
         if (lanes) setTextSizes(scale * M.AR_LANES_DISTANCE_VALUE_SIZE, scale * M.AR_LANES_DISTANCE_UNIT_SIZE)
         else setTextSizes(scale * M.AR_DISTANCE_VALUE_SIZE, scale * M.AR_DISTANCE_UNIT_SIZE)
         val width = distanceWidth(tbt)
         val distanceY = when {
             lanes -> M.AR_LANES_DISTANCE_BASELINE
-            exitOwnLine -> M.AR_DISTANCE_BASELINE + M.AR_EXIT_DISTANCE_DROP
             far -> M.AR_DISTANCE_BASELINE - M.AR_FAR_DISTANCE_RAISE
             else -> M.AR_DISTANCE_BASELINE
         }

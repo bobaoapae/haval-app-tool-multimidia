@@ -14,6 +14,7 @@ import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
 import br.com.redesurftank.havalshisuku.map.LocalRoad
 import br.com.redesurftank.havalshisuku.map.OsmRoadStore
 import br.com.redesurftank.havalshisuku.map.OsmRoads
+import br.com.redesurftank.havalshisuku.map.RoutePath
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
@@ -78,6 +79,82 @@ object HudMapFeed {
     private var stillSinceMs = 0L
     private var prefetchedThisStop = false
 
+    // ---- map demo (debug `--es hudDemo map`): a virtual drive along real streets ----
+    private const val DEMO_SPEED_MPS = 11f
+    /** The planned drive as lat/lon with distances along it; null = no demo. */
+    private class DemoRun(val lat: DoubleArray, val lon: DoubleArray, val cum: DoubleArray, val plan: RoutePath.DemoPlan, var startMs: Long)
+    @Volatile private var demo: DemoRun? = null
+    @Volatile private var demoWanted = false
+
+    /** Metres to the demo's turn, its bend and street; null when no demo runs. */
+    class DemoState(val toTurnM: Float, val turnDeg: Float, val street: String, val leftM: Float)
+    @Volatile var demoState: DemoState? = null
+        private set
+
+    /** Main thread. Starts the demo once the area round the car is loaded (retried meanwhile). */
+    fun startDemo() {
+        demoWanted = true
+        handler?.post { planDemo() }
+    }
+
+    fun stopDemo() {
+        demoWanted = false
+        demo = null
+        demoState = null
+    }
+
+    private fun planDemo() {
+        if (!demoWanted || demo != null) return
+        if (lat.isNaN()) { handler?.postDelayed({ planDemo() }, 1_000L); return }
+        val near = OsmRoadStore.roadsNear(lat, lon, LOAD_RADIUS_M) {}
+        if (!near.complete) { handler?.postDelayed({ planDemo() }, 1_000L); return }
+        val heading = OsmRoads.roadBearing(near.roads, lat, lon, bearing) ?: bearing
+        val local = OsmRoads.toLocal(near.roads, lat, lon, heading, AHEAD_M, SIDE_M, STEP_M)
+        val plan = RoutePath.demoPlan(local) ?: run {
+            Log.w(TAG, "demo: no street under the car")
+            ClusterPersistentEventLogger.log("hud_map_demo", mapOf("ok" to false))
+            return
+        }
+        // Car frame (x right, y ahead) back to lat/lon, inverse of OsmRoads.toLocal.
+        val b = Math.toRadians(heading)
+        val mLat = 110_540.0
+        val mLon = 111_320.0 * cos(Math.toRadians(lat))
+        val n = plan.pts.size / 2
+        val la = DoubleArray(n)
+        val lo = DoubleArray(n)
+        val cum = DoubleArray(n)
+        for (k in 0 until n) {
+            val x = plan.pts[2 * k].toDouble()
+            val y = plan.pts[2 * k + 1].toDouble()
+            val east = x * cos(b) + y * sin(b)
+            val north = -x * sin(b) + y * cos(b)
+            la[k] = lat + north / mLat
+            lo[k] = lon + east / mLon
+            if (k > 0) cum[k] = cum[k - 1] + Math.hypot(x - plan.pts[2 * k - 2], y - plan.pts[2 * k - 1])
+        }
+        demo = DemoRun(la, lo, cum, plan, SystemClock.elapsedRealtime())
+        ClusterPersistentEventLogger.log("hud_map_demo", mapOf("ok" to true, "turn_m" to plan.junctionM.toInt(), "turn_deg" to plan.turnDeg.toInt(), "street" to plan.street))
+        rebuild()
+    }
+
+    /** Position and heading on the demo drive now (looping), and the AA-like state for it. */
+    private fun demoPose(run: DemoRun, now: Long): Triple<Double, Double, Double> {
+        val total = run.cum.last()
+        var s = DEMO_SPEED_MPS * (now - run.startMs) / 1000.0
+        if (s > total) { run.startMs = now; s = 0.0 }
+        var i = 1
+        while (i < run.cum.size - 1 && run.cum[i] < s) i++
+        val seg = (run.cum[i] - run.cum[i - 1]).coerceAtLeast(1e-6)
+        val t = ((s - run.cum[i - 1]) / seg).coerceIn(0.0, 1.0)
+        val pLat = run.lat[i - 1] + (run.lat[i] - run.lat[i - 1]) * t
+        val pLon = run.lon[i - 1] + (run.lon[i] - run.lon[i - 1]) * t
+        val dn = (run.lat[i] - run.lat[i - 1]) * 110_540.0
+        val de = (run.lon[i] - run.lon[i - 1]) * 111_320.0 * cos(Math.toRadians(pLat))
+        val heading = Math.toDegrees(kotlin.math.atan2(de, dn))
+        demoState = DemoState((run.plan.junctionM - s).toFloat(), run.plan.turnDeg, run.plan.street, (total - s).toFloat())
+        return Triple(pLat, pLon, heading)
+    }
+
     /** True while the map option is on but the area round the car isn't loaded yet. */
     @Volatile var pending: Boolean = false
         private set
@@ -126,11 +203,13 @@ object HudMapFeed {
             lines = emptyList()
             ready = false
             pending = false
+            demo = null
+            demoState = null
             Log.w(TAG, "map off")
         }
     }
 
-    private fun moving() = speedMps >= BEARING_MIN_MPS && SystemClock.elapsedRealtime() - fixAtMs < EXTRAPOLATE_MAX_MS
+    private fun moving() = demo != null || (speedMps >= BEARING_MIN_MPS && SystemClock.elapsedRealtime() - fixAtMs < EXTRAPOLATE_MAX_MS)
 
     private fun onLocation(location: Location) {
         lat = location.latitude
@@ -189,6 +268,10 @@ object HudMapFeed {
             OsmRoads.roadBearing(near.roads, pLat, pLon, heading, SNAP_M)?.let { street ->
                 if (abs(((street - heading) % 360 + 540) % 360 - 180) <= SNAP_DEG) heading = street
             }
+        }
+        demo?.let { run ->
+            val (dLat, dLon, dHeading) = demoPose(run, now)
+            pLat = dLat; pLon = dLon; heading = dHeading
         }
         lines = OsmRoads.toLocal(near.roads, pLat, pLon, heading, AHEAD_M, SIDE_M, STEP_M)
         onChange?.invoke()

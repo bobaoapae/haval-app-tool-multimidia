@@ -173,7 +173,7 @@ object OsmRoads {
                         val sx = px + (x - px) * t
                         val sy = py + (y - py) * t
                         if (sy < -behindM || sy > aheadM || abs(sx) > sideM) {
-                            if (run.size >= 4) out += LocalRoad(run.toFloatArray(), width)
+                            if (run.size >= 4) out += LocalRoad(run.toFloatArray(), width, road.name)
                             run.clear()
                         } else {
                             run += sx.toFloat(); run += sy.toFloat()
@@ -185,7 +185,7 @@ object OsmRoads {
                 px = x
                 py = y
             }
-            if (run.size >= 4) out += LocalRoad(run.toFloatArray(), width)
+            if (run.size >= 4) out += LocalRoad(run.toFloatArray(), width, road.name)
         }
         return out
     }

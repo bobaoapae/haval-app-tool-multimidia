@@ -58,6 +58,23 @@ class OsmRoadsTest {
     }
 
     @Test
+    fun `map demo plan - the street ahead to a real junction, then its side street`() {
+        val roads = listOf(
+            LocalRoad(floatArrayOf(0f, -30f, 0f, 100f, 0f, 220f, 0f, 500f), 1f, "Rua A"),
+            LocalRoad(floatArrayOf(0f, 100f, -60f, 100f), 0.55f, "Garagem"),           // a driveway: not taken
+            LocalRoad(floatArrayOf(0f, 220f, 150f, 220f), 1f, "Rua B")                 // the side street
+        )
+        val plan = RoutePath.demoPlan(roads)!!
+        assertEquals(220f, plan.junctionM, 1f)
+        assertEquals(90f, plan.turnDeg, 1f)
+        assertEquals("Rua B", plan.street)
+        assertTrue(plan.pts[plan.pts.size - 2] > 50f) // ends along Rua B
+        // No junction in range: just the street ahead.
+        val straight = RoutePath.demoPlan(listOf(LocalRoad(floatArrayOf(0f, -30f, 0f, 500f), 1f, "Rua A")))!!
+        assertEquals(0f, straight.turnDeg, 0f)
+    }
+
+    @Test
     fun `parses an Overpass out geom answer`() {
         val json = """
             {"elements":[

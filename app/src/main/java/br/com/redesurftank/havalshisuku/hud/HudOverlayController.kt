@@ -156,6 +156,8 @@ object HudOverlayController {
     private fun config(): HudOverlayModel.Config {
         val saved = configCache ?: HudOverlaySettings.load().also { configCache = it }
         return when {
+            // The map demo: the AR theme with the map, whatever the owner picked.
+            demoMapStartMs != 0L -> saved.copy(layout = HudOverlayModel.Layout.AR, mapStreets = true)
             // The drive demo shows the AR theme whatever the owner picked.
             demoDriveStartMs != 0L -> saved.copy(layout = HudOverlayModel.Layout.AR)
             // Static demos draw on "original" too; that layout now draws only the radar.
@@ -253,7 +255,8 @@ object HudOverlayController {
             radar = radar,
             streets = HudMapFeed.lines,
             wideArcs = wideArcs,
-            mapPending = HudMapFeed.pending
+            mapPending = HudMapFeed.pending,
+            onRoundabout = rbTracker.entered || roundaboutProgress() > 0f
         )
     }
 
@@ -459,8 +462,13 @@ object HudOverlayController {
         )
         main.removeCallbacks(demoExpiry)
         stopDemoDrive()
+        stopDemoMap()
         if (mode == "drive") {
             startDemoDrive()
+            return
+        }
+        if (mode == "map") {
+            startDemoMap()
             return
         }
         demoSetAtMs = SystemClock.elapsedRealtime()
@@ -483,7 +491,57 @@ object HudOverlayController {
     private fun endDemo() {
         main.removeCallbacks(demoExpiry)
         stopDemoDrive()
+        stopDemoMap()
         demoDirections = null
+    }
+
+    // ---- map demo (debug `--es hudDemo map`): driving along the real streets round the car ----
+
+    private var demoMapStartMs = 0L
+    private val demoMapTick = Runnable { stepDemoMap() }
+
+    private fun startDemoMap() {
+        demoMapStartMs = SystemClock.elapsedRealtime()
+        publish() // brings the map feed up (AR + map forced on)
+        HudMapFeed.startDemo()
+        stepDemoMap()
+    }
+
+    private fun stopDemoMap() {
+        if (demoMapStartMs == 0L) return
+        main.removeCallbacks(demoMapTick)
+        demoMapStartMs = 0L
+        HudMapFeed.stopDemo()
+        demoDirections = null
+    }
+
+    private fun stepDemoMap() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - demoMapStartMs > DEMO_DRIVE_TIMEOUT_MS) {
+            stopDemoMap()
+            publish()
+            return
+        }
+        HudMapFeed.demoState?.let { st ->
+            val toTurn = st.toTurnM.coerceAtLeast(0f)
+            val a = kotlin.math.abs(st.turnDeg)
+            val side = if (st.turnDeg >= 0f) "RIGHT" else "LEFT"
+            val turn = when {
+                a < 20f -> "STRAIGHT"
+                a <= 60f -> "SLIGHT_$side"
+                a <= 120f -> "TURN_$side"
+                else -> "SHARP_$side"
+            }
+            val rounded = (toTurn / 10f).roundToInt() * 10
+            demoDirections = AndroidAutoNavigationTelemetry.Directions(
+                active = true, distance = "$rounded m", distanceM = toTurn.roundToInt(), turn = turn,
+                street = st.street.ifEmpty { "Rua" },
+                remainingM = (st.leftM + 2_000f).roundToInt(), remainingS = ((st.leftM + 2_000f) / 11f).roundToInt()
+            )
+            demoSetAtMs = now
+        }
+        publish()
+        main.postDelayed(demoMapTick, DEMO_DRIVE_TICK_MS)
     }
 
     // ---- drive demo (debug): the AR theme animating on the real HUD with the car parked ----

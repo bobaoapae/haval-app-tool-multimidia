@@ -379,11 +379,6 @@ object HudOverlayModel {
     /** The turn icon now sits before the distance (owner): size relative to the digits. */
     const val AR_DISTANCE_ICON_SCALE = 0.8f
     const val AR_DISTANCE_ICON_GAP = 6f
-    /** Roundabout without lanes: "3ª saída" on its own line under the street. */
-    const val AR_EXIT_BASELINE = 97f
-    const val AR_EXIT_SIZE = 14f
-    /** ...and the distance a little lower to make room. */
-    const val AR_EXIT_DISTANCE_DROP = 5f
     /** While the maneuver is still far (straight arrow), street and distance at this scale. */
     const val AR_FAR_TEXT_SCALE = 0.75f
     /** ...and the distance baseline this much higher, closer to the street line. */
@@ -457,13 +452,37 @@ object HudOverlayModel {
         return cx + (kotlin.math.cos(rad) * r * xs).toFloat() to ARC_CY + (kotlin.math.sin(rad) * r).toFloat()
     }
 
-    // ---- AR chevrons: animated turn arrows above the speed (Mercedes-style) ----
+    // ---- AR chevrons ("setas de aproximação"), owner 2026-10-19: from 50 m one chevron appears just
+    // outside the arc's upper diagonal on the turn's side, pointing that way diagonally; closing
+    // in it travels to the top edge of the HUD, turns to point fully left/right and grows to 4. ----
     /** They show from this distance to the maneuver. */
-    const val CHEVRON_START_M = 120f
-    /** Band above the arcs (arc top is ARC_CY - ARC_POWER_R_OUT = 56). */
+    const val CHEVRON_START_M = 50f
+    /** Row of the flag/limit checks above the arcs (arc top is ARC_CY - ARC_POWER_R_OUT = 56). */
     const val CHEVRON_CY = 48f
-    /** Centred on the HUD (owner), not on the speed or the arcs. */
+    /** The top edge row they end on, and how far out to the side of the HUD's centre. */
+    const val CHEVRON_END_Y = 48f
     const val CHEVRON_CX = 240f
+    const val CHEVRON_END_DX = 150f
+    /** Where they start: just outside the outer arc, on its upper diagonal (canvas degrees). */
+    const val CHEVRON_ARC_GAP = 12f
+    const val CHEVRON_START_DEG_RIGHT = 315f
+    const val CHEVRON_START_DEG_LEFT = 225f
+
+    /**
+     * The lead chevron at [intensity] 0 (50 m) .. 1 (the turn): position, pointing (screen degrees,
+     * 0 = right, -90 = up) and how many there are (1..4). Eased, so it lingers at both ends.
+     */
+    fun chevronPose(side: Int, intensity: Float): Triple<Pair<Float, Float>, Float, Int> {
+        val t = intensity.coerceIn(0f, 1f)
+        val e = t * t * (3 - 2 * t)
+        val (x0, y0) = arcPoint(if (side > 0) CHEVRON_START_DEG_RIGHT else CHEVRON_START_DEG_LEFT, ARC_POWER_R_OUT + CHEVRON_ARC_GAP)
+        val x1 = CHEVRON_CX + side * CHEVRON_END_DX
+        val x = x0 + (x1 - x0) * e
+        val y = y0 + (CHEVRON_END_Y - y0) * e
+        val dir = if (side > 0) -45f + 45f * e else -135f - 45f * e
+        val n = (1 + (t * CHEVRON_COUNT).toInt()).coerceIn(1, CHEVRON_COUNT)
+        return Triple(x to y, dir, n)
+    }
 
     /**
      * How far right a left-column text line on [baseline] may reach without touching the outer
@@ -484,8 +503,6 @@ object HudOverlayModel {
     const val CHEVRON_STROKE = 4f
     const val CHEVRON_COUNT = 4
     const val CHEVRON_SPACING = 15f
-    /** How far the group slides towards the turn side at the turn. */
-    const val CHEVRON_SHIFT = 46f
     /** One sweep of the light along the row: slow when just in range, fast at the turn. */
     const val CHEVRON_PERIOD_FAR_MS = 1_100f
     const val CHEVRON_PERIOD_NEAR_MS = 380f
@@ -496,7 +513,7 @@ object HudOverlayModel {
      * Without the map we can't tell whether a side street comes before ours, so the chevrons
      * wait until this close (owner: they must not point at the wrong street).
      */
-    const val CHEVRON_NO_MAP_M = 40f
+    const val CHEVRON_NO_MAP_M = 50f
 
     /**
      * Chevrons for an AR maneuver within [CHEVRON_START_M], only when ours is the next street on
@@ -571,7 +588,9 @@ object HudOverlayModel {
         /** AR map: screen row of its horizon. */
         val mapHorizon: Float = HudArArrow.MAP_HORIZON_Y,
         /** AR map on but its area not loaded yet: a note in place of the arrow (owner: no arrows). */
-        val mapPending: Boolean = false
+        val mapPending: Boolean = false,
+        /** The car is on the roundabout: the street line shows the street instead of the exit. */
+        val onRoundabout: Boolean = false
     ) {
         /** Draw the roundabout with its real exit instead of the static icon. */
         val dynamicRoundabout: Boolean get() = icon == "ROUNDABOUT" && exitAngle != null
@@ -803,7 +822,8 @@ object HudOverlayModel {
         radar: Radar? = null,
         streets: List<br.com.redesurftank.havalshisuku.map.LocalRoad> = emptyList(),
         wideArcs: Boolean = false,
-        mapPending: Boolean = false
+        mapPending: Boolean = false,
+        onRoundabout: Boolean = false
     ): Frame {
         // "Original" layout: the window is only up for the radar, so draw nothing else.
         if (!config.active) return Frame(tbt = null, powerPercent = null, rpmTenths = null, radar = radar)
@@ -816,7 +836,8 @@ object HudOverlayModel {
                         arMeters = if (arDistanceKnown) arMetersOverride ?: tbt.arMeters else null,
                         arProgress = arProgress,
                         mapHorizon = if (config.mapHorizonTop) HudArArrow.MAP_HORIZON_TOP_Y else HudArArrow.MAP_HORIZON_Y,
-                        mapPending = config.mapStreets && mapPending && streets.isEmpty() && !tbt.dynamicRoundabout
+                        mapPending = config.mapStreets && mapPending && streets.isEmpty() && !tbt.dynamicRoundabout,
+                        onRoundabout = onRoundabout && tbt.exitNumber != null
                     ),
                     if (config.mapStreets) streets else emptyList()
                 )

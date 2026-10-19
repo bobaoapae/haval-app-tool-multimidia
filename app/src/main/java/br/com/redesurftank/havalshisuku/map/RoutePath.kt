@@ -10,7 +10,7 @@ import kotlin.math.roundToLong
 import kotlin.math.sin
 
 /** A road in the car's frame (metres, x right, y ahead; x, y pairs) and its drawn width factor. */
-class LocalRoad(val pts: FloatArray, val width: Float) {
+class LocalRoad(val pts: FloatArray, val width: Float, val name: String = "") {
     /** Driveways, parking aisles: not counted as side streets. */
     val minor: Boolean get() = width < MINOR_WIDTH
 
@@ -55,10 +55,12 @@ object RoutePath {
         val next = ArrayList<Node>(3)
         /** Parallel to [next]: the way there is a minor road. */
         val minor = ArrayList<Boolean>(3)
+        /** Parallel to [next]: the street's name. */
+        val names = ArrayList<String>(3)
 
-        fun link(n: Node, isMinor: Boolean) {
+        fun link(n: Node, isMinor: Boolean, name: String) {
             val i = next.indexOf(n)
-            if (i < 0) { next += n; minor += isMinor } else if (!isMinor) minor[i] = false
+            if (i < 0) { next += n; minor += isMinor; names += name } else if (!isMinor) minor[i] = false
         }
     }
 
@@ -74,8 +76,8 @@ object RoutePath {
             for (k in 0 until road.pts.size / 2) {
                 val n = node(road.pts[2 * k], road.pts[2 * k + 1])
                 if (prev != null && prev !== n) {
-                    prev.link(n, road.minor)
-                    n.link(prev, road.minor)
+                    prev.link(n, road.minor, road.name)
+                    n.link(prev, road.minor, road.name)
                 }
                 prev = n
             }
@@ -108,7 +110,12 @@ object RoutePath {
      */
     fun route(roads: List<LocalRoad>, meters: Float?, turnDeg: Float?): Route? {
         val nodes = graph(roads)
-        // The road under the car: nearest segment that runs roughly ahead.
+        val (from, to, start) = matchStart(nodes) ?: return null
+        return routeFrom(from, to, start, meters, turnDeg)
+    }
+
+    /** The road under the car: the nearest segment running roughly ahead, and the car's foot on it. */
+    private fun matchStart(nodes: Collection<Node>): Triple<Node, Node, Pair<Float, Float>>? {
         var best: Pair<Node, Node>? = null
         var bestScore = Float.MAX_VALUE
         var start = 0f to 0f
@@ -132,6 +139,10 @@ object RoutePath {
             }
         }
         val (from, to) = best ?: return null
+        return Triple(from, to, start)
+    }
+
+    private fun routeFrom(from: Node, to: Node, start: Pair<Float, Float>, meters: Float?, turnDeg: Float?): Route {
         val path = ArrayList<Node>()
         path += from
         path += to
@@ -204,6 +215,55 @@ object RoutePath {
             val t = turn(inDeg, heading(n.x - cur.x, n.y - cur.y))
             abs(t) >= 30f && (t > 0f) == (turnTo > 0f)
         }
+    }
+
+    /**
+     * A drive for the map demo (debug), from the street under the car: its centreline in the
+     * car's frame through a real junction 150..400 m ahead and into the side street there whose
+     * turn is closest to 90°, a little past it. [junctionM] is along [pts]; [street] is the
+     * side street's name. Without such a junction: just the street ahead ([turnDeg] 0).
+     */
+    class DemoPlan(val pts: FloatArray, val junctionM: Float, val turnDeg: Float, val street: String)
+
+    fun demoPlan(roads: List<LocalRoad>): DemoPlan? {
+        val nodes = graph(roads)
+        val (from, to, start) = matchStart(nodes) ?: return null
+        val path = arrayListOf(from, to)
+        val cum = arrayListOf(0f, hypot(to.x - start.first, to.y - start.second))
+        while (cum.last() < 450f) {
+            val next = straightOn(path[path.size - 2], path.last()) ?: break
+            cum += cum.last() + hypot(next.x - path.last().x, next.y - path.last().y)
+            path += next
+        }
+        val pts = ArrayList<Float>()
+        pts += start.first; pts += start.second
+        for (i in 1 until path.size) { pts += path[i].x; pts += path[i].y }
+        for (i in 1 until path.size - 1) {
+            if (cum[i] !in 150f..400f || path[i].next.size < 3) continue
+            val cur = path[i]
+            val inDeg = heading(cur.x - path[i - 1].x, cur.y - path[i - 1].y)
+            val k = cur.next.indices
+                .filter { cur.next[it] !== path[i - 1] && cur.next[it] !== path[i + 1] && !cur.minor[it] }
+                .minByOrNull { abs(abs(turn(inDeg, heading(cur.next[it].x - cur.x, cur.next[it].y - cur.y))) - 90f) }
+                ?: continue
+            val exit = cur.next[k]
+            val turnDeg = turn(inDeg, heading(exit.x - cur.x, exit.y - cur.y))
+            if (abs(turnDeg) < 30f) continue
+            val out = ArrayList<Float>(pts.subList(0, 2 * (i + 1)))
+            var prev = cur
+            var c = exit
+            var tail = 0f
+            while (true) {
+                tail += hypot(c.x - prev.x, c.y - prev.y)
+                out += c.x; out += c.y
+                if (tail >= TAIL_M) break
+                val n = straightOn(prev, c) ?: break
+                prev = c
+                c = n
+            }
+            return DemoPlan(out.toFloatArray(), cum[i], turnDeg, cur.names[k])
+        }
+        return DemoPlan(pts.toFloatArray(), cum.last(), 0f, "")
     }
 
     /** No road under the car: straight for [meters] (or the whole view), then a plain turn. */
