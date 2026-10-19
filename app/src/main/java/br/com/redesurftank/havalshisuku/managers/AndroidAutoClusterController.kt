@@ -7,6 +7,8 @@ import android.util.Log
 import android.view.Surface
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.api.AaClusterProtocol
+import br.com.redesurftank.havalshisuku.diagnostics.ClusterPersistentEventLogger
+import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.projectors.AaClusterVideoHost
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -21,6 +23,9 @@ object AndroidAutoClusterController {
     private const val TAG = "AaClusterCtrl"
     /** Guidance can drop for a moment while re-routing; don't tear the map down for that. */
     private const val NAVIGATION_HIDE_DEBOUNCE_MS = 5_000L
+    private const val STALL_CHECK_MS = 1_000L
+    /** Same gap idea as Rafael's manual stop/start of navigation, just shorter. */
+    private const val STALL_RESTART_GAP_MS = 1_500L
 
     private val sessionDebouncer = AndroidAutoSessionTelemetry.Debouncer()
     private val directionsPublisher = AndroidAutoNavigationTelemetry.Publisher()
@@ -41,7 +46,19 @@ object AndroidAutoClusterController {
             surfaceAttached.set(live)
             AaClusterVideoHost.setLive(live)
             notifyHostProjectionFlag(live)
+            mainHandler.post { onLiveChanged(live) }
             Log.w(TAG, "CLUSTER state=$state live=$live reason=$reason")
+        }
+    }
+
+    // Stall watchdog, main thread only. See AaClusterStallPolicy.
+    private var liveSinceMs = 0L
+    private var stallSinceMs = 0L
+    private var lastStallRestartMs = 0L
+    private val stallWatchdog = object : Runnable {
+        override fun run() {
+            checkStall()
+            if (surfaceAttached.get()) mainHandler.postDelayed(this, STALL_CHECK_MS)
         }
     }
     private val sessionPollRunnable = object : Runnable {
@@ -264,6 +281,55 @@ object AndroidAutoClusterController {
         mainHandler.post {
             reconcileOutput(reason)
         }
+    }
+
+    private fun onLiveChanged(live: Boolean) {
+        mainHandler.removeCallbacks(stallWatchdog)
+        if (!live) return
+        liveSinceMs = SystemClock.elapsedRealtime()
+        mainHandler.postDelayed(stallWatchdog, STALL_CHECK_MS)
+    }
+
+    private fun checkStall() {
+        if (!surfaceAttached.get() || !AaClusterVideoHost.isShown()) return
+        val now = SystemClock.elapsedRealtime()
+        val ageMs = now - maxOf(AaClusterVideoHost.lastFrameAtMs(), liveSinceMs)
+        if (!AaClusterStallPolicy.isStalled(ageMs)) {
+            if (stallSinceMs != 0L) {
+                ClusterPersistentEventLogger.log(
+                    "aa_cluster_stall_resumed",
+                    mapOf(
+                        "gapMs" to (now - stallSinceMs),
+                        "restarted" to (lastStallRestartMs >= stallSinceMs)
+                    )
+                )
+                stallSinceMs = 0L
+            }
+            return
+        }
+        val speedKmh = ServiceManager.getInstance()
+            .getData(CarConstants.CAR_BASIC_VEHICLE_SPEED.value)?.toFloatOrNull() ?: 0f
+        if (stallSinceMs == 0L) {
+            stallSinceMs = now - ageMs
+            ClusterPersistentEventLogger.log(
+                "aa_cluster_stall",
+                mapOf("frameAgeMs" to ageMs, "speedKmh" to speedKmh)
+            )
+        }
+        if (!AaClusterStallPolicy.shouldRestart(ageMs, speedKmh, now - lastStallRestartMs)) return
+        lastStallRestartMs = now
+        ClusterPersistentEventLogger.log(
+            "aa_cluster_stall_restart",
+            mapOf("frameAgeMs" to ageMs, "speedKmh" to speedKmh)
+        )
+        Log.w(TAG, "CLUSTER stalled ${ageMs}ms at ${speedKmh}km/h; restarting the stream")
+        // Drop the request and ask again, as stopping/restarting navigation does: the Service
+        // releases this decoder and the phone starts a fresh stream from a keyframe. The map
+        // keeps its last frame on screen meanwhile (setLive(false) does not fade it out).
+        deliveredGeneration = -1L
+        surfaceAttached.set(false)
+        client.setOutput(null)
+        mainHandler.postDelayed({ reconcileOutput("stall_restart") }, STALL_RESTART_GAP_MS)
     }
 
     private fun notifyHostProjectionFlag(enabled: Boolean) {

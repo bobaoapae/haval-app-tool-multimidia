@@ -13,6 +13,7 @@ import android.graphics.SurfaceTexture
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.Surface
@@ -65,6 +66,11 @@ object AaClusterVideoHost {
     private const val MAP_FADE_MS = 300L
     /** True once the remote side renders frames; until then the shown map stays transparent. */
     private var live = false
+    /** elapsedRealtime of the last stream frame the map view drew; feeds the stall watchdog. */
+    @Volatile
+    private var lastFrameAtMs = 0L
+
+    fun lastFrameAtMs(): Long = lastFrameAtMs
 
     /** Re-reads [mapBounds] (theme bounds changed). Any thread. */
     fun refreshWindow() {
@@ -284,6 +290,7 @@ object AaClusterVideoHost {
         }
         override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {
             // Framework RenderThread owns updateTexImage and GL attachment.
+            lastFrameAtMs = SystemClock.elapsedRealtime()
         }
     }
 
