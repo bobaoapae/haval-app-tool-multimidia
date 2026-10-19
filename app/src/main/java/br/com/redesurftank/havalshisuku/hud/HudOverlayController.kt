@@ -252,7 +252,8 @@ object HudOverlayController {
             arDistanceKnown = !distanceStale(),
             radar = radar,
             streets = HudMapFeed.lines,
-            wideArcs = wideArcs
+            wideArcs = wideArcs,
+            mapPending = HudMapFeed.pending
         )
     }
 

@@ -52,6 +52,12 @@ object HudMapFeed {
     /** Snap the heading to the street when it is this close to GPS's, and the street this near. */
     private const val SNAP_DEG = 20.0
     private const val SNAP_M = 15.0
+    /**
+     * Standing this long (parked, at home, at work): download the region round the car, so the
+     * map works on the road without the servers (owner, 2026-10-19: 8 km).
+     */
+    private const val PREFETCH_AFTER_STILL_MS = 60_000L
+    private const val PREFETCH_RADIUS_M = 8_000.0
 
     @Volatile var lines: List<LocalRoad> = emptyList()
         private set
@@ -68,6 +74,13 @@ object HudMapFeed {
     /** When [bearing] last came from a moving fix (elapsed ms); 0 = never. */
     private var bearingAtMs = 0L
     private var ready = false
+    /** Since when the car has stood still (elapsed ms); 0 = moving. */
+    private var stillSinceMs = 0L
+    private var prefetchedThisStop = false
+
+    /** True while the map option is on but the area round the car isn't loaded yet. */
+    @Volatile var pending: Boolean = false
+        private set
 
     private val frame = object : Runnable {
         override fun run() {
@@ -112,6 +125,7 @@ object HudMapFeed {
             thread = null
             lines = emptyList()
             ready = false
+            pending = false
             Log.w(TAG, "map off")
         }
     }
@@ -123,6 +137,12 @@ object HudMapFeed {
         lon = location.longitude
         speedMps = if (location.hasSpeed()) location.speed else 0f
         fixAtMs = SystemClock.elapsedRealtime()
+        if (speedMps >= BEARING_MIN_MPS) {
+            stillSinceMs = 0L
+            prefetchedThisStop = false
+        } else if (stillSinceMs == 0L) {
+            stillSinceMs = fixAtMs
+        }
         if (location.hasBearing() && location.hasSpeed() && location.speed >= BEARING_MIN_MPS) {
             bearing = location.bearing.toDouble()
             bearingAtMs = fixAtMs
@@ -133,19 +153,24 @@ object HudMapFeed {
     private fun rebuild() {
         if (lat.isNaN()) return
         val now = SystemClock.elapsedRealtime()
+        if (!prefetchedThisStop && stillSinceMs != 0L && now - stillSinceMs >= PREFETCH_AFTER_STILL_MS) {
+            prefetchedThisStop = true
+            OsmRoadStore.prefetch(lat, lon, PREFETCH_RADIUS_M)
+        }
         val near = OsmRoadStore.roadsNear(lat, lon, LOAD_RADIUS_M) { handler?.post { rebuild() } }
         if (near.complete != ready) {
             ready = near.complete
             ClusterPersistentEventLogger.log("hud_map_ready", mapOf("ready" to ready, "roads" to near.roads.size))
         }
         if (!near.complete) {
-            // Part of the area is missing: the arrows, not half a street map.
-            if (lines.isNotEmpty()) {
-                lines = emptyList()
-                onChange?.invoke()
-            }
+            // Part of the area is missing: a note on the HUD, not half a street map.
+            val changed = lines.isNotEmpty() || !pending
+            lines = emptyList()
+            pending = true
+            if (changed) onChange?.invoke()
             return
         }
+        pending = false
         // Where the car is now: the last fix run on at its speed along its heading.
         var heading = bearing
         val fresh = bearingAtMs != 0L && now - bearingAtMs <= BEARING_FRESH_MS

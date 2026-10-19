@@ -455,6 +455,19 @@ class HudArArrowTest {
     }
 
     @Test
+    fun `map on but not loaded - a note instead of the arrow`() {
+        val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR, mapStreets = true)
+        val turn = Directions(active = true, distance = "90 m", distanceM = 90, turn = "TURN_RIGHT")
+        assertTrue(HudOverlayModel.frameFor(ar, turn, 0, null, mapPending = true).tbt!!.mapPending)
+        // Map off, or the feed has the area: no note.
+        assertTrue(!HudOverlayModel.frameFor(ar.copy(mapStreets = false), turn, 0, null, mapPending = true).tbt!!.mapPending)
+        assertTrue(!HudOverlayModel.frameFor(ar, turn, 0, null, mapPending = false).tbt!!.mapPending)
+        // Roundabouts keep their own view.
+        val rb = turn.copy(turn = "ROUNDABOUT", exitNumber = 2, turnAngle = 180, roundaboutClockwise = false)
+        assertTrue(!HudOverlayModel.frameFor(ar, rb, 0, null, mapPending = true).tbt!!.mapPending)
+    }
+
+    @Test
     fun `power arc - one tick per 2 percent from the left, regen too`() {
         assertEquals(0, HudOverlayModel.arcPowerTicks(0))
         assertEquals(1, HudOverlayModel.arcPowerTicks(1)) // anything lights one

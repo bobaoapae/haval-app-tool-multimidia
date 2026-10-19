@@ -558,7 +558,9 @@ object HudOverlayModel {
         /** No other street leaves on the turn's side before ours (see RoutePath.Route). */
         val routeClear: Boolean = false,
         /** AR map: screen row of its horizon. */
-        val mapHorizon: Float = HudArArrow.MAP_HORIZON_Y
+        val mapHorizon: Float = HudArArrow.MAP_HORIZON_Y,
+        /** AR map on but its area not loaded yet: a note in place of the arrow (owner: no arrows). */
+        val mapPending: Boolean = false
     ) {
         /** Draw the roundabout with its real exit instead of the static icon. */
         val dynamicRoundabout: Boolean get() = icon == "ROUNDABOUT" && exitAngle != null
@@ -789,7 +791,8 @@ object HudOverlayModel {
         arDistanceKnown: Boolean = true,
         radar: Radar? = null,
         streets: List<br.com.redesurftank.havalshisuku.map.LocalRoad> = emptyList(),
-        wideArcs: Boolean = false
+        wideArcs: Boolean = false,
+        mapPending: Boolean = false
     ): Frame {
         // "Original" layout: the window is only up for the radar, so draw nothing else.
         if (!config.active) return Frame(tbt = null, powerPercent = null, rpmTenths = null, radar = radar)
@@ -801,7 +804,8 @@ object HudOverlayModel {
                     tbt.copy(
                         arMeters = if (arDistanceKnown) arMetersOverride ?: tbt.arMeters else null,
                         arProgress = arProgress,
-                        mapHorizon = if (config.mapHorizonTop) HudArArrow.MAP_HORIZON_TOP_Y else HudArArrow.MAP_HORIZON_Y
+                        mapHorizon = if (config.mapHorizonTop) HudArArrow.MAP_HORIZON_TOP_Y else HudArArrow.MAP_HORIZON_Y,
+                        mapPending = config.mapStreets && mapPending && streets.isEmpty() && !tbt.dynamicRoundabout
                     ),
                     if (config.mapStreets) streets else emptyList()
                 )

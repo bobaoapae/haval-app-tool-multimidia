@@ -37,6 +37,11 @@ object OsmRoadStore {
     class Near(val roads: List<OsmRoad>, val complete: Boolean)
 
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "OsmRoadStore") }
+    /** The region download runs apart, so it never holds up the tiles the view needs now. */
+    private val background = Executors.newSingleThreadExecutor { r -> Thread(r, "OsmRoadPrefetch") }
+    @Volatile private var prefetching = false
+    /** Pause between region blocks: the public servers are shared. */
+    private const val PREFETCH_PAUSE_MS = 3_000L
     private val tiles = ConcurrentHashMap<String, List<OsmRoad>>()
     private val queued = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var retryAfterMs = 0L
@@ -97,6 +102,62 @@ object OsmRoadStore {
         } finally {
             for (tile in wanted) queued.remove(tile.key)
         }
+    }
+
+    /**
+     * Downloads, in the background, every tile within [radiusM] of the point that isn't on disk
+     * (or is older than [TTL_MS]), in 3x3-tile boxes, so the map is there while driving without
+     * the servers (they failed for a whole drive on 2026-10-19). Only what is missing goes out;
+     * when everything is there it costs a directory check. One region at a time.
+     */
+    fun prefetch(lat: Double, lon: Double, radiusM: Double) {
+        if (prefetching) return
+        prefetching = true
+        background.execute {
+            try {
+                prefetchRegion(lat, lon, radiusM)
+            } catch (t: Throwable) {
+                Log.w(TAG, "prefetch failed: ${t.message}")
+            } finally {
+                prefetching = false
+            }
+        }
+    }
+
+    private fun prefetchRegion(lat: Double, lon: Double, radiusM: Double) {
+        val now = System.currentTimeMillis()
+        val missing = OsmRoads.tilesAround(lat, lon, radiusM).filter { t ->
+            val f = file(t)
+            !(f.isFile && now - f.lastModified() < TTL_MS)
+        }
+        if (missing.isEmpty()) return
+        val blocks = missing.groupBy { Math.floorDiv(it.x, 3) to Math.floorDiv(it.y, 3) }.values
+        ClusterPersistentEventLogger.log("hud_map_prefetch", mapOf("state" to "start", "tiles" to missing.size, "blocks" to blocks.size))
+        var done = 0
+        var failed = 0
+        for (block in blocks) {
+            if (System.currentTimeMillis() < retryAfterMs) Thread.sleep((retryAfterMs - System.currentTimeMillis()).coerceIn(0L, RETRY_MS))
+            val started = SystemClock.elapsedRealtime()
+            val json = fetch(block)
+            if (json == null) {
+                failed++
+                trace(false, block.size, 0, SystemClock.elapsedRealtime() - started)
+                // Several failures in a row: the servers are down; try again at the next stop.
+                if (failed >= 3 && done == 0) break
+                continue
+            }
+            val roads = OsmRoads.parse(json)
+            for (tile in block) {
+                val own = OsmRoads.inTile(roads, tile)
+                file(tile).writeText(OsmRoads.toJson(own))
+                // Already shown somewhere? Refresh the copy in memory too.
+                if (tiles.containsKey(tile.key)) tiles[tile.key] = own
+            }
+            done++
+            trace(true, block.size, roads.size, SystemClock.elapsedRealtime() - started)
+            Thread.sleep(PREFETCH_PAUSE_MS)
+        }
+        ClusterPersistentEventLogger.log("hud_map_prefetch", mapOf("state" to "end", "blocks_ok" to done, "blocks_failed" to failed))
     }
 
     private fun trace(ok: Boolean, tileCount: Int, roads: Int, ms: Long) {

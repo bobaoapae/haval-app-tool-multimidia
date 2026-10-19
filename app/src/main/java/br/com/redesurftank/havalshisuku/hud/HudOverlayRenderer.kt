@@ -164,7 +164,7 @@ class HudOverlayRenderer {
                 M.TbtStyle.COMPACT -> drawRow(canvas, tbt, M.COMPACT_TOP).also { drawLanes(canvas, tbt.lanes, M.LANES_TOP) }
                 M.TbtStyle.FAR -> drawRow(canvas, tbt, M.FAR_TOP)
                 M.TbtStyle.AR -> {
-                    drawAr(canvas, tbt)
+                    if (tbt.mapPending) drawMapPending(canvas) else drawAr(canvas, tbt)
                     drawArColumn(canvas, tbt, f.arcs, f.wideArcs) // draws its own trip line
                 }
             }
@@ -515,6 +515,18 @@ class HudOverlayRenderer {
         canvas.restore() // layer
         canvas.restore() // transform + clip
         shape.flag?.let { drawArFlag(canvas, it, view, sy, opacity) }
+    }
+
+    private val mapPendingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(170, 200, 205, 215)
+        typeface = lightFace
+        textAlign = Paint.Align.CENTER
+        textSize = 15f
+    }
+
+    /** Map option on, area not loaded: say so where the map goes (the column keeps the turn). */
+    private fun drawMapPending(canvas: Canvas) {
+        canvas.drawText("carregando mapa…", HudArArrow.CX, 176f, mapPendingPaint)
     }
 
     /** Vertical gradients per band top (the arrow's bands, the map's band up to the horizon). */
