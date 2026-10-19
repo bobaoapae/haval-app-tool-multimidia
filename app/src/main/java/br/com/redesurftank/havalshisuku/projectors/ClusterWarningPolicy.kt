@@ -130,6 +130,54 @@ internal object ClusterWarningPolicy {
     ): Set<String> =
             dismissedCards.filterTo(mutableSetOf()) { it != raisedCard && isCardStanding(it) }
 
+    /** One acknowledged card as saved: what every key behind it read when it was dismissed. */
+    data class SavedDismissal(val cardId: String, val values: Map<String, String>)
+
+    /**
+     * Whether a saved acknowledgement was made during the head unit's current boot.
+     *
+     * The boot count must be known and match: a power cycle is a new drive, the car re-shows its
+     * warnings, and ours must too. Elapsed realtime going backwards also means a reboot. An unknown
+     * boot count restores nothing, which only costs the driver one more BACK.
+     */
+    fun isSameBoot(
+            savedBootCount: Int,
+            savedElapsedMs: Long,
+            bootCount: Int,
+            elapsedMs: Long
+    ): Boolean =
+            savedBootCount >= 0 &&
+                    savedBootCount == bootCount &&
+                    savedElapsedMs <= elapsedMs
+
+    /**
+     * Acknowledgements to restore after the app itself restarts mid-drive (a reinstall, a crash).
+     *
+     * Acknowledgements live in memory, so every restart used to forget them: a per-wheel tyre
+     * vector that never clears came straight back after the 2026-10-19 07:01 and 07:24 restarts,
+     * minutes after the driver had dismissed it.
+     *
+     * A card is restored only if every key behind it still reads exactly what it did when it was
+     * dismissed, and it is still standing. While the app was down a condition may have cleared
+     * and returned, and that must warn again; an identical reading is the strongest evidence
+     * available that it is the same standing condition. The cost lands on the safe side: a belt
+     * repainting its seat vector restores nothing, so it asks for one more BACK rather than
+     * hiding a warning.
+     */
+    fun dismissalsToRestore(
+            saved: List<SavedDismissal>,
+            sameBoot: Boolean,
+            valueOf: (String) -> String?
+    ): Set<String> {
+        if (!sameBoot) return emptySet()
+        return saved.filter { dismissal ->
+                    dismissal.values.isNotEmpty() &&
+                            dismissal.values.all { (key, value) -> (valueOf(key) ?: "") == value } &&
+                            dismissal.values.any { (key, value) -> raisesWarningBadge(key, value) }
+                }
+                .mapTo(mutableSetOf()) { it.cardId }
+    }
+
     fun isWarningValueActive(value: String?): Boolean {
         if (value == null) return false
         val normalized = value.trim().lowercase()

@@ -543,5 +543,9 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ANONYMOUS_TELEMETRY_FALLBACK_ID(
             "anonymousTelemetryFallbackId",
             "Identificador local usado apenas quando o ANDROID_ID não está disponível"
+    ),
+    CLUSTER_WARNING_DISMISSED_CARDS(
+            "clusterWarningDismissedCards",
+            "Avisos do cluster dispensados neste boot, restaurados se o app reiniciar no meio do trajeto"
     )
 }

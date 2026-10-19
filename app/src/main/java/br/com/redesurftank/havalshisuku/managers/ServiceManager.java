@@ -223,6 +223,10 @@ public class ServiceManager {
             CarConstants.CAR_IPK_LIGHT_ENGINE_OIL_LOW_PRESSURE_WARNING,
             CarConstants.CAR_IPK_LIGHT_SEAT_BELT_WARNING_INDICATOR,
             CarConstants.CAR_IPK_LIGHT_TPMS_WARNING,
+            // Lista de avisos ativos do próprio cluster (Msg_IP_Notification_Important_NNN).
+            // Sem registrar aqui o carro nunca empurra mudanças dela, e getData() devolve para
+            // sempre a primeira leitura em cache — foi isso que a fez parecer uma constante.
+            CarConstants.CAR_IPK_SETTING_ALARM_HIS_INFO_LIST,
             CarConstants.CAR_BASIC_ENGINE_SPEED,
             CarConstants.CAR_EV_INFO_INSTANT_ENERGY_CONSUMPTION,
             CarConstants.CAR_EV_INFO_ENERGY_DRIVE_STATE,
