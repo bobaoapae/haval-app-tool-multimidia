@@ -128,7 +128,21 @@ internal object ClusterWarningPolicy {
             dismissedCards: Set<String>,
             isCardStanding: (String) -> Boolean
     ): Set<String> =
-            dismissedCards.filterTo(mutableSetOf()) { it != raisedCard && isCardStanding(it) }
+            dismissedCards.filterTo(mutableSetOf()) {
+                it != raisedCard && it !in cardsTheCarDoesNotRequeue && isCardStanding(it)
+            }
+
+    /**
+     * Cards the car does NOT bring back after a newer card closes, so re-arming them only puts
+     * our label up with nothing behind it.
+     *
+     * The tyre card: on 2026-10-19 20:04 the driver dismissed it, unbuckled (belt card up on car
+     * and theme) and buckled again — the cluster cleared completely, but re-arm had restored the
+     * tyre acknowledgement and our label stayed. Its per-wheel vector never clears, so this
+     * repeated on every belt and door event that day.
+     */
+    private val cardsTheCarDoesNotRequeue: Set<String> =
+            setOf(cardIdFor(CarConstants.CAR_BASIC_TIREPRESS_WARNING.value))
 
     /** One acknowledged card as saved: what every key behind it read when it was dismissed. */
     data class SavedDismissal(val cardId: String, val values: Map<String, String>)

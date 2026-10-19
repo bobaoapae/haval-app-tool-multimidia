@@ -131,14 +131,30 @@ class ClusterWarningPolicyTest {
     @Test
     fun rearmLeavesTheRaisedCardAndClearedCardsAlone() {
         val beltCard = ClusterWarningPolicy.cardIdFor(belt)
-        val tyreCard = ClusterWarningPolicy.cardIdFor(tirepress)
+        val oilCard = ClusterWarningPolicy.cardIdFor(CarConstants.CAR_BASIC_OIL_LOW_WARNING.value)
         // The raised card's own repaint must not undo its dismissal, and the door has
         // cleared, so there is nothing for the car to bring back.
         assertEquals(
-                setOf(tyreCard),
-                ClusterWarningPolicy.cardsToRearm(beltCard, setOf(beltCard, tyreCard, door)) {
+                setOf(oilCard),
+                ClusterWarningPolicy.cardsToRearm(beltCard, setOf(beltCard, oilCard, door)) {
                     it != door
                 }
+        )
+    }
+
+    @Test
+    fun theTyreCardIsNeverRearmed() {
+        // 2026-10-19 20:04: belt off and on again; the cluster cleared, the tyre card stayed gone.
+        val beltCard = ClusterWarningPolicy.cardIdFor(belt)
+        val tyreCard = ClusterWarningPolicy.cardIdFor(tirepress)
+        assertEquals(
+                emptySet<String>(),
+                ClusterWarningPolicy.cardsToRearm(beltCard, setOf(tyreCard)) { true }
+        )
+        // The belt card is still re-armed when a door preempts it (2026-09-13).
+        assertEquals(
+                setOf(beltCard),
+                ClusterWarningPolicy.cardsToRearm(door, setOf(beltCard, tyreCard)) { true }
         )
     }
 
