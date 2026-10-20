@@ -113,10 +113,17 @@ or seeds demonstration data.
 - Existing Theme Lab checks passed (13 discovered catalog entries).
 - Existing virtual-cluster suite passed 6 tests, including 15 host lifecycle scenarios
   compiling production Java against JVM collaborator fakes; this is not Android validation.
+- GitHub Actions desktop Chromium 143 passed all five real packaged HTML suites,
+  including 466,400 transparent ADAS pixels per normal state and 1,382,400 transparent
+  pixels per yielded state, protected telemetry bounds, offline execution, and no
+  uncaught JavaScript errors. The workflow uploads five labelled simulated previews
+  plus raw state captures and `browser-report.json`.
+- Test tooling is pinned, separate from production bundles, and `npm audit` reports
+  zero known vulnerabilities at this validation date.
 - Local raster/browser execution was blocked before rendering: Chromium process
   creation failed on sandbox IPC; the isolated HTTP server was not reachable from the
-  cloud browser; browser download also failed at the gateway. No local screenshots
-  were presented as validated output. The browser suite and CI provide reproduction.
+  cloud browser; browser download also failed at the gateway. CI, rather than the local
+  container or a vehicle, supplied the actual rendered screenshots.
 - Android Gradle build/unit tests could not start compilation locally because the
   Gradle 9.3.1 distribution download was unavailable. No APK or Android test pass claimed.
 - Physical central, older Android 9 WebView, compositor/native alert coexistence,

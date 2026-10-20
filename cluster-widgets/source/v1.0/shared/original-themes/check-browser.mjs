@@ -45,6 +45,15 @@ try {
             } else {
                 assert.equal(await reading('power'), expected);
             }
+            if (name === 'Pulso' && expected !== '--') {
+                const meter = await page.locator('[data-fill="power"]').evaluate(fill => {
+                    const bar = fill.parentElement.getBoundingClientRect(), ink = fill.getBoundingClientRect();
+                    return { center: bar.left + bar.width / 2, half: bar.width / 2, left: ink.left, right: ink.right, width: ink.width };
+                });
+                assert.ok(meter.width > 0 && meter.width <= meter.half, 'power stays within its signed half');
+                assert.ok(Math.abs((Number(expected) < 0 ? meter.right : meter.left) - meter.center) < 1,
+                    'power grows from zero toward the matching REGEN/TRAÇÃO label');
+            }
         }
         async function capture(suffix, entire = false) {
             const file = path.join(out, `${name.toLowerCase()}-${suffix}.png`);

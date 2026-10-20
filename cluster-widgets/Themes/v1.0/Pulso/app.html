@@ -99,7 +99,11 @@ h2 { margin: 8px 0 0; font-weight: 400; font-size: 32px; letter-spacing: -1px; }
 .power-hero .label { font-size: 12px; letter-spacing: 2px; }
 .power-reading { font-size: 105px; font-weight: 700; font-style: italic; letter-spacing: -6px; line-height: 1.2; margin: 5px 0 15px; }
 .power-reading .unit { font-size: 24px; font-style: normal; letter-spacing: 0; }
-.power-hero .bar { height: 10px; background: #405041; }
+.power-hero .bar { position: relative; height: 10px; background: #405041; }
+/* Keep the runtime's magnitude-only scale: each sign owns one half of the track. */
+.power-hero .bar i { position: absolute; top: 0; left: 50%; width: 50%; transform-origin: left center; }
+#impulse[data-power="regen"] .power-hero .bar i { left: 0; transform-origin: right center; background: var(--secondary); }
+.power-hero .bar::after { content: ''; position: absolute; top: 0; left: 50%; width: 1px; height: 100%; background: var(--ink); opacity: .65; }
 .power-caption { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 2px; color: var(--muted); margin-top: 11px; }
 .energy-grid { display: flex; justify-content: space-between; margin-top: 30px; }
 .energy { width: 196px; }
