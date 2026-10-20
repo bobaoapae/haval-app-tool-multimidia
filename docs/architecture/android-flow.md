@@ -1,6 +1,18 @@
 # Android Flow
 
-Atualizado em: 2026-06-30
+Atualizado em: 2026-10-20
+
+## Atualizacao 2026-10-20 - CLUSTER preservado durante falso stop da sessao AA
+
+- Evidencia de campo mostrou `app.androidauto.session=stopped` durante uma navegacao Waze ainda
+  ativa; 2,4 s depois, o servico nativo recebeu `setOutput enabled=false surface=false` e o mapa
+  desapareceu do cluster.
+- `AndroidAutoClusterController` passa a considerar uma direcao ativa recebida nos ultimos 5 s
+  como evidencia temporaria de sessao quando o status Autolink e nulo ou nao ativo.
+- A protecao nao mascara uma desconexao persistente: sem nova direcao ativa, a evidencia expira e
+  o debounce normal publica `stopped`.
+- A primeira supressao de cada ciclo registra `aa_cluster_session_stop_suppressed` com status e
+  idade da evidencia. CarPlay, bridge WebView, layout e geometria dos displays nao sao alterados.
 
 ## Fluxo Identificado
 
