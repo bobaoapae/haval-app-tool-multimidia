@@ -266,6 +266,16 @@ class ClusterWarningPolicyTest {
     }
 
     @Test
+    fun dismissLockoutMatchesTheCarsMeasuredCooldown() {
+        // 2026-10-19 20:56, five belt rounds, ms from the lamp: the press the car ignored last,
+        // then the press that closed its card.
+        val ignoredByCar = listOf(2952L, 2592L, 2230L, 2560L, 2330L)
+        val acceptedByCar = listOf(3761L, 3746L, 2994L, 3278L, 2989L)
+        ignoredByCar.forEach { assertTrue("$it ms", ClusterWarningPolicy.isDismissLockedOut(it)) }
+        acceptedByCar.forEach { assertFalse("$it ms", ClusterWarningPolicy.isDismissLockedOut(it)) }
+    }
+
+    @Test
     fun dismissLockoutUsesLaterOfKeyOnsetAndBecameTop() {
         // Seatbelt armed at t=0; door rose on top; door cleared at t=4000 and seatbelt
         // became top again. BACK at t=4500 must still see a fresh lockout anchor.

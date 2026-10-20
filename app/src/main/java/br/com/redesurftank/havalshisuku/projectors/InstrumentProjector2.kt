@@ -65,8 +65,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private val PROJECTION_D3_FALSE_NEGATIVE_HOLD_MS = 12_000L
     private val PERF_HEARTBEAT_INTERVAL_MS = 60_000L
     /** How long a warning must have been standing before BACK is allowed to dismiss it, so
-     *  a BACK press already in flight cannot swallow a warning the driver never saw. */
-    private val WARNING_DISMISS_LOCKOUT_MS = 2500L
+     *  a BACK press already in flight cannot swallow a warning the driver never saw. Matches
+     *  the car's own cooldown; see ClusterWarningPolicy.DISMISS_LOCKOUT_MS. */
+    private val WARNING_DISMISS_LOCKOUT_MS = ClusterWarningPolicy.DISMISS_LOCKOUT_MS
     /** Grace period before the layout follows a warning that cleared by itself, so it does
      *  not snap back while the car's own popup is still finishing its own close. */
     private val WARNING_CLEAR_HOLDOFF_MS = 2000L
@@ -3971,7 +3972,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     (topSinceMs?.let { System.currentTimeMillis() - it } ?: -1L)
                     )
             )
-            if (timeSinceWarning < WARNING_DISMISS_LOCKOUT_MS) {
+            if (ClusterWarningPolicy.isDismissLockedOut(timeSinceWarning)) {
                 Log.w(
                         TAG,
                         "DISMISS_WARNING ignored: card=$cardId timeSinceWarning=${timeSinceWarning}ms < ${WARNING_DISMISS_LOCKOUT_MS}ms lockout"

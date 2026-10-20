@@ -265,6 +265,20 @@ internal object ClusterWarningPolicy {
                     .toList()
 
     /**
+     * How long a warning must have been standing before BACK may dismiss it — set to match the
+     * car's own cooldown, so a press the car ignores is ignored here too and the cluster and our
+     * label close on the same press.
+     *
+     * Measured 2026-10-19 20:56 on the belt card, the driver pressing BACK every ~0.7 s and
+     * stopping as the car's card closed, timed from the belt lamp (the same onset this lockout
+     * uses): the car ignored presses up to 2.952 s and accepted from 2.989 s, in five rounds.
+     * The previous 2.5 s cleared our label one press before the car's card in three of them.
+     */
+    const val DISMISS_LOCKOUT_MS = 2_970L
+
+    fun isDismissLockedOut(timeSinceWarningMs: Long): Boolean = timeSinceWarningMs < DISMISS_LOCKOUT_MS
+
+    /**
      * Instant used for the BACK dismiss lockout.
      *
      * Prefer the later of per-key CAN onset and "became top card" so a standing seatbelt that
