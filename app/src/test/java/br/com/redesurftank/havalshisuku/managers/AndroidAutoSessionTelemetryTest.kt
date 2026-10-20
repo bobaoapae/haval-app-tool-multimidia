@@ -27,6 +27,47 @@ class AndroidAutoSessionTelemetryTest {
     }
 
     @Test
+    fun freshNavigationEvidenceOverridesTransientStoppedStatus() {
+        assertEquals(
+            AndroidAutoSessionTelemetry.LINK_STATUS_ACTIVATED,
+            AndroidAutoSessionTelemetry.statusWithNavigationEvidence(
+                linkStatus = 0,
+                navigationEvidenceRecent = true
+            )
+        )
+        assertEquals(
+            AndroidAutoSessionTelemetry.LINK_STATUS_ACTIVATED,
+            AndroidAutoSessionTelemetry.statusWithNavigationEvidence(
+                linkStatus = null,
+                navigationEvidenceRecent = true
+            )
+        )
+    }
+
+    @Test
+    fun staleNavigationEvidenceAllowsStoppedStatus() {
+        assertEquals(
+            0,
+            AndroidAutoSessionTelemetry.statusWithNavigationEvidence(
+                linkStatus = 0,
+                navigationEvidenceRecent = false
+            )
+        )
+        assertTrue(
+            AndroidAutoSessionTelemetry.hasRecentNavigationEvidence(
+                lastActiveAtMs = 1_000L,
+                nowMs = 1_000L + AndroidAutoSessionTelemetry.NAVIGATION_EVIDENCE_MAX_AGE_MS
+            )
+        )
+        assertFalse(
+            AndroidAutoSessionTelemetry.hasRecentNavigationEvidence(
+                lastActiveAtMs = 1_000L,
+                nowMs = 1_001L + AndroidAutoSessionTelemetry.NAVIGATION_EVIDENCE_MAX_AGE_MS
+            )
+        )
+    }
+
+    @Test
     fun pollKeepsWirelessSessionWhileDcmEvidenceIsRecent() {
         assertEquals(
             AndroidAutoSessionTelemetry.LINK_STATUS_ACTIVATED,
