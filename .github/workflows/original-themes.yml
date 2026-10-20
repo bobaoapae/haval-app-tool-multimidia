@@ -34,7 +34,9 @@ jobs:
           cache-dependency-path: cluster-widgets/source/v1.0/shared/original-themes/package-lock.json
       - name: Install test-only tools
         working-directory: cluster-widgets/source/v1.0/shared/original-themes
-        run: npm ci --ignore-scripts
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=moderate
       - name: Check committed packages and all existing Theme Lab checks
         run: |
           node cluster-widgets/source/v1.0/shared/original-themes/check.mjs

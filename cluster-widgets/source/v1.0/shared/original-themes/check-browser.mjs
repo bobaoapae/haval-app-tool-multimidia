@@ -38,6 +38,14 @@ try {
         async function flush() { await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))); }
         async function send(values) { await page.evaluate(values => Object.keys(values).forEach(key => window.onDataChanged(key, values[key])), values); await flush(); }
         async function reading(field) { return page.locator(`[data-value="${field}"]`).first().textContent(); }
+        // Sereno deliberately omits power instrumentation; all other themes must expose it.
+        async function checkPower(expected) {
+            if (name === 'Sereno') {
+                assert.equal(await page.locator('[data-value="power"]').count(), 0, 'minimal Sereno omits power');
+            } else {
+                assert.equal(await reading('power'), expected);
+            }
+        }
         async function capture(suffix, entire = false) {
             const file = path.join(out, `${name.toLowerCase()}-${suffix}.png`);
             await page.screenshot({ path: file, omitBackground: true });
@@ -67,7 +75,7 @@ try {
         await page.goto(pathToFileURL(file).href); await flush();
         assert.equal(await page.evaluate(() => typeof window.onDataChanged), 'function', 'packaged scripts initialize after DOM');
         assert.equal(await reading('speed'), '--'); await capture('missing');
-        await send(data); assert.equal(await reading('speed'), '85'); assert.equal(await reading('power'), '32');
+        await send(data); assert.equal(await reading('speed'), '85'); await checkPower('32');
         assert.equal(await reading('totalRange'), '539');
         await checkDataBounds(); await capture('driving');
         for (const [key, expected] of [['DOWN','trip'],['DOWN','navigation'],['BACK','summary'],['UP','navigation'],['HOME','summary']]) {
@@ -75,11 +83,11 @@ try {
             assert.equal(await page.locator('#impulse').getAttribute('data-page-active'), expected);
             await checkDataBounds(); await capture(`page-${expected}`);
         }
-        await send({ 'car.ev_info.cur_charge_current': -85 }); assert.equal(await reading('power'), '-34'); await capture('regeneration');
+        await send({ 'car.ev_info.cur_charge_current': -85 }); await checkPower('-34'); await capture('regeneration');
         await send({ 'car.basic.vehicle_speed': 0, 'car.basic.remain_fuel_percentage': 0, 'car.ev_info.cur_battery_power_percentage': 0 });
         assert.equal(await reading('speed'), '0'); assert.equal(await reading('fuel'), '0'); await capture('zero');
         await send({ 'car.basic.vehicle_speed': null, 'car.ev_info.power_battery_voltage': null });
-        assert.equal(await reading('speed'), '--'); assert.equal(await reading('power'), '--'); await capture('invalidated');
+        assert.equal(await reading('speed'), '--'); await checkPower('--'); await capture('invalidated');
         await send({ ...data, 'car.basic.vehicle_speed': 180, 'car.basic.total_odometer': 999999,
             'car.basic.cur_journey_odometer': 99999.9, 'car.basic.outside_temp': -40,
             'app.navigation.directions': JSON.stringify({ street: '<img src=x onerror=alert(1)> Avenida muito longa '.repeat(8), distance: '999 km', turn: 'UNKNOWN' }) });
@@ -108,7 +116,8 @@ try {
         await page.evaluate(() => { window.cleanup(); window.cleanup(); window.onDataChanged('car.basic.vehicle_speed',20); }); await flush();
         assert.equal(await reading('speed'), '85', 'cleanup prevents updates');
         assert.deepEqual(errors, []); assert.deepEqual(externalRequests, []);
-        result.checks.push('offline bundle, missing/zero/invalid, calibrated speed, signed power, pages, safe text, cleanup, no JS errors');
+        result.checks.push('offline bundle, missing/zero/invalid, calibrated speed, pages, safe text, cleanup, no JS errors');
+        result.checks.push(name === 'Sereno' ? 'power intentionally omitted in minimalist layout' : 'signed power and invalidation');
         result.status = result.layoutCollisions ? 'FAIL' : 'PASS'; await context.close();
     }
     const failures = report.themes.filter(theme => theme.status !== 'PASS');
