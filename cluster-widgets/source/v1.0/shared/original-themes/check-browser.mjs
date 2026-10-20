@@ -57,7 +57,10 @@ try {
                 const collision = zones.some(([x,y,w,h]) => box.left < x+w && box.right > x && box.top < y+h && box.bottom > y);
                 return outside || collision ? [{ field: node.getAttribute('data-value'), box: box.toJSON() }] : [];
             }), reserved);
-            assert.deepEqual(collisions, [], `${name}: data overlaps protected region`);
+            if (collisions.length) {
+                if (!result.layoutCollisions) result.layoutCollisions = [];
+                result.layoutCollisions.push({ page: await page.locator('#impulse').getAttribute('data-page-active'), collisions });
+            }
         }
         const file = path.join(packageRoot, name, 'app.html');
         assert.equal(fs.readFileSync(file, 'utf8'), bundle(name), 'rebuild stale package');
@@ -106,8 +109,10 @@ try {
         assert.equal(await reading('speed'), '85', 'cleanup prevents updates');
         assert.deepEqual(errors, []); assert.deepEqual(externalRequests, []);
         result.checks.push('offline bundle, missing/zero/invalid, calibrated speed, signed power, pages, safe text, cleanup, no JS errors');
-        result.status = 'PASS'; await context.close();
+        result.status = result.layoutCollisions ? 'FAIL' : 'PASS'; await context.close();
     }
+    const failures = report.themes.filter(theme => theme.status !== 'PASS');
+    if (failures.length) throw new Error('Protected-region layout collisions: ' + JSON.stringify(failures));
     report.status = 'PASS';
 } catch (error) { report.status = 'FAIL'; report.error = error.message; throw error; }
 finally { if (browser) await browser.close(); fs.writeFileSync(path.join(out, 'browser-report.json'), JSON.stringify(report,null,2)+'\n'); }

@@ -47,7 +47,7 @@ h2 { margin: 8px 0 0; font-weight: 400; font-size: 32px; letter-spacing: -1px; }
 .brand-slash { width: 9px; height: 24px; margin-right: 14px; background: var(--accent); transform: skew(-20deg); }
 .theme-title { font-style: italic; font-size: 22px; letter-spacing: 5px; }
 .edition { margin-left: 34px; color: var(--muted); font-size: 10px; letter-spacing: 2px; }
-.speed-block { position: absolute; top: 123px; left: 47px; width: 333px; }
+.speed-block { position: absolute; top: 109px; left: 47px; width: 333px; }
 .speed-block .label { font-size: 12px; letter-spacing: 3px; }
 .speed-value { font-size: 166px; font-weight: 700; font-style: italic; line-height: .99; letter-spacing: -10px; }
 .speed-unit { position: absolute; right: 0; top: 30px; color: var(--accent); font-size: 19px; font-weight: 700; }

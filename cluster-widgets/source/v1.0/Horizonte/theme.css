@@ -45,7 +45,7 @@ h2 { margin: 8px 0 0; font-weight: 400; font-size: 32px; letter-spacing: -1px; }
 .surface-right { background: linear-gradient(225deg, #172e39, #101e29 72%); }
 .brand { position: absolute; left: 48px; top: 54px; display: flex; align-items: center; }
 .brand svg { width: 46px; height: 24px; margin-right: 18px; fill: none; stroke: var(--accent); stroke-width: 2px; }
-.speed-block { position: absolute; left: 48px; top: 134px; }
+.speed-block { position: absolute; left: 48px; top: 120px; }
 .speed-value { font-size: 152px; line-height: 1.03; font-weight: 300; letter-spacing: -9px; white-space: nowrap; }
 .speed-unit { display: inline-block; font-size: 22px; letter-spacing: 0; color: var(--muted); margin-left: 17px; }
 .gear-block { position: absolute; left: 405px; top: 168px; font-size: 51px; line-height: 1; text-align: center; }
