@@ -8,6 +8,7 @@ package br.com.redesurftank.havalshisuku.managers
  */
 object AndroidAutoSessionTelemetry {
     const val DEBOUNCE_STOPPED_MS = 400L
+    const val NAVIGATION_EVIDENCE_MAX_AGE_MS = 5_000L
 
     /** GET_LINK_STATUS value for ACTIVATED, the plain "a phone is linked" state. */
     const val LINK_STATUS_ACTIVATED = 3
@@ -22,6 +23,26 @@ object AndroidAutoSessionTelemetry {
         } else {
             AndroidAutoTelemetryKeys.SESSION_STOPPED
         }
+    }
+
+    /**
+     * Autolink can briefly report stopped while AA guidance is still arriving. Fresh guidance
+     * keeps the independent CLUSTER output alive; a disconnect wins once guidance becomes stale.
+     */
+    fun statusWithNavigationEvidence(
+        linkStatus: Int?,
+        navigationEvidenceRecent: Boolean
+    ): Int? {
+        return if (!isLinkActive(linkStatus) && navigationEvidenceRecent) {
+            LINK_STATUS_ACTIVATED
+        } else {
+            linkStatus
+        }
+    }
+
+    fun hasRecentNavigationEvidence(lastActiveAtMs: Long, nowMs: Long): Boolean {
+        val ageMs = nowMs - lastActiveAtMs
+        return lastActiveAtMs > 0L && ageMs >= 0L && ageMs <= NAVIGATION_EVIDENCE_MAX_AGE_MS
     }
 
     /**
