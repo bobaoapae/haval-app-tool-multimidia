@@ -23,6 +23,12 @@ function listDirectories(parentPath) {
 
 const themeLabOverrides = new Map([
   ['source/v1.0/ApexGT', { keyboard: 'none', telemetry: 'injected' }],
+  ['source/v1.0/Horizonte', { keyboard: 'none', telemetry: 'injected' }],
+  ['source/v1.0/Pulso', { keyboard: 'none', telemetry: 'injected' }],
+  ['source/v1.0/Orbita', { keyboard: 'none', telemetry: 'injected' }],
+  ['source/v1.0/Sereno', { keyboard: 'none', telemetry: 'injected' }],
+  ['source/v1.0/Eclipse', { keyboard: 'none', telemetry: 'injected' }],
+
 ]);
 
 function readTheme(directory, relativeDirectory, kind, preferredEntry) {

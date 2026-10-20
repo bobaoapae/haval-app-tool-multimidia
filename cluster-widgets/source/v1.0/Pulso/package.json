@@ -1,0 +1,9 @@
+{
+  "name": "haval-impulse-pulso",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node ../shared/original-themes/build.mjs Pulso",
+    "test": "node ../shared/original-themes/check.mjs"
+  }
+}

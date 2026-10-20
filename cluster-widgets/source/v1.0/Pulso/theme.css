@@ -1,0 +1,99 @@
+/* Original Impulse composition. No remote assets, animation, filters or canvas. */
+html, body { width: 1920px; height: 720px; margin: 0; overflow: hidden; background: transparent; }
+* { box-sizing: border-box; }
+#impulse { position: relative; width: 1920px; height: 720px; overflow: hidden; background: transparent; color: var(--ink); font-family: Arial, Helvetica, sans-serif; font-variant-numeric: tabular-nums; }
+.surface { position: absolute; overflow: hidden; background: var(--surface); }
+.surface-left { left: 0; top: 0; width: 520px; height: 720px; }
+.surface-right { left: 1400px; top: 0; width: 520px; height: 720px; }
+.surface-top { left: 520px; top: 0; width: 880px; height: 120px; }
+.surface-bottom { left: 520px; top: 650px; width: 880px; height: 70px; }
+[hidden] { display: none !important; }
+.label, .eyebrow { display: block; color: var(--muted); font-size: 15px; line-height: 1.35; letter-spacing: 1.6px; text-transform: uppercase; }
+.reading { font-size: 38px; line-height: 1.2; }
+.unit { color: var(--muted); font-size: 17px; font-weight: 400; margin-left: 7px; white-space: nowrap; }
+.theme-title { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: 4px; text-transform: uppercase; }
+.bar { height: 6px; background: var(--track); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left center; }
+.energy-battery .bar i { background: var(--secondary); }
+h2 { margin: 8px 0 0; font-weight: 400; font-size: 32px; letter-spacing: -1px; }
+.detail-page { position: absolute; left: 46px; right: 46px; top: 135px; bottom: 80px; }
+.page-hero { margin: 34px 0 28px; }
+.page-hero .reading { font-size: 76px; }
+.detail-stack .metric { display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid var(--track); padding: 20px 0; }
+.detail-stack .label { font-size: 13px; letter-spacing: .6px; }
+.detail-stack .reading { font-size: 28px; }
+.navigation-distance { margin-top: 44px; font-size: 80px; line-height: 1.2; letter-spacing: -3px; }
+.navigation-turn { color: var(--accent); font-size: 26px; line-height: 1.3; margin: 18px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-value="navDistance"] { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-value="navStreet"] { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.navigation-street { font-size: 30px; line-height: 1.3; max-height: 116px; overflow: hidden; overflow-wrap: break-word; }
+.detail-note { margin-top: 36px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.climate-zones { display: flex; justify-content: space-between; margin: 66px 0 50px; }
+.climate-zones .reading { margin-top: 12px; font-size: 54px; }
+.climate-zones .label { font-size: 13px; letter-spacing: .6px; }
+.climate-air { border-top: 1px solid var(--track); padding-top: 24px; }
+.climate-air .metric { display: flex; justify-content: space-between; align-items: center; }
+.page-hint { position: absolute; bottom: 30px; left: 46px; right: 46px; color: var(--muted); font-size: 12px; letter-spacing: 1px; }
+.page-hint > span:first-child { color: var(--ink); font-size: 16px; margin-right: 12px; }
+.hint-separator { margin: 0 10px; opacity: .5; }
+.dial { display: block; width: 100%; height: 100%; overflow: visible; }
+.dial-track, .dial-value { fill: none; stroke-width: 5px; stroke: var(--track); }
+.dial-value { stroke: var(--accent); transform: rotate(-90deg); transform-origin: center; stroke-linecap: round; }
+
+#impulse[data-theme="Pulso"] { --surface: #111416; --ink: #f4f5ec; --muted: #9baba6; --track: #303a37; --accent: #d4f44e; --secondary: #77d8b2; }
+.surface-left { background: linear-gradient(135deg, #222b22, #111416 55%); }
+.surface-right { background: #161b1b; }
+.brand { position: absolute; top: 51px; left: 45px; display: flex; align-items: center; }
+.brand-slash { width: 9px; height: 24px; margin-right: 14px; background: var(--accent); transform: skew(-20deg); }
+.theme-title { font-style: italic; font-size: 22px; letter-spacing: 5px; }
+.edition { margin-left: 34px; color: var(--muted); font-size: 10px; letter-spacing: 2px; }
+.speed-block { position: absolute; top: 123px; left: 47px; width: 333px; }
+.speed-block .label { font-size: 12px; letter-spacing: 3px; }
+.speed-value { font-size: 166px; font-weight: 700; font-style: italic; line-height: .99; letter-spacing: -10px; }
+.speed-unit { position: absolute; right: 0; top: 30px; color: var(--accent); font-size: 19px; font-weight: 700; }
+.gear-block { position: absolute; left: 409px; top: 149px; width: 63px; padding: 14px 0; font-size: 46px; line-height: 1; text-align: center; border-top: 3px solid var(--accent); background: #242e28; }
+.gear-block .label { font-size: 10px; margin-bottom: 13px; }
+.left-metrics { position: absolute; left: 49px; top: 351px; width: 152px; }
+.left-metrics .metric { border-left: 3px solid var(--track); padding-left: 15px; margin-bottom: 24px; }
+.left-metrics .label { font-size: 11px; }
+.left-metrics .reading { font-size: 25px; margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.left-metrics .unit { font-size: 13px; margin-left: 5px; }
+.speed-baseline { position: absolute; left: 49px; right: 47px; bottom: 40px; }
+.speed-baseline .bar { height: 12px; transform: skew(-18deg); }
+.speed-baseline > span { display: block; margin-top: 15px; color: var(--muted); font-size: 10px; letter-spacing: 2px; }
+.right-header { position: absolute; left: 46px; right: 46px; top: 55px; display: flex; justify-content: space-between; align-items: center; }
+.right-header .eyebrow { font-size: 12px; letter-spacing: 3px; }
+.small-mark { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: 2px; }
+.summary { position: absolute; top: 137px; left: 46px; right: 46px; }
+.power-hero { padding: 27px 28px 20px; border-left: 4px solid var(--accent); background: #222a26; }
+.power-hero .label { font-size: 12px; letter-spacing: 2px; }
+.power-reading { font-size: 105px; font-weight: 700; font-style: italic; letter-spacing: -6px; line-height: 1.2; margin: 5px 0 15px; }
+.power-reading .unit { font-size: 24px; font-style: normal; letter-spacing: 0; }
+.power-hero .bar { height: 10px; background: #405041; }
+.power-caption { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 2px; color: var(--muted); margin-top: 11px; }
+.energy-grid { display: flex; justify-content: space-between; margin-top: 30px; }
+.energy { width: 196px; }
+.energy-heading .label { font-size: 11px; }
+.energy-heading strong { display: block; font-size: 36px; margin: 8px 0 12px; font-weight: 500; }
+.energy .bar { height: 4px; }
+.energy-range { font-size: 24px; margin-top: 12px; }
+.energy-range .unit { font-size: 13px; }
+.range-row { display: flex; justify-content: space-between; border-top: 1px solid var(--track); margin-top: 27px; padding-top: 18px; }
+.range-row .label { font-size: 11px; }
+.range-row .reading { font-size: 30px; margin-top: 6px; }
+.surface-top { display: flex; justify-content: space-between; align-items: center; padding: 0 42px; border-bottom: 4px solid #303b2e; }
+.mode-banner { display: flex; align-items: center; padding-left: 21px; border-left: 4px solid var(--accent); }
+.mode-banner .label { width: 102px; font-size: 10px; line-height: 1.7; margin-right: 23px; }
+.mode-banner > [data-value] { font-size: 27px; text-transform: uppercase; font-style: italic; }
+.top-time { font-size: 32px; font-weight: 700; letter-spacing: 2px; }
+.top-temp { font-size: 26px; }
+.surface-bottom { display: flex; align-items: center; padding: 0 40px; border-top: 2px solid var(--track); }
+.bottom-brand { color: var(--muted); font-size: 11px; font-style: italic; letter-spacing: 2px; margin-right: 40px; }
+.bottom-brand span { color: var(--accent); margin-left: 17px; }
+.bottom-item { display: flex; align-items: baseline; font-size: 25px; }
+.bottom-item .label { font-size: 10px; letter-spacing: 1px; margin-right: 15px; }
+.bottom-item .unit { font-size: 12px; }
+.odometer { margin-left: auto; }
+.detail-page .page-heading { border-left: 4px solid var(--accent); padding-left: 20px; }
+.detail-page h2 { text-transform: uppercase; font-weight: 700; font-style: italic; font-size: 30px; }
+.page-hero .reading, .navigation-distance { font-weight: 700; font-style: italic; }

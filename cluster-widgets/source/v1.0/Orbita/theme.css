@@ -1,0 +1,106 @@
+/* Original Impulse composition. No remote assets, animation, filters or canvas. */
+html, body { width: 1920px; height: 720px; margin: 0; overflow: hidden; background: transparent; }
+* { box-sizing: border-box; }
+#impulse { position: relative; width: 1920px; height: 720px; overflow: hidden; background: transparent; color: var(--ink); font-family: Arial, Helvetica, sans-serif; font-variant-numeric: tabular-nums; }
+.surface { position: absolute; overflow: hidden; background: var(--surface); }
+.surface-left { left: 0; top: 0; width: 520px; height: 720px; }
+.surface-right { left: 1400px; top: 0; width: 520px; height: 720px; }
+.surface-top { left: 520px; top: 0; width: 880px; height: 120px; }
+.surface-bottom { left: 520px; top: 650px; width: 880px; height: 70px; }
+[hidden] { display: none !important; }
+.label, .eyebrow { display: block; color: var(--muted); font-size: 15px; line-height: 1.35; letter-spacing: 1.6px; text-transform: uppercase; }
+.reading { font-size: 38px; line-height: 1.2; }
+.unit { color: var(--muted); font-size: 17px; font-weight: 400; margin-left: 7px; white-space: nowrap; }
+.theme-title { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: 4px; text-transform: uppercase; }
+.bar { height: 6px; background: var(--track); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left center; }
+.energy-battery .bar i { background: var(--secondary); }
+h2 { margin: 8px 0 0; font-weight: 400; font-size: 32px; letter-spacing: -1px; }
+.detail-page { position: absolute; left: 46px; right: 46px; top: 135px; bottom: 80px; }
+.page-hero { margin: 34px 0 28px; }
+.page-hero .reading { font-size: 76px; }
+.detail-stack .metric { display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid var(--track); padding: 20px 0; }
+.detail-stack .label { font-size: 13px; letter-spacing: .6px; }
+.detail-stack .reading { font-size: 28px; }
+.navigation-distance { margin-top: 44px; font-size: 80px; line-height: 1.2; letter-spacing: -3px; }
+.navigation-turn { color: var(--accent); font-size: 26px; line-height: 1.3; margin: 18px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-value="navDistance"] { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-value="navStreet"] { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.navigation-street { font-size: 30px; line-height: 1.3; max-height: 116px; overflow: hidden; overflow-wrap: break-word; }
+.detail-note { margin-top: 36px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.climate-zones { display: flex; justify-content: space-between; margin: 66px 0 50px; }
+.climate-zones .reading { margin-top: 12px; font-size: 54px; }
+.climate-zones .label { font-size: 13px; letter-spacing: .6px; }
+.climate-air { border-top: 1px solid var(--track); padding-top: 24px; }
+.climate-air .metric { display: flex; justify-content: space-between; align-items: center; }
+.page-hint { position: absolute; bottom: 30px; left: 46px; right: 46px; color: var(--muted); font-size: 12px; letter-spacing: 1px; }
+.page-hint > span:first-child { color: var(--ink); font-size: 16px; margin-right: 12px; }
+.hint-separator { margin: 0 10px; opacity: .5; }
+.dial { display: block; width: 100%; height: 100%; overflow: visible; }
+.dial-track, .dial-value { fill: none; stroke-width: 5px; stroke: var(--track); }
+.dial-value { stroke: var(--accent); transform: rotate(-90deg); transform-origin: center; stroke-linecap: round; }
+
+#impulse[data-theme="Orbita"] { --surface: #151923; --ink: #edeff8; --muted: #a4aac1; --track: #343b51; --accent: #a5bbf5; --secondary: #dfb39d; }
+.surface-left { background: linear-gradient(140deg, #232b42, #151923 65%); }
+.surface-right { background: linear-gradient(220deg, #222a40, #151923 75%); }
+.brand { position: absolute; top: 38px; left: 48px; display: flex; align-items: center; }
+.theme-title { font-size: 16px; letter-spacing: 5px; }
+.orbit-mark { width: 24px; height: 24px; margin-right: 15px; border: 1px solid var(--accent); border-radius: 50%; position: relative; }
+.orbit-mark::after { content: ''; position: absolute; width: 6px; height: 6px; background: var(--secondary); border-radius: 50%; top: 0; right: -1px; }
+.speed-dial { position: absolute; left: 120px; top: 65px; width: 250px; height: 250px; }
+.speed-dial .dial-track { stroke-width: 2px; }
+.speed-dial .dial-value { stroke-width: 6px; }
+.speed-center { position: absolute; left: 0; right: 0; top: 65px; text-align: center; font-size: 95px; letter-spacing: -5px; line-height: 1.1; }
+.speed-center > span:last-child { display: block; font-size: 17px; color: var(--muted); letter-spacing: 3px; margin-top: 5px; }
+.dial-caption { position: absolute; left: 0; right: 0; top: 215px; text-align: center; color: var(--muted); font-size: 9px; letter-spacing: 2px; }
+.gear-satellite { position: absolute; top: 337px; left: 65px; width: 96px; height: 96px; border: 1px solid var(--track); border-radius: 50%; text-align: center; padding-top: 13px; font-size: 38px; line-height: 1.1; }
+.gear-satellite .label { font-size: 9px; margin-top: 7px; letter-spacing: 1px; }
+.left-metrics { position: absolute; left: 61px; top: 462px; width: 148px; }
+.left-metrics .metric { margin-bottom: 23px; }
+.left-metrics .label { font-size: 11px; }
+.left-metrics .reading { margin-top: 5px; font-size: 25px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.left-footer { position: absolute; left: 51px; right: 45px; bottom: 37px; padding-top: 22px; border-top: 1px solid var(--track); }
+.left-footer .metric { display: flex; align-items: baseline; justify-content: space-between; }
+.left-footer .label { font-size: 11px; }
+.left-footer .reading { font-size: 27px; }
+.right-header { position: absolute; left: 46px; right: 46px; top: 43px; display: flex; align-items: center; justify-content: space-between; }
+.right-header .eyebrow { font-size: 11px; letter-spacing: 2px; }
+.mini-orbit { width: 17px; height: 17px; border: 1px solid var(--secondary); border-radius: 50%; }
+.summary { position: absolute; top: 106px; left: 46px; right: 46px; }
+.power-dial { width: 300px; height: 300px; margin: 0 auto; position: relative; }
+.power-dial .dial-track { stroke-width: 8px; }
+.power-dial .dial-value { stroke: var(--secondary); stroke-width: 8px; }
+.power-center { position: absolute; left: 0; right: 0; top: 83px; text-align: center; font-size: 87px; line-height: 1.1; letter-spacing: -4px; }
+.power-center .label { font-size: 12px; letter-spacing: 2px; margin-bottom: 13px; }
+.power-center .unit { display: block; font-size: 17px; letter-spacing: 2px; margin: 10px 0 0; }
+.energy-grid { display: flex; align-items: center; justify-content: space-between; margin-top: 17px; }
+.battery-orbit { width: 108px; height: 108px; position: relative; margin-left: 23px; }
+.battery-orbit .dial-track, .battery-orbit .dial-value { stroke-width: 3px; }
+.battery-orbit > div { position: absolute; top: 30px; left: 0; right: 0; text-align: center; font-size: 26px; }
+.battery-orbit .unit { font-size: 12px; margin-left: 3px; }
+.battery-orbit > .label { position: absolute; top: 65px; left: 0; right: 0; text-align: center; font-size: 9px; letter-spacing: 1px; }
+.fuel-satellite { width: 215px; padding: 4px 0; }
+.fuel-satellite .metric { display: flex; justify-content: space-between; align-items: baseline; }
+.fuel-satellite .label { font-size: 10px; letter-spacing: 1px; }
+.fuel-satellite .reading { font-size: 28px; }
+.fuel-satellite .unit { font-size: 13px; }
+.fuel-satellite .bar { height: 3px; margin: 12px 0; }
+.fuel-satellite .energy-range { font-size: 21px; }
+.range-row { display: flex; justify-content: space-between; border-top: 1px solid var(--track); padding-top: 20px; margin-top: 27px; }
+.range-row .label { font-size: 10px; letter-spacing: 1px; }
+.range-row .reading { margin-top: 7px; font-size: 29px; }
+.surface-top { display: flex; justify-content: space-between; align-items: center; padding: 0 49px; }
+.top-temperature { font-size: 27px; }
+.top-temperature .label { font-size: 9px; margin-top: 8px; }
+.top-time { font-size: 41px; letter-spacing: 3px; font-weight: 300; }
+.top-context { font-size: 12px; letter-spacing: 4px; text-align: right; color: var(--accent); }
+.top-context span { display: block; margin-top: 11px; color: var(--muted); font-size: 9px; letter-spacing: 1.5px; }
+.surface-bottom { display: flex; align-items: center; justify-content: space-between; padding: 0 36px; border-top: 1px solid var(--track); }
+.bottom-item { display: flex; align-items: baseline; font-size: 24px; }
+.bottom-item .label { font-size: 10px; letter-spacing: 1px; margin-right: 13px; }
+.bottom-item .unit { font-size: 12px; }
+.small-orbit { display: inline-block; width: 9px; height: 9px; border: 1px solid var(--secondary); border-radius: 50%; margin-right: 14px; }
+.page-heading { border-bottom: 1px solid var(--track); padding-bottom: 24px; }
+.climate-zones .metric { border: 1px solid var(--track); border-radius: 50%; width: 190px; height: 190px; text-align: center; padding-top: 42px; }
+.climate-zones .reading { font-size: 42px; }
+.climate-zones { margin: 35px 0; }

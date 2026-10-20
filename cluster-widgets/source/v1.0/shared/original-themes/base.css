@@ -1,0 +1,19 @@
+/* Common geometry contract. Theme surfaces, not the document, own their paint. */
+html, body { margin: 0; width: 1920px; height: 720px; overflow: hidden; background: transparent !important; }
+* { box-sizing: border-box; }
+#impulse { position: relative; width: 1920px; height: 720px; overflow: hidden; font-family: Arial, Helvetica, sans-serif; font-variant-numeric: tabular-nums; }
+[hidden] { display: none !important; }
+.surface-left, .surface-right, .surface-top, .surface-bottom { position: absolute; overflow: hidden; }
+.surface-left { left: 0; top: 0; width: 520px; height: 720px; }
+.surface-right { left: 1400px; top: 0; width: 520px; height: 720px; }
+.surface-top { left: 520px; top: 0; width: 880px; height: 120px; }
+.surface-bottom { left: 520px; top: 650px; width: 880px; height: 70px; }
+[data-fill] { transform: scaleX(0); transform-origin: left center; }
+[data-ring] { stroke-dasharray: 0 100; }
+html.cluster-disabled { opacity: 0 !important; pointer-events: none !important; }
+#impulse[data-card="0"] { opacity: 0; pointer-events: none; }
+[data-value="navStreet"] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-value="navDistance"], [data-value="navTurn"] { overflow: hidden; text-overflow: ellipsis; }
+
+/* Full-screen AA/CarPlay bypass theme bounds: yield, do not crop the map or draw over it. */
+#impulse[data-projection="active"] { opacity: 0; pointer-events: none; }

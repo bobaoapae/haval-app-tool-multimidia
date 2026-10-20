@@ -1,0 +1,16 @@
+{
+  "name": "haval-impulse-original-themes",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node check.mjs",
+    "test:browser": "node check-browser.mjs",
+    "thumbnails": "node thumbnails.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.57.0",
+    "sharp": "0.34.5"
+  }
+}

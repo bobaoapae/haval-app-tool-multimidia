@@ -1,0 +1,94 @@
+/* Original Impulse composition. No remote assets, animation, filters or canvas. */
+html, body { width: 1920px; height: 720px; margin: 0; overflow: hidden; background: transparent; }
+* { box-sizing: border-box; }
+#impulse { position: relative; width: 1920px; height: 720px; overflow: hidden; background: transparent; color: var(--ink); font-family: Arial, Helvetica, sans-serif; font-variant-numeric: tabular-nums; }
+.surface { position: absolute; overflow: hidden; background: var(--surface); }
+.surface-left { left: 0; top: 0; width: 520px; height: 720px; }
+.surface-right { left: 1400px; top: 0; width: 520px; height: 720px; }
+.surface-top { left: 520px; top: 0; width: 880px; height: 120px; }
+.surface-bottom { left: 520px; top: 650px; width: 880px; height: 70px; }
+[hidden] { display: none !important; }
+.label, .eyebrow { display: block; color: var(--muted); font-size: 15px; line-height: 1.35; letter-spacing: 1.6px; text-transform: uppercase; }
+.reading { font-size: 38px; line-height: 1.2; }
+.unit { color: var(--muted); font-size: 17px; font-weight: 400; margin-left: 7px; white-space: nowrap; }
+.theme-title { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: 4px; text-transform: uppercase; }
+.bar { height: 6px; background: var(--track); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left center; }
+.energy-battery .bar i { background: var(--secondary); }
+h2 { margin: 8px 0 0; font-weight: 400; font-size: 32px; letter-spacing: -1px; }
+.detail-page { position: absolute; left: 46px; right: 46px; top: 135px; bottom: 80px; }
+.page-hero { margin: 34px 0 28px; }
+.page-hero .reading { font-size: 76px; }
+.detail-stack .metric { display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid var(--track); padding: 20px 0; }
+.detail-stack .label { font-size: 13px; letter-spacing: .6px; }
+.detail-stack .reading { font-size: 28px; }
+.navigation-distance { margin-top: 44px; font-size: 80px; line-height: 1.2; letter-spacing: -3px; }
+.navigation-turn { color: var(--accent); font-size: 26px; line-height: 1.3; margin: 18px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-value="navDistance"] { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-value="navStreet"] { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.navigation-street { font-size: 30px; line-height: 1.3; max-height: 116px; overflow: hidden; overflow-wrap: break-word; }
+.detail-note { margin-top: 36px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.climate-zones { display: flex; justify-content: space-between; margin: 66px 0 50px; }
+.climate-zones .reading { margin-top: 12px; font-size: 54px; }
+.climate-zones .label { font-size: 13px; letter-spacing: .6px; }
+.climate-air { border-top: 1px solid var(--track); padding-top: 24px; }
+.climate-air .metric { display: flex; justify-content: space-between; align-items: center; }
+.page-hint { position: absolute; bottom: 30px; left: 46px; right: 46px; color: var(--muted); font-size: 12px; letter-spacing: 1px; }
+.page-hint > span:first-child { color: var(--ink); font-size: 16px; margin-right: 12px; }
+.hint-separator { margin: 0 10px; opacity: .5; }
+.dial { display: block; width: 100%; height: 100%; overflow: visible; }
+.dial-track, .dial-value { fill: none; stroke-width: 5px; stroke: var(--track); }
+.dial-value { stroke: var(--accent); transform: rotate(-90deg); transform-origin: center; stroke-linecap: round; }
+
+#impulse[data-theme="Sereno"] { --surface: #eaece5; --ink: #1e3638; --muted: #54696a; --track: #bdc9c3; --accent: #39776d; --secondary: #39776d; }
+.surface-left { background: #eef0e9; }
+.surface-right { background: #e3e8df; }
+.brand { position: absolute; top: 49px; left: 52px; }
+.theme-title { font-size: 23px; letter-spacing: 1px; font-weight: 400; text-transform: none; }
+.brand > span { display: block; color: var(--muted); font-size: 11px; margin-top: 8px; letter-spacing: 1px; }
+.speed-block { position: absolute; top: 133px; left: 45px; }
+.speed-value { font-size: 158px; line-height: 1; letter-spacing: -9px; font-weight: 300; }
+.speed-unit { display: block; margin-top: 5px; margin-left: 9px; color: var(--muted); font-size: 14px; letter-spacing: .5px; }
+.gear-block { position: absolute; left: 407px; top: 176px; font-size: 48px; text-align: center; }
+.gear-block .label { font-size: 10px; margin-top: 8px; letter-spacing: 1px; }
+.left-metrics { position: absolute; top: 351px; left: 55px; width: 147px; }
+.left-metrics .metric { margin-bottom: 26px; }
+.left-metrics .label { font-size: 11px; letter-spacing: 1px; }
+.left-metrics .reading { margin-top: 6px; font-size: 25px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.left-footer { position: absolute; left: 55px; right: 46px; bottom: 38px; padding-top: 23px; border-top: 1px solid var(--track); display: flex; justify-content: space-between; align-items: baseline; font-size: 23px; }
+.left-footer .label { font-size: 11px; }
+.right-header { position: absolute; left: 48px; right: 48px; top: 53px; display: flex; align-items: center; justify-content: space-between; }
+.right-header .eyebrow { font-size: 12px; letter-spacing: 1px; }
+.index-mark { font-size: 10px; color: var(--muted); letter-spacing: 2px; }
+.summary { position: absolute; top: 149px; left: 48px; right: 48px; }
+.route-heading { display: flex; align-items: center; }
+.route-point { display: block; width: 13px; height: 13px; border: 2px solid var(--accent); border-radius: 50%; margin-right: 13px; }
+.route-heading .label { font-size: 12px; letter-spacing: 1px; }
+.serene-distance { font-size: 86px; letter-spacing: -4px; line-height: 1.15; margin: 27px 0 13px; }
+.serene-turn { color: var(--accent); font-size: 23px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-bottom: 12px; }
+.serene-street [data-value] { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.serene-street { font-size: 30px; line-height: 1.3; min-height: 78px; max-height: 78px; overflow: hidden; overflow-wrap: break-word; }
+.route-details { display: flex; justify-content: space-between; border-top: 1px solid var(--track); padding-top: 26px; margin-top: 30px; }
+.route-details .label { font-size: 10px; letter-spacing: 1px; }
+.route-details .reading { margin-top: 9px; font-size: 37px; }
+.serene-consumption { border-top: 1px solid var(--track); margin-top: 25px; padding-top: 21px; }
+.serene-consumption .metric { display: flex; align-items: baseline; justify-content: space-between; }
+.serene-consumption .label { font-size: 11px; letter-spacing: .5px; }
+.serene-consumption .reading { font-size: 27px; }
+.serene-consumption .unit { font-size: 13px; }
+.surface-top { display: flex; align-items: center; justify-content: space-between; padding: 0 50px; border-bottom: 1px solid var(--track); }
+.top-mode, .top-detail { font-size: 20px; }
+.top-mode .label, .top-detail .label { margin-bottom: 9px; font-size: 10px; letter-spacing: 1px; }
+.top-time { font-size: 43px; font-weight: 300; letter-spacing: 1px; }
+.top-detail { text-align: right; font-size: 12px; }
+.surface-bottom { display: flex; align-items: center; justify-content: space-between; padding: 0 34px; border-top: 1px solid var(--track); }
+.bottom-energy { display: flex; align-items: center; width: 388px; font-size: 24px; }
+.bottom-energy > .label { font-size: 10px; letter-spacing: .8px; margin-right: 12px; }
+.bottom-energy > .unit { font-size: 12px; margin-left: 3px; }
+.bottom-energy .bar { width: 79px; height: 4px; margin: 0 18px; }
+.bottom-energy .range { font-size: 20px; white-space: nowrap; }
+.bottom-energy .range .unit { font-size: 12px; }
+.page-hint { color: #54696a; }
+.detail-page h2 { font-weight: 400; letter-spacing: -1px; }
+.detail-page .eyebrow { color: var(--accent); }
+.navigation-distance { font-weight: 300; }

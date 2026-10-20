@@ -1,0 +1,98 @@
+/* Original Impulse composition. No remote assets, animation, filters or canvas. */
+html, body { width: 1920px; height: 720px; margin: 0; overflow: hidden; background: transparent; }
+* { box-sizing: border-box; }
+#impulse { position: relative; width: 1920px; height: 720px; overflow: hidden; background: transparent; color: var(--ink); font-family: Arial, Helvetica, sans-serif; font-variant-numeric: tabular-nums; }
+.surface { position: absolute; overflow: hidden; background: var(--surface); }
+.surface-left { left: 0; top: 0; width: 520px; height: 720px; }
+.surface-right { left: 1400px; top: 0; width: 520px; height: 720px; }
+.surface-top { left: 520px; top: 0; width: 880px; height: 120px; }
+.surface-bottom { left: 520px; top: 650px; width: 880px; height: 70px; }
+[hidden] { display: none !important; }
+.label, .eyebrow { display: block; color: var(--muted); font-size: 15px; line-height: 1.35; letter-spacing: 1.6px; text-transform: uppercase; }
+.reading { font-size: 38px; line-height: 1.2; }
+.unit { color: var(--muted); font-size: 17px; font-weight: 400; margin-left: 7px; white-space: nowrap; }
+.theme-title { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: 4px; text-transform: uppercase; }
+.bar { height: 6px; background: var(--track); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left center; }
+.energy-battery .bar i { background: var(--secondary); }
+h2 { margin: 8px 0 0; font-weight: 400; font-size: 32px; letter-spacing: -1px; }
+.detail-page { position: absolute; left: 46px; right: 46px; top: 135px; bottom: 80px; }
+.page-hero { margin: 34px 0 28px; }
+.page-hero .reading { font-size: 76px; }
+.detail-stack .metric { display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid var(--track); padding: 20px 0; }
+.detail-stack .label { font-size: 13px; letter-spacing: .6px; }
+.detail-stack .reading { font-size: 28px; }
+.navigation-distance { margin-top: 44px; font-size: 80px; line-height: 1.2; letter-spacing: -3px; }
+.navigation-turn { color: var(--accent); font-size: 26px; line-height: 1.3; margin: 18px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-value="navDistance"] { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-value="navStreet"] { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.navigation-street { font-size: 30px; line-height: 1.3; max-height: 116px; overflow: hidden; overflow-wrap: break-word; }
+.detail-note { margin-top: 36px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.climate-zones { display: flex; justify-content: space-between; margin: 66px 0 50px; }
+.climate-zones .reading { margin-top: 12px; font-size: 54px; }
+.climate-zones .label { font-size: 13px; letter-spacing: .6px; }
+.climate-air { border-top: 1px solid var(--track); padding-top: 24px; }
+.climate-air .metric { display: flex; justify-content: space-between; align-items: center; }
+.page-hint { position: absolute; bottom: 30px; left: 46px; right: 46px; color: var(--muted); font-size: 12px; letter-spacing: 1px; }
+.page-hint > span:first-child { color: var(--ink); font-size: 16px; margin-right: 12px; }
+.hint-separator { margin: 0 10px; opacity: .5; }
+.dial { display: block; width: 100%; height: 100%; overflow: visible; }
+.dial-track, .dial-value { fill: none; stroke-width: 5px; stroke: var(--track); }
+.dial-value { stroke: var(--accent); transform: rotate(-90deg); transform-origin: center; stroke-linecap: round; }
+
+#impulse[data-theme="Eclipse"] { --surface: #0d0e10; --ink: #ded7c9; --muted: #a99d89; --track: #34312b; --accent: #d2a46f; --secondary: #aeb79b; }
+.surface-left { background: linear-gradient(125deg, #191614, #0d0e10 65%); }
+.surface-right { background: #121211; }
+.brand { position: absolute; top: 52px; left: 49px; display: flex; align-items: center; }
+.theme-title { font-size: 15px; letter-spacing: 5px; font-weight: 400; }
+.eclipse-mark { display: block; width: 23px; height: 23px; border: 1px solid var(--accent); border-radius: 50%; margin-right: 18px; position: relative; }
+.eclipse-mark::after { content: ''; position: absolute; width: 20px; height: 20px; top: -2px; right: -4px; border-radius: 50%; background: #191614; }
+.speed-block { position: absolute; top: 133px; left: 47px; }
+.speed-block .label { font-size: 10px; letter-spacing: 3px; }
+.speed-value { font-size: 150px; line-height: 1; margin-top: 8px; font-weight: 300; letter-spacing: -8px; color: #e5dccb; }
+.speed-unit { position: absolute; left: 316px; top: 103px; color: var(--muted); font-size: 20px; white-space: nowrap; }
+.gear-block { position: absolute; left: 414px; top: 163px; font-size: 47px; text-align: center; color: var(--accent); }
+.gear-block .label { font-size: 9px; margin-top: 12px; letter-spacing: 1px; }
+.left-metrics { position: absolute; top: 351px; left: 53px; width: 151px; }
+.left-metrics .metric { margin-bottom: 26px; }
+.left-metrics .label { font-size: 10px; letter-spacing: 1.4px; }
+.left-metrics .reading { font-size: 25px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.left-footer { position: absolute; bottom: 38px; left: 53px; right: 46px; border-top: 1px solid var(--track); padding-top: 20px; display: flex; justify-content: space-between; align-items: baseline; font-size: 23px; }
+.left-footer .label { font-size: 10px; letter-spacing: 2px; }
+.right-header { position: absolute; left: 48px; right: 48px; top: 55px; display: flex; justify-content: space-between; align-items: center; }
+.right-header .eyebrow { font-size: 11px; letter-spacing: 2.5px; }
+.night-mark { font-size: 10px; letter-spacing: 2px; color: var(--muted); }
+.summary { position: absolute; top: 140px; left: 48px; right: 48px; }
+.night-range { position: relative; border-left: 2px solid var(--accent); padding-left: 26px; }
+.night-range .label { font-size: 12px; letter-spacing: 2px; }
+.night-range > div { font-size: 91px; line-height: 1.15; letter-spacing: -4px; margin: 9px 0 7px; }
+.night-range .unit { font-size: 22px; letter-spacing: 0; margin-left: 16px; }
+.range-caption { color: var(--muted); font-size: 9px; letter-spacing: 2px; }
+.energy-stack { margin-top: 32px; }
+.energy { position: relative; padding: 19px 0 20px; border-top: 1px solid var(--track); }
+.energy-heading { display: flex; justify-content: space-between; align-items: baseline; padding-right: 120px; }
+.energy-heading .label { font-size: 11px; letter-spacing: 1px; }
+.energy-heading strong { font-size: 25px; font-weight: 400; }
+.energy-heading strong .unit { font-size: 12px; }
+.energy .bar { height: 3px; margin-top: 15px; width: 295px; }
+.energy-range { position: absolute; top: 19px; right: 0; font-size: 23px; }
+.energy-range .unit { font-size: 12px; }
+.night-trip { border-top: 1px solid var(--track); padding-top: 23px; display: flex; justify-content: space-between; }
+.night-trip .label { font-size: 10px; letter-spacing: 1px; }
+.night-trip .reading { font-size: 31px; margin-top: 9px; }
+.night-trip .unit { font-size: 12px; }
+.surface-top { display: flex; justify-content: space-between; align-items: center; padding: 0 48px; }
+.top-mode { color: var(--accent); font-size: 23px; }
+.top-mode .label { font-size: 9px; letter-spacing: 2px; margin-top: 9px; }
+.top-time { font-size: 39px; letter-spacing: 2px; }
+.top-context { color: var(--muted); text-align: right; font-size: 10px; letter-spacing: 2px; }
+.top-context span { display: block; font-size: 9px; letter-spacing: 4px; margin-top: 12px; }
+.surface-bottom { display: flex; align-items: center; padding: 0 45px; border-top: 1px solid var(--track); }
+.bottom-item { display: flex; align-items: baseline; font-size: 23px; }
+.bottom-item .label { margin-right: 16px; font-size: 10px; letter-spacing: 1.5px; }
+.bottom-item .unit { font-size: 12px; }
+.bottom-dot { width: 3px; height: 3px; background: var(--accent); border-radius: 50%; margin: 0 38px; }
+.bottom-status { margin-left: auto; color: var(--muted); font-size: 11px; letter-spacing: 1px; }
+.detail-page .page-heading { border-left: 2px solid var(--accent); padding-left: 23px; }
+.detail-page h2 { font-size: 31px; }
+.page-hint { font-size: 11px; }

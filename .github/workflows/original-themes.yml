@@ -1,0 +1,55 @@
+name: Original themes contract and browser QA
+
+on:
+  push:
+    branches: [codex/hav-28-five-original-cluster-themes]
+    paths:
+      - 'cluster-widgets/**'
+      - '.github/workflows/original-themes.yml'
+  pull_request:
+    branches: [feature/new-screen-enhancements-v9]
+    paths:
+      - 'cluster-widgets/source/v1.0/Horizonte/**'
+      - 'cluster-widgets/source/v1.0/Pulso/**'
+      - 'cluster-widgets/source/v1.0/Orbita/**'
+      - 'cluster-widgets/source/v1.0/Sereno/**'
+      - 'cluster-widgets/source/v1.0/Eclipse/**'
+      - 'cluster-widgets/source/v1.0/shared/original-themes/**'
+      - 'cluster-widgets/dev/theme-catalog.mjs'
+      - '.github/workflows/original-themes.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  original-themes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cluster-widgets/source/v1.0/shared/original-themes/package-lock.json
+      - name: Install test-only tools
+        working-directory: cluster-widgets/source/v1.0/shared/original-themes
+        run: npm ci --ignore-scripts
+      - name: Check committed packages and all existing Theme Lab checks
+        run: |
+          node cluster-widgets/source/v1.0/shared/original-themes/check.mjs
+          npm --prefix cluster-widgets run check
+          node cluster-widgets/source/v1.0/shared/original-themes/build.mjs
+          git diff --exit-code -- cluster-widgets/Themes cluster-widgets/source/v1.0/shared/original-themes/contract.js
+      - name: Install pinned desktop browser
+        working-directory: cluster-widgets/source/v1.0/shared/original-themes
+        run: npx playwright install --with-deps chromium
+      - name: Offline packaged HTML, pixel transparency and simulated previews
+        run: node cluster-widgets/source/v1.0/shared/original-themes/check-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hav28-original-theme-browser-evidence
+          path: test-artifacts/original-themes/
+          if-no-files-found: warn
+          retention-days: 14

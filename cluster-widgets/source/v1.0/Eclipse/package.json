@@ -1,0 +1,9 @@
+{
+  "name": "haval-impulse-eclipse",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node ../shared/original-themes/build.mjs Eclipse",
+    "test": "node ../shared/original-themes/check.mjs"
+  }
+}

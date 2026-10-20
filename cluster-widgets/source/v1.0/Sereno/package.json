@@ -1,0 +1,9 @@
+{
+  "name": "haval-impulse-sereno",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node ../shared/original-themes/build.mjs Sereno",
+    "test": "node ../shared/original-themes/check.mjs"
+  }
+}

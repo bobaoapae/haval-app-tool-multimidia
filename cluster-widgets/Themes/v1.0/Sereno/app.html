@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Sereno · Haval Impulse</title>
+  <style>
+/* Common geometry contract. Theme surfaces, not the document, own their paint. */
+html, body { margin: 0; width: 1920px; height: 720px; overflow: hidden; background: transparent !important; }
+* { box-sizing: border-box; }
+#impulse { position: relative; width: 1920px; height: 720px; overflow: hidden; font-family: Arial, Helvetica, sans-serif; font-variant-numeric: tabular-nums; }
+[hidden] { display: none !important; }
+.surface-left, .surface-right, .surface-top, .surface-bottom { position: absolute; overflow: hidden; }
+.surface-left { left: 0; top: 0; width: 520px; height: 720px; }
+.surface-right { left: 1400px; top: 0; width: 520px; height: 720px; }
+.surface-top { left: 520px; top: 0; width: 880px; height: 120px; }
+.surface-bottom { left: 520px; top: 650px; width: 880px; height: 70px; }
+[data-fill] { transform: scaleX(0); transform-origin: left center; }
+[data-ring] { stroke-dasharray: 0 100; }
+html.cluster-disabled { opacity: 0 !important; pointer-events: none !important; }
+#impulse[data-card="0"] { opacity: 0; pointer-events: none; }
+[data-value="navStreet"] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-value="navDistance"], [data-value="navTurn"] { overflow: hidden; text-overflow: ellipsis; }
+
+/* Full-screen AA/CarPlay bypass theme bounds: yield, do not crop the map or draw over it. */
+#impulse[data-projection="active"] { opacity: 0; pointer-events: none; }
+
+</style>
+  <style>
+/* Original Impulse composition. No remote assets, animation, filters or canvas. */
+html, body { width: 1920px; height: 720px; margin: 0; overflow: hidden; background: transparent; }
+* { box-sizing: border-box; }
+#impulse { position: relative; width: 1920px; height: 720px; overflow: hidden; background: transparent; color: var(--ink); font-family: Arial, Helvetica, sans-serif; font-variant-numeric: tabular-nums; }
+.surface { position: absolute; overflow: hidden; background: var(--surface); }
+.surface-left { left: 0; top: 0; width: 520px; height: 720px; }
+.surface-right { left: 1400px; top: 0; width: 520px; height: 720px; }
+.surface-top { left: 520px; top: 0; width: 880px; height: 120px; }
+.surface-bottom { left: 520px; top: 650px; width: 880px; height: 70px; }
+[hidden] { display: none !important; }
+.label, .eyebrow { display: block; color: var(--muted); font-size: 15px; line-height: 1.35; letter-spacing: 1.6px; text-transform: uppercase; }
+.reading { font-size: 38px; line-height: 1.2; }
+.unit { color: var(--muted); font-size: 17px; font-weight: 400; margin-left: 7px; white-space: nowrap; }
+.theme-title { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: 4px; text-transform: uppercase; }
+.bar { height: 6px; background: var(--track); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left center; }
+.energy-battery .bar i { background: var(--secondary); }
+h2 { margin: 8px 0 0; font-weight: 400; font-size: 32px; letter-spacing: -1px; }
+.detail-page { position: absolute; left: 46px; right: 46px; top: 135px; bottom: 80px; }
+.page-hero { margin: 34px 0 28px; }
+.page-hero .reading { font-size: 76px; }
+.detail-stack .metric { display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid var(--track); padding: 20px 0; }
+.detail-stack .label { font-size: 13px; letter-spacing: .6px; }
+.detail-stack .reading { font-size: 28px; }
+.navigation-distance { margin-top: 44px; font-size: 80px; line-height: 1.2; letter-spacing: -3px; }
+.navigation-turn { color: var(--accent); font-size: 26px; line-height: 1.3; margin: 18px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-value="navDistance"] { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-value="navStreet"] { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.navigation-street { font-size: 30px; line-height: 1.3; max-height: 116px; overflow: hidden; overflow-wrap: break-word; }
+.detail-note { margin-top: 36px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.climate-zones { display: flex; justify-content: space-between; margin: 66px 0 50px; }
+.climate-zones .reading { margin-top: 12px; font-size: 54px; }
+.climate-zones .label { font-size: 13px; letter-spacing: .6px; }
+.climate-air { border-top: 1px solid var(--track); padding-top: 24px; }
+.climate-air .metric { display: flex; justify-content: space-between; align-items: center; }
+.page-hint { position: absolute; bottom: 30px; left: 46px; right: 46px; color: var(--muted); font-size: 12px; letter-spacing: 1px; }
+.page-hint > span:first-child { color: var(--ink); font-size: 16px; margin-right: 12px; }
+.hint-separator { margin: 0 10px; opacity: .5; }
+.dial { display: block; width: 100%; height: 100%; overflow: visible; }
+.dial-track, .dial-value { fill: none; stroke-width: 5px; stroke: var(--track); }
+.dial-value { stroke: var(--accent); transform: rotate(-90deg); transform-origin: center; stroke-linecap: round; }
+
+#impulse[data-theme="Sereno"] { --surface: #eaece5; --ink: #1e3638; --muted: #54696a; --track: #bdc9c3; --accent: #39776d; --secondary: #39776d; }
+.surface-left { background: #eef0e9; }
+.surface-right { background: #e3e8df; }
+.brand { position: absolute; top: 49px; left: 52px; }
+.theme-title { font-size: 23px; letter-spacing: 1px; font-weight: 400; text-transform: none; }
+.brand > span { display: block; color: var(--muted); font-size: 11px; margin-top: 8px; letter-spacing: 1px; }
+.speed-block { position: absolute; top: 133px; left: 45px; }
+.speed-value { font-size: 158px; line-height: 1; letter-spacing: -9px; font-weight: 300; }
+.speed-unit { display: block; margin-top: 5px; margin-left: 9px; color: var(--muted); font-size: 14px; letter-spacing: .5px; }
+.gear-block { position: absolute; left: 407px; top: 176px; font-size: 48px; text-align: center; }
+.gear-block .label { font-size: 10px; margin-top: 8px; letter-spacing: 1px; }
+.left-metrics { position: absolute; top: 351px; left: 55px; width: 147px; }
+.left-metrics .metric { margin-bottom: 26px; }
+.left-metrics .label { font-size: 11px; letter-spacing: 1px; }
+.left-metrics .reading { margin-top: 6px; font-size: 25px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.left-footer { position: absolute; left: 55px; right: 46px; bottom: 38px; padding-top: 23px; border-top: 1px solid var(--track); display: flex; justify-content: space-between; align-items: baseline; font-size: 23px; }
+.left-footer .label { font-size: 11px; }
+.right-header { position: absolute; left: 48px; right: 48px; top: 53px; display: flex; align-items: center; justify-content: space-between; }
+.right-header .eyebrow { font-size: 12px; letter-spacing: 1px; }
+.index-mark { font-size: 10px; color: var(--muted); letter-spacing: 2px; }
+.summary { position: absolute; top: 149px; left: 48px; right: 48px; }
+.route-heading { display: flex; align-items: center; }
+.route-point { display: block; width: 13px; height: 13px; border: 2px solid var(--accent); border-radius: 50%; margin-right: 13px; }
+.route-heading .label { font-size: 12px; letter-spacing: 1px; }
+.serene-distance { font-size: 86px; letter-spacing: -4px; line-height: 1.15; margin: 27px 0 13px; }
+.serene-turn { color: var(--accent); font-size: 23px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-bottom: 12px; }
+.serene-street [data-value] { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.serene-street { font-size: 30px; line-height: 1.3; min-height: 78px; max-height: 78px; overflow: hidden; overflow-wrap: break-word; }
+.route-details { display: flex; justify-content: space-between; border-top: 1px solid var(--track); padding-top: 26px; margin-top: 30px; }
+.route-details .label { font-size: 10px; letter-spacing: 1px; }
+.route-details .reading { margin-top: 9px; font-size: 37px; }
+.serene-consumption { border-top: 1px solid var(--track); margin-top: 25px; padding-top: 21px; }
+.serene-consumption .metric { display: flex; align-items: baseline; justify-content: space-between; }
+.serene-consumption .label { font-size: 11px; letter-spacing: .5px; }
+.serene-consumption .reading { font-size: 27px; }
+.serene-consumption .unit { font-size: 13px; }
+.surface-top { display: flex; align-items: center; justify-content: space-between; padding: 0 50px; border-bottom: 1px solid var(--track); }
+.top-mode, .top-detail { font-size: 20px; }
+.top-mode .label, .top-detail .label { margin-bottom: 9px; font-size: 10px; letter-spacing: 1px; }
+.top-time { font-size: 43px; font-weight: 300; letter-spacing: 1px; }
+.top-detail { text-align: right; font-size: 12px; }
+.surface-bottom { display: flex; align-items: center; justify-content: space-between; padding: 0 34px; border-top: 1px solid var(--track); }
+.bottom-energy { display: flex; align-items: center; width: 388px; font-size: 24px; }
+.bottom-energy > .label { font-size: 10px; letter-spacing: .8px; margin-right: 12px; }
+.bottom-energy > .unit { font-size: 12px; margin-left: 3px; }
+.bottom-energy .bar { width: 79px; height: 4px; margin: 0 18px; }
+.bottom-energy .range { font-size: 20px; white-space: nowrap; }
+.bottom-energy .range .unit { font-size: 12px; }
+.page-hint { color: #54696a; }
+.detail-page h2 { font-weight: 400; letter-spacing: -1px; }
+.detail-page .eyebrow { color: var(--accent); }
+.navigation-distance { font-weight: 300; }
+
+</style>
+
+
+</head>
+<body>
+<main id="impulse" data-theme="Sereno" data-card="1" aria-label="Painel Sereno">
+  <!-- Four clipped surfaces preserve the complete 880 × 530 native ADAS opening. -->
+  <section class="surface surface-left" aria-label="Condução"><div class="brand"><h1 class="theme-title">Sereno</h1><span>Haval Impulse</span></div>
+<div class="speed-block"><div class="speed-value"><span data-value="speed">--</span></div><span class="speed-unit">quilômetros por hora</span></div>
+<div class="gear-block"><span data-value="gear">--</span><span class="label">Marcha</span></div>
+<div class="left-metrics"><div class="metric "><span class="label">Condução</span><div class="reading"><span data-value="driveMode">--</span><span class="unit"></span></div></div><div class="metric "><span class="label">Sistema</span><div class="reading"><span data-value="propulsion">--</span><span class="unit"></span></div></div><div class="metric "><span class="label">Exterior</span><div class="reading"><span data-value="outsideTemp">--</span><span class="unit"></span></div></div></div>
+<div class="left-footer"><span class="label">Odômetro</span><span><span data-value="odometer">--</span><span class="unit">km</span></span></div></section>
+  <section class="surface surface-right" aria-label="Informações"><div class="right-header"><span class="eyebrow">Orientação</span><span class="index-mark">01—04</span></div>
+<section class="summary" data-page="summary"><div class="route-heading"><span class="route-point" aria-hidden="true"></span><span class="label">Próximo passo</span></div><div class="serene-distance"><span data-value="navDistance">--</span></div><div class="serene-turn"><span data-value="navTurn">--</span></div><div class="serene-street"><span data-value="navStreet">--</span></div>
+<div class="route-details"><div class="metric "><span class="label">Autonomia total</span><div class="reading"><span data-value="totalRange">--</span><span class="unit">km</span></div></div><div class="metric "><span class="label">Nesta viagem</span><div class="reading"><span data-value="trip">--</span><span class="unit">km</span></div></div></div><div class="serene-consumption"><div class="metric "><span class="label">Consumo médio</span><div class="reading"><span data-value="consumption">--</span><span class="unit">L/100 km</span></div></div></div></section><section class="detail-page" data-page="trip" hidden aria-label="Dados da viagem">
+      <div class="page-heading"><span class="eyebrow">A bordo</span><h2>Esta viagem</h2></div>
+      <div class="page-hero"><div class="metric "><span class="label">Percurso</span><div class="reading"><span data-value="trip">--</span><span class="unit">km</span></div></div></div>
+      <div class="detail-stack"><div class="metric "><span class="label">Consumo médio</span><div class="reading"><span data-value="consumption">--</span><span class="unit">L/100 km</span></div></div><div class="metric "><span class="label">Odômetro</span><div class="reading"><span data-value="odometer">--</span><span class="unit">km</span></div></div><div class="metric "><span class="label">Autonomia total</span><div class="reading"><span data-value="totalRange">--</span><span class="unit">km</span></div></div></div>
+    </section>
+    <section class="detail-page" data-page="navigation" hidden aria-label="Navegação">
+      <div class="page-heading"><span class="eyebrow">Navegação</span><h2>Próximo passo</h2></div>
+      <div class="navigation-distance"><span data-value="navDistance">--</span></div>
+      <div class="navigation-turn"><span data-value="navTurn">--</span></div>
+      <div class="navigation-street"><span data-value="navStreet">--</span></div>
+      <div class="detail-note">Orientação recebida do veículo</div>
+    </section>
+    <section class="detail-page" data-page="climate" hidden aria-label="Climatização">
+      <div class="page-heading"><span class="eyebrow">Conforto</span><h2>Climatização</h2></div>
+      <div class="climate-zones"><div class="metric "><span class="label">Ajuste</span><div class="reading"><span data-value="climateLeft">--</span><span class="unit"></span></div></div><div class="metric "><span class="label">Interior</span><div class="reading"><span data-value="insideTemp">--</span><span class="unit"></span></div></div></div>
+      <div class="climate-air"><div class="metric "><span class="label">Ventilação</span><div class="reading"><span data-value="climateFan">--</span><span class="unit"></span></div></div></div>
+      <div class="detail-note">Leitura do veículo · somente leitura</div>
+    </section><div class="page-hint"><span>↑ ↓</span> <span data-value="pageLabel">--</span> <span class="hint-separator">/</span> ENTER</div></section>
+  <header class="surface surface-top"><div class="top-mode"><span class="label">Modo atual</span><span data-value="driveMode">--</span></div><div class="top-time"><span data-value="clock">--</span></div><div class="top-detail"><span class="label">Veículo</span><span data-value="connection">--</span></div></header>
+  <footer class="surface surface-bottom"><div class="bottom-energy"><span class="label">Combustível</span><span data-value="fuel">--</span><span class="unit">%</span><div class="bar" aria-hidden="true"><i data-fill="fuel"></i></div><span class="range"><span data-value="fuelRange">--</span><span class="unit">km</span></span></div><div class="bottom-energy"><span class="label">Bateria</span><span data-value="battery">--</span><span class="unit">%</span><div class="bar" aria-hidden="true"><i data-fill="battery"></i></div><span class="range"><span data-value="batteryRange">--</span><span class="unit">km</span></span></div></footer>
+</main>
+<script>
+// Generated by original-themes/build.mjs from shared/car/carDerivations.js.
+(function () { "use strict";
+function getAdjustedSpeed(rawSpeed, enableAdjustment = false, offsetPercent = 0.0) {
+    const speed = parseFloat(rawSpeed) || 0.0;
+
+    // Formula to match the physical instrument cluster
+    const adjustedSpeed = speed * 1.07 - (speed / 180.0) * 0.02;
+
+    const finalSpeed = enableAdjustment
+        ? adjustedSpeed * (1.0 + (parseFloat(offsetPercent) / 100.0))
+        : adjustedSpeed;
+
+    return String(Math.floor(finalSpeed));
+}
+window.ImpulseContract = { getAdjustedSpeed: getAdjustedSpeed };
+})();
+
+</script>
+<script>
+/* Original Impulse collection. Read-only v1.0 consumer: no CAN writes or projection actions. */
+(function () {
+    'use strict';
+    var root = document.getElementById('impulse');
+    if (!root) return;
+    var disposed = false, frame = null, clockTimer = null;
+    var subscribed = [], received = Object.create(null), canonical = Object.create(null);
+    var card = 1, pageIndex = 0, pages = ['summary', 'trip', 'navigation'];
+    var state = Object.create(null), enabledAdjustment = false, speedOffset = 0;
+    var keys = {
+        'car.basic.vehicle_speed': 'speed', 'car.basic.engine_speed': 'rpm',
+        'car.basic.gear_status': 'gear', 'car.drive_setting.drive_mode': 'driveMode',
+        'car.ev_setting.power_model_config': 'propulsion', 'car.basic.total_odometer': 'odometer',
+        'car.basic.remain_fuel_percentage': 'fuel', 'car.ev_info.cur_battery_power_percentage': 'battery',
+        'car.ev_info.fuel_mode_remain_odometer': 'fuelRange', 'car.ev_info.electric_mode_remain_odometer': 'batteryRange',
+        'car.basic.cur_journey_odometer': 'trip', 'car.basic.cur_journey_avg_fuel_consume': 'consumption',
+        'car.ev_info.power_battery_voltage': 'voltage', 'car.ev_info.cur_charge_current': 'current',
+        'car.basic.outside_temp': 'outsideTemp', 'car.basic.inside_temp': 'insideTemp',
+        'car.configure.default_temp_unit': 'tempUnit', 'car.hvac.driver_temperature': 'climateLeft',
+        'car.hvac.fan_speed': 'climateFan', 'car.hvac.power_mode': 'climatePower',
+        'app.navigation.directions': 'navigation'
+    };
+    var aliases = {
+        carSpeed: 'speed', engineRPM: 'rpm', gearState: 'gear', drivingMode: 'driveMode', evMode: 'propulsion',
+        odometer: 'odometer', fuelPercent: 'fuel', batteryPercent: 'battery', fuelRange: 'fuelRange',
+        batteryRange: 'batteryRange', outside_temp: 'outsideTemp', inside_temp: 'insideTemp', tempUnit: 'tempUnit',
+        temp: 'climateLeft', fan: 'climateFan', power: 'climatePower'
+    };
+    var enums = {
+        gear: { 0: 'N', 1: 'N', 2: 'D', 3: 'P', 4: 'R' },
+        driveMode: { 0: 'NORMAL', 1: 'SPORT', 2: 'ECO', 3: 'NEVE', 4: 'AREIA', 5: 'LAMA', 11: 'AWD' },
+        propulsion: { 0: 'HEV', 1: 'EVP', 3: 'EV' }
+    };
+    var preferenceKeys = ['app.preferences.enableSpeedAdjustment', 'app.preferences.speedAdjustmentOffset'];
+    var textNodes = {}, fillNodes = {}, ringNodes = {};
+    function collect(selector, attribute, map) {
+        Array.prototype.forEach.call(root.querySelectorAll(selector), function (node) {
+            var name = node.getAttribute(attribute);
+            if (!map[name]) map[name] = [];
+            map[name].push(node);
+        });
+    }
+    collect('[data-value]', 'data-value', textNodes);
+    collect('[data-fill]', 'data-fill', fillNodes);
+    collect('[data-ring]', 'data-ring', ringNodes);
+    function number(value) {
+        if (typeof value !== 'number' && typeof value !== 'string') return null;
+        if (typeof value === 'string' && !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim())) return null;
+        var n = Number(value);
+        return isFinite(n) ? n : null;
+    }
+    function bool(value) {
+        if (value === true || value === 1 || value === 'true' || value === '1') return true;
+        if (value === false || value === 0 || value === 'false' || value === '0') return false;
+        return null;
+    }
+    function label(value, labels) {
+        var n = number(value), token = typeof value === 'string' ? value.trim().toUpperCase() : '';
+        if (n !== null && Object.prototype.hasOwnProperty.call(labels, String(n))) return labels[n];
+        return Object.keys(labels).some(function (key) { return labels[key] === token; }) ? token : null;
+    }
+    function format(value, decimals) {
+        if (value == null || !isFinite(value)) return '--';
+        var result = Number(value).toFixed(decimals || 0);
+        return Number(result) === 0 ? (0).toFixed(decimals || 0) : result;
+    }
+    function text(name, value) {
+        (textNodes[name] || []).forEach(function (node) {
+            var next = String(value);
+            if (node.textContent !== next) node.textContent = next;
+        });
+    }
+    function safeText(value, limit) {
+        return typeof value === 'string' ? value.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, limit) : '';
+    }
+    function navigation(value) {
+        var data;
+        try { data = typeof value === 'string' ? JSON.parse(value) : value; } catch (error) { return null; }
+        if (!data || typeof data !== 'object' || Array.isArray(data) || data.active === false) return null;
+        var street = safeText(data.street, 180), distance = safeText(data.distance, 40), turn = safeText(data.turn, 60);
+        if (!street && !distance && !turn) return null;
+        return { street: street, distance: distance, turn: turn };
+    }
+    function turnLabel(turn) {
+        var labels = { TURN_RIGHT: 'VIRE À DIREITA', TURN_LEFT: 'VIRE À ESQUERDA', STRAIGHT: 'SIGA EM FRENTE',
+            SLIGHT_RIGHT: 'MANTENHA À DIREITA', SLIGHT_LEFT: 'MANTENHA À ESQUERDA',
+            U_TURN_LEFT: 'RETORNO À ESQUERDA', U_TURN_RIGHT: 'RETORNO À DIREITA', U_TURN: 'RETORNO',
+            DESTINATION: 'DESTINO', ARRIVE: 'DESTINO', NAME_CHANGE: 'CONTINUE', ROUNDABOUT: 'ROTATÓRIA' };
+        if (labels[turn]) return labels[turn];
+        // Never invent a direction for a token unknown to this read-only theme.
+        if (/^ROUNDABOUT/.test(turn)) return 'ROTATÓRIA';
+        return 'SIGA O NAVEGADOR';
+    }
+    function bar(name, percentage) {
+        var valid = percentage != null && isFinite(percentage);
+        var amount = valid ? Math.max(0, Math.min(100, percentage)) : 0;
+        (fillNodes[name] || []).forEach(function (node) {
+            var transform = 'scaleX(' + amount / 100 + ')';
+            if (node.style.transform !== transform) node.style.transform = transform;
+            node.setAttribute('data-available', valid ? 'true' : 'false');
+        });
+        (ringNodes[name] || []).forEach(function (node) {
+            // Absolute SVG lengths work on the older Android 9 WebViews too.
+            node.removeAttribute('pathLength');
+            var length = node.getTotalLength(), dash = length * amount / 100 + ' ' + length;
+            if (node.getAttribute('stroke-dasharray') !== dash) node.setAttribute('stroke-dasharray', dash);
+            node.style.strokeDasharray = dash;
+            node.setAttribute('data-available', valid ? 'true' : 'false');
+        });
+    }
+    function render() {
+        frame = null;
+        if (disposed) return;
+        var rawSpeed = state.speed == null ? null : state.speed;
+        // Host friendly carSpeed already includes calibration; only canonical CAN data is raw.
+        var speed = rawSpeed === null ? null : canonical.speed ? Number(window.ImpulseContract.getAdjustedSpeed(rawSpeed, enabledAdjustment, speedOffset)) : rawSpeed;
+        var power = state.voltage == null || state.current == null ? null : state.voltage * state.current / 1000;
+        if (power !== null && !isFinite(power)) power = null;
+        if (speed !== null && (!isFinite(speed) || speed < 0 || speed > 999)) speed = null;
+        var range = state.fuelRange == null || state.batteryRange == null ? null : state.fuelRange + state.batteryRange;
+        var temperatureUnit = state.tempUnit === 1 ? '°F' : '°C';
+        ['fuel','battery','fuelRange','batteryRange','rpm','odometer'].forEach(function (key) { text(key, format(state[key])); });
+        ['gear','driveMode','propulsion'].forEach(function (key) { text(key, state[key] || '--'); });
+        ['outsideTemp','insideTemp'].forEach(function (key) {
+            text(key, state[key] == null ? '--' : format(state[key], state[key] % 1 ? 1 : 0) + temperatureUnit);
+        });
+        text('climateLeft', state.climateLeft == null ? '--' : state.climateLeft <= 16 ? 'LO' : state.climateLeft >= 32 ? 'HI' : format(state.climateLeft, state.climateLeft % 1 ? 1 : 0) + temperatureUnit);
+        text('speed', format(speed)); text('power', format(power)); text('totalRange', format(range));
+        text('trip', format(state.trip, 1)); text('consumption', format(state.consumption, 1));
+        text('climateFan', state.climatePower === 0 ? 'OFF' : format(state.climateFan));
+        text('connection', speed === null ? 'SEM LEITURA DE VELOCIDADE' : 'HAVAL IMPULSE');
+        text('powerLabel', power === null ? 'POTÊNCIA ELÉTRICA' : power < 0 ? 'REGENERAÇÃO' : 'POTÊNCIA ELÉTRICA');
+        var nav = state.navigation;
+        text('navStreet', nav ? nav.street || 'Rota em andamento' : 'Sem orientação ativa');
+        text('navDistance', nav ? nav.distance || '--' : '--');
+        text('navTurn', nav ? turnLabel(nav.turn) : 'AGUARDANDO NAVEGADOR');
+        root.setAttribute('data-navigation', nav ? 'active' : 'inactive');
+        root.setAttribute('data-power', power === null ? 'unknown' : power < 0 ? 'regen' : 'traction');
+        bar('fuel', state.fuel); bar('battery', state.battery);
+        bar('speed', speed === null ? null : speed / 220 * 100);
+        bar('power', power === null ? null : Math.abs(power) / 250 * 100);
+        var pageName = card === 3 ? 'climate' : pages[pageIndex];
+        Array.prototype.forEach.call(root.querySelectorAll('[data-page]'), function (node) {
+            node.hidden = card !== 1 && card !== 3 || node.getAttribute('data-page') !== pageName;
+        });
+        text('pageLabel', { summary: 'VISÃO GERAL', trip: 'VIAGEM', navigation: 'NAVEGAÇÃO', climate: 'CLIMATIZAÇÃO · LEITURA' }[pageName]);
+        root.setAttribute('data-page-active', pageName);
+    }
+    function schedule() {
+        if (!disposed && frame === null) frame = window.requestAnimationFrame(render);
+    }
+    function update(key, value, allowAliases) {
+        if (disposed) return;
+        if (key === 'clusterEnabled') {
+            document.documentElement.classList.toggle('cluster-disabled', bool(value) === false);
+            return;
+        }
+        if (preferenceKeys.indexOf(key) !== -1 || allowAliases && (key === 'enableSpeedAdjustment' || key === 'speedAdjustmentOffset')) {
+            if (key.indexOf('enableSpeedAdjustment') !== -1) {
+                var flag = bool(value); if (flag !== null) enabledAdjustment = flag;
+            } else { var offset = number(value); if (offset !== null) speedOffset = offset; }
+            schedule(); return;
+        }
+        if (['carPlayInDash','projectionMirrorInDash','aaClusterInDash','projectionPreparingD3'].indexOf(key) !== -1) {
+            state[key] = bool(value) === true;
+            root.setAttribute('data-projection', state.carPlayInDash || state.projectionMirrorInDash || state.aaClusterInDash || state.projectionPreparingD3 ? 'active' : 'inactive');
+            return;
+        }
+        var field = keys[key] || (allowAliases ? aliases[key] : null);
+        if (!field) return;
+        var sourceChanged = Boolean(keys[key]) && !canonical[field];
+        if (keys[key]) { received[key] = true; canonical[field] = true; }
+        else if (canonical[field]) return;
+        if (field === 'navigation') value = navigation(value);
+        else if (enums[field]) value = label(value, enums[field]);
+        else {
+            if (field === 'tempUnit' && value === '°F') value = 1;
+            if (field === 'tempUnit' && value === '°C') value = 0;
+            value = number(value);
+            if (['outsideTemp','insideTemp','climateLeft'].indexOf(field) !== -1) {
+                if (value === -1 || value === 255 || value < -60 || value > 160) value = null;
+            } else if (field !== 'current' && value !== null && value < 0) value = null;
+            if ((field === 'battery' || field === 'fuel') && value > 100) value = null;
+            if (field === 'tempUnit' && value !== 0 && value !== 1) value = null;
+            if (field === 'climateFan' && (value > 7 || value !== null && Math.floor(value) !== value)) value = null;
+        }
+        if (state[field] === value && !sourceChanged) return;
+        state[field] = value; schedule();
+    }
+    function onKey(key) {
+        if (disposed || card !== 1) return;
+        if (key === 'DOWN' || key === 'ENTER') pageIndex = (pageIndex + 1) % pages.length;
+        else if (key === 'UP') pageIndex = (pageIndex + pages.length - 1) % pages.length;
+        else if (key === 'BACK' || key === 'HOME') pageIndex = 0;
+        else return;
+        schedule();
+    }
+    function keyboard(event) {
+        // Development convenience only. A real host owns steering keys.
+        if (window.Android || event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+        var key = { ArrowUp: 'UP', ArrowDown: 'DOWN', Enter: 'ENTER', Escape: 'BACK', Backspace: 'BACK', Home: 'HOME' }[event.key];
+        if (key) { event.preventDefault(); onKey(key); }
+    }
+    window.onDataChanged = function (key, value) { update(key, value, false); };
+    window.onCarDataChanged = window.onDataChanged;
+    window.control = function (key, value) { update(key, value, true); };
+    window.onCardChanged = function (value) {
+        if (disposed) return;
+        var next = number(value);
+        if (next === null || Math.floor(next) !== next || next < 0) return;
+        card = next; pageIndex = 0; root.setAttribute('data-card', String(card)); schedule();
+    };
+    window.onKeyEvent = onKey;
+    // Compatibility hooks must never change the vehicle-owned card.
+    window.showScreen = function () {};
+    window.focus = function () {};
+    window.cleanup = function () {
+        if (disposed) return;
+        disposed = true;
+        if (frame !== null) window.cancelAnimationFrame(frame);
+        if (clockTimer !== null) window.clearTimeout(clockTimer);
+        window.removeEventListener('keydown', keyboard);
+        window.removeEventListener('pagehide', window.cleanup);
+        if (subscribed.length && window.Android && typeof window.Android.unsubscribe === 'function') {
+            try { window.Android.unsubscribe(JSON.stringify(subscribed)); } catch (error) {}
+        }
+        subscribed = []; frame = clockTimer = null;
+    };
+    function clock() {
+        if (disposed) return;
+        var now = new Date();
+        text('clock', ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2));
+        clockTimer = window.setTimeout(clock, 60000 - now.getSeconds() * 1000 - now.getMilliseconds());
+    }
+    function connect() {
+        var bridge = window.Android;
+        if (!bridge) return;
+        if (typeof bridge.getPreference === 'function') {
+            try { update('app.preferences.enableSpeedAdjustment', bridge.getPreference('enableSpeedAdjustment', 'false'), false); } catch (error) {}
+            try { update('app.preferences.speedAdjustmentOffset', bridge.getPreference('speedAdjustmentOffset', '0'), false); } catch (error) {}
+        }
+        if (typeof bridge.subscribe !== 'function' || typeof bridge.getAvailableKeys !== 'function') return;
+        var available;
+        try { available = JSON.parse(bridge.getAvailableKeys()); } catch (error) { return; }
+        if (!Array.isArray(available)) return;
+        subscribed = Object.keys(keys).filter(function (key) { return available.indexOf(key) !== -1; }).concat(preferenceKeys);
+        try { bridge.subscribe(JSON.stringify(subscribed)); } catch (error) { subscribed = []; return; }
+        subscribed.forEach(function (key) {
+            if (received[key] || preferenceKeys.indexOf(key) !== -1 || typeof bridge.getCarData !== 'function') return;
+            try { update(key, bridge.getCarData(key), false); } catch (error) {}
+        });
+    }
+    window.addEventListener('keydown', keyboard);
+    window.addEventListener('pagehide', window.cleanup);
+    // v9 owns __havalHeartbeatTimer. Do not create a second heartbeat or any telemetry poll.
+    connect(); clock(); schedule();
+})();
+
+</script>
+</body>
+</html>

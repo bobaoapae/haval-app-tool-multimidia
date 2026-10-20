@@ -1,0 +1,12 @@
+<theme>
+    <name>Sereno</name>
+    <description>Navegação e leitura minimalista com foco no essencial. Consulta somente leitura; centro ADAS transparente. Cede a camada inteira na projeção.</description>
+    <version>1.0.0</version>
+    <minBridgeVersion>1.0.0</minBridgeVersion>
+    <contractVersion>v1.0</contractVersion>
+    <decentralized>true</decentralized>
+    <thumbnail>thumbnail.png</thumbnail>
+    <mainFile>app.html</mainFile>
+    <!-- Existing v1.0 bounds for ordinary apps. Full-display AA/CarPlay is handled by CSS yielding. -->
+    <AppDefaultPosition><x>520</x><y>120</y><width>880</width><height>530</height></AppDefaultPosition>
+</theme>
