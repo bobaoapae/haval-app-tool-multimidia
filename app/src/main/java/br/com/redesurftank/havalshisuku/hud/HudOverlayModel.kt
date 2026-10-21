@@ -523,10 +523,12 @@ object HudOverlayModel {
         if (tbt == null) return null
         val meters = tbt.guideMeters ?: return null
         if (meters > CHEVRON_SHOW_M) return null
-        if (tbt.routeMatched && !tbt.routeClear && !scripted) return null
         // Approaching a roundabout: no chevrons. They appear only once we are on the ring,
-        // pointing to the exit (right in right-hand traffic).
-        if (tbt.dynamicRoundabout && tbt.rbProgress <= 0.02f) return null
+        // pointing to the exit (right in right-hand traffic). The map's "next street on this
+        // side" check does not apply there: a roundabout is not that turn.
+        val roundaboutExit = tbt.dynamicRoundabout && tbt.rbProgress > 0.02f
+        if (tbt.dynamicRoundabout && !roundaboutExit) return null
+        if (tbt.routeMatched && !tbt.routeClear && !scripted && !roundaboutExit) return null
         val heading = if (tbt.dynamicRoundabout) {
             if (tbt.roundaboutClockwise) -90f else 90f
         } else {
@@ -685,7 +687,7 @@ object HudOverlayModel {
         val rpmTenths: Int?,
         /** AR layout: power and RPM as arcs round the native speed instead of the bottom bars. */
         val arcs: Boolean = false,
-        /** Speed camera ahead: drawn in the turn-by-turn box, in place of the turn-by-turn. */
+        /** Speed camera ahead: the card in the turn-by-turn box. On Navegação AR the map stays. */
         val radar: Radar? = null,
         /** Three-digit speed: the wide arcs (see [wideArcs]). */
         val wideArcs: Boolean = false,
@@ -701,6 +703,14 @@ object HudOverlayModel {
 
     /** Radar alert for the HUD (see RadarManager): metres to the camera, its limit, over it. */
     data class Radar(val distanceM: Int, val limitKmh: Int?, val over: Boolean)
+
+    /**
+     * The measured distance reads long, so the HUD number (and only that) is this much closer.
+     * Otherwise the countdown is still showing metres when the camera is already here.
+     */
+    const val RADAR_DISTANCE_LEAD_M = 20
+
+    fun radarShownMeters(meters: Int): Int = (meters - RADAR_DISTANCE_LEAD_M).coerceAtLeast(0)
 
     // Radar card in the turn-by-turn area: a speed-limit sign (red ring, limit inside, a small
     // camera badge on its lower right) with the distance under it, centred like the big arrow.
@@ -868,8 +878,9 @@ object HudOverlayModel {
     ): Frame {
         // "Original" layout: the window is only up for the radar, so draw nothing else.
         if (!config.active) return Frame(tbt = null, powerPercent = null, rpmTenths = null, radar = radar)
-        // A camera ahead takes the turn-by-turn box while it is alerted.
-        val tbt = if (config.navigation && radar == null) {
+        // Navegação: the camera takes the turn box. Navegação AR keeps the map (the card sits
+        // on the left; the centre picture stays).
+        val tbt = if (config.navigation && (radar == null || config.layout == Layout.AR)) {
             directions?.let { tbtFor(it, config) }?.let { tbt ->
                 val onRing = tbt.dynamicRoundabout && arProgress > 0.02f
                 val arrowMeters = when {

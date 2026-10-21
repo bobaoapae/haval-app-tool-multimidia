@@ -191,7 +191,9 @@ object RadarManager {
         showTheme: Boolean = config.showOnTheme
     ) {
         HudOverlayController.onRadar(
-            if (alert != null && showHud) HudOverlayModel.Radar(alert.distanceM, alert.limitKmh, alert.over) else null
+            if (alert != null && showHud) {
+                HudOverlayModel.Radar(HudOverlayModel.radarShownMeters(alert.distanceM), alert.limitKmh, alert.over)
+            } else null
         )
         val json = if (alert != null && showTheme) toJson(alert) else INACTIVE_JSON
         if (json == lastJson) return

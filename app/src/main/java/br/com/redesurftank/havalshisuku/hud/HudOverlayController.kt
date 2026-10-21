@@ -301,21 +301,27 @@ object HudOverlayController {
     private var roundaboutZeroAtMs = 0L
 
     /**
-     * AR roundabout: how far round the ring we are. From AA's countdown to the exit once the car
-     * is on the ring ([rbTracker]); without it, from the speed since the distance reached ~0.
-     * 0 before the roundabout or on other maneuvers.
+     * How far round the ring the left-hand icon is. From AA's countdown once a jump at the entry
+     * says the car is on the ring ([rbTracker]). A real drive often never jumps — the distance
+     * just keeps falling to the exit — so then the icon follows that distance once it is inside
+     * the ring (the demo keeps the jump, it is scripted). Last resort: speed since the distance
+     * reached ~0. 0 before the roundabout or on other maneuvers.
      */
     private fun roundaboutProgress(): Float {
         val dirs = (demoDirections ?: navDirections)?.takeIf { it.active }
-        if (rbTracker.entered && dirs != null) {
-            val now = arMetersEstimate() ?: HudOverlayModel.distanceMeters(dirs.distance, dirs.distanceM)?.toFloat()
-            if (now != null) return rbTracker.progress(now)
-        }
         val travel = dirs?.turnAngle?.takeIf { it in 1..360 }
-        val isRoundabout = config().layout == HudOverlayModel.Layout.AR && travel != null &&
+        val isRoundabout = dirs != null && travel != null &&
             HudOverlayModel.resolveTurnIcon(dirs.turn) == "ROUNDABOUT"
-        val meters = if (isRoundabout && !distanceStale()) arMetersEstimate() ?: HudOverlayModel.distanceMeters(dirs!!.distance, dirs.distanceM)?.toFloat() else null
-        if (!isRoundabout || meters == null || meters > 3f) {
+        val meters = if (isRoundabout && !distanceStale()) {
+            arMetersEstimate() ?: HudOverlayModel.distanceMeters(dirs!!.distance, dirs.distanceM)?.toFloat()
+        } else null
+        if (rbTracker.entered && meters != null) return rbTracker.progress(meters)
+        if (isRoundabout && meters != null && demoDirections == null) {
+            val along = HudArArrow.progressFromExitDistance(meters, travel!!.toFloat())
+            if (along > 0f) return along
+        }
+        val speedFallback = config().layout == HudOverlayModel.Layout.AR && isRoundabout
+        if (!speedFallback || meters == null || meters > 3f) {
             roundaboutZeroAtMs = 0L
             return 0f
         }

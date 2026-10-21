@@ -40,6 +40,25 @@ class HudRadarTest {
     }
 
     @Test
+    fun `AR keeps the map while the radar card is up`() {
+        val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR, mapStreets = true)
+        val streets = listOf(br.com.redesurftank.havalshisuku.map.LocalRoad(floatArrayOf(0f, -20f, 0f, 200f), 1f))
+        val frame = HudOverlayModel.frameFor(ar, route, powerPercent = 30, rpmTenths = 20, radar = radar, streets = streets)
+        assertEquals(HudOverlayModel.TbtStyle.AR, frame.tbt!!.style)
+        assertNotNull(frame.tbt!!.route)
+        assertEquals(radar, frame.radar)
+        assertEquals(30, frame.powerPercent)
+    }
+
+    @Test
+    fun `HUD radar distance is 20 m closer, and never below zero`() {
+        assertEquals(20, HudOverlayModel.RADAR_DISTANCE_LEAD_M)
+        assertEquals(320, HudOverlayModel.radarShownMeters(340))
+        assertEquals(0, HudOverlayModel.radarShownMeters(15))
+        assertEquals(0, HudOverlayModel.radarShownMeters(0))
+    }
+
+    @Test
     fun `radar distance reads in 10 m steps, then km`() {
         assertEquals("340" to "m", HudOverlayModel.radarDistance(338))
         assertEquals("0" to "m", HudOverlayModel.radarDistance(-5))

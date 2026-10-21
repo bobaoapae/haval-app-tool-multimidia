@@ -149,6 +149,12 @@ class HudArArrowTest {
         val way = (Math.PI * HudArArrow.RB_RADIUS_M).toFloat() // 180° on a 15 m ring
         assertEquals(0.5f, HudArArrow.roundaboutProgress(way / 2, 180f), 0.01f)
         assertEquals(1f, HudArArrow.roundaboutProgress(way * 3, 180f), 0f)
+        // No jump at the entry: still approaching while the distance is longer than the ring,
+        // then the left icon closes as the metres left to the exit fall.
+        assertEquals(0f, HudArArrow.progressFromExitDistance(way + 40f, 180f), 0f)
+        assertEquals(0f, HudArArrow.progressFromExitDistance(way, 180f), 0f)
+        assertEquals(0.5f, HudArArrow.progressFromExitDistance(way / 2f, 180f), 0.02f)
+        assertEquals(1f, HudArArrow.progressFromExitDistance(0f, 180f), 0f)
     }
 
     @Test
@@ -318,6 +324,16 @@ class HudArArrowTest {
         assertNull(HudOverlayModel.frameFor(ar, rb, 0, null, arMetersOverride = 30f).chevrons)
         assertEquals(1, HudOverlayModel.frameFor(ar, rb, 0, null, arMetersOverride = 30f, arProgress = 0.4f).chevrons!!.side)
         assertEquals(-1, HudOverlayModel.frameFor(ar, rb.copy(roundaboutClockwise = true), 0, null, arMetersOverride = 30f, arProgress = 0.4f).chevrons!!.side)
+        // Map matched, and the roundabout is not "the next side street": the exit chevron still shows.
+        val streets = listOf(
+            br.com.redesurftank.havalshisuku.map.LocalRoad(floatArrayOf(0f, -30f, 0f, 40f, 0f, 120f), 1f),
+            br.com.redesurftank.havalshisuku.map.LocalRoad(floatArrayOf(0f, 40f, 40f, 40f), 1f)
+        )
+        val mapped = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR, mapStreets = true)
+        val onRing = HudOverlayModel.frameFor(mapped, rb, 0, null, arProgress = 0.4f, streets = streets, speedKmh = 30.0)
+        assertTrue(onRing.tbt!!.routeMatched && !onRing.tbt!!.routeClear)
+        assertEquals(1, onRing.chevrons!!.side)
+        assertNull(HudOverlayModel.frameFor(mapped, rb, 0, null, streets = streets, speedKmh = 30.0).chevrons)
         // Band above the arcs, inside the optics.
         assertTrue(HudOverlayModel.CHEVRON_END_Y - HudOverlayModel.CHEVRON_HALF_H >= 40f)
     }

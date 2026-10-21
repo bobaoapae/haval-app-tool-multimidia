@@ -686,7 +686,21 @@ object HudArArrow {
      * way round to the exit on a ring of [RB_RADIUS_M]. An estimate; AA doesn't send it.
      */
     fun roundaboutProgress(metersDriven: Float, travelDeg: Float): Float {
-        val way = (travelDeg * PI / 180).toFloat() * RB_RADIUS_M
+        val way = ringLengthM(travelDeg)
         return if (way <= 0f) 0f else (metersDriven / way).coerceIn(0f, 1f)
+    }
+
+    /** Way round to an exit [travelDeg] along a ring of [RB_RADIUS_M]. */
+    fun ringLengthM(travelDeg: Float): Float = (travelDeg * PI / 180).toFloat() * RB_RADIUS_M
+
+    /**
+     * Progress when AA's distance is already the metres left to the exit and never jumps at the
+     * entry. 0 while that distance is still longer than the ring (still approaching); then
+     * 1 - left / ring, so the icon closes as the exit gets nearer.
+     */
+    fun progressFromExitDistance(metersLeft: Float, travelDeg: Float): Float {
+        val way = ringLengthM(travelDeg)
+        if (way <= 0f || metersLeft >= way) return 0f
+        return (1f - metersLeft / way).coerceIn(0f, 1f)
     }
 }

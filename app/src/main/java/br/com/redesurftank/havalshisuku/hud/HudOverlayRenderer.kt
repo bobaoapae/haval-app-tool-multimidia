@@ -162,20 +162,24 @@ class HudOverlayRenderer {
 
     private fun drawContent(canvas: Canvas, frame: M.Frame?, nowMs: Long = 0L) {
         val f = frame ?: return
-        f.radar?.let { drawRadar(canvas, it) }
         f.tbt?.let { tbt ->
             when (tbt.style) {
-                M.TbtStyle.HERO -> drawHero(canvas, tbt)
-                M.TbtStyle.COMPACT -> drawRow(canvas, tbt, M.COMPACT_TOP).also { drawLanes(canvas, tbt.lanes, M.LANES_TOP) }
-                M.TbtStyle.FAR -> drawRow(canvas, tbt, M.FAR_TOP)
+                M.TbtStyle.HERO -> if (f.radar == null) drawHero(canvas, tbt)
+                M.TbtStyle.COMPACT -> if (f.radar == null) drawRow(canvas, tbt, M.COMPACT_TOP).also { drawLanes(canvas, tbt.lanes, M.LANES_TOP) }
+                M.TbtStyle.FAR -> if (f.radar == null) drawRow(canvas, tbt, M.FAR_TOP)
                 M.TbtStyle.AR -> {
+                    // The map stays while the radar card is up. The left column shares that
+                    // card's box, so it steps aside until the camera is gone.
                     drawAr(canvas, tbt)
-                    if (tbt.mapPending && M.mapPendingVisible(nowMs)) drawMapPending(canvas)
-                    drawArColumn(canvas, tbt, f.arcs, f.wideArcs) // draws its own trip line
+                    if (f.radar == null) {
+                        if (tbt.mapPending && M.mapPendingVisible(nowMs)) drawMapPending(canvas)
+                        drawArColumn(canvas, tbt, f.arcs, f.wideArcs) // draws its own trip line
+                    }
                 }
             }
-            if (tbt.style != M.TbtStyle.AR) drawNavText(canvas, tbt)
+            if (tbt.style != M.TbtStyle.AR && f.radar == null) drawNavText(canvas, tbt)
         }
+        f.radar?.let { drawRadar(canvas, it) }
         if (f.arcs) {
             f.powerPercent?.let { drawPowerArc(canvas, it, f.wideArcs) }
             f.rpmTenths?.let { drawRpmArc(canvas, it, f.wideArcs) }
@@ -335,7 +339,14 @@ class HudOverlayRenderer {
         }
         if (lanes) setTextSizes(scale * M.AR_LANES_DISTANCE_VALUE_SIZE, scale * M.AR_LANES_DISTANCE_UNIT_SIZE)
         else setTextSizes(scale * M.AR_DISTANCE_VALUE_SIZE, scale * M.AR_DISTANCE_UNIT_SIZE)
+        // On the ring the street line is the road, so the countdown sits with the icon, after
+        // the distance ("40 m  2ª"), and drops out at 1. The hole of this small icon cannot hold it.
+        val exitMark = if (tbt.onRoundabout) {
+            M.roundaboutExitCountdown(tbt.exitNumber, tbt.rbProgress)?.let { M.exitLabel(it) }
+        } else null
         val width = distanceWidth(tbt)
+        val exitWidth = exitMark?.let { unitPaint.measureText(it) } ?: 0f
+        val exitExtra = if (exitMark != null && width > 0f) M.EXIT_GAP + exitWidth else exitWidth
         val distanceY = when {
             lanes -> M.AR_LANES_DISTANCE_BASELINE
             far -> M.AR_DISTANCE_BASELINE - M.AR_FAR_DISTANCE_RAISE
@@ -344,13 +355,17 @@ class HudOverlayRenderer {
         // The next turn as an icon before the distance (owner), the pair centred together.
         val iconSize = valuePaint.textSize * M.AR_DISTANCE_ICON_SCALE
         val iconW = if (tbt.icon.isNotEmpty() && width > 0f) iconSize + M.AR_DISTANCE_ICON_GAP else 0f
-        val x0 = M.BOX_CENTER_X - (iconW + width) / 2
+        val x0 = M.BOX_CENTER_X - (iconW + width + exitExtra) / 2
         if (iconW > 0f) {
             // Centred on the digits' height (~0.72 of the text size).
             val digitsMid = distanceY - valuePaint.textSize * 0.36f
             drawTurn(canvas, tbt, x0, digitsMid - iconSize / 2, iconSize)
         }
         drawDistance(canvas, tbt, x0 + iconW, distanceY)
+        if (exitMark != null) {
+            val x = x0 + iconW + width + if (width > 0f) M.EXIT_GAP else 0f
+            canvas.drawText(exitMark, x, distanceY, unitPaint)
+        }
         if (lanes) drawLanes(canvas, tbt.lanes, M.AR_LANES_TOP)
         if (tbt.trip.isNotEmpty()) {
             // Destination flag before the trip line, as in the Navegação layout; the pair is
