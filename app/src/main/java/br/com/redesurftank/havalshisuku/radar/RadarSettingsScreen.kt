@@ -177,15 +177,15 @@ fun RadarSettingsScreen(onBackToFeatures: () -> Unit) {
                     Text("OpenStreetMap: ${s.osm}${dateSuffix(s.osmUpdated)}", color = AppColors.TextSecondary, fontSize = 15.sp)
                     Text("ANTT (rodovias federais concedidas): ${s.antt}${dateSuffix(s.anttUpdated)}", color = AppColors.TextSecondary, fontSize = 15.sp)
                     Text(
-                        "Na via certa: ${s.withRoad} de ${s.total} ligados à sua rua/rodovia${dateSuffix(s.roadsUpdated)} (vias atualizadas 1x por mês)",
+                        "Na via certa: ${s.withRoad} de ${s.total} ligados à sua rua/rodovia${dateSuffix(s.roadsUpdated)} (vias mensais; novos radares podem antecipar para 7 dias)",
                         color = AppColors.TextSecondary,
                         fontSize = 15.sp
                     )
                     if (s.fromApk) Text("Usando a cópia que veio com o app.", color = AppColors.TextSecondary, fontSize = 15.sp)
                 }
                 Text(
-                    if (lastUpdate > 0) "Última atualização: ${formatTime(lastUpdate)} (no máximo uma vez por dia)"
-                    else "Ainda não atualizada pela internet.",
+                    if (lastUpdate > 0) "Última verificação sem falhas: ${formatTime(lastUpdate)}"
+                    else "Ainda sem verificação completa pela internet.",
                     color = AppColors.TextSecondary,
                     fontSize = 15.sp
                 )

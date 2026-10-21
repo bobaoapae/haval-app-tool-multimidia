@@ -85,7 +85,8 @@ object RadarRepository {
     private fun readRoads(context: Context): RadarRoads.Contents? {
         val file = roadsFile(context)
         if (file.isFile) {
-            file.inputStream().use { RadarRoads.decode(it) }?.let { return it }
+            runCatching { file.inputStream().use { RadarRoads.decode(it) } }.getOrNull()
+                ?.takeIf { it.snippets.size >= RadarRoads.MIN_SNIPPETS }?.let { return it }
             Log.w(TAG, "unreadable ${file.name}, falling back to the APK copy")
         }
         return runCatching { context.assets.open(ROADS_ASSET).use { RadarRoads.decode(it) } }.getOrNull()
@@ -94,21 +95,23 @@ object RadarRepository {
     /** Saves a freshly downloaded source atomically (temp file, then rename). */
     fun write(context: Context, contents: RadarFile.Contents) = writeAtomically(fileFor(context, contents.source), RadarFile.encode(contents))
 
-    private fun writeAtomically(file: File, bytes: ByteArray) {
-        file.parentFile?.mkdirs()
-        val tmp = File(file.parentFile, file.name + ".tmp")
-        tmp.writeBytes(bytes)
-        if (!tmp.renameTo(file)) {
-            file.delete()
-            if (!tmp.renameTo(file)) throw java.io.IOException("rename failed for ${file.name}")
-        }
-    }
+    private fun writeAtomically(file: File, bytes: ByteArray) = RadarCacheFiles.write(file, bytes)
+
+    /** A corrupt/missing download must not inherit a successful cooldown or ANTT version. */
+    fun hasDownloadedSource(context: Context, source: RadarCamera.Source): Boolean =
+        readDownloaded(context, source) != null
+
+    private fun readDownloaded(context: Context, source: RadarCamera.Source): RadarFile.Contents? = runCatching {
+        val contents = fileFor(context, source).inputStream().use { RadarFile.decode(it) }
+        val minimum = if (source == RadarCamera.Source.OSM) RadarSources.MIN_OSM_CAMERAS else RadarSources.MIN_ANTT_CAMERAS
+        contents?.takeIf { it.source == source && it.cameras.size >= minimum }
+    }.getOrNull()
 
     /** The source's contents and whether they came from the APK. */
     private fun read(context: Context, source: RadarCamera.Source): Pair<RadarFile.Contents, Boolean>? {
         val file = fileFor(context, source)
         if (file.isFile) {
-            file.inputStream().use { RadarFile.decode(it) }?.let { return it to false }
+            readDownloaded(context, source)?.let { return it to false }
             Log.w(TAG, "unreadable ${file.name}, falling back to the APK copy")
         }
         return runCatching { context.assets.open(assetFor(source)).use { RadarFile.decode(it) } }

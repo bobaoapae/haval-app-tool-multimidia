@@ -15,14 +15,12 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * Refreshes the radar data straight from the sources at most once a day: on startup (and when
- * the feature is switched on) it checks the last successful update and, past [COOLDOWN_MS],
- * downloads OSM again and ANTT only when ANTT published a new file. Failures keep the current
- * data and retry a few times this boot ([RETRY_DELAYS_MS]); the cooldown starts on success.
+ * Refreshes each source on its own successful-check/write clock. Partial failures keep valid
+ * caches and retry only overdue sources at the existing bounded boot retry intervals.
  */
 object RadarUpdater {
     private const val TAG = "Radar"
-    const val COOLDOWN_MS = 24 * 60 * 60_000L
+    const val COOLDOWN_MS = RadarRefresh.DAY_MS
     /** Wait for the car to get online (phone hotspot) before the first try. */
     private const val NETWORK_POLL_MS = 60_000L
     private const val NETWORK_POLL_MAX = 30
@@ -36,6 +34,8 @@ object RadarUpdater {
         private set
     private var attempt = 0
     private var networkPolls = 0
+    private var retryOsm = false
+    private var retryAntt = false
 
     /** Listeners (the settings screen) hear when an update starts or ends. Any thread. */
     var onStateChanged: (() -> Unit)? = null
@@ -49,14 +49,15 @@ object RadarUpdater {
         val app = br.com.redesurftank.App.getDeviceProtectedContext()
         handler.post {
             if (running) return@post
-            val last = RadarSettings.prefs().getLong(SharedPreferencesKeys.RADAR_LAST_UPDATE_MS.key, 0L)
-            if (!force && System.currentTimeMillis() - last < COOLDOWN_MS) {
-                Log.w(TAG, "update skipped: last success ${(System.currentTimeMillis() - last) / 60_000} min ago")
+            if (!force && !refresh(app).needed(readState())) {
+                Log.w(TAG, "update skipped: all sources fresh")
                 return@post
             }
             handler.removeCallbacksAndMessages(null)
             attempt = 0
             networkPolls = 0
+            retryOsm = false
+            retryAntt = false
             run(app, force)
         }
     }
@@ -71,7 +72,7 @@ object RadarUpdater {
         running = true
         onStateChanged?.invoke()
         val ok = try {
-            update(context)
+            update(context, force && attempt == 0)
         } catch (t: Throwable) {
             Log.w(TAG, "update crashed", t)
             saveError(t.message ?: t.javaClass.simpleName)
@@ -85,64 +86,75 @@ object RadarUpdater {
         }
     }
 
-    /** One full attempt. True when OSM was refreshed; ANTT is best effort (it changes monthly). */
-    private fun update(context: Context): Boolean {
+    /** A forced user request refreshes cameras once; retries still skip successful sources. */
+    private fun update(context: Context, force: Boolean): Boolean {
         val started = System.currentTimeMillis()
-        val downloader = RadarDownloader("Impulse/${BuildConfig.VERSION_NAME} (radar alerts; Android)", modernTls())
-        val prefs = RadarSettings.prefs()
-        val errors = ArrayList<String>()
-
-        val osm = downloader.fetchOsm()
-        osm.value?.let { RadarRepository.write(context, RadarFile.Contents(RadarCamera.Source.OSM, now(), it)) }
-        osm.error?.let { errors.add(it) }
-
-        var anttCount = -1
-        val resource = downloader.fetchAnttResource()
-        resource.error?.let { errors.add(it) }
-        resource.value?.let { r ->
-            val have = prefs.getString(SharedPreferencesKeys.RADAR_ANTT_RESOURCE.key, null)
-            if (r.id != have || !RadarRepository.fileFor(context, RadarCamera.Source.ANTT).isFile) {
-                val antt = downloader.fetchAntt(r)
-                antt.value?.let {
-                    RadarRepository.write(context, RadarFile.Contents(RadarCamera.Source.ANTT, r.modified, it))
-                    prefs.edit().putString(SharedPreferencesKeys.RADAR_ANTT_RESOURCE.key, r.id).apply()
-                    anttCount = it.size
-                }
-                antt.error?.let { errors.add(it) }
-            }
-        }
-
-        if (osm.value != null || anttCount >= 0) RadarRepository.load(context)
-
-        // Roads under the cameras: monthly (they change slowly and cost ~6 MB to fetch).
-        var roadsCount = -1
-        if (roadsDue(prefs)) {
-            val cameras = RadarRepository.index?.cameras.orEmpty()
-            val extra = RadarSources.anttOnly(RadarRepository.osmCameras, RadarRepository.anttCameras)
-            val scratch = java.io.File(context.cacheDir, "radar-roads.json")
-            val roads = downloader.fetchRoads(cameras, extra, scratch)
-            roads.value?.let {
-                RadarRepository.writeRoads(context, RadarRoads.Contents(now(), it))
-                prefs.edit().putLong(SharedPreferencesKeys.RADAR_ROADS_LAST_UPDATE_MS.key, System.currentTimeMillis()).apply()
-                roadsCount = it.size
-                RadarRepository.load(context)
-            }
-            roads.error?.let { errors.add(it) }
-        }
-        val ok = osm.value != null
-        val edit = prefs.edit()
-        if (ok) edit.putLong(SharedPreferencesKeys.RADAR_LAST_UPDATE_MS.key, System.currentTimeMillis())
-        edit.putString(SharedPreferencesKeys.RADAR_LAST_ERROR.key, errors.joinToString(" | ")).apply()
+        val result = refresh(context).run(readState(), force, retryOsm, retryAntt, ::now)
+        retryOsm = result.osm == RadarRefresh.Outcome.FAILED
+        retryAntt = result.antt == RadarRefresh.Outcome.FAILED
+        val edit = RadarSettings.prefs().edit()
+        if (result.ok) edit.putLong(SharedPreferencesKeys.RADAR_LAST_UPDATE_MS.key, System.currentTimeMillis())
+        edit.putString(SharedPreferencesKeys.RADAR_LAST_ERROR.key, result.errors.joinToString(" | ")).apply()
         val tookS = (System.currentTimeMillis() - started) / 1000
-        Log.w(TAG, "update ok=$ok osm=${osm.value?.size} antt=$anttCount roads=$roadsCount took=${tookS}s errors=$errors")
+        Log.w(TAG, "update ok=${result.ok} osm=${result.osm} antt=${result.antt} roads=${result.roads} took=${tookS}s errors=${result.errors}")
         ClusterPersistentEventLogger.log(
             "radar_update",
             mapOf(
-                "ok" to ok, "osm" to (osm.value?.size ?: -1), "antt" to anttCount, "roads" to roadsCount,
-                "s" to tookS, "err" to errors.joinToString(" | ").take(200)
+                "ok" to result.ok, "osm" to (RadarRepository.status?.osm ?: -1),
+                "antt" to (RadarRepository.status?.antt ?: -1), "with_road" to (RadarRepository.status?.withRoad ?: -1),
+                "osm_state" to result.osm.name,
+                "antt_state" to result.antt.name, "roads_state" to result.roads.name,
+                "s" to tookS, "err" to result.errors.joinToString(" | ").take(200)
             )
         )
-        return ok
+        return result.ok
+    }
+
+    private fun readState(): RadarRefresh.State {
+        val prefs = RadarSettings.prefs()
+        return RadarRefresh.State(
+            // The legacy timestamp represented OSM success only. Never migrate it to ANTT.
+            osmSuccess = prefs.getLong(SharedPreferencesKeys.RADAR_OSM_LAST_UPDATE_MS.key,
+                prefs.getLong(SharedPreferencesKeys.RADAR_LAST_UPDATE_MS.key, 0L)),
+            anttChecked = prefs.getLong(SharedPreferencesKeys.RADAR_ANTT_LAST_CHECK_MS.key, 0L),
+            anttDownloaded = prefs.getLong(SharedPreferencesKeys.RADAR_ANTT_LAST_DOWNLOAD_MS.key, 0L),
+            anttResource = prefs.getString(SharedPreferencesKeys.RADAR_ANTT_VERSION.key, "").orEmpty(),
+            roadsSuccess = prefs.getLong(SharedPreferencesKeys.RADAR_ROADS_LAST_UPDATE_MS.key, 0L),
+            roadsGeometry = prefs.getString(SharedPreferencesKeys.RADAR_ROADS_GEOMETRY.key, "").orEmpty()
+        )
+    }
+
+    private fun saveState(state: RadarRefresh.State) {
+        RadarSettings.prefs().edit()
+            .putLong(SharedPreferencesKeys.RADAR_OSM_LAST_UPDATE_MS.key, state.osmSuccess)
+            .putLong(SharedPreferencesKeys.RADAR_ANTT_LAST_CHECK_MS.key, state.anttChecked)
+            .putLong(SharedPreferencesKeys.RADAR_ANTT_LAST_DOWNLOAD_MS.key, state.anttDownloaded)
+            .putString(SharedPreferencesKeys.RADAR_ANTT_VERSION.key, state.anttResource)
+            .putLong(SharedPreferencesKeys.RADAR_ROADS_LAST_UPDATE_MS.key, state.roadsSuccess)
+            .putString(SharedPreferencesKeys.RADAR_ROADS_GEOMETRY.key, state.roadsGeometry)
+            .apply()
+    }
+
+    private fun refresh(context: Context): RadarRefresh {
+        val downloader = RadarDownloader("Impulse/${BuildConfig.VERSION_NAME} (radar alerts; Android)", modernTls())
+        val source = object : RadarRefresh.Source {
+            override fun osm() = downloader.fetchOsm()
+            override fun anttResource() = downloader.fetchAnttResource()
+            override fun antt(resource: RadarSources.AnttResource) = downloader.fetchAntt(resource)
+            override fun roads(cameras: List<RadarCamera>, extra: List<RadarCamera>) =
+                downloader.fetchRoads(cameras, extra, java.io.File(context.cacheDir, "radar-roads.json"))
+        }
+        val cache = object : RadarRefresh.Cache {
+            override fun hasSource(source: RadarCamera.Source) = RadarRepository.hasDownloadedSource(context, source)
+            override fun save(contents: RadarFile.Contents) = RadarRepository.write(context, contents)
+            override fun saveRoads(contents: RadarRoads.Contents) = RadarRepository.writeRoads(context, contents)
+            override fun reload() = RadarRepository.load(context)
+            override val cameras get() = RadarRepository.index?.cameras.orEmpty()
+            override val osmCameras get() = RadarRepository.osmCameras
+            override val anttCameras get() = RadarRepository.anttCameras
+            override val roadsUpdated get() = parseIso(RadarRepository.status?.roadsUpdated.orEmpty())
+        }
+        return RadarRefresh(source, cache, System::currentTimeMillis, ::saveState)
     }
 
     /**
@@ -155,16 +167,6 @@ object RadarUpdater {
         context.init(null, null, null)
         context.socketFactory
     }.onFailure { Log.w(TAG, "Conscrypt unavailable: ${it.message}") }.getOrNull()
-
-    /**
-     * Roads are due a month after the newest of: the last download here, or the copy the APK
-     * shipped with (so a fresh install doesn't fetch 6 MB on day one).
-     */
-    private fun roadsDue(prefs: android.content.SharedPreferences): Boolean {
-        val downloaded = prefs.getLong(SharedPreferencesKeys.RADAR_ROADS_LAST_UPDATE_MS.key, 0L)
-        val shipped = parseIso(RadarRepository.status?.roadsUpdated.orEmpty())
-        return System.currentTimeMillis() - maxOf(downloaded, shipped) >= RadarRoads.COOLDOWN_MS
-    }
 
     private fun parseIso(value: String): Long = runCatching {
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(value)!!.time
