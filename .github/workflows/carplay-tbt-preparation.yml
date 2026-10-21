@@ -1,0 +1,30 @@
+name: CarPlay TBT preparation (no runtime activation)
+
+on:
+  pull_request:
+    paths:
+      - 'app/src/main/java/br/com/redesurftank/havalshisuku/navigation/**'
+      - 'app/src/test/java/br/com/redesurftank/havalshisuku/navigation/**'
+      - 'scripts/carplay-tbt-tests/**'
+      - '.github/workflows/carplay-tbt-preparation.yml'
+  push:
+    branches:
+      - 'codex/carplay-tbt-preparation-v9-20261021'
+
+permissions:
+  contents: read
+
+jobs:
+  android-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Test and build debug only (no release signing, publication or device)
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
