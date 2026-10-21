@@ -17,7 +17,7 @@ RadarAlertEngine (Kotlin puro, testado)  ◄── RadarIndex (grade 0,02°) ◄
         ├─► app.navigation.radar (JSON)   → tbtCard.setRadar no tema          │
         └─► RadarSoundPlayer (tons gerados, uso NAVIGATION_GUIDANCE)          │
                                                                              │
-RadarUpdater (radares 1x/dia, vias 1x/mês) ── Overpass + ANTT ── files/radar/*.csv.gz ──┘
+RadarUpdater (fontes independentes, vias 7–30 dias) ── Overpass + ANTT ── files/radar/*.csv.gz ──┘
                          └── cópia no APK: assets/radar/{osm,antt,roads}.csv.gzip
 ```
 
@@ -38,12 +38,13 @@ RadarUpdater (radares 1x/dia, vias 1x/mês) ── Overpass + ANTT ── files/
 
 ## Atualização (`RadarUpdater`)
 
-- Ao iniciar (e ao ligar o recurso): se a última atualização **bem-sucedida** tem menos de 24 h, não faz nada. Senão espera a central ter internet (até 30 min) e baixa.
-- OSM: consulta completa sempre (~500 KB gzip, 30–70 s no servidor). O Overpass não tem "mudou desde?" barato: o diff de uma semana levou 2 min 48 s (mais que o download inteiro).
-- ANTT: lê o metadado CKAN (poucos KB) e só baixa o CSV quando o recurso mais novo mudou (na prática, uma vez por mês).
-- Vias: no máximo 1x a cada 30 dias (contando da cópia do APK, para não baixar 6 MB no primeiro dia). ~6 MB gzip / ~30 MB JSON e ~2 min no servidor; a resposta vai para um arquivo temporário e é lida em streaming (Gson `JsonReader`, duas passadas) para não segurar 30 MB na memória.
-- Sucesso = OSM atualizado (ANTT e vias são melhor esforço). Falha mantém os dados atuais e tenta de novo em 5, 15 e 60 min nesse boot.
-- Gravação atômica (arquivo temporário + rename) e validação (≥ 5.000 câmeras OSM, ≥ 300 ANTT; coordenadas na região).
+- Ao iniciar (e ao ligar o recurso): cada fonte tem seu próprio estado de sucesso. OSM e metadados ANTT têm intervalo de 24 h; uma fonte com falha não fica bloqueada pelo sucesso da outra. A central espera internet por até 30 min.
+- OSM: consulta completa quando vence seu intervalo (~500 KB gzip, 30–70 s no servidor). O Overpass não tem "mudou desde?" barato: o diff de uma semana levou 2 min 48 s (mais que o download inteiro).
+- ANTT: lê o metadado CKAN (poucos KB). Baixa o CSV se ID, data de modificação ou URL mudar, se o cache local estiver ausente/inválido, ou se o último CSV salvo tiver 7 dias, mesmo com metadados iguais. A verificação de metadados não renova a idade do CSV. "Atualizar agora" também refaz o CSV.
+- Vias: 30 dias quando as posições dos radares não mudam; posições novas/movidas tornam a consulta elegível após 7 dias desde a última cópia de vias válida (download ou APK). A impressão digital usa posições distintas, ordenadas e arredondadas a 6 casas, não velocidade/sentido/ordem. Só é salva após gravar as vias. Migração sem impressão digital usa a mesma idade da cópia existente, sem reiniciar a contagem. "Atualizar agora" não ignora esse limite de vias. Elegibilidade não garante atualização se o recurso estiver desligado ou sem internet.
+- A consulta de vias continua nacional: ~6 MB gzip / ~30 MB JSON e ~2 min no servidor; a resposta vai para um arquivo temporário e é lida em streaming (Gson `JsonReader`, duas passadas), sem consulta baseada na localização do carro.
+- Sucesso geral = todas as etapas necessárias concluídas. Falhas parciais mantêm os caches atuais e tentam de novo em 5, 15 e 60 min nesse boot, sem baixar novamente fontes já atualizadas. A repetição de um pedido manual também repete apenas as fontes que falharam, mesmo que seus dados anteriores ainda estejam frescos. Logs incluem estado por fonte e a tela exibe o erro parcial.
+- Gravação atômica (temporário + rename), sem apagar o destino se a substituição falhar. ID/data/URL e datas de sucesso só avançam após a gravação. Cache ausente, ilegível, de fonte incorreta ou pequeno demais não herda um intervalo de sucesso; usa a cópia do APK enquanto tenta novamente. Mantida validação de download (≥ 5.000 câmeras OSM, ≥ 300 ANTT, ≥ 3.000 trechos; coordenadas na região).
 - **TLS:** `overpass-api.de` só aceita TLS 1.3 e o Android 9 da central para no 1.2 ("Handshake failed" no carro). O downloader usa uma instância privada do Conscrypt (`org.conscrypt:conscrypt-android`) só para essas conexões; o resto do app continua na pilha da plataforma. Espelho com TLS 1.2: `maps.mail.ru`. `overpass.kumi.systems` e `overpass.private.coffee` estavam dando HTTP 500 para qualquer consulta em 2026-10-17.
 - Privacidade: a consulta é sempre o Brasil inteiro; nenhum servidor recebe a posição do carro.
 - Cópia no APK: `assets/radar/{osm,antt}.csv.gzip` (~107 KB). Extensão `.gzip` de propósito: o AGP descompacta assets `.gz` e tira a extensão. O leitor aceita gzip ou texto puro. Atualizar antes de release com `scripts/radar/Update-RadarSeed.ps1` (roda `RadarSeedGenerator`, o mesmo código Kotlin do carro).
@@ -77,12 +78,12 @@ Só alerta radar **na via em que o carro está e do qual está se aproximando** 
 
 - Configurar → **Simular a 50/72 km/h**: passa por um radar de 60 a 700 m em ~50 s (HUD, tema e sons), mesmo com o recurso desligado.
 - Debug: `adb shell am start --display 4096 -f 0x10010000 -n br.com.redesurftank.havalshisuku/.hud.HudOverlayActivity --es radarDemo over` (ou `on`).
-- Logs: tag `Radar` (Log.w), mas o logcat do carro gira em minutos. Rastros duráveis em cluster-diagnostics: `radar_loaded` (total, com via), `radar_update` (inclui `roads`), `radar_alert` (evento, distância, `road`, `tbtFirst` e `cam` = posição pública do radar, para conferir um alerta errado depois; a posição do carro não é gravada), `radar_no_location_permission`.
+- Logs: tag `Radar` (Log.w), mas o logcat do carro gira em minutos. Rastros duráveis em cluster-diagnostics: `radar_loaded` (total, com via), `radar_update` (inclui `osm_state`, `antt_state`, `roads_state`, contagens OSM/ANTT e radares ligados a vias), `radar_alert` (evento, distância, `road`, `tbtFirst` e `cam` = posição pública do radar, para conferir um alerta errado depois; a posição do carro não é gravada), `radar_no_location_permission`.
 
 ## Riscos / a confirmar
 
 - Só radares fixos; cobertura OSM varia por cidade; radares móveis não entram.
 - Via lateral colada (marginal a < 20 m, mesmo sentido) ainda pode ser confundida com a via do radar; a confirmar dirigindo.
-- Radar novo no OSM depois da última atualização mensal de vias usa a regra sem via até a próxima.
+- Radar novo sem geometria usa a regra sem via até uma atualização elegível de vias (7 dias desde a cópia anterior quando as posições mudam), com o recurso ligado, rede disponível e fonte respondendo.
 - Volume real do canal de navegação no carro: a confirmar no Testar.
 - Dependência de servidores públicos do Overpass (com fallback); se todos falharem, segue com a cópia anterior.
