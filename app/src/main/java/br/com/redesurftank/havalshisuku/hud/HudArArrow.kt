@@ -22,8 +22,8 @@ import kotlin.math.sin
  *   Straight while far; the bend grows in between [BEND_START_M] and [BEND_FULL_M].
  * - Roundabouts: a grey ring on the road with grey stubs for the exits passed first, the route
  *   in blue round the ring to our exit with a head just past it. Inside the roundabout the
- *   camera drives round with the car ([roundabout] `progress`), so the scene turns as it does
- *   through the windshield.
+ *   view stays as from the approach ([roundabout] `progress` only drops the part already
+ *   driven), so the exit keeps its side and stays in the band.
  */
 object HudArArrow {
     /** Centred on the native speed (one axis with it, owner's request). */
@@ -61,10 +61,10 @@ object HudArArrow {
     /** Straight -> full turn between these distances (owner: only within ~200 m). */
     const val BEND_START_M = 200f
     const val BEND_FULL_M = 40f
-    /** Short fade at the top edge, so the clip there doesn't show as a hard line. */
-    const val FADE_TOP_TO = 132f
     /** Fades out over the bottom of the visible band, so the optics' edge doesn't crop it hard. */
     const val FADE_BOTTOM_FROM = 180f
+    /** Top fade reaches this row, so the arrow thins out before it meets the speed. */
+    const val FADE_TOP_TO = 156f
     /** Overall opacity over the road and the native HUD, near the maneuver. */
     const val OPACITY = 0.65f
     /** ...and while it is still far (straight arrow): more see-through. */
@@ -146,6 +146,8 @@ object HudArArrow {
     const val MAP_RIGHT_SX = 0.45f
     /** Nothing further than this ahead (metres). */
     const val MAP_FAR_M = 700f
+    /** Screen row of the car (0 m ahead). Above [BOTTOM], so the road isn't cut by the optics' edge. */
+    const val MAP_NEAR_Y = 184f
     /**
      * Depth scale (metres): distance is spread logarithmically between the bottom edge (the car)
      * and the horizon, so the far path stays readable. True perspective with a road-wide route
@@ -161,19 +163,26 @@ object HudArArrow {
     const val MAP_FLAG_GAP_M = 3f
     const val MAP_FLAG_H_M = 6f
     /**
+     * The pole stays at least this far (px) outside the drawn road or arrow head. A metre offset
+     * alone collapses into the centre of a road that has been widened to [MAP_MIN_PX].
+     */
+    const val MAP_FLAG_GAP_PX = 12f
+    /**
      * Minimum drawn thickness (px) of a street: one running sideways in the distance spans only a
      * few metres of depth and would shrink to a hairline (the turn street included).
      */
     const val MAP_MIN_PX = 10f
 
+    private fun mapBand(horizon: Float) = MAP_NEAR_Y - horizon
+
     /** Height above the map's horizon (at row [horizon]) in px of a point [d] metres ahead. */
     fun mapOffset(d: Float, horizon: Float = MAP_HORIZON_Y): Float {
         val dd = d.coerceAtLeast(-0.5f * MAP_DEPTH_M)
-        return (BOTTOM - horizon) * (1f - ln(1f + dd / MAP_DEPTH_M) / ln(1f + MAP_FAR_M / MAP_DEPTH_M))
+        return mapBand(horizon) * (1f - ln(1f + dd / MAP_DEPTH_M) / ln(1f + MAP_FAR_M / MAP_DEPTH_M))
     }
 
     /** Pixels per metre sideways at [d] metres ahead: shrinks with the height above the horizon. */
-    fun mapPxPerM(d: Float, horizon: Float = MAP_HORIZON_Y): Float = MAP_PX_PER_M * mapOffset(d, horizon) / (BOTTOM - horizon)
+    fun mapPxPerM(d: Float, horizon: Float = MAP_HORIZON_Y): Float = MAP_PX_PER_M * mapOffset(d, horizon) / mapBand(horizon)
 
     /** Screen point for (x right, d ahead) metres in the car's frame; null past [MAP_FAR_M]. */
     fun mapProject(x: Float, d: Float, horizon: Float = MAP_HORIZON_Y): Pair<Float, Float>? =
@@ -227,10 +236,34 @@ object HudArArrow {
         return out
     }
 
+    /** Origin and forward axis so [route]'s start sits at the car and its first stretch points ahead. */
+    private class Ego(val ox: Float, val oz: Float, val fx: Float, val fz: Float)
+
+    private fun egoAlign(route: List<W>): Ego? {
+        if (route.size < 2) return null
+        val origin = route.first()
+        var aim = route[1]
+        for (p in route) {
+            if (hypot(p.x - origin.x, p.z - origin.z) >= 12f) {
+                aim = p
+                break
+            }
+        }
+        val d = unit(origin, aim)
+        return Ego(origin.x, origin.z, d.x, d.z)
+    }
+
+    /** (x right, z ahead) with [ego]'s forward axis turned to straight up the screen. */
+    private fun W.ego(ego: Ego): W {
+        val rx = x - ego.ox
+        val rz = z - ego.oz
+        return W(ego.fz * rx - ego.fx * rz, ego.fx * rx + ego.fz * rz)
+    }
+
     /**
      * The map view, in screen pixels: [roads] (car frame, metres) as grey ribbons as wide as
      * their class, [route] (metres, from RoutePath) as the blue ribbon on top with its head, and
-     * on arrival a flag on [destSide] of the route's end.
+     * on arrival a flag on [destSide] of the route's end, outside the arrow head and the drawn street.
      */
     fun mapScene(
         roads: List<br.com.redesurftank.havalshisuku.map.LocalRoad>,
@@ -238,9 +271,14 @@ object HudArArrow {
         destSide: Int?,
         horizon: Float = MAP_HORIZON_Y
     ): Shape {
+        // The road under the car points straight up the HUD, starting at the centre. A GPS
+        // heading that doesn't match the street otherwise leaves the blue line diagonal.
+        val rawRoute = metres(route)
+        val align = egoAlign(rawRoute)
+        fun W.placed() = align?.let { ego(it) } ?: this
         val gray = ArrayList<List<Pt>>()
-        for (road in roads) gray += mapRibbon(metres(road.pts), MAP_HALF_M * road.width, MAP_MIN_PX * road.width, horizon)
-        val line = metres(route).filter { it.z <= MAP_FAR_M }
+        for (road in roads) gray += mapRibbon(metres(road.pts).map { it.placed() }, MAP_HALF_M * road.width, MAP_MIN_PX * road.width, horizon)
+        val line = rawRoute.map { it.placed() }.filter { it.z <= MAP_FAR_M }
         val blue = mapRibbon(line, MAP_HALF_M, MAP_MIN_PX, horizon).lastOrNull().orEmpty()
         var head = FloatArray(0)
         var flag: Flag? = null
@@ -252,18 +290,69 @@ object HudArArrow {
             val r = mapProject(end.x + d.z * MAP_HEAD_HALF_M, end.z - d.x * MAP_HEAD_HALF_M, horizon)
             if (tip != null && l != null && r != null) head = floatArrayOf(tip.first, tip.second, l.first, l.second, r.first, r.second)
             if (destSide != null) {
-                val off = if (destSide == 0) 0f else destSide * (MAP_HALF_M + MAP_FLAG_GAP_M)
-                val ahead = if (destSide == 0) MAP_HEAD_L_M + 4f else 0f
-                mapProject(end.x + d.z * off + d.x * ahead, end.z - d.x * off + d.z * ahead, horizon)?.let { (fx, fy) ->
-                    flag = Flag(fx, fy, MAP_FLAG_H_M * mapPxPerM(end.z, horizon))
+                val height = MAP_FLAG_H_M * mapPxPerM(end.z, horizon)
+                flag = if (destSide == 0) {
+                    // Side not in the maneuver: just past the head, on the road.
+                    val ahead = MAP_HEAD_L_M + 4f
+                    mapProject(end.x + d.x * ahead, end.z + d.z * ahead, horizon)?.let { (fx, fy) -> Flag(fx, fy, height) }
+                } else if (l != null && r != null) {
+                    // Same side as the arrow ([destination]): outside the head and the drawn road.
+                    // A metre offset sits inside the head (it is wider than the street) and, far
+                    // away, inside the street once that is widened to [MAP_MIN_PX].
+                    flagBeside(l, r, blue.lastOrNull(), destSide, end.z, horizon, height)
+                } else {
+                    val off = destSide * (MAP_HEAD_HALF_M + MAP_FLAG_GAP_M)
+                    mapProject(end.x + d.z * off, end.z - d.x * off, horizon)?.let { (fx, fy) ->
+                        Flag(fx, fy, height, pennant = if (destSide < 0) -1 else 1)
+                    }
                 }
             }
         }
         return Shape(blue, head, gray, 1f, flag)
     }
 
-    /** Destination flag: pole foot ([x], [y]) on the road, [height] of the pole, unscaled picture. */
-    data class Flag(val x: Float, val y: Float, val height: Float)
+    /**
+     * Pole just outside the arrow head (or the drawn street, when the minimum thickness sticks
+     * out past the head) on [side] (-1 left, +1 right of the heading). The pennant flies away
+     * from the road on screen.
+     */
+    private fun flagBeside(
+        headL: Pair<Float, Float>,
+        headR: Pair<Float, Float>,
+        roadEnd: Pt?,
+        side: Int,
+        depthM: Float,
+        horizon: Float,
+        height: Float
+    ): Flag {
+        val dx = headR.first - headL.first
+        val dy = headR.second - headL.second
+        val len = hypot(dx, dy).coerceAtLeast(1f)
+        val ux = dx / len
+        val uy = dy / len
+        var ax = if (side > 0) headR.first else headL.first
+        var ay = if (side > 0) headR.second else headL.second
+        roadEnd?.let { edge ->
+            val ex = if (side > 0) edge.rx else edge.lx
+            val ey = if (side > 0) edge.ry else edge.ly
+            val edgeOut = ax * ux + ay * uy
+            val roadOut = ex * ux + ey * uy
+            val roadFurther = if (side > 0) roadOut > edgeOut else roadOut < edgeOut
+            if (roadFurther) {
+                ax = ex
+                ay = ey
+            }
+        }
+        val gap = max(MAP_FLAG_GAP_PX, MAP_FLAG_GAP_M * mapPxPerM(depthM, horizon))
+        val s = side.toFloat()
+        return Flag(ax + ux * s * gap, ay + uy * s * gap, height, pennant = if (ux * s < 0f) -1 else 1)
+    }
+
+    /**
+     * Destination flag: pole foot ([x], [y]), [height] of the pole, unscaled picture.
+     * [pennant] +1 flies to the right of the pole, -1 to the left (away from the road).
+     */
+    data class Flag(val x: Float, val y: Float, val height: Float, val pennant: Int = 1)
 
     /** Side of the destination for a maneuver token: -1 left, +1 right, 0 unknown, null not one. */
     fun destinationSide(turn: String?): Int? = when (turn.orEmpty().uppercase()) {
@@ -469,10 +558,11 @@ object HudArArrow {
         }
         line += W(0f, zc)
         val blue = ribbon(line, HW, AHEAD).lastOrNull().orEmpty()
-        val fx = if (side == 0) 0f else side * (HW + FLAG_GAP)
+        // Outside the head, which is wider than the ribbon; side 0 stays on the road past the head.
+        val fx = if (side == 0) 0f else side * (max(HW, HEAD_HW) + FLAG_GAP)
         val fz = if (side == 0) zc + HEAD_L + 0.6f else zc
         val (sx, sy) = project(fx, fz)
-        return fit(Shape(blue, head(line, AHEAD), flag = Flag(sx, sy, FLAG_H * F_X / fz)), placement)
+        return fit(Shape(blue, head(line, AHEAD), flag = Flag(sx, sy, FLAG_H * F_X / fz, pennant = if (side < 0) -1 else 1)), placement)
     }
 
     /** Cubic from [p0] heading [d0] to [p3] heading [d3], without [p0]. */
@@ -506,7 +596,7 @@ object HudArArrow {
     /**
      * A roundabout [meters] ahead whose exit is [travelDeg] round the ring ([clockwise] for
      * left-hand traffic), with [passedDeg] the exits passed first and [progress] (0..1) how far
-     * the car has got from the approach to the exit.
+     * the car has got from the approach to the exit. The picture stays the approach view.
      */
     fun roundabout(
         meters: Float,
@@ -551,15 +641,12 @@ object HudArArrow {
         // While far it is a straight arrow of the same length, curling into the route.
         val shown = route.mapIndexed { i, p -> W(p.x * bend, acc[i] + (p.z - acc[i]) * bend) }
 
-        // Inside the roundabout the camera rides the route, looking a little ahead.
+        // Stay on the approach view for the whole crossing. Riding the camera round the ring
+        // swings the exit out of the HUD band (the guidance reads as gone) and a straight-across
+        // exit swings over to the left of the view. Progress only drops the part already driven.
         val total = acc.last()
         val sCam = progress.coerceIn(0f, 1f) * (total - EXIT_OUT)
-        val cam = if (sCam <= 0f) AHEAD else {
-            val here = at(shown, acc, sCam)
-            val ahead = at(shown, acc, min(total, sCam + LOOK_AHEAD))
-            val d = unit(here, ahead)
-            Camera(here.x, here.z, kotlin.math.atan2(d.x, d.z))
-        }
+        val cam = AHEAD
         val remaining = if (sCam <= 0f) shown else shown.filterIndexed { i, _ -> acc[i] >= sCam }
         val blue = ribbon(remaining, HW, cam).lastOrNull().orEmpty()
 

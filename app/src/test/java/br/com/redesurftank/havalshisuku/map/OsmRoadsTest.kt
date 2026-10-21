@@ -166,6 +166,17 @@ class OsmRoadsTest {
         // No turn: just the road ahead, as far as AA's distance.
         val ahead = RoutePath.route(grid(), 250f, 0f)!!
         assertEquals(250f, ahead.pts[ahead.pts.size - 1], 0.5f)
+        // Two ways of one street that don't share a node: the route still crosses the joint.
+        val gapped = listOf(
+            LocalRoad(floatArrayOf(0f, -20f, 0f, 100f), 1f),
+            LocalRoad(floatArrayOf(0f, 112f, 0f, 300f), 1f)
+        )
+        val across = RoutePath.route(gapped, 250f, 0f)!!
+        assertTrue(across.pts[across.pts.size - 1] > 200f)
+        // A side-shifted street is drawn leaving the car, straight up the HUD.
+        val shifted = HudArArrow.mapScene(emptyList(), floatArrayOf(8f, 0f, 8f, 80f), null)
+        val near = shifted.blue.minBy { kotlin.math.abs(it.y - HudArArrow.MAP_NEAR_Y) }
+        assertEquals(HudArArrow.CX, near.x, 12f)
         // Off the map: null, and the fallback goes straight then turns.
         assertTrue(RoutePath.route(listOf(LocalRoad(floatArrayOf(300f, 0f, 400f, 0f), 1f)), 100f, 90f) == null)
         val fallback = RoutePath.synthetic(100f, 90f)
@@ -185,8 +196,9 @@ class OsmRoadsTest {
         // The horizon lands just under the native speed (baseline ~133); the far path keeps room:
         // 100 m ahead is ~43 % of the way up, 400 m ~82 %.
         assertTrue(HudArArrow.MAP_HORIZON_Y in 134f..140f)
-        assertEquals(HudArArrow.BOTTOM, HudArArrow.mapProject(0f, 0f)!!.second, 0.01f)
-        val band = HudArArrow.BOTTOM - HudArArrow.MAP_HORIZON_Y
+        assertEquals(HudArArrow.MAP_NEAR_Y, HudArArrow.mapProject(0f, 0f)!!.second, 0.01f)
+        assertTrue(HudArArrow.MAP_NEAR_Y < HudArArrow.BOTTOM)
+        val band = HudArArrow.MAP_NEAR_Y - HudArArrow.MAP_HORIZON_Y
         assertEquals(0.43f, 1f - HudArArrow.mapOffset(100f) / band, 0.02f)
         assertEquals(0.82f, 1f - HudArArrow.mapOffset(400f) / band, 0.03f)
         assertTrue(HudArArrow.mapProject(0f, HudArArrow.MAP_FAR_M + 1f) == null)
@@ -194,9 +206,20 @@ class OsmRoadsTest {
         val (x1, y1) = HudArArrow.mapProject(5f, 50f)!!
         val (x2, y2) = HudArArrow.mapProject(5f, 300f)!!
         assertEquals((x1 - HudArArrow.CX) / (y1 - HudArArrow.MAP_HORIZON_Y), (x2 - HudArArrow.CX) / (y2 - HudArArrow.MAP_HORIZON_Y), 0.001f)
-        // Arriving on the right: a flag right of the route's end.
+        // Arriving on the right: the pole is outside the arrow head and the drawn street, not in
+        // the middle of either (the head is wider than the street; far away the street is widened).
         val arrive = RoutePath.route(roads, 250f, 0f)!!
-        val flag = HudArArrow.mapScene(roads, arrive.pts, 1).flag!!
-        assertTrue(flag.x > HudArArrow.CX)
+        val sceneR = HudArArrow.mapScene(roads, arrive.pts, 1)
+        val flag = sceneR.flag!!
+        assertTrue(flag.x > maxOf(sceneR.head[4], sceneR.blue.last().rx))
+        assertEquals(1, flag.pennant)
+        val sceneL = HudArArrow.mapScene(roads, arrive.pts, -1)
+        val left = sceneL.flag!!
+        assertTrue(left.x < minOf(sceneL.head[2], sceneL.blue.last().lx))
+        assertEquals(-1, left.pennant)
+        val farRoad = listOf(LocalRoad(floatArrayOf(0f, -20f, 0f, 650f), 1f))
+        val farRoute = RoutePath.route(farRoad, 550f, 0f)!!
+        val far = HudArArrow.mapScene(farRoad, farRoute.pts, 1, HudArArrow.MAP_HORIZON_TOP_Y)
+        assertTrue(far.flag!!.x > maxOf(far.head[4], far.blue.last().rx))
     }
 }

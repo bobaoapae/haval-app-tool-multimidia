@@ -2,6 +2,7 @@ package br.com.redesurftank.havalshisuku.ui.components
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import br.com.redesurftank.havalshisuku.hud.PreviewFocus
@@ -31,9 +32,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -56,6 +60,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import br.com.redesurftank.havalshisuku.hud.HudArArrow
 import br.com.redesurftank.havalshisuku.hud.HudOverlayModel
+import br.com.redesurftank.havalshisuku.hud.HudOverlayController
 import br.com.redesurftank.havalshisuku.hud.HudOverlayRenderer
 import br.com.redesurftank.havalshisuku.hud.HudOverlaySettings
 
@@ -229,7 +234,7 @@ private fun HudLayoutCard(
 }
 
 /** Tabs of the Navegação settings dialog. */
-private enum class HudSettingsTab(val title: String) { NAVIGATION("Navegação"), ARROW("Seta AR"), BARS("Indicadores") }
+private enum class HudSettingsTab(val title: String) { NAVIGATION("Geral"), ARROW("Navegação"), BARS("Indicadores") }
 
 /**
  * Wide two-pane dialog for the 1920x720 head unit: the options on the left split into tabs so
@@ -268,7 +273,7 @@ private fun HudNavigationSettingsDialog(
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Card(
-            modifier = Modifier.fillMaxWidth(0.82f).padding(16.dp),
+            modifier = Modifier.fillMaxWidth(0.70f).padding(start = 16.dp, top = 16.dp, end = 28.dp, bottom = 16.dp),
             colors = CardDefaults.cardColors(containerColor = ImpTokens.Container),
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(1.5.dp, ImpTokens.Accent)
@@ -279,12 +284,8 @@ private fun HudNavigationSettingsDialog(
                         if (layout == HudOverlayModel.Layout.AR) "Layout Navegação AR" else "Layout Navegação",
                         color = Color.White,
                         fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f)
+                        fontWeight = FontWeight.Bold
                     )
-                    TextButton(onClick = onDismiss) {
-                        Text("Fechar", color = ImpTokens.Accent, fontWeight = FontWeight.Bold)
-                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                     // Left: one tab of options at a time.
@@ -313,6 +314,15 @@ private fun HudNavigationSettingsDialog(
                                         info = "A seta fica pequena até faltar 1 km para a manobra; depois fica grande."
                                     ) { change(config.copy(smallArrowWhenFar = it), PreviewFocus.FAR) }
                                 }
+                                if (layout != HudOverlayModel.Layout.AR) {
+                                    OptionRow(
+                                        "Setas de aproximação",
+                                        "Uma seta na diagonal até 50 m; aí ela anima.",
+                                        config.chevrons,
+                                        enabled = config.navigation,
+                                        info = "A partir de 100 m, uma seta azul na diagonal do lado da curva. De 50 m ela desliza, cresce e pisca. Some com o carro parado."
+                                    ) { change(config.copy(chevrons = it), PreviewFocus.CHEVRONS) }
+                                }
                                 OptionRow(
                                     "Distância e tempo restantes",
                                     "Até o destino, ex.: 4.8 km · 12 min.",
@@ -322,15 +332,15 @@ private fun HudNavigationSettingsDialog(
                             }
                             HudSettingsTab.ARROW -> {
                                 ChoiceRow(
-                                    "Tipo das setas",
-                                    "Onde fica a seta azul.",
+                                    "Posição do mapa",
+                                    "Ao centro ou à direita.",
                                     listOf("Ao centro", "À direita"),
                                     if (config.arPlacement == HudArArrow.Placement.RIGHT) 1 else 0,
                                     enabled = config.navigation,
                                     info = "Ao centro: sob a velocidade do carro. À direita: menor, entre as linhas do assistente de faixa do HUD."
                                 ) { change(config.copy(arPlacement = if (it == 1) HudArArrow.Placement.RIGHT else HudArArrow.Placement.CENTER), PreviewFocus.ARROW) }
                                 OptionRow(
-                                    "Ruas do mapa (beta)",
+                                    "Mapa completo",
                                     "Ruas reais em cinza, rota em azul.",
                                     config.mapStreets,
                                     enabled = config.navigation,
@@ -341,7 +351,7 @@ private fun HudNavigationSettingsDialog(
                                     "Piscam rumo ao lado da curva, perto dela.",
                                     config.chevrons,
                                     enabled = config.navigation,
-                                    info = "Setas azuis no alto do HUD quando a sua rua é a próxima do lado da curva (sem mapa, nos últimos 40 m). Deslizam para o lado da curva e piscam mais rápido ao chegar."
+                                    info = "De 100 m, uma seta azul na diagonal do lado da curva (com o mapa, só se a sua rua for a próxima desse lado). De 50 m ela desliza, cresce e pisca. Some com o carro parado. O layout Navegação usa a mesma regra."
                                 ) { change(config.copy(chevrons = it), PreviewFocus.CHEVRONS) }
                             }
                             HudSettingsTab.BARS -> {
@@ -388,8 +398,45 @@ private fun HudNavigationSettingsDialog(
                         )
                     }
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = onDismiss) {
+                        Text("Fechar", fontWeight = FontWeight.Bold)
+                    }
+                    DemoDriveButton(layout, Modifier.weight(1f))
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun DemoDriveButton(layout: HudOverlayModel.Layout, modifier: Modifier = Modifier) {
+    var running by remember { mutableStateOf(HudOverlayController.isDemoDriveRunning()) }
+    var stopped by remember { mutableStateOf(HudOverlayController.isVehicleStopped()) }
+    DisposableEffect(Unit) {
+        val listener = { on: Boolean, carStopped: Boolean ->
+            running = on
+            stopped = carStopped
+        }
+        HudOverlayController.addDemoUiListener(listener)
+        onDispose { HudOverlayController.removeDemoUiListener(listener) }
+    }
+    val enabled = stopped || running
+    Button(
+        onClick = { HudOverlayController.setDemoDrive(!running, layout) },
+        enabled = enabled,
+        modifier = modifier,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = ImpTokens.Accent,
+            contentColor = Color.White,
+            disabledContainerColor = ImpTokens.TrackOff,
+            disabledContentColor = ImpTokens.TextMuted
+        )
+    ) {
+        Text(
+            if (running) "Parar demonstração no HUD" else "Iniciar demonstração no HUD",
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 

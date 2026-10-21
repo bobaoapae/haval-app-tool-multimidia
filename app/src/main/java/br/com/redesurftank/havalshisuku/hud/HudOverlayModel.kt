@@ -452,11 +452,14 @@ object HudOverlayModel {
         return cx + (kotlin.math.cos(rad) * r * xs).toFloat() to ARC_CY + (kotlin.math.sin(rad) * r).toFloat()
     }
 
-    // ---- AR chevrons ("setas de aproximação"), owner 2026-10-19: from 50 m one chevron appears just
-    // outside the arc's upper diagonal on the turn's side, pointing that way diagonally; closing
-    // in it travels to the top edge of the HUD, turns to point fully left/right and grows to 4. ----
-    /** They show from this distance to the maneuver. */
-    const val CHEVRON_START_M = 50f
+    // ---- Approach chevrons ("setas de aproximação"), both HUD layouts.
+    // From 100 m: one chevron, still, on the diagonal of the turn's side.
+    // From 50 m: it travels to the top edge, turns to point fully left/right and grows to 4.
+    // Hidden while the car is stopped. ----
+    /** One still chevron from this distance. */
+    const val CHEVRON_SHOW_M = 100f
+    /** The row starts moving at this distance. */
+    const val CHEVRON_ANIM_M = 50f
     /** Row of the flag/limit checks above the arcs (arc top is ARC_CY - ARC_POWER_R_OUT = 56). */
     const val CHEVRON_CY = 48f
     /** The top edge row they end on, and how far out to the side of the HUD's centre. */
@@ -469,8 +472,9 @@ object HudOverlayModel {
     const val CHEVRON_START_DEG_LEFT = 225f
 
     /**
-     * The lead chevron at [intensity] 0 (50 m) .. 1 (the turn): position, pointing (screen degrees,
-     * 0 = right, -90 = up) and how many there are (1..4). Eased, so it lingers at both ends.
+     * The lead chevron at [intensity] 0 (the diagonal, from 100 m) .. 1 (the turn): position,
+     * pointing (screen degrees, 0 = right, -90 = up) and how many there are (1..4). Eased, so it
+     * lingers at both ends. The count and the travel run only once the animation has started.
      */
     fun chevronPose(side: Int, intensity: Float): Triple<Pair<Float, Float>, Float, Int> {
         val t = intensity.coerceIn(0f, 1f)
@@ -510,30 +514,29 @@ object HudOverlayModel {
     const val CHEVRON_MIN_DEG = 30f
 
     /**
-     * Without the map we can't tell whether a side street comes before ours, so the chevrons
-     * wait until this close (owner: they must not point at the wrong street).
+     * Chevrons for a maneuver within [CHEVRON_SHOW_M], on either HUD layout. Still until
+     * [CHEVRON_ANIM_M], then the row animates. With the map matched, only when ours is the next
+     * street on the turn's side (a scripted demo ignores that, the maneuver is the script). Hidden while the car is stopped ([speedKmh] <= 0).
      */
-    const val CHEVRON_NO_MAP_M = 50f
-
-    /**
-     * Chevrons for an AR maneuver within [CHEVRON_START_M], only when ours is the next street on
-     * the turn's side (map matched), or within [CHEVRON_NO_MAP_M] without the map; else null.
-     */
-    fun chevronsFor(tbt: Tbt?): Chevrons? {
-        if (tbt == null || tbt.style != TbtStyle.AR) return null
-        val meters = tbt.arMeters ?: return null
-        if (meters > CHEVRON_START_M) return null
-        if (if (tbt.routeMatched) !tbt.routeClear else meters > CHEVRON_NO_MAP_M) return null
-        // Roundabout: the way out relative to the way in (180° round is straight on).
+    fun chevronsFor(tbt: Tbt?, speedKmh: Double = 1.0, scripted: Boolean = false): Chevrons? {
+        if (speedKmh <= 0.0) return null
+        if (tbt == null) return null
+        val meters = tbt.guideMeters ?: return null
+        if (meters > CHEVRON_SHOW_M) return null
+        if (tbt.routeMatched && !tbt.routeClear && !scripted) return null
+        // Approaching a roundabout: no chevrons. They appear only once we are on the ring,
+        // pointing to the exit (right in right-hand traffic).
+        if (tbt.dynamicRoundabout && tbt.rbProgress <= 0.02f) return null
         val heading = if (tbt.dynamicRoundabout) {
-            val ccw = 180f - tbt.exitAngle!!
-            if (tbt.roundaboutClockwise) -ccw else ccw
+            if (tbt.roundaboutClockwise) -90f else 90f
         } else {
-            tbt.arAngle ?: return null
+            tbt.guideAngle ?: return null
         }
         if (kotlin.math.abs(heading) < CHEVRON_MIN_DEG) return null
         val side = if (heading > 0f) 1 else -1
-        return Chevrons(side, (1f - meters / CHEVRON_START_M).coerceIn(0f, 1f))
+        val animate = meters <= CHEVRON_ANIM_M
+        val intensity = if (animate) (1f - meters / CHEVRON_ANIM_M).coerceIn(0f, 1f) else 0f
+        return Chevrons(side, intensity, animate)
     }
 
     /**
@@ -590,7 +593,13 @@ object HudOverlayModel {
         /** AR map on but its area not loaded yet: a note in place of the arrow (owner: no arrows). */
         val mapPending: Boolean = false,
         /** The car is on the roundabout: the street line shows the street instead of the exit. */
-        val onRoundabout: Boolean = false
+        val onRoundabout: Boolean = false,
+        /** Distance to this maneuver, either layout. Chevrons use it; null when unknown. */
+        val guideMeters: Float? = null,
+        /** Bend of this maneuver (+ right). Null on a roundabout (the exit angle is used) or an unknown shape. */
+        val guideAngle: Float? = null,
+        /** 0 approaching a roundabout, then how far round the ring toward the exit (0..1). */
+        val rbProgress: Float = 0f
     ) {
         /** Draw the roundabout with its real exit instead of the static icon. */
         val dynamicRoundabout: Boolean get() = icon == "ROUNDABOUT" && exitAngle != null
@@ -627,6 +636,30 @@ object HudOverlayModel {
     /** Exit angle the dynamic icon can draw: 1..360, else null (static icon). */
     fun drawableExitAngle(angle: Int?): Int? = angle?.takeIf { it in 1..360 }
 
+    /** Smallest arc the on-ring icon shrinks to: the exit sits just to the right. */
+    const val RB_EXIT_ARC = 55f
+
+    /**
+     * Angle to draw while on the ring. [progress] 0 is the full exit; as the car goes round,
+     * the remaining arc shrinks until it is [RB_EXIT_ARC], with the exit on the right.
+     */
+    fun roundaboutShownAngle(angle: Int, progress: Float): Int {
+        if (progress <= 0f) return angle
+        val remaining = angle * (1f - progress.coerceIn(0f, 1f))
+        return remaining.coerceAtLeast(RB_EXIT_ARC).roundToInt().coerceIn(1, angle)
+    }
+
+    /**
+     * Exit number still to come. Counts down with [progress]. 1 is not shown (the arrow is enough).
+     */
+    fun roundaboutExitCountdown(exitNumber: Int?, progress: Float): Int? {
+        val n = exitNumber ?: return null
+        if (n <= 1) return null
+        if (progress <= 0f) return n
+        val left = kotlin.math.ceil(n * (1f - progress.coerceIn(0f, 1f)) - 1e-4).toInt().coerceIn(1, n)
+        return left.takeIf { it > 1 }
+    }
+
     /** Exit after the distance in the compact / far rows: 2 -> "2ª" (saída). */
     fun exitLabel(exitNumber: Int): String = "${exitNumber}ª"
 
@@ -656,12 +689,15 @@ object HudOverlayModel {
         val radar: Radar? = null,
         /** Three-digit speed: the wide arcs (see [wideArcs]). */
         val wideArcs: Boolean = false,
-        /** AR: animated turn chevrons above the speed (null = none). */
+        /** Approach chevrons above the speed (null = none). */
         val chevrons: Chevrons? = null
     )
 
-    /** Chevrons pointing to [side] (+1 right, -1 left), [intensity] 0 (just in range) .. 1 (at the turn). */
-    data class Chevrons(val side: Int, val intensity: Float)
+    /**
+     * Chevrons pointing to [side] (+1 right, -1 left). [intensity] 0 is the still diagonal,
+     * 1 is at the turn. [animate] is false from 100 m to 50 m (one chevron, no pulse).
+     */
+    data class Chevrons(val side: Int, val intensity: Float, val animate: Boolean = true)
 
     /** Radar alert for the HUD (see RadarManager): metres to the camera, its limit, over it. */
     data class Radar(val distanceM: Int, val limitKmh: Int?, val over: Boolean)
@@ -762,10 +798,11 @@ object HudOverlayModel {
 
     /**
      * The AR map view: with [streets] loaded, the route on the real roads (or the plain fallback
-     * shape at the same scale). Roundabouts keep their own view.
+     * shape at the same scale). Roundabouts stay on the map too, so the blue line doesn't vanish
+     * on the ring.
      */
     fun withMap(tbt: Tbt, streets: List<br.com.redesurftank.havalshisuku.map.LocalRoad>): Tbt {
-        if (streets.isEmpty() || tbt.dynamicRoundabout) return tbt
+        if (streets.isEmpty()) return tbt
         val turn = if (tbt.arDestination != null) 0f else tbt.arAngle
         val route = br.com.redesurftank.havalshisuku.map.RoutePath.route(streets, tbt.arMeters, turn)
             ?: br.com.redesurftank.havalshisuku.map.RoutePath.synthetic(tbt.arMeters, turn)
@@ -805,6 +842,8 @@ object HudOverlayModel {
             exitNumber = d.exitNumber?.takeIf { icon == "ROUNDABOUT" && it > 0 },
             exitAngle = exitAngle,
             roundaboutClockwise = d.roundaboutClockwise == true,
+            guideMeters = meters?.toFloat(),
+            guideAngle = HudArArrow.angleFor(d.turn),
             arDestination = HudArArrow.destinationSide(d.turn).takeIf { style == TbtStyle.AR },
             arPlacement = config.arPlacement
         )
@@ -823,17 +862,31 @@ object HudOverlayModel {
         streets: List<br.com.redesurftank.havalshisuku.map.LocalRoad> = emptyList(),
         wideArcs: Boolean = false,
         mapPending: Boolean = false,
-        onRoundabout: Boolean = false
+        onRoundabout: Boolean = false,
+        speedKmh: Double = 1.0,
+        scriptedDemo: Boolean = false
     ): Frame {
         // "Original" layout: the window is only up for the radar, so draw nothing else.
         if (!config.active) return Frame(tbt = null, powerPercent = null, rpmTenths = null, radar = radar)
         // A camera ahead takes the turn-by-turn box while it is alerted.
         val tbt = if (config.navigation && radar == null) {
             directions?.let { tbtFor(it, config) }?.let { tbt ->
-                if (tbt.style != TbtStyle.AR) tbt
+                val onRing = tbt.dynamicRoundabout && arProgress > 0.02f
+                val arrowMeters = when {
+                    tbt.style == TbtStyle.AR && !arDistanceKnown -> null
+                    arMetersOverride != null -> arMetersOverride
+                    else -> tbt.arMeters
+                }
+                // On the ring the arrow is drawn here (0 m). Chevrons keep AA's distance to the exit.
+                val guide = if (onRing) tbt.guideMeters else arrowMeters
+                val adjusted = tbt.copy(
+                    guideMeters = guide,
+                    rbProgress = if (tbt.icon == "ROUNDABOUT") arProgress.coerceIn(0f, 1f) else 0f
+                )
+                if (adjusted.style != TbtStyle.AR) adjusted
                 else withMap(
-                    tbt.copy(
-                        arMeters = if (arDistanceKnown) arMetersOverride ?: tbt.arMeters else null,
+                    adjusted.copy(
+                        arMeters = arrowMeters,
                         arProgress = arProgress,
                         // The map's horizon at the top of the HUD (owner: the default, no switch).
                         mapHorizon = HudArArrow.MAP_HORIZON_TOP_Y,
@@ -851,18 +904,19 @@ object HudOverlayModel {
             arcs = config.arcs,
             radar = radar,
             wideArcs = wideArcs,
-            chevrons = if (config.chevrons) chevronsFor(tbt) else null
+            chevrons = if (config.chevrons) chevronsFor(tbt, speedKmh, scriptedDemo) else null
         )
     }
 
     /**
      * Scripted drive for the debug `hudDemo drive`: what the HUD would get [t] seconds into a
-     * 66 s loop at [speed] m/s. Right turn from 450 m (engine on, then regen into the turn), a
+     * 74 s loop at [speed] m/s. Right turn from 300 m (engine on, then regen into the turn), a
      * sharp left with lanes from 270 m (into the RPM red zone, then regen), then a roundabout
-     * from 200 m taken at the 3rd exit (left, 270° round a counter-clockwise ring).
+     * from 200 m taken at the 3rd exit (left, 270° round a counter-clockwise ring). Each leg
+     * ends when its distance reaches 0, so Augusta does not sit on the turn after the 300 m start.
      */
     object DemoDrive {
-        const val LOOP_MS = 84_000L
+        const val LOOP_MS = 74_000L
         class Step(
             val directions: AndroidAutoNavigationTelemetry.Directions,
             val powerPercent: Int,
@@ -873,29 +927,33 @@ object HudOverlayModel {
             listOf(AndroidAutoNavigationTelemetry.LaneDirection(shape, used))
 
         fun at(t: Float, speed: Float): Step {
-            val firstLeg = 30f
+            // 300 m at the scripted speed, then the next street. The old 30 s slot
+            // (sized for a 450 m start) left Augusta on 0 m for ~10 s.
+            val firstLeg = 300f / speed
+            val roundaboutAt = firstLeg + 270f / speed
+            val destinationAt = roundaboutAt + 18f
             return if (t < firstLeg) {
-                val d = (450f - speed * t).coerceAtLeast(0f)
+                val d = (300f - speed * t).coerceAtLeast(0f)
                 Step(
                     directions(d, "TURN_RIGHT", "R. Augusta", 5_200f - speed * t, 700 - t.toInt(), emptyList()),
                     powerPercent = when {
-                        t < 10f -> 45
-                        t < 20f -> 20
+                        t < firstLeg - 10f -> 45
+                        t < firstLeg - 4f -> 20
                         else -> -40
                     },
                     rpmTenths = if (t < 12f) 28 else null
                 )
-            } else if (t >= 66f) {
+            } else if (t >= destinationAt) {
                 // Arriving: destination on the right.
-                val s = t - 66f
+                val s = t - destinationAt
                 val d = (240f - speed * s).coerceAtLeast(0f)
                 Step(
                     directions(d, "DESTINATION_RIGHT", "R. Oscar Freire", 240f - speed * s, 30 - s.toInt(), emptyList()),
                     powerPercent = if (s < 8f) 10 else -35,
                     rpmTenths = null
                 )
-            } else if (t >= 48f) {
-                val s = t - 48f
+            } else if (t >= roundaboutAt) {
+                val s = t - roundaboutAt
                 // To the entry, then (as AA does on the ring) the way round to the exit:
                 // 270° on a ~15 m ring.
                 val travelled = speed * s

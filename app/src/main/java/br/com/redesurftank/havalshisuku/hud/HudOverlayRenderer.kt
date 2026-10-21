@@ -126,12 +126,13 @@ class HudOverlayRenderer {
      * of light runs along the row towards the turn, faster the closer it is.
      */
     private fun drawChevrons(canvas: Canvas, ch: M.Chevrons, nowMs: Long) {
-        val t = ch.intensity
+        val t = if (ch.animate) ch.intensity else 0f
         val period = M.CHEVRON_PERIOD_FAR_MS + (M.CHEVRON_PERIOD_NEAR_MS - M.CHEVRON_PERIOD_FAR_MS) * t
-        val phase = (nowMs % period.toLong()) / period
-        val appear = (t * 5f).coerceAtMost(1f) // fade in over the first ~10 m
-        val base = 0.25f + 0.25f * t
-        val (lead, dir, n) = M.chevronPose(ch.side, t)
+        val phase = if (ch.animate) (nowMs % period.toLong()) / period else 0f
+        val appear = 1f
+        val base = if (ch.animate) 0.45f + 0.4f * t else 0.9f
+        val (lead, dir, count) = M.chevronPose(ch.side, t)
+        val n = if (ch.animate) count else 1
         val rad = Math.toRadians(dir.toDouble())
         val ux = kotlin.math.cos(rad).toFloat()
         val uy = kotlin.math.sin(rad).toFloat()
@@ -321,7 +322,7 @@ class HudOverlayRenderer {
         val scale = if (far) M.AR_FAR_TEXT_SCALE else 1f
         val streetY = if (lanes) M.AR_LANES_STREET_BASELINE else M.AR_STREET_BASELINE
         streetPaint.textSize = scale * if (lanes) M.AR_LANES_STREET_SIZE else M.AR_STREET_SIZE
-        val exit = tbt.exitNumber?.let { "${M.exitLabel(it)} saída" }
+        val exit = M.roundaboutExitCountdown(tbt.exitNumber, tbt.rbProgress)?.let { "${M.exitLabel(it)} saída" }
         // Roundabout (owner, option C): the exit, at full size, until the car is on the ring;
         // then the street it leads to.
         val streetLine = if (exit != null && !(tbt.onRoundabout && tbt.street.isNotEmpty())) exit else tbt.street
@@ -500,8 +501,6 @@ class HudOverlayRenderer {
             arPath.reset()
             for (ribbon in shape.gray) addRibbon(ribbon, top)
             canvas.drawPath(arPath, arPaint)
-            // The grey roads fade out to the sides too (before the route goes on top).
-            if (map) fadeSides(canvas, left, right, top, HudArArrow.CX)
         }
         arPaint.shader = if (map) mapShader(top, blue = true) else shaderFor(blueShaders, top)
         arPaint.alpha = 255
@@ -517,6 +516,9 @@ class HudOverlayRenderer {
         }
         canvas.drawPath(arPath, arPaint)
         arPaint.shader = null
+        // Top fade is in the shader. Sides fade here, the blue route included, so the HUD
+        // stays clear toward the edges. The map fades harder than the plain arrow.
+        fadeSides(canvas, left, right, top, HudArArrow.CX, edge = if (map) 0 else 60, keep = if (map) 0.16f else 0.32f)
         canvas.restore() // layer
         canvas.restore() // transform + clip
         shape.flag?.let { drawArFlag(canvas, it, cx, sx, sy, opacity) }
@@ -543,8 +545,8 @@ class HudOverlayRenderer {
     private fun mapShader(top: Float, blue: Boolean): android.graphics.Shader =
         (if (blue) mapBlueShaders else mapGrayShaders).getOrPut(top) {
             val span = HudArArrow.BOTTOM - top
-            val ys = floatArrayOf(top, top + span * 0.15f, top + span * 0.5f, HudArArrow.BOTTOM - 10f, HudArArrow.BOTTOM)
-            val alphas = if (blue) floatArrayOf(0.5f, 0.85f, 1f, 1f, 0.75f) else floatArrayOf(0f, 0.25f, 0.7f, 1f, 0.75f)
+            val ys = floatArrayOf(top, top + span * 0.32f, top + span * 0.58f, HudArArrow.BOTTOM - 10f, HudArArrow.BOTTOM)
+            val alphas = if (blue) floatArrayOf(0.08f, 0.4f, 0.85f, 1f, 0.6f) else floatArrayOf(0f, 0.12f, 0.45f, 0.85f, 0.5f)
             val colors = IntArray(ys.size) { i ->
                 val c = if (blue) arRgb(ys[i]) else Color.rgb(200, 205, 215)
                 Color.argb((alphas[i] * 255).toInt(), Color.red(c), Color.green(c), Color.blue(c))
@@ -557,13 +559,13 @@ class HudOverlayRenderer {
 
     private val sideMaskPaint = Paint().apply { xfermode = android.graphics.PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
 
-    /** Fades what is already in the layer towards [left] / [right], fully kept round [centre]. */
-    private fun fadeSides(canvas: Canvas, left: Float, right: Float, top: Float, centre: Float) {
+    /** Fades what is already in the layer towards [left] / [right]. Fully kept within [keep] of [centre]. */
+    private fun fadeSides(canvas: Canvas, left: Float, right: Float, top: Float, centre: Float, edge: Int, keep: Float) {
         val c = ((centre - left) / (right - left)).coerceIn(0.05f, 0.95f)
         sideMaskPaint.shader = android.graphics.LinearGradient(
             left, 0f, right, 0f,
-            intArrayOf(Color.argb(40, 0, 0, 0), Color.argb(255, 0, 0, 0), Color.argb(255, 0, 0, 0), Color.argb(40, 0, 0, 0)),
-            floatArrayOf(0f, (c - 0.25f).coerceAtLeast(0.01f), (c + 0.25f).coerceAtMost(0.99f), 1f),
+            intArrayOf(Color.argb(edge, 0, 0, 0), Color.argb(255, 0, 0, 0), Color.argb(255, 0, 0, 0), Color.argb(edge, 0, 0, 0)),
+            floatArrayOf(0f, (c - keep).coerceIn(0.02f, 0.48f), (c + keep).coerceIn(0.52f, 0.98f), 1f),
             android.graphics.Shader.TileMode.CLAMP
         )
         canvas.drawRect(left, top, right, HudArArrow.BOTTOM, sideMaskPaint)
@@ -583,15 +585,22 @@ class HudOverlayRenderer {
      * placement's stretch would make it tall and thin) and as see-through as the arrow.
      */
     private fun drawArFlag(canvas: Canvas, flag: HudArArrow.Flag, cx: Float, sx: Float, sy: Float, opacity: Float) {
-        val fx = cx + (flag.x - HudArArrow.CX) * sx
+        val raw = cx + (flag.x - HudArArrow.CX) * sx
         val y = HudArArrow.BOTTOM - (HudArArrow.BOTTOM - flag.y) * sy
         if (y <= M.CHEVRON_CY || y > HudArArrow.BOTTOM) return
         val size = (flag.height * kotlin.math.sqrt(sx * sy)).coerceIn(10f, y - 40f)
-        // The pennant flies right of the pole: keep it on the panel (RIGHT placement, right side).
-        val x = fx.coerceAtMost(480f - size * 0.7f)
+        // The pennant flies away from the road: keep that side of it on the panel.
+        val x = if (flag.pennant < 0) raw.coerceAtLeast(size * 0.7f) else raw.coerceAtMost(480f - size * 0.7f)
         canvas.saveLayerAlpha(x - size, y - size - 2f, x + size, y + 2f, (255 * (0.35f + opacity)).toInt().coerceAtMost(255))
+        canvas.save()
+        if (flag.pennant < 0) {
+            canvas.translate(x, 0f)
+            canvas.scale(-1f, 1f)
+            canvas.translate(-x, 0f)
+        }
         // drawFlag's pole runs at x 5, y 3..23 of its 24 box: stand it on (x, y).
         drawFlag(canvas, x - 5f * size / 24f, y + size / 24f, size)
+        canvas.restore()
         canvas.restore()
     }
 
@@ -621,7 +630,7 @@ class HudOverlayRenderer {
     private fun drawHero(canvas: Canvas, tbt: M.Tbt) {
         val left = M.BOX_CENTER_X - M.HERO_GLYPH / 2
         val bottom = drawTurn(canvas, tbt, left, M.HERO_TOP, M.HERO_GLYPH)
-        tbt.exitNumber?.let { exit ->
+        M.roundaboutExitCountdown(tbt.exitNumber, tbt.rbProgress)?.let { exit ->
             val (cx, cy) = M.ringHoleCenter(left, M.HERO_TOP, M.HERO_GLYPH, tbt.dynamicRoundabout)
             exitPaint.textSize = M.heroExitSize(exit)
             canvas.drawText(exit.toString(), cx, cy - (exitPaint.descent() + exitPaint.ascent()) / 2, exitPaint)
@@ -637,7 +646,7 @@ class HudOverlayRenderer {
      */
     private fun drawRow(canvas: Canvas, tbt: M.Tbt, top: Float) {
         setTextSizes(M.COMPACT_VALUE_SIZE, M.COMPACT_UNIT_SIZE)
-        val exit = tbt.exitNumber?.let { M.exitLabel(it) }
+        val exit = M.roundaboutExitCountdown(tbt.exitNumber, tbt.rbProgress)?.let { M.exitLabel(it) }
         val distWidth = distanceWidth(tbt)
         val exitWidth = exit?.let { unitPaint.measureText(it) } ?: 0f
         val textWidth = distWidth + if (exit != null && distWidth > 0f) M.EXIT_GAP + exitWidth else exitWidth
@@ -663,7 +672,11 @@ class HudOverlayRenderer {
         }
         val exitAngle = tbt.exitAngle
         if (tbt.dynamicRoundabout && exitAngle != null) {
-            drawRoundabout(canvas, left, top, size, exitAngle, tbt.roundaboutClockwise, tbt.exitNumber)
+            drawRoundabout(
+                canvas, left, top, size,
+                M.roundaboutShownAngle(exitAngle, tbt.rbProgress),
+                tbt.roundaboutClockwise, tbt.exitNumber
+            )
             return top + (M.RB_ENTRY_BOTTOM + M.RB_STROKE / 2) / 24f * size
         }
         val path = HudTbtIcons.turnPath(icon, size)
@@ -859,7 +872,8 @@ class HudOverlayRenderer {
         if (config.active) {
             val frame = M.frameFor(
                 config, scenario.route, scenario.powerPercent, scenario.rpmTenths,
-                wideArcs = M.wideArcs(scenario.speedKmh.toDouble(), wasWide = false)
+                wideArcs = M.wideArcs(scenario.speedKmh.toDouble(), wasWide = false),
+                speedKmh = scenario.speedKmh.toDouble()
             )
             drawContent(canvas, frame)
             // A still of the approach chevrons (the sharp-left preview), mid-pulse.

@@ -257,6 +257,25 @@ class HudOverlayModelTest {
     }
 
     @Test
+    fun `on the ring the exit arc shrinks to the right and the number counts down past 1`() {
+        assertEquals(180, HudOverlayModel.roundaboutShownAngle(180, 0f))
+        assertTrue(HudOverlayModel.roundaboutShownAngle(270, 0.85f) <= 80)
+        assertEquals(HudOverlayModel.RB_EXIT_ARC.toInt(), HudOverlayModel.roundaboutShownAngle(270, 1f))
+        assertEquals(3, HudOverlayModel.roundaboutExitCountdown(3, 0f))
+        assertEquals(2, HudOverlayModel.roundaboutExitCountdown(3, 0.4f))
+        assertNull(HudOverlayModel.roundaboutExitCountdown(3, 0.8f))
+        assertNull(HudOverlayModel.roundaboutExitCountdown(1, 0f))
+        val ar = HudOverlayModel.Config(layout = HudOverlayModel.Layout.AR)
+        val rb = Directions(active = true, distance = "40 m", distanceM = 40, turn = "ROUNDABOUT", exitNumber = 3, turnAngle = 270, roundaboutClockwise = false)
+        val onRing = HudOverlayModel.frameFor(ar, rb, 0, null, arMetersOverride = 0f, arProgress = 0.5f)
+        assertEquals(1, onRing.chevrons!!.side)
+        // The ring is drawn here, but the chevrons still follow the 40 m left to the exit.
+        assertEquals(0.2f, onRing.chevrons!!.intensity, 0.05f)
+        assertTrue(onRing.tbt!!.rbProgress > 0f)
+        assertEquals(0f, onRing.tbt!!.arMeters)
+    }
+
+    @Test
     fun `dynamic roundabout only with a drawable angle`() {
         val d = Directions(active = true, distance = "80 m", turn = "ROUNDABOUT", exitNumber = 2, turnAngle = 180)
         val tbt = HudOverlayModel.tbtFor(d)!!

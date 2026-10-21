@@ -23,7 +23,7 @@ class HudOverlayView(context: Context) : View(context) {
         renderer.draw(canvas, frame)
         // Chevrons animate: keep redrawing (~30 fps) only while they are up; the
         // "carregando mapa" note blinks on its own clock (5 s on, 10 s off).
-        if (frame?.chevrons != null) postInvalidateDelayed(CHEVRON_FRAME_MS)
+        if (frame?.chevrons?.animate == true) postInvalidateDelayed(CHEVRON_FRAME_MS)
         else if (frame?.tbt?.mapPending == true) postInvalidateDelayed(PENDING_FRAME_MS)
     }
 

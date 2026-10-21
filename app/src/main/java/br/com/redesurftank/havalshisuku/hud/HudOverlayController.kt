@@ -158,8 +158,8 @@ object HudOverlayController {
         return when {
             // The map demo: the AR theme with the map, whatever the owner picked.
             demoMapStartMs != 0L -> saved.copy(layout = HudOverlayModel.Layout.AR, mapStreets = true)
-            // The drive demo shows the AR theme whatever the owner picked.
-            demoDriveStartMs != 0L -> saved.copy(layout = HudOverlayModel.Layout.AR)
+            // Scripted drive: the layout chosen in Telas, or AR when started from adb.
+            demoDriveStartMs != 0L -> saved.copy(layout = demoLayout ?: HudOverlayModel.Layout.AR, navigation = true)
             // Static demos draw on "original" too; that layout now draws only the radar.
             demoDirections != null && !saved.active -> saved.copy(layout = HudOverlayModel.Layout.NAVIGATION)
             else -> saved
@@ -218,11 +218,19 @@ object HudOverlayController {
             PowerFlow.KEY_ICE -> engineOn = value?.trim() == "1"
             KEY_SPEED -> {
                 // Feeds the AR extrapolation (redraws on its own tick) and the wide arcs (redraw on a change).
+                // Crossing a stop also redraws: the blue chevrons hide at 0.
+                val wasMoving = speedKmh > 0.0
                 speedKmh = PowerFlowMapper.parseNumber(value).takeIf { it.isFinite() && it in 0.0..300.0 } ?: 0.0
                 val wide = HudOverlayModel.wideArcs(speedKmh, wideArcs)
-                if (wide != wideArcs) {
+                val moving = speedKmh > 0.0
+                val stopDemo = !wasMoving && moving && demoDriveStartMs != 0L
+                if (wide != wideArcs || wasMoving != moving || stopDemo) {
                     wideArcs = wide
-                    main.post { publish() }
+                    main.post {
+                        if (stopDemo) stopDemoDrive()
+                        publish()
+                        notifyDemoUi()
+                    }
                 }
                 return
             }
@@ -256,7 +264,11 @@ object HudOverlayController {
             streets = HudMapFeed.lines,
             wideArcs = wideArcs,
             mapPending = HudMapFeed.pending,
-            onRoundabout = rbTracker.entered || roundaboutProgress() > 0f
+            onRoundabout = rbTracker.entered || roundaboutProgress() > 0f,
+            // A demo is a moving drive even with the car parked. Otherwise the real speed:
+            // 0 hides the blue approach chevrons.
+            speedKmh = if (demoDriveStartMs != 0L || demoMapStartMs != 0L) DEMO_DRIVE_SPEED_MPS * 3.6 else speedKmh,
+            scriptedDemo = demoDriveStartMs != 0L
         )
     }
 
@@ -464,6 +476,7 @@ object HudOverlayController {
         stopDemoDrive()
         stopDemoMap()
         if (mode == "drive") {
+            demoLayout = null
             startDemoDrive()
             return
         }
@@ -544,6 +557,53 @@ object HudOverlayController {
         main.postDelayed(demoMapTick, DEMO_DRIVE_TICK_MS)
     }
 
+    /** Layout the Telas button asked the scripted drive to use. Null keeps the adb default (AR). */
+    private var demoLayout: HudOverlayModel.Layout? = null
+    private val demoUiListeners = java.util.concurrent.CopyOnWriteArrayList<(Boolean, Boolean) -> Unit>()
+
+    /** True while the car's own speed is 0. The scripted demo must not start above that. */
+    fun isVehicleStopped(): Boolean = speedKmh <= 0.0
+
+    fun isDemoDriveRunning(): Boolean = demoDriveStartMs != 0L
+
+    /** [listener] receives (demo running, car stopped). Called once immediately, on the caller thread. */
+    fun addDemoUiListener(listener: (Boolean, Boolean) -> Unit) {
+        demoUiListeners += listener
+        listener(isDemoDriveRunning(), isVehicleStopped())
+    }
+
+    fun removeDemoUiListener(listener: (Boolean, Boolean) -> Unit) {
+        demoUiListeners -= listener
+    }
+
+    private fun notifyDemoUi() {
+        val running = demoDriveStartMs != 0L
+        val stopped = speedKmh <= 0.0
+        demoUiListeners.forEach { it(running, stopped) }
+    }
+
+    /**
+     * Telas: start or stop the scripted drive in [layout]. Start is ignored while the car is moving.
+     * Any thread.
+     */
+    fun setDemoDrive(on: Boolean, layout: HudOverlayModel.Layout) {
+        main.post {
+            if (on) {
+                if (speedKmh > 0.0) {
+                    notifyDemoUi()
+                    return@post
+                }
+                demoLayout = layout
+                stopDemoMap()
+                startDemoDrive()
+            } else {
+                stopDemoDrive()
+                publish()
+            }
+            notifyDemoUi()
+        }
+    }
+
     // ---- drive demo (debug): the AR theme animating on the real HUD with the car parked ----
 
     /** Drive demo runs at most this long. */
@@ -559,13 +619,16 @@ object HudOverlayController {
     private fun startDemoDrive() {
         demoDriveStartMs = SystemClock.elapsedRealtime()
         stepDemoDrive()
+        notifyDemoUi()
     }
 
     private fun stopDemoDrive() {
         if (demoDriveStartMs == 0L) return
         main.removeCallbacks(demoDriveTick)
         demoDriveStartMs = 0L
+        demoLayout = null
         demoDirections = null
+        notifyDemoUi()
     }
 
     /**

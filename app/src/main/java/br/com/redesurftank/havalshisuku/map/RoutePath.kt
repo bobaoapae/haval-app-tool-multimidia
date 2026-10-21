@@ -47,6 +47,10 @@ object RoutePath {
     const val AHEAD_M = 600f
     /** Keep following the road while its bends stay under this (a sharper one is a junction we don't take). */
     const val STRAIGHT_ON_DEG = 60f
+    /** A single continuation kinkier than that (a roundabout ring, a broken way) is still the road. */
+    const val CONTINUE_DEG = 120f
+    /** Way ends this close are the same junction. OSM often splits a road into ways that don't share a node. */
+    const val SNAP_M = 14f
     /** Fallback shape: corner radius and tail. */
     const val FALLBACK_R = 8f
     const val FALLBACK_TAIL_M = 60f
@@ -67,14 +71,26 @@ object RoutePath {
     private fun key(x: Float, y: Float): Long =
         ((x * 10f).roundToLong() shl 32) xor ((y * 10f).roundToLong() and 0xffffffffL)
 
-    /** Roads into a graph: shared points (junctions) join them. */
+    /** Roads into a graph: shared points (junctions) join them. Way ends within [SNAP_M] join too. */
     private fun graph(roads: List<LocalRoad>): Collection<Node> {
         val nodes = HashMap<Long, Node>()
-        fun node(x: Float, y: Float) = nodes.getOrPut(key(x, y)) { Node(x, y) }
+        val ends = ArrayList<Node>()
+        fun vertex(x: Float, y: Float, end: Boolean): Node {
+            nodes[key(x, y)]?.let { return it }
+            if (end) {
+                for (n in ends) if (hypot(n.x - x, n.y - y) <= SNAP_M) return n
+            }
+            val n = Node(x, y)
+            nodes[key(x, y)] = n
+            if (end) ends += n
+            return n
+        }
         for (road in roads) {
+            val nPts = road.pts.size / 2
+            if (nPts < 2) continue
             var prev: Node? = null
-            for (k in 0 until road.pts.size / 2) {
-                val n = node(road.pts[2 * k], road.pts[2 * k + 1])
+            for (k in 0 until nPts) {
+                val n = vertex(road.pts[2 * k], road.pts[2 * k + 1], end = k == 0 || k == nPts - 1)
                 if (prev != null && prev !== n) {
                     prev.link(n, road.minor, road.name)
                     n.link(prev, road.minor, road.name)
@@ -95,12 +111,22 @@ object RoutePath {
         return d
     }
 
-    /** Straightest way on from [cur] (arrived from [prev]), or null at a dead end or a sharp bend only. */
+    /** Straightest way on from [cur] (arrived from [prev]), or null at a dead end or a real fork. */
     private fun straightOn(prev: Node, cur: Node): Node? {
         val inDeg = heading(cur.x - prev.x, cur.y - prev.y)
-        return cur.next.filter { it !== prev }
-            .minByOrNull { abs(turn(inDeg, heading(it.x - cur.x, it.y - cur.y))) }
-            ?.takeIf { abs(turn(inDeg, heading(it.x - cur.x, it.y - cur.y))) <= STRAIGHT_ON_DEG }
+        fun ang(n: Node) = abs(turn(inDeg, heading(n.x - cur.x, n.y - cur.y)))
+        val options = cur.next.filter { it !== prev }
+        if (options.isEmpty()) return null
+        val best = options.minBy { ang(it) }
+        if (ang(best) <= STRAIGHT_ON_DEG) return best
+        // One kinked continuation (a ring, a way that didn't share its node): still the road.
+        val open = options.filter { ang(it) <= CONTINUE_DEG }
+        if (open.size == 1) return open[0]
+        if (open.size >= 2) {
+            val sorted = open.sortedBy { ang(it) }
+            if (ang(sorted[1]) - ang(sorted[0]) >= 25f) return sorted[0]
+        }
+        return null
     }
 
     /**
@@ -162,7 +188,21 @@ object RoutePath {
             path += next
             pts += next.x; pts += next.y
         }
-        if (!wantsTurn) return Route(trim(pts, cum, target), matched = true, nextOnSide = false)
+        if (!wantsTurn) {
+            val out = ArrayList<Float>()
+            out += trim(pts, cum, target).toList()
+            // The mapped way ended before AA's distance: keep the line going on the same heading
+            // for a short bridge, so a joint doesn't cut the route off.
+            if (cum.last() + 1f < target && out.size >= 4) {
+                val n = out.size / 2
+                val dir = heading(out[2 * n - 2] - out[2 * n - 4], out[2 * n - 1] - out[2 * n - 3])
+                val rest = (target - cum.last()).coerceAtMost(60f)
+                val rad = dir * PI.toFloat() / 180f
+                out += out[2 * n - 2] + sin(rad) * rest
+                out += out[2 * n - 1] + cos(rad) * rest
+            }
+            return Route(out.toFloatArray(), matched = true, nextOnSide = false)
+        }
         // The junction: a node with more than two ways nearest AA's distance.
         var j = -1
         for (i in 1 until path.size) {

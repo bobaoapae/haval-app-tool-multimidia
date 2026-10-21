@@ -68,7 +68,7 @@ Grey shading = outside the optics; the native HUD on the right is a rough mock f
     <div class="checks">
       <label><input type="checkbox" id="opt3d" checked> Navegação AR theme (centre arrow, left column, arcs)</label>
       <label><input type="checkbox" id="optRight"> AR arrow on the right, between the lane-assist lines</label>
-      <label><input type="checkbox" id="optChev" checked> AR animated chevrons near the turn</label>
+      <label><input type="checkbox" id="optChev" checked> approach chevrons (still from 100 m, animate from 50 m, hidden at 0)</label>
     </div>
     <label class="row">Distance <input type="range" id="dist" min="0" max="1500" step="10"><output id="distOut"></output></label>
     <div class="scen"><button id="play">▶ Play approach<small>1.2 km down to 0 m, ~12 s</small></button></div>
@@ -465,8 +465,9 @@ function destShape(meters, side) {
   for (let z = P3.Z_CLIP - 0.1; z < zc; z += 0.1) line.push([0, z]);
   line.push([0, zc]);
   const runs = roadRibbon(line, P3.HW, AHEAD);
-  const fx = side === 0 ? 0 : side * (P3.HW + P3.FLAG_GAP), fz = side === 0 ? zc + P3.HEAD_L + 0.6 : zc, [x, y] = project(fx, fz);
-  return fit({ blue: runs[runs.length - 1] || [], head: roadHead(line, AHEAD), gray: [], grayAlpha: 1, flag: { x, y, height: P3.FLAG_H * P3.F_X / fz } });
+  const reach = Math.max(P3.HW, P3.HEAD_HW);
+  const fx = side === 0 ? 0 : side * (reach + P3.FLAG_GAP), fz = side === 0 ? zc + P3.HEAD_L + 0.6 : zc, [x, y] = project(fx, fz);
+  return fit({ blue: runs[runs.length - 1] || [], head: roadHead(line, AHEAD), gray: [], grayAlpha: 1, flag: { x, y, height: P3.FLAG_H * P3.F_X / fz, pennant: side < 0 ? -1 : 1 } });
 }
 
 function curve(p0, d0, p3, d3, n = 24) {
@@ -501,8 +502,7 @@ function rbShape(meters, travel, clockwise, passed, progress) {
   const acc = [0]; for (let i = 1; i < route.length; i++) acc.push(acc[i - 1] + Math.hypot(route[i][0] - route[i - 1][0], route[i][1] - route[i - 1][1]));
   const shown = route.map((p, i) => [p[0] * bend, acc[i] + (p[1] - acc[i]) * bend]);
   const total = acc[acc.length - 1], sCam = Math.min(1, Math.max(0, progress)) * (total - P3.EXIT_OUT);
-  let cam = AHEAD;
-  if (sCam > 0) { const here = atLength(shown, acc, sCam), d = unit(here, atLength(shown, acc, Math.min(total, sCam + P3.LOOK_AHEAD))); cam = camera(here[0], here[1], Math.atan2(d[0], d[1])); }
+  const cam = AHEAD; // stay on the approach view; progress only drops what is already driven
   const remaining = sCam > 0 ? shown.filter((_, i) => acc[i] >= sCam) : shown;
   const runs = roadRibbon(remaining, P3.HW, cam), gray = [];
   if (bend > 0.02) {
@@ -573,8 +573,10 @@ function draw3dArrow(tbt, meters) {
     // Upright in screen space, as HudOverlayRenderer.drawArFlag.
     const y = P3.BOTTOM - (P3.BOTTOM - shape.flag.y) * place.sy;
     const size = Math.min(Math.max(shape.flag.height * Math.sqrt(place.sx * place.sy), 10), y - 40);
-    const x = Math.min(place.cx + (shape.flag.x - P3.CX) * place.sx, 480 - size * 0.7); // pennant stays on the panel
+    const raw = place.cx + (shape.flag.x - P3.CX) * place.sx;
+    const x = shape.flag.pennant < 0 ? Math.max(raw, size * 0.7) : Math.min(raw, 480 - size * 0.7); // pennant stays on the panel
     ctx.save(); ctx.globalAlpha = Math.min(1, 0.35 + opacity);
+    if (shape.flag.pennant < 0) { ctx.translate(x, 0); ctx.scale(-1, 1); ctx.translate(-x, 0); }
     ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = size / 24 * 2.6; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - size * 20 / 24); ctx.stroke();
     const k = size / 24, ox = x - 5 * k, oy = y - size + k;
@@ -661,17 +663,19 @@ function drawRpmArc(rpm) {
 }
 
 // Port of HudOverlayRenderer.drawChevrons / HudOverlayModel.chevronsFor.
-const CHEV = { START_M: 120, CY: 48, HALF_H: 7, W: 7, STROKE: 4, COUNT: 4, SPACING: 15, SHIFT: 46, PERIOD_FAR: 1100, PERIOD_NEAR: 380, MIN_DEG: 30 };
+const CHEV = { SHOW_M: 100, ANIM_M: 50, CY: 48, HALF_H: 7, W: 7, STROKE: 4, COUNT: 4, SPACING: 15, SHIFT: 46, PERIOD_FAR: 1100, PERIOD_NEAR: 380, MIN_DEG: 30 };
 function chevronsFor(tbt, meters) {
-  if (meters > CHEV.START_M) return null;
+  if (meters > CHEV.SHOW_M) return null;
   const heading = tbt.ring ? 180 - tbt.ring : tbt.dest !== undefined ? 0 : tbt.angle;
   if (!(Math.abs(heading) >= CHEV.MIN_DEG)) return null;
-  return { side: heading > 0 ? 1 : -1, t: Math.min(1, Math.max(0, 1 - meters / CHEV.START_M)) };
+  const animate = meters <= CHEV.ANIM_M;
+  return { side: heading > 0 ? 1 : -1, t: animate ? Math.min(1, Math.max(0, 1 - meters / CHEV.ANIM_M)) : 0, animate };
 }
 function drawChevrons(ch, now) {
-  const period = CHEV.PERIOD_FAR + (CHEV.PERIOD_NEAR - CHEV.PERIOD_FAR) * ch.t, phase = (now % period) / period;
-  const appear = Math.min(1, ch.t * 4), base = 0.25 + 0.25 * ch.t, gx = 240 + ch.side * ch.t * CHEV.SHIFT, s = ch.side;
-  for (let k = 0; k < CHEV.COUNT; k++) {
+  const period = CHEV.PERIOD_FAR + (CHEV.PERIOD_NEAR - CHEV.PERIOD_FAR) * ch.t, phase = ch.animate ? (now % period) / period : 0;
+  const appear = ch.animate ? Math.min(1, ch.t * 4) : 1, base = ch.animate ? 0.25 + 0.25 * ch.t : 0.85, gx = 240 + ch.side * ch.t * CHEV.SHIFT, s = ch.side;
+  const n = ch.animate ? CHEV.COUNT : 1;
+  for (let k = 0; k < n; k++) {
     const x = gx + s * (k - (CHEV.COUNT - 1) / 2) * CHEV.SPACING;
     let d = phase - k / CHEV.COUNT; d -= Math.floor(d);
     const pulse = (1 - d) ** 3, y = CHEV.CY, h = CHEV.HALF_H;
@@ -700,12 +704,15 @@ function render() {
   if (tbt) {
     if (opt.d3.checked && tbt.angle !== undefined) {
       draw3dArrow(tbt, meters); arColumn(tbt, meters);
-      const ch = opt.chev.checked ? chevronsFor(tbt, meters) : null;
-      if (ch) { drawChevrons(ch, performance.now()); if (!chevTimer) chevTimer = requestAnimationFrame(() => { chevTimer = null; render(); }); }
     }
     else if (tbt.lanes.length) drawCompact(tbt);
     else if (opt.far.checked && tbt.meters >= M.FAR_THRESHOLD_M) drawRow(tbt, M.FAR_TOP);
     else drawHero(tbt);
+    const ch = opt.chev.checked && state.speed > 0 ? chevronsFor(tbt, meters) : null;
+    if (ch) {
+      drawChevrons(ch, performance.now());
+      if (ch.animate && !chevTimer) chevTimer = requestAnimationFrame(() => { chevTimer = null; render(); });
+    }
     const arShown = opt.d3.checked && tbt.angle !== undefined;
     if (!arShown && opt.eta.checked && tbt.eta) drawEta(tbt.eta);
   }
