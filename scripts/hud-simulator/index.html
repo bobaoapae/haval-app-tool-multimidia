@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HUD Simulator</title>
+<style>
+  :root {
+    --bg: #0e0f11; --panel: #17191c; --line: #2a2e33; --text: #e6e6e6; --muted: #8b9096;
+    --accent: #3fa9ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .wrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+  .stage { background: #000; border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+  canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+  .panel h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600;
+              text-transform: uppercase; letter-spacing: .04em; }
+  .scen { display: grid; gap: 6px; margin-bottom: 14px; }
+  .scen button { text-align: left; background: #1f2226; color: var(--text); border: 1px solid var(--line);
+                 border-radius: 5px; padding: 7px 9px; font: inherit; cursor: pointer; }
+  .scen button:hover { border-color: #3b4148; }
+  .scen button.on { border-color: var(--accent); background: #16263a; }
+  .scen small { display: block; color: var(--muted); font-size: 11px; }
+  label.row { display: grid; grid-template-columns: 70px 1fr 64px; align-items: center; gap: 8px;
+              margin: 6px 0; font-size: 12px; }
+  label.row output { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  select, input[type=range] { width: 100%; }
+  select { background: #1f2226; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .notes { color: var(--muted); font-size: 12px; margin-top: 12px; }
+  .notes li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<h1>HUD Simulator</h1>
+<div class="sub">Display 4096 at 480×240, drawn ×3. Same geometry and icons as <code>HudOverlayView</code>. Power bar bottom-left, RPM bar mirrored at the bottom-right.
+Grey shading = outside the optics; the native HUD on the right is a rough mock for context.</div>
+
+<div class="wrap">
+  <div class="stage"><canvas id="hud" width="1440" height="720"></canvas></div>
+
+  <div class="panel">
+    <h2>Scenarios</h2>
+    <div class="scen" id="scenarios"></div>
+
+    <h2>Manual</h2>
+    <label class="row">Power <input type="range" id="kw" min="-60" max="120" step="1"><output id="kwOut"></output></label>
+    <label class="row">RPM <input type="range" id="rpm" min="0" max="7000" step="50"><output id="rpmOut"></output></label>
+    <label class="row">Navigation
+      <select id="nav" style="grid-column: span 2"></select>
+    </label>
+    <h2 style="margin-top:12px">Navigation layout options</h2>
+    <div class="checks">
+      <label><input type="checkbox" id="optNav" checked> navigation</label>
+      <label><input type="checkbox" id="optFar" checked> smaller arrow until 1 km</label>
+      <label><input type="checkbox" id="optEta" checked> remaining distance · time</label>
+      <label><input type="checkbox" id="optPower" checked> power bar</label>
+      <label><input type="checkbox" id="optRpm" checked> RPM bar</label>
+    </div>
+
+    <h2 style="margin-top:12px">3D arrow (prototype)</h2>
+    <div class="checks">
+      <label><input type="checkbox" id="opt3d" checked> Navegação AR theme (centre arrow, left column, arcs)</label>
+      <label><input type="checkbox" id="optRight"> AR arrow on the right, between the lane-assist lines</label>
+      <label><input type="checkbox" id="optChev" checked> approach chevrons (still from 100 m, animate from 50 m, hidden at 0)</label>
+    </div>
+    <label class="row">Distance <input type="range" id="dist" min="0" max="1500" step="10"><output id="distOut"></output></label>
+    <div class="scen"><button id="play">▶ Play approach<small>1.2 km down to 0 m, ~12 s</small></button></div>
+    <div class="checks">
+      <label><input type="checkbox" id="native" checked> native HUD mock</label>
+      <label><input type="checkbox" id="guides"> free-area guide</label>
+      <label><input type="checkbox" id="optics" checked> optics shading</label>
+    </div>
+    <ul class="notes">
+      <li>RPM 0 = engine off: the RPM bar is hidden.</li>
+      <li>Power % = share of 100 kW (drive) or 50 kW (regen) — to tune on a drive.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Geometry: mirror of HudOverlayModel (HUD pixels, 480x240).
+// ---------------------------------------------------------------------------
+const M = {
+  BOX_LEFT: 10, BOX_RIGHT: 168,
+  TBT_TOP: 58, TBT_BOTTOM: 170,
+  COMPACT_GLYPH: 32, COMPACT_VALUE_SIZE: 22, COMPACT_UNIT_SIZE: 14, COMPACT_ROW_GAP: 6,
+  COMPACT_LANES_GAP: 10, LANE_ROW_HEIGHT: 36, LANE_CELL_MAX: 36,
+  HERO_GLYPH: 64, HERO_VALUE_SIZE: 20, HERO_UNIT_SIZE: 14, HERO_TEXT_GAP: 22,
+  UNIT_GAP: 4,
+  // Far (no lanes, >= 1 km, option on): the small row alone.
+  FAR_THRESHOLD_M: 1000,
+  // Trip line (remaining distance · time) under the turn-by-turn.
+  ETA_BASELINE: 184, ETA_SIZE: 13,
+  // Bars on the bottom row of the visible band, no labels: power at the HUD's left edge, RPM
+  // at its right edge (the native HUD leaves the bottom of both sides empty).
+  BAR_Y: 195, BAR_HEIGHT: 4,
+  // Power: one segment per 10 % each side of a subtle zero tick.
+  POWER_HALF_WIDTH: 54, POWER_SEGMENTS_PER_SIDE: 10, POWER_SEGMENT_GAP: 1.5, ZERO_GAP: 4, ZERO_TICK: 4,
+  // RPM: one segment per 1000 rpm, the last (5-6k) red.
+  RPM_LEFT: 416, RPM_RIGHT: 470, RPM_SEGMENTS: 6, RPM_SEGMENT_GAP: 2,
+  DRIVE_MAX_KW: 100, REGEN_MAX_KW: 50, POWER_DEADBAND_KW: 0.5,
+  RPM_RED: 5000,
+};
+M.BOX_CENTER_X = (M.BOX_LEFT + M.BOX_RIGHT) / 2;
+// Power bar centred under the turn-by-turn.
+M.POWER_LEFT = M.BOX_CENTER_X - M.POWER_HALF_WIDTH;
+M.POWER_RIGHT = M.BOX_CENTER_X + M.POWER_HALF_WIDTH;
+M.COMPACT_TOP = M.TBT_TOP + (M.TBT_BOTTOM - M.TBT_TOP - (M.COMPACT_GLYPH + M.COMPACT_LANES_GAP + M.LANE_ROW_HEIGHT)) / 2;
+M.LANES_TOP = M.COMPACT_TOP + M.COMPACT_GLYPH + M.COMPACT_LANES_GAP;
+M.HERO_TOP = M.TBT_TOP + (M.TBT_BOTTOM - M.TBT_TOP - (M.HERO_GLYPH + M.HERO_TEXT_GAP)) / 2;
+M.FAR_TOP = M.TBT_TOP + (M.TBT_BOTTOM - M.TBT_TOP - M.COMPACT_GLYPH) / 2;
+M.POWER_SEGMENT_WIDTH = ((M.POWER_RIGHT - M.POWER_LEFT) / 2 - M.ZERO_GAP - M.POWER_SEGMENT_GAP * (M.POWER_SEGMENTS_PER_SIDE - 1)) / M.POWER_SEGMENTS_PER_SIDE;
+
+const COLORS = {
+  white: '#ffffff', dotOff: 'rgba(255,255,255,0.24)', drive: '#3fa9ff', regen: '#50e678',
+  rpm: '#ffffff', red: '#ff4040', redOff: 'rgba(255,64,64,0.30)', zero: 'rgba(255,255,255,0.45)',
+  laneOff: 'rgba(255,255,255,0.35)', divider: 'rgba(255,255,255,0.43)',
+};
+const FONT = '"Roboto", "Segoe UI", system-ui, sans-serif';
+
+// ---------------------------------------------------------------------------
+// Icons: same path data as HudTbtIcons / tbtTurnIcons.js.
+// ---------------------------------------------------------------------------
+const TURN_SVGS = {
+  TURN_RIGHT: { vb: 24, bottom: 22, d: ['M20.72,6.46,15.64,2.23A1,1,0,0,0,14,3V5H7a5,5,0,0,0-5,5V20a2,2,0,0,0,2,2H6a2,2,0,0,0,2-2V11h6v2a1,1,0,0,0,1.64.77l5.08-4.23a2,2,0,0,0,0-3.08Z'] },
+  TURN_LEFT: { vb: 24, bottom: 22, d: ['M17,5H10V3a1,1,0,0,0-1.64-.77L3.28,6.46a2,2,0,0,0,0,3.08l5.08,4.23A1,1,0,0,0,10,13V11h6v9a2,2,0,0,0,2,2h2a2,2,0,0,0,2-2V10A5,5,0,0,0,17,5Z'] },
+  STRAIGHT: { vb: 24, bottom: 22, d: ['M17.77,8.36,13.54,3.28a2.08,2.08,0,0,0-3.08,0L6.23,8.36A1,1,0,0,0,7,10H9V21a1,1,0,0,0,1,1h4a1,1,0,0,0,1-1V10h2a1,1,0,0,0,.77-1.64Z'] },
+  ROUNDABOUT: { vb: 486.039, bottom: 486.039, d: [
+    'M296.897,41.504c-67.547,0-124.165,47.687-137.954,111.191l-48.547-0.024l0.016-29.836L6.759,182.62l103.593,59.888l0.016-29.836l75.352,0.038c0.007,0,0.011,0,0.016,0l30-30.045c0-44.752,36.41-81.16,81.162-81.16c44.75,0,81.158,36.408,81.158,81.16s-36.408,81.16-81.158,81.16l-30,30v192.214h60V320.617c63.475-13.789,111.158-70.406,111.158-137.952C438.056,104.829,374.731,41.504,296.897,41.504z',
+    'M450.11,152.439c1.926,9.782,2.945,19.887,2.945,30.226c0,10.035-0.98,20.007-2.889,29.774h29.113v-60H450.11z',
+    'M326.843,29.397V0h-60.001v29.45c9.856-1.945,19.923-2.945,30.056-2.945C307.136,26.504,317.147,27.506,326.843,29.397z',
+    'M218.898,200.726l-26.944,26.983l-28.753-0.014c14.085,41.608,47.045,74.504,88.696,88.495v-28.578l27.119-27.121C249.31,253.708,225.852,230.37,218.898,200.726z'] },
+  U_TURN: { vb: 24, bottom: 22, d: ['M13.5,2A8.5,8.5,0,0,0,5,10.5V14H3a1,1,0,0,0-.77,1.64l5,6a1,1,0,0,0,1.54,0l5-6A1,1,0,0,0,13,14H11V10.5a2.5,2.5,0,0,1,5,0V21a1,1,0,0,0,1,1h4a1,1,0,0,0,1-1V10.5A8.51,8.51,0,0,0,13.5,2Z'] },
+  MERGE: { vb: 20, bottom: 20, d: ['M17.89 17.707L16.892 20c-3.137-1.366-5.496-3.152-6.892-5.275-1.396 2.123-3.755 3.91-6.892 5.275l-.998-2.293C5.14 16.389 8.55 14.102 8.55 10V7H5.5L10 0l4.5 7h-3.05v3c0 4.102 3.41 6.389 6.44 7.707z'] },
+  FORK: { vb: 24, bottom: 22, d: ['m9.78 11.16l-1.42 1.42a7.3 7.3 0 0 1-1.79-2.94l1.94-.49c.32.89.77 1.5 1.27 2.01M11 6L7 2L3 6h3.02c.02.81.08 1.54.19 2.17l1.94-.49C8.08 7.2 8.03 6.63 8.02 6zm10 0l-4-4l-4 4h2.99c-.1 3.68-1.28 4.75-2.54 5.88c-.5.44-1.01.92-1.45 1.55c-.34-.49-.73-.88-1.13-1.24L9.46 13.6c.93.85 1.54 1.54 1.54 3.4v5h2v-5c0-2.02.71-2.66 1.79-3.63c1.38-1.24 3.08-2.78 3.2-7.37z'] },
+};
+const TURN_GLYPHS = { EXIT: '↗', DESTINATION: '◎' };
+
+// Lane arrows: 24-box, right-hand shapes; left ones are mirrored (tbtLanes.js).
+const LANE_SPECS = {
+  straight: { d: 'M12 22V3', tip: [12, 3], angle: 0, xs: [12] },
+  slight: { d: 'M12 22V14L19 7', tip: [19, 7], angle: 45, xs: [12, 19] },
+  normal: { d: 'M12 22V13Q12 8 17 8H21', tip: [21, 8], angle: 90, xs: [12, 21] },
+  sharp: { d: 'M12 22V9L19 16', tip: [19, 16], angle: 135, xs: [12, 19] },
+  uturn: { d: 'M8 22V10A4 4 0 0 1 16 10V17', tip: [16, 17], angle: 180, xs: [8, 16] },
+};
+const SHAPE_BY_NUMBER = { 1: ['straight', false], 2: ['slight', true], 3: ['slight', false], 4: ['normal', true],
+  5: ['normal', false], 6: ['sharp', true], 7: ['sharp', false], 8: ['uturn', true], 9: ['uturn', false] };
+
+function wings([x, y], angleDeg) {
+  const rad = angleDeg * Math.PI / 180, bx = -Math.sin(rad), by = Math.cos(rad);
+  const w = (deg) => { const t = deg * Math.PI / 180;
+    return [x + (bx * Math.cos(t) - by * Math.sin(t)) * 5.5, y + (bx * Math.sin(t) + by * Math.cos(t)) * 5.5]; };
+  return [w(40), w(-40)];
+}
+const LANE_PATHS = {};
+for (const [name, s] of Object.entries(LANE_SPECS)) {
+  const [a, b] = wings(s.tip, s.angle);
+  LANE_PATHS[name] = new Path2D(`${s.d}M${a[0]} ${a[1]}L${s.tip[0]} ${s.tip[1]}L${b[0]} ${b[1]}`);
+  s.minX = Math.min(...s.xs, a[0], b[0]);
+  s.maxX = Math.max(...s.xs, a[0], b[0]);
+}
+
+function resolveTurnIcon(turn) {
+  const t = String(turn || '').toUpperCase();
+  if (!t) return '';
+  if (TURN_SVGS[t] || TURN_GLYPHS[t]) return t;
+  if (t === 'NAME_CHANGE' || t === 'DEPART') return 'STRAIGHT';
+  if (t.startsWith('U_TURN')) return 'U_TURN';
+  if (t.startsWith('ROUNDABOUT')) return 'ROUNDABOUT';
+  if (t.startsWith('DESTINATION')) return 'DESTINATION';
+  if (t.startsWith('FORK')) return 'FORK';
+  if (t.startsWith('MERGE') || t.startsWith('ON_RAMP')) return 'MERGE';
+  if (t.startsWith('OFF_RAMP')) return 'EXIT';
+  if (t.endsWith('_LEFT')) return 'TURN_LEFT';
+  if (t.endsWith('_RIGHT')) return 'TURN_RIGHT';
+  return t;
+}
+
+// ---------------------------------------------------------------------------
+// Drawing (port of HudOverlayView).
+// ---------------------------------------------------------------------------
+const canvas = document.getElementById('hud');
+const ctx = canvas.getContext('2d');
+const S = canvas.width / 480;
+
+function font(size, weight = 300) { return `${weight} ${size}px ${FONT}`; }
+
+function drawTurn(icon, left, top, size) {
+  const svg = TURN_SVGS[icon];
+  if (svg) {
+    ctx.save();
+    ctx.translate(left, top);
+    ctx.scale(size / svg.vb, size / svg.vb);
+    ctx.fillStyle = COLORS.white;
+    for (const d of svg.d) ctx.fill(new Path2D(d));
+    ctx.restore();
+    return top + size * svg.bottom / svg.vb;
+  }
+  ctx.font = font(size * 0.9, 400);
+  ctx.fillStyle = COLORS.white;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(TURN_GLYPHS[icon] || '➤', left + size / 2, top + size / 2);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  return top + size * 0.8;
+}
+
+function distanceWidth(tbt, valueSize, unitSize) {
+  ctx.font = font(valueSize); const v = ctx.measureText(tbt.value).width;
+  ctx.font = font(unitSize); const u = tbt.unit ? M.UNIT_GAP + ctx.measureText(tbt.unit).width : 0;
+  return v + u;
+}
+
+function drawDistance(tbt, x, baseline, valueSize, unitSize) {
+  ctx.fillStyle = COLORS.white;
+  ctx.font = font(valueSize); ctx.fillText(tbt.value, x, baseline);
+  const vw = ctx.measureText(tbt.value).width;
+  if (tbt.unit) { ctx.font = font(unitSize); ctx.fillText(tbt.unit, x + vw + M.UNIT_GAP, baseline); }
+}
+
+function drawHero(tbt) {
+  const bottom = drawTurn(tbt.icon, M.BOX_CENTER_X - M.HERO_GLYPH / 2, M.HERO_TOP, M.HERO_GLYPH);
+  const w = distanceWidth(tbt, M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE);
+  drawDistance(tbt, M.BOX_CENTER_X - w / 2, bottom + M.HERO_TEXT_GAP, M.HERO_VALUE_SIZE, M.HERO_UNIT_SIZE);
+}
+
+/** Small arrow + "250 m" as one row centred in the box, the text on the arrow's bottom edge. */
+function drawRow(tbt, top) {
+  const tw = distanceWidth(tbt, M.COMPACT_VALUE_SIZE, M.COMPACT_UNIT_SIZE);
+  const gap = tw > 0 ? M.COMPACT_ROW_GAP : 0;
+  const left = M.BOX_CENTER_X - (M.COMPACT_GLYPH + gap + tw) / 2;
+  const bottom = drawTurn(tbt.icon, left, top, M.COMPACT_GLYPH);
+  drawDistance(tbt, left + M.COMPACT_GLYPH + gap, bottom, M.COMPACT_VALUE_SIZE, M.COMPACT_UNIT_SIZE);
+}
+
+function drawCompact(tbt) {
+  drawRow(tbt, M.COMPACT_TOP);
+  drawLanes(tbt.lanes);
+}
+
+function drawLanes(lanes) {
+  const cell = Math.min(M.LANE_CELL_MAX, (M.BOX_RIGHT - M.BOX_LEFT) / lanes.length);
+  const left = M.BOX_CENTER_X - cell * lanes.length / 2;
+  const top = M.LANES_TOP, height = M.LANE_ROW_HEIGHT;
+  const icon = Math.min(cell - 4, height), scale = icon / 24;
+  ctx.strokeStyle = COLORS.divider; ctx.lineWidth = 2;
+  for (let i = 1; i < lanes.length; i++) {
+    const x = left + i * cell;
+    for (let y = top + 2; y < top + height - 2; y += 10) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 5); ctx.stroke(); }
+  }
+  lanes.forEach((lane, i) => {
+    const arrows = lane.map(([s, h]) => SHAPE_BY_NUMBER[s] && { name: SHAPE_BY_NUMBER[s][0], mirrored: SHAPE_BY_NUMBER[s][1], h })
+      .filter(Boolean);
+    const list = arrows.length ? arrows.filter(a => !a.h).concat(arrows.filter(a => a.h))
+      : [{ name: 'straight', mirrored: false, h: false }];
+    let minX = Infinity, maxX = -Infinity;
+    for (const a of list) {
+      const s = LANE_SPECS[a.name];
+      const lo = a.mirrored ? 24 - s.maxX : s.minX, hi = a.mirrored ? 24 - s.minX : s.maxX;
+      minX = Math.min(minX, lo); maxX = Math.max(maxX, hi);
+    }
+    const cx = left + i * cell + cell / 2;
+    ctx.save();
+    ctx.translate(cx - icon / 2, top + (height - icon) / 2);
+    ctx.scale(scale, scale);
+    ctx.translate(12 - (minX + maxX) / 2, 0);
+    ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const a of list) {
+      ctx.save();
+      if (a.mirrored) { ctx.translate(24, 0); ctx.scale(-1, 1); }
+      ctx.strokeStyle = a.h ? COLORS.white : COLORS.laneOff;
+      ctx.stroke(LANE_PATHS[a.name]);
+      ctx.restore();
+    }
+    ctx.restore();
+  });
+}
+
+function segment(left, width, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.roundRect(left, M.BAR_Y - M.BAR_HEIGHT / 2, width, M.BAR_HEIGHT, 1);
+  ctx.fill();
+}
+
+function powerPercent(kw) {
+  if (!isFinite(kw) || Math.abs(kw) < M.POWER_DEADBAND_KW) return 0;
+  return kw > 0 ? Math.min(100, Math.round(kw / M.DRIVE_MAX_KW * 100))
+                : -Math.min(100, Math.round(-kw / M.REGEN_MAX_KW * 100));
+}
+
+/** One segment per 10 %; anything past the deadband lights at least one. Signed. */
+function powerSegments(kw) {
+  const pct = powerPercent(kw);
+  if (pct === 0) return 0;
+  const n = Math.max(1, Math.min(M.POWER_SEGMENTS_PER_SIDE, Math.round(Math.abs(pct) / 10)));
+  return pct > 0 ? n : -n;
+}
+
+/** Centre-zero: subtle zero tick, regen segments left (green), drive right (blue). No label. */
+function drawPowerBar(kw) {
+  const mid = (M.POWER_LEFT + M.POWER_RIGHT) / 2, w = M.POWER_SEGMENT_WIDTH;
+  const lit = powerSegments(kw);
+  for (let i = 0; i < M.POWER_SEGMENTS_PER_SIDE; i++) {
+    const off = M.ZERO_GAP + i * (w + M.POWER_SEGMENT_GAP);
+    segment(mid + off, w, lit > 0 && i < lit ? COLORS.drive : COLORS.dotOff);
+    segment(mid - off - w, w, lit < 0 && i < -lit ? COLORS.regen : COLORS.dotOff);
+  }
+  ctx.strokeStyle = COLORS.zero; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(mid, M.BAR_Y - M.ZERO_TICK); ctx.lineTo(mid, M.BAR_Y + M.ZERO_TICK); ctx.stroke();
+}
+
+/** Lit RPM segments: one per 1000 rpm, rounded, at least one while the engine turns. */
+function rpmSegments(rpm) {
+  if (!(rpm > 0)) return 0;
+  return Math.max(1, Math.min(M.RPM_SEGMENTS, Math.round(rpm / 1000)));
+}
+
+/** Left to right, one segment per 1000 rpm; the 5-6k segment is red. Hidden with the engine off. */
+function drawRpmBar(rpm) {
+  if (!(rpm > 0)) return;
+  const n = M.RPM_SEGMENTS, gap = M.RPM_SEGMENT_GAP;
+  const w = (M.RPM_RIGHT - M.RPM_LEFT - gap * (n - 1)) / n;
+  const lit = rpmSegments(rpm);
+  for (let i = 0; i < n; i++) {
+    const red = (i + 1) * 1000 > M.RPM_RED;
+    segment(M.RPM_LEFT + i * (w + gap), w, i < lit ? (red ? COLORS.red : COLORS.rpm) : (red ? COLORS.redOff : COLORS.dotOff));
+  }
+}
+
+function drawEta(text) {
+  ctx.font = font(M.ETA_SIZE);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.textAlign = 'center';
+  ctx.fillText(text, M.BOX_CENTER_X, M.ETA_BASELINE);
+  ctx.textAlign = 'left';
+}
+
+// Rough mock of the car's own HUD, from the owner's photo; context only.
+function drawNativeMock(speed) {
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = font(58, 300);
+  // Centred where the native speed sits on the car (measured 2026-10-17: about x 222).
+  ctx.textAlign = 'center';
+  ctx.fillText(String(speed), 222, 133);
+  const half = ctx.measureText(String(speed)).width / 2;
+  ctx.textAlign = 'left';
+  ctx.font = font(14, 400);
+  ctx.fillText('km/h', 222 + half + 4, 133);
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+  [[214, 162], [244, 162]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.stroke(); });
+  ctx.fillStyle = '#ff7a3d'; ctx.beginPath(); ctx.arc(276, 162, 10, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 4; ctx.strokeStyle = '#ffffff';
+  ctx.beginPath(); ctx.moveTo(388, 140); ctx.lineTo(404, 84); ctx.stroke();
+  ctx.strokeStyle = '#2fd38f';
+  ctx.beginPath(); ctx.moveTo(458, 84); ctx.lineTo(470, 140); ctx.stroke();
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(420, 92, 22, 22);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// 3D perspective arrow (prototype). A ribbon runs "down the road" from the bottom of the
+// turn-by-turn area towards a vanishing point; the turn sits at a depth set by the remaining
+// distance, so far away it is past the fade (no tip) and it slides down as the car closes in.
+// ---------------------------------------------------------------------------
+// Port of HudArArrow (Kotlin): keep the two in step.
+// One ribbon of fixed width on the road, all through one projection (base and tip share the
+// vanishing point). Roundabouts: grey ring + passed exits, the camera drives round inside.
+const P3 = {
+  CX: 222, TOP: 126, BOTTOM: 200, HORIZON: 118, Z_NEAR: 4, F_X: 199,
+  BASE_W: 200, Z_CLIP: 2.5, Z_END: 5.5, Z_CAP: 8, K: 0.025,
+  TURN_R: 2.3, TURN_LEN: 2.5, TAIL_MIN_Z: 5, HEAD_HW: 3.0, HEAD_L: 3.5,
+  BEND_START: 200, BEND_FULL: 40,
+  FADE_TOP_TO: 132, FADE_BOTTOM_FROM: 180, OPACITY: 0.65, OPACITY_FAR: 0.35, FAR_TEXT_SCALE: 0.75, FAR_DISTANCE_RAISE: 8,
+  ROOM_LEFT: 212, ROOM_RIGHT: 240,
+  NEAR_RGB: [120, 200, 255], FAR_RGB: [25, 105, 255],
+  RING_R: 3.5, RING_HW: 1.5, STUB_LEN: 2.5, STUB_HW: 1.1, ENTRY_GAP: 1, ENTRY_DEG: 30, EXIT_OUT: 2.5, LOOK_AHEAD: 4,
+};
+P3.HW = P3.BASE_W / 2 * P3.Z_NEAR / P3.F_X;
+Object.assign(P3, { FLAG_GAP: 0.9, FLAG_H: 1.8 });
+// As HudArArrow.Placement: RIGHT is the same picture scaled about (CX, BOTTOM) onto the lane lines.
+const PLACES = {
+  center: { cx: 222, sx: 1, sy: 1, top: 126, roomLeft: 212, roomRight: 240 },
+  right: { cx: 429, sx: 0.4, sy: 2.4, top: 140, roomLeft: 320, roomRight: 115 },
+};
+let place = PLACES.center;
+
+const smooth = (t) => t * t * (3 - 2 * t);
+const bendAmount = (m) => smooth(Math.min(1, Math.max(0, (P3.BEND_START - m) / (P3.BEND_START - P3.BEND_FULL))));
+const cornerDepth = (m) => Math.min(P3.Z_CAP, P3.Z_END + P3.K * Math.max(0, m));
+const project = (x, z) => [P3.CX + P3.F_X * x / z, P3.HORIZON + (P3.BOTTOM - P3.HORIZON) * P3.Z_NEAR / z];
+const rgbAt = (y) => { const t = Math.min(1, Math.max(0, (P3.BOTTOM - y) / (P3.BOTTOM - P3.TOP))); return P3.NEAR_RGB.map((v, i) => Math.round(v + (P3.FAR_RGB[i] - v) * t)); };
+const camera = (x, z, h) => ({ x, z, h, c: Math.cos(h), s: Math.sin(h) });
+const AHEAD = camera(0, 0, 0);
+function toScreen(cam, px, pz) {
+  const dx = px - cam.x, dz = pz - cam.z, lx = dx * cam.c - dz * cam.s, lz = dx * cam.s + dz * cam.c;
+  return lz < P3.Z_CLIP ? null : project(lx, lz);
+}
+function unit(a, b) { const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz); return l > 0 ? [dx / l, dz / l] : [0, 1]; }
+/** Road centreline `half` wide each side -> runs of {lx,ly,rx,ry} on screen. */
+function roadRibbon(line, half, cam) {
+  const runs = []; let run = [];
+  for (let i = 0; i < line.length; i++) {
+    const d = unit(line[Math.max(0, i - 1)], line[Math.min(line.length - 1, i + 1)]), p = line[i];
+    const l = toScreen(cam, p[0] - d[1] * half, p[1] + d[0] * half), r = toScreen(cam, p[0] + d[1] * half, p[1] - d[0] * half);
+    if (!l || !r) { if (run.length > 1) runs.push(run); run = []; continue; }
+    run.push({ lx: l[0], ly: l[1], rx: r[0], ry: r[1] });
+  }
+  if (run.length > 1) runs.push(run);
+  return runs;
+}
+function roadHead(line, cam) {
+  const end = line[line.length - 1], d = unit(line[Math.max(0, line.length - 4)], end);
+  const ez = (end[0] - cam.x) * cam.s + (end[1] - cam.z) * cam.c, dz = d[0] * cam.s + d[1] * cam.c;
+  const len = dz < 0 ? Math.min(P3.HEAD_L, Math.max(1, (ez - P3.Z_CLIP - 0.3) / -dz)) : P3.HEAD_L;
+  const tip = toScreen(cam, end[0] + d[0] * len, end[1] + d[1] * len);
+  const l = toScreen(cam, end[0] - d[1] * P3.HEAD_HW, end[1] + d[0] * P3.HEAD_HW), r = toScreen(cam, end[0] + d[1] * P3.HEAD_HW, end[1] - d[0] * P3.HEAD_HW);
+  return tip && l && r ? [tip[0], tip[1], l[0], l[1], r[0], r[1]] : [];
+}
+function fit(shape) {
+  const room = (x) => x < P3.CX ? place.roomLeft : place.roomRight;
+  let sq = 1;
+  const take = (x) => { const d = Math.abs(x - P3.CX); if (d > 0.01) sq = Math.min(sq, room(x) / d); };
+  for (const p of shape.blue) if ((p.ly + p.ry) / 2 >= place.top && (p.ly + p.ry) / 2 <= P3.BOTTOM) { take(p.lx); take(p.rx); }
+  for (let k = 0; k < shape.head.length / 2; k++) take(shape.head[2 * k]);
+  if (shape.flag) take(shape.flag.x);
+  if (sq >= 1) return shape;
+  const sx = (x) => P3.CX + (x - P3.CX) * sq, f = (l) => l.map(p => ({ ...p, lx: sx(p.lx), rx: sx(p.rx) }));
+  return { ...shape, blue: f(shape.blue), gray: shape.gray.map(f), head: shape.head.map((v, i) => i % 2 === 0 ? sx(v) : v), flag: shape.flag && { ...shape.flag, x: sx(shape.flag.x) } };
+}
+function armCenterline(meters, angleDeg) {
+  const zc = cornerDepth(meters), ds = 0.1, pts = [];
+  let x = 0, z = P3.Z_CLIP - ds;
+  while (z < zc) { pts.push([x, z]); z += ds; }
+  z = zc; pts.push([x, z]);
+  let h = 0;
+  const target = angleDeg * bendAmount(meters) * Math.PI / 180, sgn = Math.sign(target) || 1;
+  for (let i = 0, n = Math.round(Math.abs(target) * P3.TURN_R / ds); i < n; i++) { h += sgn * ds / P3.TURN_R; x += Math.sin(h) * ds; z += Math.cos(h) * ds; pts.push([x, z]); }
+  for (let i = 0, n = Math.round(P3.TURN_LEN / ds); i < n; i++) {
+    const nz = z + Math.cos(h) * ds;
+    if (Math.cos(h) < 0 && nz < P3.TAIL_MIN_Z) break;
+    x += Math.sin(h) * ds; z = nz; pts.push([x, z]);
+  }
+  return pts;
+}
+function arShape(meters, angleDeg) {
+  const line = armCenterline(meters, angleDeg), runs = roadRibbon(line, P3.HW, AHEAD);
+  return fit({ blue: runs[runs.length - 1] || [], head: roadHead(line, AHEAD), gray: [], grayAlpha: 1 });
+}
+/** Arriving: straight to the destination's depth, flag beside it on `side` (0: just past the head). */
+function destShape(meters, side) {
+  const zc = cornerDepth(meters), line = [];
+  for (let z = P3.Z_CLIP - 0.1; z < zc; z += 0.1) line.push([0, z]);
+  line.push([0, zc]);
+  const runs = roadRibbon(line, P3.HW, AHEAD);
+  const reach = Math.max(P3.HW, P3.HEAD_HW);
+  const fx = side === 0 ? 0 : side * (reach + P3.FLAG_GAP), fz = side === 0 ? zc + P3.HEAD_L + 0.6 : zc, [x, y] = project(fx, fz);
+  return fit({ blue: runs[runs.length - 1] || [], head: roadHead(line, AHEAD), gray: [], grayAlpha: 1, flag: { x, y, height: P3.FLAG_H * P3.F_X / fz, pennant: side < 0 ? -1 : 1 } });
+}
+
+function curve(p0, d0, p3, d3, n = 24) {
+  const k = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]) * 0.45, p1 = [p0[0] + d0[0] * k, p0[1] + d0[1] * k], p2 = [p3[0] - d3[0] * k, p3[1] - d3[1] * k], out = [];
+  for (let i = 1; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    out.push([0, 1].map(j => u * u * u * p0[j] + 3 * u * u * t * p1[j] + 3 * u * t * t * p2[j] + t * t * t * p3[j]));
+  }
+  return out;
+}
+function atLength(line, acc, s) {
+  if (s <= 0) return line[0];
+  for (let i = 1; i < line.length; i++) if (acc[i] >= s) {
+    const seg = acc[i] - acc[i - 1]; if (seg <= 0) return line[i];
+    const t = (s - acc[i - 1]) / seg; return [line[i - 1][0] + (line[i][0] - line[i - 1][0]) * t, line[i - 1][1] + (line[i][1] - line[i - 1][1]) * t];
+  }
+  return line[line.length - 1];
+}
+function rbShape(meters, travel, clockwise, passed, progress) {
+  const bend = bendAmount(meters), side = clockwise ? -1 : 1, zc = cornerDepth(meters);
+  const cz = zc + P3.ENTRY_GAP + P3.RING_R, rad = (d) => d * Math.PI / 180;
+  const ring = (deg, r = P3.RING_R) => [side * r * Math.sin(rad(deg)), cz - r * Math.cos(rad(deg))];
+  const along = (deg) => [side * Math.cos(rad(deg)), Math.sin(rad(deg))];
+  const outward = (deg) => [side * Math.sin(rad(deg)), -Math.cos(rad(deg))];
+  const aOut = Math.max(P3.ENTRY_DEG + 10, travel - P3.ENTRY_DEG), route = [];
+  for (let z = 0; z < zc; z += 0.1) route.push([0, z]);
+  route.push([0, zc]);
+  route.push(...curve([0, zc], [0, 1], ring(P3.ENTRY_DEG), along(P3.ENTRY_DEG)));
+  for (let d = P3.ENTRY_DEG + 2; d < aOut; d += 2) route.push(ring(d));
+  route.push(ring(aOut));
+  route.push(...curve(ring(aOut), along(aOut), ring(travel, P3.RING_R + P3.EXIT_OUT), outward(travel)));
+  const acc = [0]; for (let i = 1; i < route.length; i++) acc.push(acc[i - 1] + Math.hypot(route[i][0] - route[i - 1][0], route[i][1] - route[i - 1][1]));
+  const shown = route.map((p, i) => [p[0] * bend, acc[i] + (p[1] - acc[i]) * bend]);
+  const total = acc[acc.length - 1], sCam = Math.min(1, Math.max(0, progress)) * (total - P3.EXIT_OUT);
+  const cam = AHEAD; // stay on the approach view; progress only drops what is already driven
+  const remaining = sCam > 0 ? shown.filter((_, i) => acc[i] >= sCam) : shown;
+  const runs = roadRibbon(remaining, P3.HW, cam), gray = [];
+  if (bend > 0.02) {
+    const ringLine = []; for (let i = 0; i <= 90; i++) ringLine.push(ring(i * 4));
+    gray.push(...roadRibbon(ringLine, P3.RING_HW, cam));
+    for (const deg of passed) { const st = []; for (let k = 0; k <= 8; k++) st.push(ring(deg, P3.RING_R + P3.STUB_LEN * k / 8)); gray.push(...roadRibbon(st, P3.STUB_HW, cam)); }
+  }
+  return fit({ blue: runs[runs.length - 1] || [], head: roadHead(remaining, cam), gray, grayAlpha: bend });
+}
+function passedExits(travel, n) {
+  if (!n || n < 2) return [];
+  const step = travel / n; if (step < 25) return [];
+  return Array.from({ length: n - 1 }, (_, i) => step * (i + 1));
+}
+
+/** Vertical gradient: colour by row plus the top/bottom fades (as HudOverlayRenderer.rowShader). */
+function rowGradient(lc, rgb, alpha) {
+  const top = place.top, g = lc.createLinearGradient(0, top, 0, P3.BOTTOM), span = P3.BOTTOM - top;
+  [[top, 0], [top + (P3.FADE_TOP_TO - P3.TOP), 1], [P3.FADE_BOTTOM_FROM, 1], [P3.BOTTOM, 0]].forEach(([y, a]) => {
+    const c = rgb(y); g.addColorStop((y - top) / span, `rgba(${c[0]},${c[1]},${c[2]},${a * alpha})`);
+  });
+  return g;
+}
+/** Adds a ribbon's quads to the current path, all wound one way (one nonzero fill, no seams). */
+function addRibbon(lc, pts) {
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i], b = pts[i + 1];
+    lc.moveTo(a.lx, a.ly);
+    if ((b.lx - a.lx) * (a.ry - a.ly) - (b.ly - a.ly) * (a.rx - a.lx) >= 0) { lc.lineTo(b.lx, b.ly); lc.lineTo(b.rx, b.ry); lc.lineTo(a.rx, a.ry); }
+    else { lc.lineTo(a.rx, a.ry); lc.lineTo(b.rx, b.ry); lc.lineTo(b.lx, b.ly); }
+    lc.closePath();
+  }
+}
+
+/** The road ribbon arrow (or roundabout) on the speed axis, see-through. */
+function draw3dArrow(tbt, meters) {
+  place = opt.right.checked ? PLACES.right : PLACES.center;
+  const shape = tbt.ring
+    ? rbShape(meters, tbt.ring, false, passedExits(tbt.ring, tbt.exitNumber), state.rbProgress || 0)
+    : tbt.dest !== undefined ? destShape(meters, tbt.dest) : arShape(meters, tbt.angle);
+  const left = P3.CX - Math.max(place.roomLeft, P3.BASE_W / 2) - 2, right = P3.CX + Math.max(place.roomRight, P3.BASE_W / 2) + 2;
+  const layer = document.createElement('canvas');
+  layer.width = canvas.width; layer.height = canvas.height;
+  const lc = layer.getContext('2d');
+  // x' = cx + (x - CX) * sx, y' = BOTTOM - (BOTTOM - y) * sy (identity for the centre).
+  lc.setTransform(S * place.sx, 0, 0, S * place.sy, S * (place.cx - P3.CX * place.sx), S * P3.BOTTOM * (1 - place.sy));
+  lc.beginPath(); lc.rect(left, place.top, right - left, P3.BOTTOM - place.top); lc.clip();
+  if (shape.gray.length) {
+    lc.fillStyle = rowGradient(lc, () => [200, 205, 215], 0.55 * shape.grayAlpha);
+    lc.beginPath(); shape.gray.forEach(g => addRibbon(lc, g)); lc.fill();
+  }
+  lc.fillStyle = rowGradient(lc, rgbAt, 1);
+  lc.beginPath(); addRibbon(lc, shape.blue);
+  const h = shape.head;
+  if (h.length === 6) {
+    lc.moveTo(h[0], h[1]);
+    if ((h[2] - h[0]) * (h[5] - h[1]) - (h[3] - h[1]) * (h[4] - h[0]) > 0) { lc.lineTo(h[2], h[3]); lc.lineTo(h[4], h[5]); } else { lc.lineTo(h[4], h[5]); lc.lineTo(h[2], h[3]); }
+    lc.closePath();
+  }
+  lc.fill();
+  const opacity = P3.OPACITY_FAR + (P3.OPACITY - P3.OPACITY_FAR) * bendAmount(meters); // more see-through while far
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = opacity;
+  ctx.drawImage(layer, 0, 0);
+  ctx.restore();
+  if (shape.flag) {
+    // Upright in screen space, as HudOverlayRenderer.drawArFlag.
+    const y = P3.BOTTOM - (P3.BOTTOM - shape.flag.y) * place.sy;
+    const size = Math.min(Math.max(shape.flag.height * Math.sqrt(place.sx * place.sy), 10), y - 40);
+    const raw = place.cx + (shape.flag.x - P3.CX) * place.sx;
+    const x = shape.flag.pennant < 0 ? Math.max(raw, size * 0.7) : Math.min(raw, 480 - size * 0.7); // pennant stays on the panel
+    ctx.save(); ctx.globalAlpha = Math.min(1, 0.35 + opacity);
+    if (shape.flag.pennant < 0) { ctx.translate(x, 0); ctx.scale(-1, 1); ctx.translate(-x, 0); }
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = size / 24 * 2.6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - size * 20 / 24); ctx.stroke();
+    const k = size / 24, ox = x - 5 * k, oy = y - size + k;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.beginPath();
+    ctx.moveTo(ox + 5 * k, oy + 3.5 * k); ctx.lineTo(ox + 20 * k, oy + 3.5 * k); ctx.lineTo(ox + 16.5 * k, oy + 8.5 * k);
+    ctx.lineTo(ox + 20 * k, oy + 13.5 * k); ctx.lineTo(ox + 5 * k, oy + 13.5 * k); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ---- AR layout: left column + arcs (port of HudOverlayRenderer.drawArColumn / drawPowerArc) ----
+const ARC = {
+  CX: 218, WIDE_CX: 216, CY: 112, START: 150, SWEEP: 195, TICKS: 50, X_SCALE: 1.3, // 2 px left of the speed (wide: 6), stretched
+  // From 100 km/h (back below 95): wider and starting later, clear of the leading "1".
+  WIDE_START: 165, WIDE_SWEEP: 180, WIDE_X_SCALE: 1.45,
+  POWER_R_IN: 47.5, POWER_R_OUT: 56, POWER_W: 1.3,
+  RPM_R_IN: 38, RPM_R_OUT: 42, RPM_W: 0.8, RPM_MAX: 7000,
+  POWER_OFF: 'rgba(255,255,255,0.35)', RPM_OFF: 'rgba(255,64,64,0.12)',
+};
+
+function arColumn(tbt, meters) {
+  const lanes = tbt.lanes.length > 0;
+  // Still far (straight arrow): street and distance smaller.
+  const far = !(meters < P3.BEND_START), k = far ? P3.FAR_TEXT_SCALE : 1;
+  const ord = (n) => n + 'ª';
+  // Roundabout without lanes: the exit on its own line under the street (as the Kotlin).
+  const exit = tbt.ring && tbt.exitNumber ? ord(tbt.exitNumber) + ' saída' : '';
+  const exitOwnLine = exit && !lanes && tbt.street;
+  const street = exitOwnLine ? tbt.street : [exit, tbt.street || ''].filter(Boolean).join(' · ');
+  const centred = (text, size, y) => {
+    ctx.font = font(size); ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    let t = text;
+    while (ctx.measureText(t).width > M.BOX_RIGHT - M.BOX_LEFT && t.length > 1) t = t.slice(0, -2) + '…';
+    ctx.fillText(t, M.BOX_CENTER_X - ctx.measureText(t).width / 2, y);
+  };
+  if (street) centred(street, (lanes ? 14 : 16) * k, lanes ? 74 : 80);
+  if (exitOwnLine) centred(exit, 14 * k, 97);
+  const vs = (lanes ? 28 : 38) * k, us = (lanes ? 16 : 20) * k;
+  const w = distanceWidth(tbt, vs, us);
+  const dy = lanes ? 104 : exitOwnLine ? 133 : 128 - (far ? P3.FAR_DISTANCE_RAISE : 0);
+  // The turn icon before the distance, centred on the digits.
+  const iconSize = vs * 0.8, iconW = tbt.icon && w ? iconSize + 6 : 0, x0 = M.BOX_CENTER_X - (iconW + w) / 2;
+  if (iconW) drawTurn(resolveTurnIcon(tbt.icon), x0, dy - vs * 0.36 - iconSize / 2, iconSize);
+  drawDistance(tbt, x0 + iconW, dy, vs, us);
+  if (lanes) {
+    const saved = M.LANES_TOP; M.LANES_TOP = 114; drawLanes(tbt.lanes); M.LANES_TOP = saved;
+  }
+  if (opt.eta.checked && tbt.eta) {
+    ctx.font = font(lanes ? 14 : 16);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.textAlign = 'center';
+    ctx.fillText(tbt.eta, M.BOX_CENTER_X, lanes ? 172 : 160);
+    ctx.textAlign = 'left';
+  }
+}
+
+/** 50 radial ticks; the first `lit` from the left end in `on`, the rest in `off`. */
+function arcTicks(rIn, rOut, w, lit, on, off) {
+  ctx.lineWidth = w; ctx.lineCap = 'butt';
+  for (let i = 0; i < ARC.TICKS; i++) {
+    const wide = state.speed >= 100, start = wide ? ARC.WIDE_START : ARC.START, sweep = wide ? ARC.WIDE_SWEEP : ARC.SWEEP, xs = wide ? ARC.WIDE_X_SCALE : ARC.X_SCALE;
+    const a = (start + (i + 0.5) * sweep / ARC.TICKS) * Math.PI / 180;
+    ctx.strokeStyle = i < lit ? on : off;
+    ctx.beginPath();
+    const cx = wide ? ARC.WIDE_CX : ARC.CX;
+    ctx.moveTo(cx + Math.cos(a) * rIn * xs, ARC.CY + Math.sin(a) * rIn);
+    ctx.lineTo(cx + Math.cos(a) * rOut * xs, ARC.CY + Math.sin(a) * rOut);
+    ctx.stroke();
+  }
+}
+
+/** Outer arc: thick, long ticks, 1 per 2 %; drive blue / regen green, both from the left. */
+function drawPowerArc(kw) {
+  const pct = powerPercent(kw);
+  arcTicks(ARC.POWER_R_IN, ARC.POWER_R_OUT, ARC.POWER_W, pct === 0 ? 0 : Math.max(1, Math.min(50, Math.round(Math.abs(pct) / 2))),
+    pct >= 0 ? COLORS.drive : COLORS.regen, ARC.POWER_OFF);
+}
+
+/** Inner arc: thin, short red ticks over 0..7000 rpm. Hidden with the engine off. */
+function drawRpmArc(rpm) {
+  if (!(rpm > 0)) return;
+  const lit = Math.max(1, Math.min(50, Math.round(rpm / ARC.RPM_MAX * 50)));
+  arcTicks(ARC.RPM_R_IN, ARC.RPM_R_OUT, ARC.RPM_W, lit, COLORS.red, ARC.RPM_OFF);
+}
+
+// Port of HudOverlayRenderer.drawChevrons / HudOverlayModel.chevronsFor.
+const CHEV = { SHOW_M: 100, ANIM_M: 50, CY: 48, HALF_H: 7, W: 7, STROKE: 4, COUNT: 4, SPACING: 15, SHIFT: 46, PERIOD_FAR: 1100, PERIOD_NEAR: 380, MIN_DEG: 30 };
+function chevronsFor(tbt, meters) {
+  if (meters > CHEV.SHOW_M) return null;
+  const heading = tbt.ring ? 180 - tbt.ring : tbt.dest !== undefined ? 0 : tbt.angle;
+  if (!(Math.abs(heading) >= CHEV.MIN_DEG)) return null;
+  const animate = meters <= CHEV.ANIM_M;
+  return { side: heading > 0 ? 1 : -1, t: animate ? Math.min(1, Math.max(0, 1 - meters / CHEV.ANIM_M)) : 0, animate };
+}
+function drawChevrons(ch, now) {
+  const period = CHEV.PERIOD_FAR + (CHEV.PERIOD_NEAR - CHEV.PERIOD_FAR) * ch.t, phase = ch.animate ? (now % period) / period : 0;
+  const appear = ch.animate ? Math.min(1, ch.t * 4) : 1, base = ch.animate ? 0.25 + 0.25 * ch.t : 0.85, gx = 240 + ch.side * ch.t * CHEV.SHIFT, s = ch.side;
+  const n = ch.animate ? CHEV.COUNT : 1;
+  for (let k = 0; k < n; k++) {
+    const x = gx + s * (k - (CHEV.COUNT - 1) / 2) * CHEV.SPACING;
+    let d = phase - k / CHEV.COUNT; d -= Math.floor(d);
+    const pulse = (1 - d) ** 3, y = CHEV.CY, h = CHEV.HALF_H;
+    ctx.fillStyle = `rgba(90,180,255,${appear * (base + (1 - base) * pulse)})`;
+    ctx.beginPath();
+    ctx.moveTo(x - s * CHEV.W, y - h); ctx.lineTo(x - s * (CHEV.W - CHEV.STROKE), y - h); ctx.lineTo(x + s * CHEV.STROKE, y);
+    ctx.lineTo(x - s * (CHEV.W - CHEV.STROKE), y + h); ctx.lineTo(x - s * CHEV.W, y + h); ctx.lineTo(x, y);
+    ctx.closePath(); ctx.fill();
+  }
+}
+let chevTimer = null;
+
+function formatDistance(m) {
+  if (m >= 1000) return { value: (Math.round(m / 100) / 10).toFixed(1), unit: 'km' };
+  return { value: String(Math.round(m / 10) * 10), unit: 'm' };
+}
+
+function render() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(S, 0, 0, S, 0, 0);
+  if (opt.native.checked) drawNativeMock(state.speed);
+  const base = opt.nav.checked ? NAV[state.nav] : null;
+  const meters = base ? (state.dist ?? base.meters) : 0;
+  const tbt = base && (state.dist == null ? base : { ...base, meters, ...formatDistance(meters) });
+  if (tbt) {
+    if (opt.d3.checked && tbt.angle !== undefined) {
+      draw3dArrow(tbt, meters); arColumn(tbt, meters);
+    }
+    else if (tbt.lanes.length) drawCompact(tbt);
+    else if (opt.far.checked && tbt.meters >= M.FAR_THRESHOLD_M) drawRow(tbt, M.FAR_TOP);
+    else drawHero(tbt);
+    const ch = opt.chev.checked && state.speed > 0 ? chevronsFor(tbt, meters) : null;
+    if (ch) {
+      drawChevrons(ch, performance.now());
+      if (ch.animate && !chevTimer) chevTimer = requestAnimationFrame(() => { chevTimer = null; render(); });
+    }
+    const arShown = opt.d3.checked && tbt.angle !== undefined;
+    if (!arShown && opt.eta.checked && tbt.eta) drawEta(tbt.eta);
+  }
+  if (opt.d3.checked) {
+    if (opt.power.checked) drawPowerArc(state.kw);
+    if (opt.rpm.checked) drawRpmArc(state.rpm);
+  } else {
+    if (opt.power.checked) drawPowerBar(state.kw);
+    if (opt.rpm.checked) drawRpmBar(state.rpm);
+  }
+  if (opt.guides.checked) {
+    ctx.strokeStyle = '#2aa866'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+    ctx.strokeRect(M.BOX_LEFT, M.TBT_TOP, M.BOX_RIGHT - M.BOX_LEFT, 199 - M.TBT_TOP);
+    ctx.strokeRect(M.RPM_LEFT - 4, M.BAR_Y - 6, M.RPM_RIGHT - M.RPM_LEFT + 8, 12);
+    ctx.setLineDash([]);
+  }
+  if (opt.optics.checked) {
+    ctx.fillStyle = 'rgba(60,60,60,0.55)';
+    ctx.fillRect(0, 0, 480, 40); ctx.fillRect(0, 200, 480, 40);
+    ctx.fillStyle = '#9a9a9a'; ctx.font = font(9, 400);
+    ctx.fillText('outside the optics', 6, 30); ctx.fillText('outside the optics', 6, 230);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Scenarios.
+// ---------------------------------------------------------------------------
+const NAV = {
+  none: null,
+  right_lanes: { street: 'R. Manuel da Nóbrega', label: 'Right turn, 250 m, 3 lanes', angle: 90, icon: 'TURN_RIGHT', value: '250', unit: 'm', meters: 250, eta: '4.8 km · 12 min', lanes: [[[1, 0]], [[1, 0]], [[5, 1], [1, 0]]] },
+  right: { street: 'R. Augusta', label: 'Right turn, 90 m, no lanes', angle: 90, icon: 'TURN_RIGHT', value: '90', unit: 'm', meters: 90, eta: '4.8 km · 12 min', lanes: [] },
+  keep_left: { street: 'Marginal Pinheiros', label: 'Keep left, 1.2 km, no lanes', angle: -25, icon: resolveTurnIcon('KEEP_LEFT'), value: '1.2', unit: 'km', meters: 1200, eta: '27.3 km · 34 min', lanes: [] },
+  roundabout_left: { label: 'Roundabout, 3rd exit (left), 150 m', ring: 270, exitNumber: 3, angle: 0, icon: 'ROUNDABOUT', value: '150', unit: 'm', meters: 150, eta: '5.0 km · 11 min', lanes: [] },
+  sharp_left: { street: 'R. da Consolação', label: 'Sharp left, 400 m, no lanes', angle: -135, icon: 'TURN_LEFT', value: '400', unit: 'm', meters: 400, eta: '3.2 km · 8 min', lanes: [] },
+  roundabout: { street: 'Pç. Panamericana', label: 'Roundabout, 2nd exit (straight), 80 m', ring: 180, exitNumber: 2, angle: 0, icon: 'ROUNDABOUT', value: '80', unit: 'm', meters: 80, eta: '2.1 km · 6 min', lanes: [] },
+  uturn_lanes: { street: 'Av. Paulista', label: 'U-turn, 500 m, 5 lanes', angle: -180, icon: 'U_TURN', value: '500', unit: 'm', meters: 500, eta: '61 km · 1 h 4 min', lanes: [[[8, 1]], [[1, 0]], [[1, 0]], [[1, 0], [3, 0]], [[5, 0]]] },
+  exit: { street: 'Rod. dos Bandeirantes', label: 'Exit right, 2.4 km', angle: 35, icon: resolveTurnIcon('OFF_RAMP_RIGHT'), value: '2.4', unit: 'km', meters: 2400, eta: '19.6 km · 18 min', lanes: [] },
+  arrive: { street: 'R. Oscar Freire', label: 'Destination (right), 30 m', angle: 0, dest: 1, icon: 'DESTINATION', value: '30', unit: 'm', meters: 30, eta: '30 m · <1 min', lanes: [] },
+};
+
+const SCENARIOS = [
+  { name: 'Parked', note: '0 kW, engine off, no route', kw: 0, rpm: 0, nav: 'none', speed: 0 },
+  { name: 'EV cruise + turn with lanes', note: '+18 kW, engine off', kw: 18, rpm: 0, nav: 'right_lanes', speed: 42 },
+  { name: 'Hybrid accel, no lanes', note: '+65 kW, 3200 rpm, keep left 1.2 km', kw: 65, rpm: 3200, nav: 'keep_left', speed: 78 },
+  { name: 'Full power, red zone', note: '+100 kW, 5600 rpm', kw: 100, rpm: 5600, nav: 'none', speed: 112 },
+  { name: 'Highway exit far away', note: '+30 kW, 2.4 km to the exit', kw: 30, rpm: 0, nav: 'exit', speed: 105 },
+  { name: 'Regen braking at roundabout', note: '−28 kW, engine off', kw: -28, rpm: 0, nav: 'roundabout', speed: 35 },
+  { name: 'Engine charging, idle', note: '−6 kW, 1100 rpm', kw: -6, rpm: 1100, nav: 'none', speed: 0 },
+  { name: 'U-turn with 5 lanes', note: '+9 kW, engine off', kw: 9, rpm: 0, nav: 'uturn_lanes', speed: 24 },
+  { name: 'Arriving', note: '0 kW coasting', kw: 0.2, rpm: 0, nav: 'arrive', speed: 12 },
+];
+
+const state = { kw: 0, rpm: 0, nav: 'none', speed: 0, dist: null };
+const opt = {
+  native: document.getElementById('native'), guides: document.getElementById('guides'), optics: document.getElementById('optics'),
+  nav: document.getElementById('optNav'), far: document.getElementById('optFar'), eta: document.getElementById('optEta'),
+  power: document.getElementById('optPower'), rpm: document.getElementById('optRpm'),
+  d3: document.getElementById('opt3d'),
+  right: document.getElementById('optRight'), chev: document.getElementById('optChev'),
+};
+const kwIn = document.getElementById('kw'), rpmIn = document.getElementById('rpm'), navIn = document.getElementById('nav');
+const kwOut = document.getElementById('kwOut'), rpmOut = document.getElementById('rpmOut');
+for (const [k, v] of Object.entries(NAV)) navIn.add(new Option(v ? v.label : 'No route', k));
+
+const scenBox = document.getElementById('scenarios');
+SCENARIOS.forEach((s, i) => {
+  const b = document.createElement('button');
+  b.innerHTML = `${s.name}<small>${s.note}</small>`;
+  b.onclick = () => apply(s, b);
+  scenBox.appendChild(b);
+  if (i === 1) setTimeout(() => apply(s, b));
+});
+
+function apply(s, btn) {
+  stopPlay();
+  Object.assign(state, { kw: s.kw, rpm: s.rpm, nav: s.nav, speed: s.speed, dist: null });
+  scenBox.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === btn));
+  sync();
+}
+function sync() {
+  kwIn.value = state.kw; rpmIn.value = state.rpm; navIn.value = state.nav;
+  const nav = NAV[state.nav];
+  const d = state.dist ?? (nav ? nav.meters : 0);
+  distIn.value = d; distOut.textContent = nav ? `${Math.round(d)} m` : '—';
+  kwOut.textContent = `${state.kw} kW`; rpmOut.textContent = state.rpm > 0 ? `${state.rpm}` : 'off';
+  render();
+}
+const manual = () => { scenBox.querySelectorAll('button').forEach(x => x.classList.remove('on')); };
+kwIn.oninput = () => { state.kw = +kwIn.value; manual(); sync(); };
+rpmIn.oninput = () => { state.rpm = +rpmIn.value; manual(); sync(); };
+navIn.onchange = () => { state.nav = navIn.value; state.dist = null; manual(); sync(); };
+const distIn = document.getElementById('dist'), distOut = document.getElementById('distOut');
+distIn.oninput = () => { stopPlay(); state.dist = +distIn.value; manual(); sync(); };
+
+// Drive from 1.2 km to the turn: ~100 m/s far out, slowing to ~20 m/s near it, so the
+// interesting last 150 m get a few seconds.
+let playTimer = null;
+function stopPlay() { if (playTimer) { cancelAnimationFrame(playTimer); playTimer = null; } }
+document.getElementById('play').onclick = () => {
+  stopPlay();
+  if (!NAV[state.nav] || NAV[state.nav].lanes.length || NAV[state.nav].angle === undefined) state.nav = 'right';
+  state.dist = 1200;
+  let last = performance.now();
+  const step = (now) => {
+    const dt = (now - last) / 1000; last = now;
+    const v = state.dist > 200 ? 160 : 20 + state.dist * 0.4;
+    state.dist = Math.max(0, state.dist - v * dt);
+    sync();
+    playTimer = state.dist > 0 ? requestAnimationFrame(step) : null;
+  };
+  playTimer = requestAnimationFrame(step);
+};
+Object.values(opt).forEach(c => c.onchange = render);
+document.fonts && document.fonts.ready.then(render);
+</script>
+</body>
+</html>

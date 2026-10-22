@@ -89,6 +89,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
         )
         DisplayAppLauncher.dynamicThemeBounds = next
         context.refreshDisplayBounds()
+        br.com.redesurftank.havalshisuku.projectors.AaClusterVideoHost.refreshWindow()
     }
 
     @JavascriptInterface
@@ -612,6 +613,7 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
             "app.launcher.apps",
             "app.androidauto.session",
             "app.navigation.directions",
+            "app.navigation.radar",
             "app.media.state",
             "app.media.title",
             "app.media.artist",

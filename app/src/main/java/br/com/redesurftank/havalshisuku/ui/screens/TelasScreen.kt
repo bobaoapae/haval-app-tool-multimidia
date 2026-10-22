@@ -1544,6 +1544,11 @@ fun TelasTab() {
             }
         }
 
+        // HUD CARD - Impulse overlay on the physical HUD (display 4096); independent of the cluster.
+        br.com.redesurftank.havalshisuku.ui.components.HudLayoutSection(
+                modifier = Modifier.padding(horizontal = 8.dp)
+        )
+
         // APP COORDINATORS SECTION
         val coordinatorsAlpha = if (allClusterFunctionsEnabled) 1f else 0.4f
         StyledCard(modifier = Modifier.padding(horizontal = 8.dp).alpha(coordinatorsAlpha)) {

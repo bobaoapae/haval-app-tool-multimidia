@@ -3,6 +3,7 @@ package br.com.redesurftank.havalshisuku.managers
 import android.content.Context
 import android.util.Log
 import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
 import java.io.File
 import java.io.FileOutputStream
@@ -22,6 +23,10 @@ object AndroidAutoPatchManager {
     
     const val VENDOR_SERVICE_OAT = "/vendor/app/AndroidAutoService/oat"
     const val VENDOR_APP_OAT = "/vendor/app/AndroidAutoApp/oat"
+
+    /** Stock Service on this head unit. A different md5 is not swapped. */
+    private const val EXPECTED_STOCK_SERVICE_MD5 = "48ffded64e9b485521e3174dcd70db27"
+    private const val MOUNT_RESULT = "/data/local/tmp/aa-cluster-mount.result"
 
     private fun sh(command: String): String {
         val output = ShizukuUtils.runCommandAndGetOutput(arrayOf("sh", "-c", "$command 2>&1"))
@@ -192,36 +197,69 @@ object AndroidAutoPatchManager {
         }
     }
 
-    private fun applyAppMount(): Boolean {
+    private fun installServicePatch(context: Context): Boolean {
+        try {
+            if (!hasBundledAsset(context, SERVICE_APK)) {
+                Log.e(TAG, "Cannot install Android Auto Service patch: missing bundled asset aa_patches/$SERVICE_APK")
+                return false
+            }
+
+            sh("mkdir -p '$PATCH_DIR'")
+            sh("chmod 755 '$PATCH_DIR'")
+            sh("mkdir -p '$PATCH_DIR/empty_oat'")
+            sh("chmod 755 '$PATCH_DIR/empty_oat'")
+
+            val tempFile = File(context.cacheDir, SERVICE_APK)
+            context.assets.open("aa_patches/$SERVICE_APK").use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            // Stage beside the old file and rename over it: a fresh inode. Copying in place
+            // would rewrite the APK under a running Android Auto that has it bind-mounted.
+            val destPath = "$PATCH_DIR/$SERVICE_APK"
+            val newPath = "$destPath.new"
+            val cpOut = sh("cp '${tempFile.absolutePath}' '$newPath'")
+            Log.d(TAG, "Copy output for service patch $SERVICE_APK: $cpOut")
+            sh("chmod 644 '$newPath'")
+            sh("chcon u:object_r:vendor_app_file:s0 '$newPath'")
+            sh("mv -f '$newPath' '$destPath'")
+            tempFile.delete()
+
+            val success = isServicePatchInstalled()
+            Log.w(TAG, "Service patch installation success: $success")
+            return success
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install Android Auto Service patch", e)
+            return false
+        }
+    }
+
+    private fun applyAppMount(refreshed: Boolean = false): Boolean {
         if (!isAppPatchInstalled()) {
             Log.e(TAG, "Cannot apply Android Auto visual mount: App patch not installed")
             return false
         }
 
         return try {
-            Log.i(TAG, "Applying Android Auto visual app bind mount only...")
-            sh("mkdir -p '$PATCH_DIR/empty_oat'")
-            sh("chmod 755 '$PATCH_DIR/empty_oat'")
-            sh("chmod 644 '$PATCH_DIR/$APP_APK'")
-            sh("chcon u:object_r:vendor_app_file:s0 '$PATCH_DIR/$APP_APK'")
-
-            sh("umount -l '$VENDOR_APP_PATH' 2>/dev/null || true")
-            sh("[ -d '$VENDOR_APP_OAT' ] && umount -l '$VENDOR_APP_OAT' 2>/dev/null || true")
-
-            val mountResult = sh("mount --bind '$PATCH_DIR/$APP_APK' '$VENDOR_APP_PATH'")
-            if (mountResult.contains("error", ignoreCase = true) || mountResult.contains("failed", ignoreCase = true)) {
-                Log.e(TAG, "Failed to mount Android Auto visual APK: $mountResult")
+            val verdict = bindMountStaged(APP_APK, VENDOR_APP_PATH)
+            // The visual package is an activity. Measured on the car:
+            // restarting it does not drop the GAL link, and v9 restarted it on every
+            // mount until 2026-10-13. Without the restart a running App keeps the
+            // stock dex, so AA on D0 ignores the bar fit (patch v2.8). The projection
+            // service is left running.
+            // A refreshed stage is copied over the file that is already bind-mounted, so the
+            // script reports "already-mounted" while the running App still has the old dex
+            // (2026-10-13 18:33: v2.9 staged, App kept v2.8 until restarted by hand).
+            if (verdict == "mounted" || (refreshed && verdict == "already-mounted")) {
+                sh("am force-stop $APP_PACKAGE || true")
             }
-            sh("[ -d '$VENDOR_APP_OAT' ] && mount --bind '$PATCH_DIR/empty_oat' '$VENDOR_APP_OAT' || true")
-
-            sh("rm -f /data/dalvik-cache/arm64/*AndroidAutoApp* 2>/dev/null || true")
-            sh("am force-stop $APP_PACKAGE || true")
-
-            val success = isAppPatchMounted()
+            val success = verdict == "mounted" || verdict == "already-mounted"
             if (success) {
-                Log.w(TAG, "Android Auto visual patch mounted successfully")
+                Log.w(TAG, "Android Auto visual patch $verdict")
             } else {
-                Log.e(TAG, "Android Auto visual mount verification failed")
+                Log.e(TAG, "Android Auto visual mount verification failed: $verdict")
             }
             success
         } catch (e: Exception) {
@@ -236,14 +274,14 @@ object AndroidAutoPatchManager {
             return false
         }
 
-        Log.w(TAG, "Applying Android Auto App mount; Service CLUSTER mount if a Service APK is staged")
-        val appOk = applyAppMount()
-        val serviceOk = if (isServicePatchInstalled()) {
-            applyServiceMountWithoutForceStop()
-        } else {
-            true
-        }
-        return appOk && serviceOk
+        // Refresh the staged App from the APK bundled in this Impulse first, as the
+        // boot path does; otherwise "Ativar" re-mounts whatever an older build staged.
+        Log.w(TAG, "Applying Android Auto visual App and Service mounts")
+        ensureVisualMounted()
+        val appMounted = isAppPatchMounted()
+        if (!isClusterServiceEnabled()) return appMounted
+        val serviceMounted = mountServiceWithApp("USER_MOUNT")
+        return appMounted && serviceMounted
     }
 
     fun isServiceClusterPatchMounted(): Boolean {
@@ -254,8 +292,9 @@ object AndroidAutoPatchManager {
     }
 
     /**
-     * Bind-mount the patched Service APK. Does **not** force-stop
-     * projectionservice — that drops USB accessory mode. Load on next AA start.
+     * Bind-mount the patched Service APK with the stock mtime, without restarting it.
+     * Does not umount a live bind, does not wipe dalvik when the vendor MD5
+     * already matches, and does not restart projectionservice.
      */
     fun applyServiceMountWithoutForceStop(): Boolean {
         if (!isServicePatchInstalled()) {
@@ -263,33 +302,42 @@ object AndroidAutoPatchManager {
             return false
         }
         return try {
-            Log.i(TAG, "Applying Android Auto Service bind mount (no projectionservice force-stop)")
-            sh("mkdir -p '$PATCH_DIR/empty_oat'")
-            sh("chmod 755 '$PATCH_DIR/empty_oat'")
-            sh("chmod 644 '$PATCH_DIR/$SERVICE_APK'")
-            sh("chcon u:object_r:vendor_app_file:s0 '$PATCH_DIR/$SERVICE_APK'")
-
-            sh("umount -l '$VENDOR_SERVICE_PATH' 2>/dev/null || true")
-            sh("[ -d '$VENDOR_SERVICE_OAT' ] && umount -l '$VENDOR_SERVICE_OAT' 2>/dev/null || true")
-
-            val mountResult = sh("mount --bind '$PATCH_DIR/$SERVICE_APK' '$VENDOR_SERVICE_PATH'")
-            if (mountResult.contains("error", ignoreCase = true) || mountResult.contains("failed", ignoreCase = true)) {
-                Log.e(TAG, "Failed to mount Android Auto Service APK: $mountResult")
-            }
-            sh("[ -d '$VENDOR_SERVICE_OAT' ] && mount --bind '$PATCH_DIR/empty_oat' '$VENDOR_SERVICE_OAT' || true")
-            sh("rm -f /data/dalvik-cache/arm64/*AndroidAutoService* 2>/dev/null || true")
-
-            val success = isServiceClusterPatchMounted()
+            val verdict = bindMountStaged(SERVICE_APK, VENDOR_SERVICE_PATH)
+            val success = verdict == "mounted" || verdict == "already-mounted"
             if (success) {
-                Log.w(TAG, "Android Auto Service CLUSTER patch mounted; takes effect on next AA session")
+                Log.w(TAG, "Android Auto Service patch $verdict; running process is left as-is")
             } else {
-                Log.e(TAG, "Android Auto Service mount verification failed")
+                Log.e(TAG, "Android Auto Service mount verification failed: $verdict")
             }
             success
         } catch (e: Exception) {
             Log.e(TAG, "Failed to apply Android Auto Service mount", e)
             false
         }
+    }
+
+    /**
+     * assets/aa_cluster/aa-cluster-mount.sh. A matching vendor MD5 returns
+     * already-mounted and does not touch the running dex.
+     */
+    private fun bindMountStaged(stageName: String, vendorPath: String): String {
+        val script = File(App.getDeviceProtectedContext().filesDir, "aa-cluster-mount.sh")
+        App.getContext().assets.open("aa_cluster/aa-cluster-mount.sh").use { input ->
+            FileOutputStream(script).use { output -> input.copyTo(output) }
+        }
+        val token = System.currentTimeMillis().toString()
+        val src = "$PATCH_DIR/$stageName"
+        sh(
+            "sh '${script.absolutePath}' '$src' '$token' none '$vendorPath' '$stageName'"
+        )
+        val result = sh("cat '$MOUNT_RESULT' 2>/dev/null || true").trim()
+        val verdict = result.substringBefore(' ')
+        if (!result.endsWith(token)) {
+            Log.w(TAG, "Mount result for $stageName did not match token $token: $result")
+            return "stale-result"
+        }
+        Log.w(TAG, "Mount result for $stageName: $verdict")
+        return verdict
     }
 
     fun removeMounts(): Boolean {
@@ -318,12 +366,43 @@ object AndroidAutoPatchManager {
     }
     
     /**
-     * Auto-mount the visual Android Auto patch if installed but not yet mounted.
-     * Designed to be called from ForegroundService on boot after Shizuku is ready.
-     * The service APK is intentionally not auto-mounted because service variants have regressed
-     * video startup before; manual controls remain available for explicit diagnostics.
+     * Visual patch only. Route start and display moves call this and must not
+     * reload the Service.
      */
     fun ensureMounted() {
+        ensureVisualMounted()
+    }
+
+    /**
+     * Boot path for the main Android Auto auto-mount switch, and the same
+     * path when that switch is turned on. Mounts the Service with the visual
+     * app as soon as Impulse can, before a phone session or a route exists.
+     */
+    fun ensureMountedWithService() {
+        synchronized(this) {
+            ensureVisualMounted()
+            if (isClusterServiceEnabled()) mountServiceWithApp("BOOT_WITH_AA_PATCH")
+        }
+    }
+
+    /** "Mapa no cluster": whether the map Service patch is mounted along with the App. */
+    fun isClusterServiceEnabled(): Boolean =
+        App.getDeviceProtectedContext()
+            .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+            .getBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.key, false)
+
+    /**
+     * "Mapa no cluster" turned on. Mounts the Service only if Android Auto is not running
+     * (the script refuses otherwise); a running session picks it up at the next car start.
+     */
+    fun mountClusterServiceIfEnabled(): Boolean {
+        if (!isClusterServiceEnabled()) return false
+        synchronized(this) {
+            return mountServiceWithApp("CLUSTER_SWITCH")
+        }
+    }
+
+    private fun ensureVisualMounted() {
         try {
             val context = App.getContext()
             val bundledAppMd5 = bundledPatchMd5(context, APP_APK)
@@ -350,13 +429,70 @@ object AndroidAutoPatchManager {
                     TAG,
                     "Android Auto visual patch auto-mounting. bundledApp=$bundledAppMd5 installedApp=$installedAppMd5 refreshed=$needsInstall"
                 )
-                val success = applyAppMount()
+                val success = applyAppMount(refreshed = needsInstall)
                 Log.i(TAG, "Visual auto-mount result: $success")
             } else {
                 Log.d(TAG, "Android Auto visual patch already mounted, nothing to do")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Android Auto visual auto-mount failed", e)
+        }
+    }
+
+    /**
+     * Bind the Service together with the visual patch. Rule: the
+     * script mounts and stops. It does not SIGTERM `com.ts.androidauto` and
+     * does not `am force-stop` the projection service. A process that already
+     * opened the stock dex keeps it until Android Auto starts on its own.
+     *
+     * The file under a fresh bind has to be stock [EXPECTED_STOCK_SERVICE_MD5].
+     */
+    private fun mountServiceWithApp(reason: String): Boolean {
+        try {
+            // A newer bundled Service while the old one is mounted: stage it for the next boot
+            // and stop. The boot-time early mount binds the staged file before Android Auto
+            // starts; the running process is never swapped or restarted.
+            val bundledNow = bundledPatchMd5(App.getContext(), SERVICE_APK)
+            if (bundledNow != null && isServicePatchInstalled() &&
+                    bundledNow != installedPatchMd5(SERVICE_APK) &&
+                    sh("grep -F ' $VENDOR_SERVICE_PATH ' /proc/mounts 2>/dev/null").isNotBlank()
+            ) {
+                val staged = installServicePatch(App.getContext())
+                Log.w(TAG, "[$reason] New Service staged=$staged; loads at the next boot, running process left as-is")
+                return staged
+            }
+            if (isServiceClusterPatchMounted()) {
+                Log.w(TAG, "[$reason] Service already mounted; running process left as-is")
+                return true
+            }
+            val stockMd5 = sh("md5sum < '$VENDOR_SERVICE_PATH' 2>/dev/null | cut -d' ' -f1").trim()
+            if (stockMd5.isEmpty()) {
+                Log.w(TAG, "[$reason] Service mount skipped: vendor md5 unreadable")
+                return false
+            }
+            if (stockMd5 != EXPECTED_STOCK_SERVICE_MD5) {
+                Log.w(TAG, "[$reason] Service mount refused: vendor md5=$stockMd5 expected=$EXPECTED_STOCK_SERVICE_MD5")
+                return false
+            }
+            val context = App.getContext()
+            val bundledServiceMd5 = bundledPatchMd5(context, SERVICE_APK)
+            if (bundledServiceMd5 == null) {
+                Log.w(TAG, "[$reason] No bundled Android Auto Service patch")
+                return false
+            }
+            if (!isServicePatchInstalled() || bundledServiceMd5 != installedPatchMd5(SERVICE_APK)) {
+                Log.w(TAG, "[$reason] Installing bundled Android Auto Service patch")
+                if (!installServicePatch(context)) {
+                    Log.e(TAG, "[$reason] Service patch install failed")
+                    return false
+                }
+            }
+            val mounted = applyServiceMountWithoutForceStop()
+            Log.w(TAG, "[$reason] Service mount result: $mounted")
+            return mounted
+        } catch (e: Exception) {
+            Log.e(TAG, "[$reason] Service mount failed", e)
+            return false
         }
     }
 

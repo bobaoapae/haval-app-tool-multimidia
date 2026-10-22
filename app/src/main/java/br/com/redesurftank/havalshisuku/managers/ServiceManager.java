@@ -223,6 +223,10 @@ public class ServiceManager {
             CarConstants.CAR_IPK_LIGHT_ENGINE_OIL_LOW_PRESSURE_WARNING,
             CarConstants.CAR_IPK_LIGHT_SEAT_BELT_WARNING_INDICATOR,
             CarConstants.CAR_IPK_LIGHT_TPMS_WARNING,
+            // Lista de avisos ativos do próprio cluster (Msg_IP_Notification_Important_NNN).
+            // Sem registrar aqui o carro nunca empurra mudanças dela, e getData() devolve para
+            // sempre a primeira leitura em cache — foi isso que a fez parecer uma constante.
+            CarConstants.CAR_IPK_SETTING_ALARM_HIS_INFO_LIST,
             CarConstants.CAR_BASIC_ENGINE_SPEED,
             CarConstants.CAR_EV_INFO_INSTANT_ENERGY_CONSUMPTION,
             CarConstants.CAR_EV_INFO_ENERGY_DRIVE_STATE,
@@ -1157,7 +1161,15 @@ public class ServiceManager {
             listener = new IListener.Stub() {
                 @Override public void onDataChanged(String key, String value) { OnDataChanged(key, value); }
             };
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "enabled_accessibility_services", "br.com.redesurftank.havalshisuku/.services.AccessibilityService"});
+            // Merge, don't overwrite: other apps' entries (e.g. the Impulse Launcher's service
+            // granted by ViewerFirstRun) must survive every boot/Shizuku reconnect.
+            String ownA11y = "br.com.redesurftank.havalshisuku/.services.AccessibilityService";
+            String currentA11y = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "secure", "enabled_accessibility_services"});
+            String mergedA11y = br.com.redesurftank.havalshisuku.utils.ViewerFirstRun.INSTANCE.withComponent(
+                    currentA11y == null ? null : currentA11y.trim(), ownA11y);
+            if (mergedA11y != null) {
+                ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "enabled_accessibility_services", mergedA11y});
+            }
             ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "secure", "accessibility_enabled", "1"});
             ShizukuUtils.runCommandAndGetOutput(new String[]{"pm", "grant", context.getPackageName(), "android.permission.WRITE_SECURE_SETTINGS"});
             controlService.registerDataChangedListener(context.getPackageName(), listener);
@@ -1262,6 +1274,8 @@ public class ServiceManager {
         servicesInitialized = true;
         AndroidAutoClusterController.INSTANCE.start();
         br.com.redesurftank.havalshisuku.services.AndroidAutoNavigationMonitor.INSTANCE.start(context);
+        br.com.redesurftank.havalshisuku.hud.HudOverlayController.INSTANCE.start();
+        br.com.redesurftank.havalshisuku.radar.RadarManager.INSTANCE.start();
         synchronized (pendingTasks) {
             for (Runnable task : pendingTasks) backgroundHandler.post(task);
             pendingTasks.clear();

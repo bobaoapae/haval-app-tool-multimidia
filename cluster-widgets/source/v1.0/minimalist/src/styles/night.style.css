@@ -1,8 +1,10 @@
 @import "/src/fonts/fonts.css";
 @import "../../../shared/tbt/tbtCard.css";
 
-/* Solid strip fill on Minimalist (shared default is translucent rgba). */
-.dashboard-tbt-strip {
+/* Solid card fill on Minimalist (shared default is translucent rgba). The
+   surface lives on ::before so the lane sub-card can tuck behind it. */
+.dashboard-tbt-strip::before,
+.dashboard-tbt-lanes {
   background: #080c14;
 }
 

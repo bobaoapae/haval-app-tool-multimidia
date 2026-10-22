@@ -128,7 +128,73 @@ internal object ClusterWarningPolicy {
             dismissedCards: Set<String>,
             isCardStanding: (String) -> Boolean
     ): Set<String> =
-            dismissedCards.filterTo(mutableSetOf()) { it != raisedCard && isCardStanding(it) }
+            dismissedCards.filterTo(mutableSetOf()) {
+                it != raisedCard && it !in cardsTheCarDoesNotRequeue && isCardStanding(it)
+            }
+
+    /**
+     * Cards the car does NOT bring back after a newer card closes, so re-arming them only puts
+     * our label up with nothing behind it.
+     *
+     * The tyre card: on 2026-10-19 20:04 the driver dismissed it, unbuckled (belt card up on car
+     * and theme) and buckled again — the cluster cleared completely, but re-arm had restored the
+     * tyre acknowledgement and our label stayed. Its per-wheel vector never clears, so this
+     * repeated on every belt and door event that day.
+     */
+    private val cardsTheCarDoesNotRequeue: Set<String> =
+            setOf(cardIdFor(CarConstants.CAR_BASIC_TIREPRESS_WARNING.value))
+
+    /** One acknowledged card as saved: what every key behind it read when it was dismissed. */
+    data class SavedDismissal(val cardId: String, val values: Map<String, String>)
+
+    /**
+     * Whether a saved acknowledgement was made during the head unit's current boot.
+     *
+     * The boot count must be known and match: a power cycle is a new drive, the car re-shows its
+     * warnings, and ours must too. Elapsed realtime going backwards also means a reboot. An unknown
+     * boot count restores nothing, which only costs the driver one more BACK.
+     */
+    fun isSameBoot(
+            savedBootCount: Int,
+            savedElapsedMs: Long,
+            bootCount: Int,
+            elapsedMs: Long
+    ): Boolean =
+            savedBootCount >= 0 &&
+                    savedBootCount == bootCount &&
+                    savedElapsedMs <= elapsedMs
+
+    /**
+     * Acknowledgements to restore after the app itself restarts mid-drive (a reinstall, a crash).
+     *
+     * Acknowledgements live in memory, so every restart used to forget them: a per-wheel tyre
+     * vector that never clears came straight back after the 2026-10-19 07:01 and 07:24 restarts,
+     * minutes after the driver had dismissed it.
+     *
+     * A card is restored only if every key behind it still reads exactly what it did when it was
+     * dismissed, and it is still standing. While the app was down a condition may have cleared
+     * and returned, and that must warn again; an identical reading is the strongest evidence
+     * available that it is the same standing condition. The cost lands on the safe side: a belt
+     * repainting its seat vector restores nothing, so it asks for one more BACK rather than
+     * hiding a warning.
+     */
+    fun dismissalsToRestore(
+            saved: List<SavedDismissal>,
+            sameBoot: Boolean,
+            valueOf: (String) -> String?
+    ): Set<String> {
+        if (!sameBoot) return emptySet()
+        return saved.filter { dismissal ->
+                    dismissal.values.isNotEmpty() &&
+                            dismissal.values.all { (key, value) -> (valueOf(key) ?: "") == value } &&
+                            dismissal.values.any { (key, value) ->
+                                raisesWarningBadge(key, value) { lamp ->
+                                    isWarningValueActive(dismissal.values[lamp])
+                                }
+                            }
+                }
+                .mapTo(mutableSetOf()) { it.cardId }
+    }
 
     fun isWarningValueActive(value: String?): Boolean {
         if (value == null) return false
@@ -145,10 +211,72 @@ internal object ClusterWarningPolicy {
                 normalized != "nan"
     }
 
-    /** Whether this key/value pair is one the driver sees as a warning badge. */
-    fun raisesWarningBadge(key: String, value: String?): Boolean {
-        return key !in badgeExemptWarningKeys && isWarningValueActive(value)
+    /**
+     * Per-seat belt vector mapped to the lamp that decides whether the car is showing it.
+     *
+     * The vector says which seat, not whether there is a warning on screen. It stood at
+     * {1,0,0,0,0} for 24 min on 2026-10-18 and 20 min on 2026-10-19 (18:43-19:04) with the belt
+     * lamp dark and no card on the cluster, holding our label up and re-arming every dismissed
+     * card each time it rose. On a real unbuckle the lamp follows within ~150 ms, driver and
+     * passenger alike, so gating costs a genuine warning nothing that can be seen.
+     *
+     * The tyre vector is deliberately NOT gated: car.ipk_light.tpms_warning has never been seen
+     * lit on this car, so a tyre gate could silence a real warning (reverted in ba4444fb).
+     */
+    val vectorLampGates: Map<String, String> =
+            mapOf(
+                    CarConstants.CAR_BASIC_SEAT_BELT_WARNING.value to
+                            CarConstants.CAR_IPK_LIGHT_SEAT_BELT_WARNING_INDICATOR.value
+            )
+
+    /**
+     * How long a lamp still counts as lit after going dark. The belt lamp blinks at ~1 Hz while
+     * driving, dark ~500 ms at a time; without a latch every dark phase would read as the warning
+     * clearing and drop the driver's dismissal.
+     */
+    const val LAMP_OFF_LATCH_MS = 2_000L
+
+    /** Lit now, or lit within [LAMP_OFF_LATCH_MS]. */
+    fun isLampLitWithLatch(currentValue: String?, lastLitAtMs: Long?, nowMs: Long): Boolean =
+            isWarningValueActive(currentValue) ||
+                    (lastLitAtMs != null && nowMs - lastLitAtMs < LAMP_OFF_LATCH_MS)
+
+    /**
+     * Whether this key/value pair is one the driver sees as a warning badge.
+     *
+     * [isLampLit] answers for the lamps in [vectorLampGates]; it must be the latched view, or a
+     * blink reads as the warning clearing.
+     */
+    fun raisesWarningBadge(key: String, value: String?, isLampLit: (String) -> Boolean): Boolean {
+        if (key in badgeExemptWarningKeys) return false
+        if (!isWarningValueActive(value)) return false
+        val lamp = vectorLampGates[key] ?: return true
+        return isLampLit(lamp)
     }
+
+    /**
+     * Vectors the gate is holding back right now: active, lamp dark. Logged with the badge state
+     * so a wrong gate is visible, not silent.
+     */
+    fun lampGatedKeys(valueOf: (String) -> String?, isLampLit: (String) -> Boolean): List<String> =
+            vectorLampGates
+                    .filter { (vector, lamp) -> isWarningValueActive(valueOf(vector)) && !isLampLit(lamp) }
+                    .keys
+                    .toList()
+
+    /**
+     * How long a warning must have been standing before BACK may dismiss it — set to match the
+     * car's own cooldown, so a press the car ignores is ignored here too and the cluster and our
+     * label close on the same press.
+     *
+     * Measured 2026-10-19 20:56 on the belt card, the driver pressing BACK every ~0.7 s and
+     * stopping as the car's card closed, timed from the belt lamp (the same onset this lockout
+     * uses): the car ignored presses up to 2.952 s and accepted from 2.989 s, in five rounds.
+     * The previous 2.5 s cleared our label one press before the car's card in three of them.
+     */
+    const val DISMISS_LOCKOUT_MS = 2_970L
+
+    fun isDismissLockedOut(timeSinceWarningMs: Long): Boolean = timeSinceWarningMs < DISMISS_LOCKOUT_MS
 
     /**
      * Instant used for the BACK dismiss lockout.

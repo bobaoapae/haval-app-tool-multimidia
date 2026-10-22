@@ -559,6 +559,7 @@ class BottomBarService : LifecycleService() {
         observeMenuState()
         observeDashboardActivityState()
         observeVisibility()
+        observeMediaButtonOwnership()
         observeAutoHide()
         observeResourceOverlay()
         registerUpdateReceiver()
@@ -925,6 +926,12 @@ class BottomBarService : LifecycleService() {
                             val currentPackage = getTopPackageOnDisplay(0)
                             val activeClusterProjectionPackage =
                                     DisplayAppLauncher.resolveActiveProjectionPackageForDisplay(3)
+                            val openPackages = DisplayAppLauncher.openPackagesOnDisplay(0)
+                            if (openPackages != BottomBarState.openPackages) {
+                                withContext(Dispatchers.Main) {
+                                    BottomBarState.openPackages = openPackages
+                                }
+                            }
                             if (currentPackage != null) {
                                 withContext(Dispatchers.Main) {
                                     // Published for the projection logic, but deliberately not fed
@@ -1014,6 +1021,12 @@ class BottomBarService : LifecycleService() {
                                 val settings = getSettingsForPackage(currentPackage, storedDefault)
                                 currentAppSettings = settings
                                 applyAppSettings(settings)
+                                if (currentPackage == ANDROID_AUTO_MEDIA_APP_PACKAGE) {
+                                    // AA reaches D0 on phone connect without Impulse's launch
+                                    // path, so its window would stay full height under the bar.
+                                    br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                                            .fitAndroidAutoAboveBottomBarAsync("bar_foreground")
+                                }
                             }
 
                             // Update Frida status reactive to switches
@@ -3659,6 +3672,27 @@ class BottomBarService : LifecycleService() {
         }
     }
 
+    /**
+     * The steering-wheel media buttons follow the source the bar shows as current media: AA
+     * claims them, any other media app releases them (AA App patch v3.4).
+     */
+    private fun observeMediaButtonOwnership() {
+        lifecycleScope.launch {
+            var aaOwns: Boolean? = null
+            snapshotFlow { BottomBarState.mediaPackageName }.collectLatest { pkg ->
+                if (pkg == null) return@collectLatest
+                val isAndroidAuto =
+                    pkg == ANDROID_AUTO_MEDIA_PACKAGE ||
+                        pkg == ANDROID_AUTO_MEDIA_APP_PACKAGE ||
+                        pkg == ANDROID_AUTO_MEDIA_SERVICE_PACKAGE
+                if (aaOwns == isAndroidAuto) return@collectLatest
+                aaOwns = isAndroidAuto
+                br.com.redesurftank.havalshisuku.managers.AndroidAutoHardKeyPolicyBridge
+                    .sendMediaButtonOwnership(this@BottomBarService, isAndroidAuto, "media_source=$pkg")
+            }
+        }
+    }
+
     private fun observeVisibility() {
         lifecycleScope.launch {
             snapshotFlow { BottomBarState.isVisible }.collectLatest { visible ->
@@ -3666,6 +3700,14 @@ class BottomBarService : LifecycleService() {
                 // Force recompute touchable regions
                 composeView?.requestLayout()
                 menuComposeView?.requestLayout()
+                if (lastPackage == ANDROID_AUTO_MEDIA_APP_PACKAGE) {
+                    // AA was fitted to the bar's edge on foreground: follow the bar when it
+                    // hides (back to full height) or returns. collectLatest cancels this wait,
+                    // so a quick hide/show resizes the stack once.
+                    delay(300)
+                    br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+                            .fitAndroidAutoAboveBottomBarAsync("bar_visibility")
+                }
             }
         }
         // Periodic invalidation to keep touchable regions in sync
@@ -4628,6 +4670,13 @@ class BottomBarService : LifecycleService() {
                         ANDROID_AUTO_MEDIA_SERVICE_PACKAGE
                 )
         @Volatile private var instance: BottomBarService? = null
+
+        /** Pixels the bar occupies at the bottom of D0 right now; 0 when it is not up. */
+        fun occupiedHeightPx(): Int {
+            val service = instance ?: return 0
+            if (!BottomBarState.isVisible) return 0
+            return (service.BOTTOM_BAR_BASE_HEIGHT_DP * service.resources.displayMetrics.density).toInt()
+        }
 
         fun requestBarRestoreAfterExternalFocus(packageName: String?, reason: String) {
             instance?.scheduleLeftNavPaneCheck(reason)

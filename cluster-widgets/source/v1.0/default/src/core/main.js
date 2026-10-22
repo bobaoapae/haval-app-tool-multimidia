@@ -14,7 +14,7 @@ import { initWarningHandler } from './components/warningHandler.js';
 import { bridge } from '../../../shared/bridge/ThemeBridgeAdapter.js';
 import { bootstrapThemeFromManifest, themeEngine } from '../../../shared/runtime/clusterRuntime.js';
 import { KEYS, getLabel, translateFriendlyValue, FRIENDLY_KEY_TO_CAN_KEY } from '../../../shared/car/carConstants.js';
-import { parseNavigationDirections } from '../../../shared/tbt/tbtCard.js';
+import { parseNavigationDirections, parseRadarAlert } from '../../../shared/tbt/tbtCard.js';
 import { createGraphTelemetryHandler, getAdjustedSpeed } from '../../../shared/car/carDerivations.js';
 import { initSimulationHarness } from '../../../shared/runtime/testing-utils.js';
 import { applyAccent, applyIconColor, DEFAULT_ACCENT, DEFAULT_ICON_COLOR } from './accent.js';
@@ -790,6 +790,7 @@ async function initDecentralizedBridge() {
         "app.display.3.active_app_icon",
         "app.launcher.apps",
         "app.navigation.directions",
+        "app.navigation.radar",
 
         "app.media.state",
         "app.media.title",
@@ -820,6 +821,7 @@ async function initDecentralizedBridge() {
     // Seed turn-by-turn from the live cache so a route already running shows on
     // first paint rather than waiting for the next update.
     setState('navigationDirections', parseNavigationDirections(bridge.getCarData(KEYS.APP_NAVIGATION_DIRECTIONS)));
+    setState('radarAlert', parseRadarAlert(bridge.getCarData(KEYS.APP_NAVIGATION_RADAR)));
 
     bridge.subscribe(keysToSubscribe, (key, value) => {
         if (handleGraphTelemetry(key, value)) return;
@@ -832,6 +834,9 @@ async function initDecentralizedBridge() {
         switch (key) {
             case "app.navigation.directions":
                 setState('navigationDirections', parseNavigationDirections(value));
+                break;
+            case "app.navigation.radar":
+                setState('radarAlert', parseRadarAlert(value));
                 break;
             case "car.basic.total_odometer":
                 setState('odometer', val);

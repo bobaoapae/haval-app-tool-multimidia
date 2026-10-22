@@ -1,6 +1,7 @@
 package br.com.redesurftank.havalshisuku.ui.components
 
 import br.com.redesurftank.havalshisuku.managers.UpdateNoticeManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
@@ -82,6 +83,13 @@ private const val recycleOut = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAD
 private const val BOTTOM_BAR_TAG = "BottomBarUI"
 private const val BOTTOM_BAR_CARPLAY_PACKAGE = "com.ts.carplay.app"
 private const val BOTTOM_BAR_ANDROID_AUTO_PACKAGE = "com.ts.androidauto.app"
+
+/** OEM settings activity. Extra `position=0` opens the phone "Conectar" page. */
+internal const val PHONE_CONNECT_PACKAGE = "com.beantechs.settings"
+internal const val PHONE_CONNECT_ACTIVITY = "com.beantechs.settings.ui.activity.MainActivity"
+internal const val PHONE_CONNECT_POSITION = 0
+private const val STOCK_SETTINGS_PACKAGE = "com.android.settings"
+private const val STOCK_SETTINGS_ACTIVITY = "com.android.settings.Settings"
 /**
  * When Android Auto owns display 0, leave this many pixels at the left of the bottom bar clear so
  * the AA rail icon that sits under the bar stays visible and tappable.
@@ -1346,6 +1354,35 @@ private fun AcQuickMenuItem(
         }
 }
 
+/** Horizontal travel before a swipe on fan/temp/volume counts as a drag (and shows the HUD). */
+internal const val SWIPE_DRAG_SLOP_DP = 4f
+
+/** Fan swipe travel per level. Wider than temp/volume so a small movement does not skip levels. */
+internal const val FAN_DRAG_STEP_DP = 40f
+
+/**
+ * Applies the accumulated horizontal swipe [accumulatedPx] to the fan [speed] (0..7).
+ * Dropping from level 1 to OFF needs two steps of travel, so a sloppy swipe cannot shut the fan off.
+ * Returns the new speed and the travel left over for the next call.
+ */
+internal fun resolveFanDrag(accumulatedPx: Float, stepPx: Float, speed: Int): Pair<Int, Float> {
+        var acc = accumulatedPx
+        var current = speed
+        while (true) {
+                val direction = if (acc > 0f) 1 else -1
+                val needed = if (current == 1 && direction < 0) stepPx * 2f else stepPx
+                if (kotlin.math.abs(acc) < needed) break
+                acc -= direction * needed
+                current = (current + direction).coerceIn(0, 7)
+                // Pinned at either end: drop the leftover so reversing is immediate.
+                if ((direction < 0 && current == 0) || (direction > 0 && current == 7)) {
+                        acc = 0f
+                        break
+                }
+        }
+        return current to acc
+}
+
 @Composable
 fun FanButton(
 	fanSpeed: Int,
@@ -1551,31 +1588,115 @@ enum class ProjectionType {
 	ANDROID_AUTO
 }
 
+/**
+ * What the dock's phone-link tile does. An idle icon opens BeanTechs connectivity
+ * even when CarPlay and Android Auto are installed; those packages only launch
+ * while a session is already on screen.
+ */
+internal enum class ProjectionShortcutAction {
+	OPEN_CARPLAY,
+	OPEN_ANDROID_AUTO,
+	OPEN_CONNECTIVITY
+}
+
+internal fun resolveProjectionShortcutAction(active: ProjectionType): ProjectionShortcutAction =
+	when (active) {
+		ProjectionType.CARPLAY -> ProjectionShortcutAction.OPEN_CARPLAY
+		ProjectionType.ANDROID_AUTO -> ProjectionShortcutAction.OPEN_ANDROID_AUTO
+		ProjectionType.NONE -> ProjectionShortcutAction.OPEN_CONNECTIVITY
+	}
+
+internal fun buildPhoneConnectIntent(): Intent =
+	Intent().apply {
+		component = ComponentName(PHONE_CONNECT_PACKAGE, PHONE_CONNECT_ACTIVITY)
+		addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+		putExtra("position", PHONE_CONNECT_POSITION)
+	}
+
+/**
+ * Same path as Impulse Home: explicit BeanTechs settings activity on the Conectar tab,
+ * then that package's launcher activity, then the stock Settings root.
+ */
+internal fun launchPhoneConnectSettings(context: Context) {
+	val pm = context.packageManager
+	val beanInstalled = try {
+		pm.getLaunchIntentForPackage(PHONE_CONNECT_PACKAGE) != null
+	} catch (e: Exception) {
+		Log.w(BOTTOM_BAR_TAG, "Unable to resolve $PHONE_CONNECT_PACKAGE", e)
+		false
+	}
+	if (beanInstalled) {
+		try {
+			Log.w(BOTTOM_BAR_TAG, "Opening BeanTechs connectivity $PHONE_CONNECT_ACTIVITY position=$PHONE_CONNECT_POSITION")
+			context.startActivity(buildPhoneConnectIntent())
+			return
+		} catch (e: Exception) {
+			Log.w(BOTTOM_BAR_TAG, "Direct BeanTechs connectivity launch failed", e)
+			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+				.launchAnyAppDetached(context, PHONE_CONNECT_PACKAGE, PHONE_CONNECT_ACTIVITY)
+			return
+		}
+	}
+	try {
+		val intent = Intent(Intent.ACTION_MAIN).apply {
+			addCategory(Intent.CATEGORY_LAUNCHER)
+			component = ComponentName(STOCK_SETTINGS_PACKAGE, STOCK_SETTINGS_ACTIVITY)
+			setPackage(STOCK_SETTINGS_PACKAGE)
+			addFlags(
+				Intent.FLAG_ACTIVITY_NEW_TASK or
+					Intent.FLAG_ACTIVITY_CLEAR_TASK or
+					Intent.FLAG_ACTIVITY_CLEAR_TOP or
+					Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+			)
+		}
+		Log.w(BOTTOM_BAR_TAG, "BeanTechs settings missing; opening stock Settings root")
+		context.startActivity(intent)
+	} catch (e: Exception) {
+		Log.w(BOTTOM_BAR_TAG, "Stock Settings root launch failed", e)
+	}
+}
+
+/**
+ * Dock phone-link tile.
+ *
+ * Android Auto follows only the session flag. A leftover AA task after the phone
+ * drops must not keep the icon. CarPlay still trusts a window that is already
+ * in front, plus the link-status read the system-ui icon path already performs.
+ */
+internal fun resolveDockProjectionType(
+	mainProjection: ProjectionType,
+	clusterProjection: ProjectionType,
+	androidAutoLinked: Boolean,
+	carPlayLinked: Boolean
+): ProjectionType {
+	if (mainProjection == ProjectionType.CARPLAY || clusterProjection == ProjectionType.CARPLAY || carPlayLinked) {
+		return ProjectionType.CARPLAY
+	}
+	if (androidAutoLinked) return ProjectionType.ANDROID_AUTO
+	return ProjectionType.NONE
+}
+
+private fun projectionTypeForPackage(packageName: String): ProjectionType {
+	val normalized = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+		.resolveProjectionPackageOrNull(packageName)
+	return when (normalized) {
+		BOTTOM_BAR_CARPLAY_PACKAGE -> ProjectionType.CARPLAY
+		BOTTOM_BAR_ANDROID_AUTO_PACKAGE -> ProjectionType.ANDROID_AUTO
+		else -> ProjectionType.NONE
+	}
+}
+
 @Composable
 private fun rememberActiveProjection(activePkg: String): ProjectionType {
 	val activeClusterPkg = BottomBarState.activeClusterProjectionPackage
-	return remember(activePkg, activeClusterPkg) {
-		val projOnMain = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-			.resolveProjectionPackageOrNull(activePkg)
-		val projOnCluster = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-			.resolveProjectionPackageOrNull(activeClusterPkg)
-		when {
-			projOnMain == BOTTOM_BAR_CARPLAY_PACKAGE ||
-			projOnCluster == BOTTOM_BAR_CARPLAY_PACKAGE ||
-			activePkg.contains("carplay", ignoreCase = true) ||
-			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isCarPlayOnDisplay(0) ||
-			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isCarPlayOnDisplay(3) -> ProjectionType.CARPLAY
-
-			projOnMain == BOTTOM_BAR_ANDROID_AUTO_PACKAGE ||
-			projOnCluster == BOTTOM_BAR_ANDROID_AUTO_PACKAGE ||
-			activePkg.contains("androidauto", ignoreCase = true) ||
-			activePkg.contains("projection.gearhead", ignoreCase = true) ||
-			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAndroidAutoOnDisplay(0) ||
-			br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAndroidAutoOnDisplay(3) -> ProjectionType.ANDROID_AUTO
-
-			else -> ProjectionType.NONE
-		}
-	}
+	val androidAutoLinked = BottomBarState.androidAutoLinked
+	val carPlayLinked = BottomBarState.carPlayLinked
+	return resolveDockProjectionType(
+		mainProjection = projectionTypeForPackage(activePkg),
+		clusterProjection = projectionTypeForPackage(activeClusterPkg),
+		androidAutoLinked = androidAutoLinked,
+		carPlayLinked = carPlayLinked
+	)
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -1612,6 +1733,7 @@ fun CenteredAppLauncherSection(
 	}
 	val isProjectionShortcutEnabled = BottomBarState.isProjectionShortcutEnabled
 	val activeProjection = rememberActiveProjection(activePkg)
+	val openPackages = BottomBarState.openPackages
 
 	Row(
 		verticalAlignment = Alignment.CenterVertically,
@@ -1682,112 +1804,108 @@ fun CenteredAppLauncherSection(
 				 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.resolveProjectionPackageOrNull(activePkg) != null)
 
 			val projJiggle = rememberDockJiggle(isDockEditMode, phaseMs = 0)
-			Box(
-				modifier = Modifier
-					.size(50.dp)
-					.onGloballyPositioned { coordinates ->
-						BottomBarState.projectionSlotCenterX = coordinates.positionInRoot().x + coordinates.size.width / 2f
-					}
-					.graphicsLayer {
-						rotationZ = projJiggle.value
-					},
-				contentAlignment = Alignment.Center
-			) {
+			val isProjectionOpenBehind = !isProjectionOnMain &&
+				activeProjection != ProjectionType.NONE &&
+				openPackages.any {
+					br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isProjectionLikePackage(it)
+				}
+			// Full-height wrapper: the underline is drawn flush with the bottom edge of the bar.
+			Box(modifier = Modifier.width(50.dp).fillMaxHeight()) {
 				Box(
-					contentAlignment = Alignment.Center,
 					modifier = Modifier
-						.dockPressScale(projPressed)
-						.size(44.dp)
-						.clip(RoundedCornerShape(11.dp))
-						.background(projColor)
-						.combinedClickable(
-							interactionSource = projInteraction,
-							indication = null,
-							onClick = {
-								scope.launch {
-									when (activeProjection) {
-										ProjectionType.CARPLAY -> {
-											br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-												.launchAnyApp(context, BOTTOM_BAR_CARPLAY_PACKAGE)
-										}
-										ProjectionType.ANDROID_AUTO -> {
-											br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-												.launchAnyApp(context, BOTTOM_BAR_ANDROID_AUTO_PACKAGE)
-										}
-										ProjectionType.NONE -> {
-											val pm = context.packageManager
-											val hasCarPlay = try { pm.getPackageInfo(BOTTOM_BAR_CARPLAY_PACKAGE, 0); true } catch (e: Exception) { false }
-											val hasAA = try { pm.getPackageInfo(BOTTOM_BAR_ANDROID_AUTO_PACKAGE, 0); true } catch (e: Exception) { false }
-											when {
-												hasCarPlay -> br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, BOTTOM_BAR_CARPLAY_PACKAGE)
-												hasAA -> br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, BOTTOM_BAR_ANDROID_AUTO_PACKAGE)
-												else -> {
-													try {
-														val intent = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
-															flags = Intent.FLAG_ACTIVITY_NEW_TASK
-														}
-														context.startActivity(intent)
-													} catch (_: Exception) {}
-												}
+						.align(Alignment.Center)
+						.size(50.dp)
+						.onGloballyPositioned { coordinates ->
+							BottomBarState.projectionSlotCenterX = coordinates.positionInRoot().x + coordinates.size.width / 2f
+						}
+						.graphicsLayer {
+							rotationZ = projJiggle.value
+						},
+					contentAlignment = Alignment.Center
+				) {
+					Box(
+						contentAlignment = Alignment.Center,
+						modifier = Modifier
+							.dockPressScale(projPressed)
+							.size(44.dp)
+							.clip(RoundedCornerShape(11.dp))
+							.background(projColor)
+							.combinedClickable(
+								interactionSource = projInteraction,
+								indication = null,
+								onClick = {
+									when (resolveProjectionShortcutAction(activeProjection)) {
+										ProjectionShortcutAction.OPEN_CARPLAY -> {
+											scope.launch {
+												br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+													.launchAnyApp(context, BOTTOM_BAR_CARPLAY_PACKAGE)
 											}
 										}
+										ProjectionShortcutAction.OPEN_ANDROID_AUTO -> {
+											scope.launch {
+												br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+													.launchAnyApp(context, BOTTOM_BAR_ANDROID_AUTO_PACKAGE)
+											}
+										}
+										ProjectionShortcutAction.OPEN_CONNECTIVITY -> {
+											launchPhoneConnectSettings(context)
+										}
 									}
+								},
+								onLongClick = {
+									BottomBarState.isDockEditMode = true
 								}
-							},
-							onLongClick = {
-								BottomBarState.isDockEditMode = true
+							)
+					) {
+						when (activeProjection) {
+							ProjectionType.CARPLAY -> {
+								Image(
+									painter = painterResource(id = R.drawable.ic_carplay_default),
+									contentDescription = "Apple CarPlay",
+									modifier = Modifier.size(36.dp)
+								)
 							}
-						)
-				) {
-					when (activeProjection) {
-						ProjectionType.CARPLAY -> {
-							Image(
-								painter = painterResource(id = R.drawable.ic_carplay_default),
-								contentDescription = "Apple CarPlay",
-								modifier = Modifier.size(36.dp)
-							)
+							ProjectionType.ANDROID_AUTO -> {
+								Image(
+									painter = painterResource(id = R.drawable.ic_android_auto_default),
+									contentDescription = "Android Auto",
+									modifier = Modifier.size(36.dp)
+								)
+							}
+							ProjectionType.NONE -> {
+								Icon(
+									painter = painterResource(id = R.drawable.ic_phone_link),
+									contentDescription = "Conectividade",
+									tint = Color.Unspecified,
+									modifier = Modifier.size(36.dp)
+								)
+							}
 						}
-						ProjectionType.ANDROID_AUTO -> {
-							Image(
-								painter = painterResource(id = R.drawable.ic_android_auto_default),
-								contentDescription = "Android Auto",
-								modifier = Modifier.size(36.dp)
-							)
-						}
-						ProjectionType.NONE -> {
-							Icon(
-								painter = painterResource(id = R.drawable.ic_phone_link),
-								contentDescription = "Conectividade",
-								tint = Color.Unspecified,
-								modifier = Modifier.size(36.dp)
-							)
-						}
+
 					}
 
-					DockActiveIndicator(
-						active = isProjectionOnMain,
-						modifier = Modifier
-							.align(Alignment.BottomCenter)
-							.padding(bottom = 2.dp)
+					// Badge de remoção no modo de edição (UNCROPPED)
+					DockEditBadge(
+						visible = isDockEditMode,
+						color = Color(0xFFE53935),
+						icon = Icons.Default.Close,
+						contentDescription = "Desabilitar Atalho de Projeção",
+						modifier = Modifier.align(Alignment.TopEnd),
+						onClick = {
+							BottomBarState.isProjectionShortcutEnabled = false
+							prefs.edit()
+								.putBoolean(
+									SharedPreferencesKeys.BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT.key,
+									false
+								)
+								.apply()
+						}
 					)
 				}
-
-				// Badge de remoção no modo de edição (UNCROPPED)
-				DockEditBadge(
-					visible = isDockEditMode,
-					color = Color(0xFFE53935),
-					icon = Icons.Default.Close,
-					contentDescription = "Desabilitar Atalho de Projeção",
-					modifier = Modifier.align(Alignment.TopEnd),
-					onClick = {
-						BottomBarState.isProjectionShortcutEnabled = false
-						prefs.edit()
-							.putBoolean(
-								SharedPreferencesKeys.BOTTOM_BAR_SHOW_PROJECTION_SHORTCUT.key,
-								false
-							)
-							.apply()
-					}
+				DockAppIndicator(
+					active = isProjectionOnMain,
+					open = isProjectionOpenBehind,
+					modifier = Modifier.align(Alignment.BottomCenter)
 				)
 			}
 		} else if (isDockEditMode) {
@@ -1869,6 +1987,8 @@ fun CenteredAppLauncherSection(
 		for ((index, config) in validDockConfigs.withIndex()) {
 			val pkg = config.packageName
 			val isCurrentApp = pkg == activePkg
+			val isOpenApp = pkg in openPackages
+			val canCloseApp = isOpenApp && !isDockEditMode
 			val isBeingDragged = draggedPkg == pkg
 			val subIcon = config.substituteIcon
 			val substituteIconVector = getSubstituteIconVector(subIcon)
@@ -1934,74 +2054,86 @@ fun CenteredAppLauncherSection(
 
 			Box(
 				modifier = Modifier
-					.size(50.dp)
-					.graphicsLayer {
-						rotationZ = if (isBeingDragged) 0f else appJiggle.value
-						translationX = if (isBeingDragged) dragAccumulatedX else 0f
-						scaleX = if (isBeingDragged) 1.1f else 1f
-						scaleY = if (isBeingDragged) 1.1f else 1f
-					}
-					.zIndex(if (isBeingDragged) 10f else 1f),
-				contentAlignment = Alignment.Center
-			) {
-				Box(
-					contentAlignment = Alignment.Center,
-					modifier = Modifier
-						.dockPressScale(appPressed)
-						.size(44.dp)
-						.clip(RoundedCornerShape(11.dp))
-						.background(appColor)
-						.then(gestureModifier)
-				) {
-					if (subIcon == "youtube" || subIcon == "youtube_music" || subIcon == "gwm") {
-						Image(
-							painter = painterResource(
-								id = when (subIcon) {
-									"youtube" -> R.drawable.ic_youtube_default
-									"youtube_music" -> R.drawable.ic_youtube_music_default
-									"gwm" -> R.drawable.ic_gwm
-									else -> R.drawable.ic_youtube_default
-								}
-							),
-							contentDescription = displayName,
-							modifier = Modifier.size(36.dp)
-						)
-					} else if (substituteIconVector != null) {
-						Icon(
-							imageVector = substituteIconVector,
-							contentDescription = displayName,
-							tint = iconTint,
-							modifier = Modifier.size(36.dp)
-						)
-					} else {
-						AsyncImage(
-							model = ImageRequest.Builder(context).data(appInfo.icon).build(),
-							contentDescription = displayName,
-							modifier = Modifier.size(36.dp)
-						)
-					}
-
-					DockActiveIndicator(
-						active = isCurrentApp,
-						modifier = Modifier
-							.align(Alignment.BottomCenter)
-							.padding(bottom = 2.dp)
-					)
-				}
-
-				// Badge de remoção no modo de edição (UNCROPPED)
-				DockEditBadge(
-					visible = isDockEditMode,
-					color = Color(0xFFE53935),
-					icon = Icons.Default.Close,
-					contentDescription = "Remover",
-					modifier = Modifier.align(Alignment.TopEnd),
-					onClick = {
+					.zIndex(if (isBeingDragged) 10f else 1f)
+					.dockSwipeUpToClose(enabled = canCloseApp) {
 						scope.launch {
-							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.deleteConfig(pkg)
-							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.configsVersion++
+							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.closeFromDock(context, pkg)
 						}
 					}
+					.width(50.dp)
+					.fillMaxHeight()
+			) {
+				Box(
+					modifier = Modifier
+						.align(Alignment.Center)
+						.size(50.dp)
+						.graphicsLayer {
+							rotationZ = if (isBeingDragged) 0f else appJiggle.value
+							translationX = if (isBeingDragged) dragAccumulatedX else 0f
+							scaleX = if (isBeingDragged) 1.1f else 1f
+							scaleY = if (isBeingDragged) 1.1f else 1f
+						}
+						.zIndex(if (isBeingDragged) 10f else 1f),
+					contentAlignment = Alignment.Center
+				) {
+					Box(
+						contentAlignment = Alignment.Center,
+						modifier = Modifier
+							.dockPressScale(appPressed)
+							.size(44.dp)
+							.clip(RoundedCornerShape(11.dp))
+							.background(appColor)
+							.then(gestureModifier)
+					) {
+						if (subIcon == "youtube" || subIcon == "youtube_music" || subIcon == "gwm") {
+							Image(
+								painter = painterResource(
+									id = when (subIcon) {
+										"youtube" -> R.drawable.ic_youtube_default
+										"youtube_music" -> R.drawable.ic_youtube_music_default
+										"gwm" -> R.drawable.ic_gwm
+										else -> R.drawable.ic_youtube_default
+									}
+								),
+								contentDescription = displayName,
+								modifier = Modifier.size(36.dp)
+							)
+						} else if (substituteIconVector != null) {
+							Icon(
+								imageVector = substituteIconVector,
+								contentDescription = displayName,
+								tint = iconTint,
+								modifier = Modifier.size(36.dp)
+							)
+						} else {
+							AsyncImage(
+								model = ImageRequest.Builder(context).data(appInfo.icon).build(),
+								contentDescription = displayName,
+								modifier = Modifier.size(36.dp)
+							)
+						}
+
+					}
+
+					// Badge de remoção no modo de edição (UNCROPPED)
+					DockEditBadge(
+						visible = isDockEditMode,
+						color = Color(0xFFE53935),
+						icon = Icons.Default.Close,
+						contentDescription = "Remover",
+						modifier = Modifier.align(Alignment.TopEnd),
+						onClick = {
+							scope.launch {
+								br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.deleteConfig(pkg)
+								br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.configsVersion++
+							}
+						}
+					)
+				}
+				DockAppIndicator(
+					active = isCurrentApp,
+					open = isOpenApp,
+					modifier = Modifier.align(Alignment.BottomCenter)
 				)
 			}
 		}
@@ -2092,82 +2224,92 @@ fun CenteredAppLauncherSection(
 			)
 
 			Box(
-				modifier = Modifier.dockAppear().size(50.dp),
-				contentAlignment = Alignment.Center
-			) {
-				Box(
-					contentAlignment = Alignment.Center,
-					modifier = Modifier
-						.dockPressScale(dynamicPressed)
-						.size(44.dp)
-						.clip(RoundedCornerShape(11.dp))
-						.background(dynamicColor)
-						.combinedClickable(
-							interactionSource = dynamicInteraction,
-							indication = null,
-							onClick = {
-								RecentAppsManager.recordAppLaunch(activePkg)
-								scope.launch {
-									br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, activePkg)
-								}
-							},
-							onLongClick = {
-								BottomBarState.isDockEditMode = true
-							}
-						)
-				) {
-					if (dynamicSubIcon == "youtube" || dynamicSubIcon == "youtube_music" || dynamicSubIcon == "gwm") {
-						Image(
-							painter = painterResource(
-								id = when (dynamicSubIcon) {
-									"youtube" -> R.drawable.ic_youtube_default
-									"youtube_music" -> R.drawable.ic_youtube_music_default
-									"gwm" -> R.drawable.ic_gwm
-									else -> R.drawable.ic_youtube_default
-								}
-							),
-							contentDescription = dynamicDisplayName,
-							modifier = Modifier.size(36.dp)
-						)
-					} else if (dynamicSubVector != null) {
-						Icon(
-							imageVector = dynamicSubVector,
-							contentDescription = dynamicDisplayName,
-							tint = dynamicIconTint,
-							modifier = Modifier.size(36.dp)
-						)
-					} else {
-						AsyncImage(
-							model = ImageRequest.Builder(context).data(dynamicAppInfo.icon).build(),
-							contentDescription = dynamicDisplayName,
-							modifier = Modifier.size(36.dp)
-						)
-					}
-
-					// Barra azul de app ativo
-					DockActiveIndicator(
-						active = true,
-						modifier = Modifier
-							.align(Alignment.BottomCenter)
-							.padding(bottom = 2.dp)
-					)
-				}
-
-				// Badge [ 📌 ] no modo de edição para fixar direto no dock (UNCROPPED)
-				DockEditBadge(
-					visible = isDockEditMode,
-					color = Color(0xFF4CAF50),
-					icon = Icons.Default.PushPin,
-					contentDescription = "Fixar no Dock",
-					modifier = Modifier.align(Alignment.TopEnd),
-					onClick = {
+				modifier = Modifier
+					.dockAppear()
+					.dockSwipeUpToClose(enabled = !isDockEditMode) {
 						scope.launch {
-							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-								.getOrCreateDefaultConfig(context, activePkg)
-							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
-								.configsVersion++
+							br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.closeFromDock(context, activePkg)
 						}
 					}
+					.width(50.dp)
+					.fillMaxHeight(),
+			) {
+				Box(
+					modifier = Modifier.align(Alignment.Center).size(50.dp),
+					contentAlignment = Alignment.Center
+				) {
+					Box(
+						contentAlignment = Alignment.Center,
+						modifier = Modifier
+							.dockPressScale(dynamicPressed)
+							.size(44.dp)
+							.clip(RoundedCornerShape(11.dp))
+							.background(dynamicColor)
+							.combinedClickable(
+								interactionSource = dynamicInteraction,
+								indication = null,
+								onClick = {
+									RecentAppsManager.recordAppLaunch(activePkg)
+									scope.launch {
+										br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.launchAnyApp(context, activePkg)
+									}
+								},
+								onLongClick = {
+									BottomBarState.isDockEditMode = true
+								}
+							)
+					) {
+						if (dynamicSubIcon == "youtube" || dynamicSubIcon == "youtube_music" || dynamicSubIcon == "gwm") {
+							Image(
+								painter = painterResource(
+									id = when (dynamicSubIcon) {
+										"youtube" -> R.drawable.ic_youtube_default
+										"youtube_music" -> R.drawable.ic_youtube_music_default
+										"gwm" -> R.drawable.ic_gwm
+										else -> R.drawable.ic_youtube_default
+									}
+								),
+								contentDescription = dynamicDisplayName,
+								modifier = Modifier.size(36.dp)
+							)
+						} else if (dynamicSubVector != null) {
+							Icon(
+								imageVector = dynamicSubVector,
+								contentDescription = dynamicDisplayName,
+								tint = dynamicIconTint,
+								modifier = Modifier.size(36.dp)
+							)
+						} else {
+							AsyncImage(
+								model = ImageRequest.Builder(context).data(dynamicAppInfo.icon).build(),
+								contentDescription = dynamicDisplayName,
+								modifier = Modifier.size(36.dp)
+							)
+						}
+
+					}
+
+					// Badge [ 📌 ] no modo de edição para fixar direto no dock (UNCROPPED)
+					DockEditBadge(
+						visible = isDockEditMode,
+						color = Color(0xFF4CAF50),
+						icon = Icons.Default.PushPin,
+						contentDescription = "Fixar no Dock",
+						modifier = Modifier.align(Alignment.TopEnd),
+						onClick = {
+							scope.launch {
+								br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+									.getOrCreateDefaultConfig(context, activePkg)
+								br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher
+									.configsVersion++
+							}
+						}
+					)
+				}
+				DockAppIndicator(
+					active = true,
+					open = false,
+					modifier = Modifier.align(Alignment.BottomCenter)
 				)
 			}
 		}
@@ -3459,7 +3601,7 @@ fun AllAppsGridItem(
         val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
         val isPressed by interactionSource.collectIsPressedAsState()
         val bgColor by animateColorAsState(
-                targetValue = if (isPressed) Color(0xFF2196F3).copy(alpha = 0.25f) else Color(0x08FFFFFF),
+                targetValue = if (isPressed) Color(0xFF2196F3).copy(alpha = 0.25f) else Color.Transparent,
                 animationSpec = tween(50),
                 label = "appGridBg"
         )
@@ -3485,26 +3627,23 @@ fun AllAppsGridItem(
                         .padding(vertical = 10.dp, horizontal = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
         ) {
+                // No card behind the icon: the launcher icon is drawn on its own, larger.
                 Box(
-                        modifier = Modifier
-                                .size(50.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0x14FFFFFF))
-                                .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(12.dp)),
+                        modifier = Modifier.size(60.dp),
                         contentAlignment = Alignment.Center
                 ) {
                         if (app.icon != null) {
                                 AsyncImage(
                                         model = ImageRequest.Builder(context).data(app.icon).build(),
                                         contentDescription = app.label,
-                                        modifier = Modifier.size(36.dp)
+                                        modifier = Modifier.size(56.dp)
                                 )
                         } else {
                                 Icon(
                                         imageVector = Icons.Default.Apps,
                                         contentDescription = app.label,
                                         tint = Color.White.copy(alpha = 0.7f),
-                                        modifier = Modifier.size(28.dp)
+                                        modifier = Modifier.size(40.dp)
                                 )
                         }
                 }
@@ -3571,12 +3710,12 @@ fun AppMenuContent() {
                         )
                         .border(1.dp, Color(0xFF262C38), RoundedCornerShape(16.dp))
                         .width(580.dp)
-                        .heightIn(max = 440.dp)
+                        .heightIn(max = 500.dp)
                         .padding(16.dp)
         ) {
                 Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                         // Header
                         Row(
@@ -3705,12 +3844,14 @@ fun AppMenuContent() {
                                         )
                                 }
                         } else {
+                                // weight(fill = false): the grid takes what is left under the
+                                // fixed shortcut row instead of a hard-coded height.
                                 LazyVerticalGrid(
                                         columns = GridCells.Fixed(4),
                                         modifier = Modifier
                                                 .fillMaxWidth()
-                                                .heightIn(max = 350.dp),
-                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                                .weight(1f, fill = false),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                         items(systemApps, key = { it.packageName }) { app ->
@@ -3728,6 +3869,115 @@ fun AppMenuContent() {
                                                 )
                                         }
                                 }
+                        }
+
+                        HorizontalDivider(color = Color(0xFF1F2530), thickness = 1.dp)
+
+                        AppMenuFixedShortcuts(context = context, scope = scope)
+                }
+        }
+}
+
+private data class FixedShortcut(
+        val id: String,
+        val label: String,
+        val packageName: String?
+)
+
+// Same GWM hub as the Impulse Home launcher (vehicle center, settings, energy, GWM Home) plus a
+// head-unit reboot. Package names mirror Impulse Home's PINNED_PACKAGES.
+private val APP_MENU_FIXED_SHORTCUTS = listOf(
+        FixedShortcut("vehicle", "Veículo", "com.beantechs.vehiclecenter"),
+        FixedShortcut("settings", "Ajustes", "com.beantechs.settings"),
+        FixedShortcut("energy", "Energia", "com.beantechs.energyassistant"),
+        FixedShortcut("home", "Início GWM", "com.beantechs.launcher"),
+        FixedShortcut("reboot", "Reiniciar", null)
+)
+
+@Composable
+private fun AppMenuFixedShortcuts(context: Context, scope: CoroutineScope) {
+        var rebootArmed by remember { mutableStateOf(false) }
+        // A reboot is one stray tap away in a moving car: it needs a second tap within 3s.
+        LaunchedEffect(rebootArmed) {
+                if (rebootArmed) {
+                        delay(3000)
+                        rebootArmed = false
+                }
+        }
+
+        Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+        ) {
+                for (item in APP_MENU_FIXED_SHORTCUTS) {
+                        val isReboot = item.id == "reboot"
+                        val armed = isReboot && rebootArmed
+                        val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        val pressed by interaction.collectIsPressedAsState()
+                        val bg by animateColorAsState(
+                                targetValue = when {
+                                        armed -> Color(0xFFE05252).copy(alpha = 0.28f)
+                                        pressed -> Color(0xFF2196F3).copy(alpha = 0.25f)
+                                        else -> Color.Transparent
+                                },
+                                animationSpec = tween(50),
+                                label = "fixedShortcutBg"
+                        )
+                        val tint = if (armed) Color(0xFFFF8A80) else Color.White.copy(alpha = 0.9f)
+                        Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                        .width(96.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(bg)
+                                        .clickable(interactionSource = interaction, indication = null) {
+                                                if (isReboot) {
+                                                        if (rebootArmed) {
+                                                                rebootArmed = false
+                                                                BottomBarState.isMenuExpanded = false
+                                                                scope.launch(Dispatchers.IO) {
+                                                                        ShizukuUtils.runCommandAndGetOutput(arrayOf("svc", "power", "reboot"))
+                                                                }
+                                                        } else {
+                                                                rebootArmed = true
+                                                        }
+                                                } else {
+                                                        item.packageName?.let {
+                                                                DisplayAppLauncher.launchAnyAppDetached(context, it)
+                                                        }
+                                                        BottomBarState.isMenuExpanded = false
+                                                }
+                                        }
+                                        .padding(vertical = 6.dp)
+                        ) {
+                                Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                                        when (item.id) {
+                                                "vehicle", "home" -> Icon(
+                                                        painter = painterResource(R.drawable.ic_gwm),
+                                                        contentDescription = item.label,
+                                                        tint = Color.Unspecified,
+                                                        modifier = Modifier.size(40.dp)
+                                                )
+                                                else -> Icon(
+                                                        imageVector = when (item.id) {
+                                                                "settings" -> Icons.Default.Settings
+                                                                "energy" -> Icons.Default.Bolt
+                                                                else -> Icons.Default.RestartAlt
+                                                        },
+                                                        contentDescription = item.label,
+                                                        tint = tint,
+                                                        modifier = Modifier.size(30.dp)
+                                                )
+                                        }
+                                }
+                                Text(
+                                        text = if (armed) "Confirmar?" else item.label,
+                                        color = if (armed) Color(0xFFFF8A80) else Color(0xFFE0E4EC),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1
+                                )
                         }
                 }
         }
@@ -4583,10 +4833,17 @@ fun BottomBarMenus() {
                         BottomBarState.activeSliderType != null ||
                         (isModern && BottomBarState.activeSwipeHud != null) ||
                         isFloatingProjOnly
+        // The swipe HUD (fan/temp/volume) is a small non-modal popup with no scrim: it must snap in,
+        // so only the real menus keep the fade that hides the scrim appearing.
+        val hudOnly = anyExpanded && isModern && BottomBarState.activeSwipeHud != null &&
+                !dashboardExpanded && !BottomBarState.isMenuExpanded &&
+                !BottomBarState.isSettingsMenuExpanded && !BottomBarState.isOverrideMenuExpanded &&
+                !BottomBarState.isAcMenuExpanded && BottomBarState.dockAddSlotIndex == null &&
+                BottomBarState.activeSliderType == null && !isFloatingProjOnly
         val contentAlpha by
                 animateFloatAsState(
                         targetValue = if (anyExpanded) 1f else 0f,
-                        animationSpec = tween(durationMillis = 120),
+                        animationSpec = tween(durationMillis = if (hudOnly) 0 else 120),
                         label = "menuFade"
                 )
 
@@ -9175,6 +9432,8 @@ fun TempControlSection(
                                                         var isDragging = false
                                                         var accumulatedDragX = 0f
                                                         var activeTemp = currentTempRef.toFloatOrNull() ?: 22.0f
+                                                        // Show the popup on touch-down, not after the drag starts.
+                                                        postHud(activeTemp, autoDismiss = false)
 
                                                         do {
                                                                 val event = awaitPointerEvent()
@@ -9184,7 +9443,7 @@ fun TempControlSection(
                                                                 val deltaX = change.position.x - change.previousPosition.x
                                                                 totalDragX += deltaX
 
-                                                                if (!isDragging && kotlin.math.abs(totalDragX) > 10.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(change.position.y - startY)) {
+                                                                if (!isDragging && kotlin.math.abs(totalDragX) > SWIPE_DRAG_SLOP_DP.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(change.position.y - startY)) {
                                                                         isDragging = true
                                                                         activeTemp = currentTempRef.toFloatOrNull() ?: 22.0f
                                                                         postHud(activeTemp, autoDismiss = false)
@@ -9382,7 +9641,7 @@ fun FanControlSection(
                                                                 val deltaY = change.position.y - change.previousPosition.y
                                                                 totalDragX += deltaX
 
-                                                                if (!isDragging && abs(totalDragX) > 10.dp.toPx() && abs(totalDragX) > abs(change.position.y - startY)) {
+                                                                if (!isDragging && abs(totalDragX) > SWIPE_DRAG_SLOP_DP.dp.toPx() && abs(totalDragX) > abs(change.position.y - startY)) {
                                                                         isDragging = true
                                                                         activeSpeed = currentSpeedRef
                                                                         postHud(activeSpeed, autoDismiss = false)
@@ -9391,17 +9650,12 @@ fun FanControlSection(
                                                                 if (isDragging) {
                                                                         change.consume()
                                                                         accumulatedDragX += deltaX
-                                                                        val stepPx = 27.dp.toPx()
-                                                                        if (abs(accumulatedDragX) >= stepPx) {
-                                                                                val numSteps = (abs(accumulatedDragX) / stepPx).toInt()
-                                                                                val stepDirection = if (accumulatedDragX > 0) 1 else -1
-                                                                                accumulatedDragX -= stepDirection * numSteps * stepPx
-                                                                                val next = (activeSpeed + stepDirection * numSteps).coerceIn(0, 7)
-                                                                                if (next != activeSpeed) {
-                                                                                        activeSpeed = next
-                                                                                        currentOnSpeedChange(next)
-                                                                                        postHud(next, autoDismiss = false)
-                                                                                }
+                                                                        val (next, remaining) = resolveFanDrag(accumulatedDragX, FAN_DRAG_STEP_DP.dp.toPx(), activeSpeed)
+                                                                        accumulatedDragX = remaining
+                                                                        if (next != activeSpeed) {
+                                                                                activeSpeed = next
+                                                                                currentOnSpeedChange(next)
+                                                                                postHud(next, autoDismiss = false)
                                                                         }
                                                                 }
                                                         } while (change.pressed)
@@ -9526,6 +9780,8 @@ fun VolumeControlSection(
                                                         var isDragging = false
                                                         var accumulatedDragX = 0f
                                                         var activeVol = currentVolRef
+                                                        // Show the popup on touch-down, not after the drag starts.
+                                                        postHud(activeVol, autoDismiss = false)
 
                                                         do {
                                                                 val event = awaitPointerEvent()
@@ -9536,7 +9792,7 @@ fun VolumeControlSection(
                                                                 val deltaY = change.position.y - change.previousPosition.y
                                                                 totalDragX += deltaX
 
-                                                                if (!isDragging && kotlin.math.abs(totalDragX) > 10.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(deltaY)) {
+                                                                if (!isDragging && kotlin.math.abs(totalDragX) > SWIPE_DRAG_SLOP_DP.dp.toPx() && kotlin.math.abs(totalDragX) > kotlin.math.abs(deltaY)) {
                                                                         isDragging = true
                                                                         activeVol = currentVolRef
                                                                         postHud(activeVol, autoDismiss = false)

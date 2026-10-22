@@ -65,11 +65,17 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private val PROJECTION_D3_FALSE_NEGATIVE_HOLD_MS = 12_000L
     private val PERF_HEARTBEAT_INTERVAL_MS = 60_000L
     /** How long a warning must have been standing before BACK is allowed to dismiss it, so
-     *  a BACK press already in flight cannot swallow a warning the driver never saw. */
-    private val WARNING_DISMISS_LOCKOUT_MS = 2500L
+     *  a BACK press already in flight cannot swallow a warning the driver never saw. Matches
+     *  the car's own cooldown; see ClusterWarningPolicy.DISMISS_LOCKOUT_MS. */
+    private val WARNING_DISMISS_LOCKOUT_MS = ClusterWarningPolicy.DISMISS_LOCKOUT_MS
     /** Grace period before the layout follows a warning that cleared by itself, so it does
      *  not snap back while the car's own popup is still finishing its own close. */
     private val WARNING_CLEAR_HOLDOFF_MS = 2000L
+
+    /** Cap on the traced alarm-list payload, so one line stays readable. */
+    private val ALARM_LIST_TRACE_MAX_CHARS = 400
+    /** Mask crossfade when an app/map hole opens or closes; in step with the theme's own fades. */
+    private val MASK_FADE_MS = 300L
     private val MAX_PENDING_JS_COMMANDS = 250
     private val vehiclePropertyReader = VehiclePropertyReader()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -146,6 +152,33 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private val dismissedCards: MutableSet<String> =
             java.util.Collections.newSetFromMap(
                     java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+    /**
+     * What every key behind each acknowledged card read when it was dismissed. Saved with the boot
+     * identity so a mid-drive restart can tell the same standing condition from a new one; see
+     * ClusterWarningPolicy.dismissalsToRestore.
+     */
+    private val dismissedCardSnapshots =
+            java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>()
+    /** Elapsed-realtime ms each gate lamp was last seen lit; see ClusterWarningPolicy.LAMP_OFF_LATCH_MS. */
+    private val lampLastLitAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /**
+     * Re-judges the badge once a lamp's latch has run out. A lamp that stays dark sends no more
+     * telemetry, so without this a gated vector would keep the label up until some other key moved.
+     */
+    private val lampLatchExpired = Runnable {
+        for (cardId in dismissedCards.toList()) {
+            if (!isCardConditionStanding(cardId)) {
+                dismissedCards.remove(cardId)
+                dismissedCardSnapshots.remove(cardId)
+            }
+        }
+        persistDismissals()
+        recomputeWarningState("LAMP_LATCH_EXPIRED")
+    }
+    /** Saved acknowledgements read back once; null until loaded. */
+    private var savedDismissals: List<ClusterWarningPolicy.SavedDismissal>? = null
+    private var savedDismissalsSameBoot = false
+    private var dismissalsRestored = false
     override var isWarningDismissed = false
     private var lastWarningActiveTime = 0L
     /** Last value seen per monitored warning key, so a re-emission of an unchanged value
@@ -218,6 +251,21 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private var cachedGlobalMaskKey: String? = null
     /** Last bitmap handed to [globalMaskView]; recycled when replaced. */
     private var displayedGlobalMaskBitmap: android.graphics.Bitmap? = null
+
+    /**
+     * Crossfade layer over [globalMaskView]. When the app/map hole opens, the hole moves or it
+     * closes, the mask used to swap in one frame while the theme faded its own panels over
+     * 0.25-1 s, so the cluster stepped through visibly mismatched states. The curtain holds
+     * one side of the swap and fades for [MASK_FADE_MS]: the wallpaper dissolves into the app
+     * or map, and back.
+     */
+    private var maskCurtainView: android.widget.ImageView? = null
+    /** Bitmap the curtain is drawing; never recycled while it is shown. */
+    private var maskCurtainBitmap: android.graphics.Bitmap? = null
+    /** Closing fade: the curtain holds the new mask, which replaces the displayed one at the end. */
+    private var maskCurtainPendingSwap = false
+    /** Hole cut into [displayedGlobalMaskBitmap]; a change in it is what triggers a fade. */
+    private var displayedMaskHole: android.graphics.Rect? = null
 
     /**
      * When D1 paints (or IMAGE_URL lands in [ClusterBackgroundSync]), re-run the mask pass so
@@ -732,6 +780,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         }
     }
 
+    /** The AA map steps aside while an app is on D1 or D3 (it would draw over the app). */
+    private fun syncAaClusterMapForSecondaryApps(source: String) {
+        AndroidAutoClusterController.setSecondaryDisplayAppActive(
+                isAnyAppOnDisplay1 || isAnyAppOnDisplay3,
+                source
+        )
+    }
+
     private fun isAaClusterInDash(): Boolean {
         return AndroidAutoClusterController.isSurfaceAttached()
     }
@@ -1111,6 +1167,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val startedAt = SystemClock.uptimeMillis()
         val previousCard = currentCard
         currentCard = nextCard
+        syncAaClusterMapWindow()
         updateNativeMaskViews()
         updateKnownScreenForCard(nextCard)
 
@@ -1175,6 +1232,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         if (ClusterCardFlowPolicy.isCardBackedMenu(currentCard)) {
             isWarningDismissed = false
+            syncAaClusterMapWindow()
         }
         if (decision.syncVisibleCardValues) {
             updateCardEntryValuesWebView(currentCard)
@@ -1353,6 +1411,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                             if (!isAnyAppOnDisplay3) {
                                 lastAppliedConfigs.clear()
                             }
+                            syncAaClusterMapForSecondaryApps("display3_app_state")
                             // Force hole refresh even when the rect object compares equal:
                             // the flag flip is the authoritative "app arrived/left" signal.
                             updateVirtualClusterVisibility(
@@ -1372,6 +1431,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     "display1_app_state",
                                     mapOf("active" to isAnyAppOnDisplay1)
                             )
+                            syncAaClusterMapForSecondaryApps("display1_app_state")
                             updateVirtualClusterVisibility(reason = "DISPLAY_1_APP_STATE_CHANGED")
                             pushVirtualDisplayState(1)
                         }
@@ -1397,16 +1457,12 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                         }
                         ServiceManagerEventType.AA_CLUSTER_SURFACE -> {
                             val enabled = args.getOrNull(0) as? Boolean ?: false
+                            // The map draws above the native masks, so it needs no mask hole;
+                            // this only tells the theme the map covers both sides.
                             updateVirtualClusterVisibility(
                                     reason = "AA_CLUSTER_SURFACE",
                                     forceNativeMaskRefresh = true
                             )
-                            if (enabled) {
-                                prepareDisplay3AppHole(
-                                        AaClusterVideoHost.DEFAULT_MAP_BOUNDS,
-                                        reason = "AA_CLUSTER_SURFACE"
-                                )
-                            }
                         }
                         ServiceManagerEventType.RAW_KEY_EVENT -> {
                             val key = args[0] as br.com.redesurftank.havalshisuku.models.ClusterKey
@@ -1452,7 +1508,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         root = FrameLayout(outerContext).apply { setBackgroundColor(Color.TRANSPARENT) }
         setContentView(root)
         setupControlView(root)
-        AaClusterVideoHost.attachParent(root)
+        // Directly above the native masks, below the theme WebView: the masks can never
+        // cover the map, so the map needs no mask hole.
+        AaClusterVideoHost.attachParent(root, above = nativeMaskContainer)
+        syncAaClusterMapWindow()
         if (AndroidAutoClusterController.isClusterRequested()) {
             AndroidAutoClusterController.setClusterMapEnabled(true, "projector_attach")
         }
@@ -1460,6 +1519,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAnyAppOnDisplay(3)
         isAnyAppOnDisplay1 =
                 br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAnyAppOnDisplay(1)
+        syncAaClusterMapForSecondaryApps("on_create")
         updateValuesWebView() // Queue initial values for state sync
         syncInitialWarnings() // Fresh JS state on init — warnings need to be primed
         refreshNativeProjectionPanelStateFromCache()
@@ -1474,6 +1534,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         handler.removeCallbacks(clockRunnable)
         handler.removeCallbacks(watchdogRunnable)
         cancelPendingWarningClear()
+        handler.removeCallbacks(lampLatchExpired)
         handler.removeCallbacks(mediaRunnable)
         clearPendingSportTelemetryBatch()
         tsrJob?.cancel()
@@ -1536,6 +1597,27 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun handleDataChanged(key: String, value: String) {
+
+            // Trace only, changes nothing. car.ipk_setting.alarm_his_info_list is the cluster's own
+            // list of active warnings (Msg_IP_Notification_Important_NNN — BeanAdapterService
+            // enumerates 001..118). The badge reconstructs that list from individual CAN keys and
+            // gets it wrong both ways: on 2026-10-19 a per-wheel tyre vector stayed set whether or
+            // not the car was showing its card. Log every change so the IDs can be matched against
+            // the keys that move with them.
+            if (key == CarConstants.CAR_IPK_SETTING_ALARM_HIS_INFO_LIST.value &&
+                            value != lastTracedAlarmList
+            ) {
+                logClusterPerfEvent(
+                        "alarm_list_changed",
+                        mapOf(
+                                "value" to value.take(ALARM_LIST_TRACE_MAX_CHARS),
+                                "previous" to
+                                        (lastTracedAlarmList?.take(ALARM_LIST_TRACE_MAX_CHARS)
+                                                ?: "none")
+                        )
+                )
+                lastTracedAlarmList = value
+            }
 
             if (isNativeProjectionPanelKey(key)) {
                 ensureUi {
@@ -1746,6 +1828,22 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     val currentValue = value?.toString() ?: "0"
                     val cardId = ClusterWarningPolicy.cardIdFor(key)
                     val cardWasStanding = isCardConditionStanding(cardId)
+                    if (key in ClusterWarningPolicy.vectorLampGates.values) {
+                        // Stamp before the new value lands: a blink's dark phase must still read
+                        // as lit, or it looks like the warning clearing and drops the dismissal.
+                        if (ClusterWarningPolicy.isWarningValueActive(currentWarningValue(key)) ||
+                                        ClusterWarningPolicy.isWarningValueActive(currentValue)
+                        ) {
+                            lampLastLitAt[key] = SystemClock.elapsedRealtime()
+                        }
+                        handler.removeCallbacks(lampLatchExpired)
+                        if (!ClusterWarningPolicy.isWarningValueActive(currentValue)) {
+                            handler.postDelayed(
+                                    lampLatchExpired,
+                                    ClusterWarningPolicy.LAMP_OFF_LATCH_MS + 100
+                            )
+                        }
+                    }
                     trackWarningOnset(key, currentValue)
                     val cardStanding = isCardConditionStanding(cardId)
 
@@ -1758,6 +1856,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     if (cardId in dismissedCards && !cardStanding) {
                         Log.d(TAG, "Card $cardId cleared; acknowledgement dropped")
                         dismissedCards.remove(cardId)
+                        dismissedCardSnapshots.remove(cardId)
+                        persistDismissals()
                     }
 
                     // A different card newly rising is another matter: the car brings the
@@ -1772,6 +1872,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                 )
                         if (rearmed.isNotEmpty()) {
                             dismissedCards.removeAll(rearmed)
+                            rearmed.forEach { dismissedCardSnapshots.remove(it) }
+                            persistDismissals()
                             logClusterPerfEvent(
                                     "warning_rearm",
                                     mapOf(
@@ -2295,6 +2397,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
      */
     private fun syncInitialWarnings() {
         val webView = this.webView ?: return
+        restoreDismissalsIfDue()
 
         for (key in monitoredWarningKeys) {
             // Momentary alerts reach the theme from live telemetry only — never replayed
@@ -2322,6 +2425,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
      * lists to drift apart. The backend owns it now; themes render what they are told.
      */
     private fun recomputeWarningState(reason: String, immediate: Boolean = false) {
+        // Retried here because theme load can come before the car connection has any values.
+        restoreDismissalsIfDue()
         refreshWarningCardTopAnchor()
         val active = unacknowledgedBadgeWarnings().isNotEmpty()
 
@@ -2365,6 +2470,18 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         warningClearRunnable = null
     }
 
+    /**
+     * The native card is up on card 0, or while an undismissed warning shows. A dismissed
+     * warning only cancels the warning case: it used to drop card 0 too, so after any
+     * warning was dismissed the map went full width (and lost its fade) while still on
+     * card 0 (car, 2026-10-14 19:13).
+     */
+    private fun syncAaClusterMapWindow() {
+        AaClusterVideoHost.setNativeCardShown(
+                currentCard == ClusterCardIds.NATIVE_CARD || (isWarningActive && !isWarningDismissed)
+        )
+    }
+
     private fun applyWarningState(active: Boolean, reason: String) {
         val dismissed = !active && dismissedCards.isNotEmpty()
         val changed = active != isWarningActive || dismissed != isWarningDismissed
@@ -2376,6 +2493,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
         isWarningActive = active
         isWarningDismissed = dismissed
+        syncAaClusterMapWindow()
 
         // Tell the theme BEFORE visibility/sync work. updateVirtualClusterVisibility can
         // spend multi-seconds on this UI thread (stack list + AA probe); previously
@@ -2414,7 +2532,16 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                             }
                                             .take(10)
                                             .joinToString("|")
-                                            .ifEmpty { "none" }
+                                            .ifEmpty { "none" },
+                            // Vectors reading active while their lamp is dark, so a badge the
+                            // gate held back is never silent.
+                            "gated" to
+                                    ClusterWarningPolicy.lampGatedKeys(::currentWarningValue, ::isLampLit)
+                                            .joinToString("|")
+                                            .ifEmpty { "none" },
+                            // Trace only: what the car itself says is active, next to what the
+                            // CAN keys above made of it.
+                            "alarmList" to alarmListForTrace()
                     )
             )
             val postPushWorkStartedAt = SystemClock.elapsedRealtime()
@@ -2534,12 +2661,132 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     private fun currentWarningValue(key: String): String? =
             lastWarningValues[key] ?: ServiceManager.getInstance().getData(key)
 
+    /** Android's boot counter; -1 when unavailable, which restores nothing. */
+    private fun currentBootCount(): Int =
+            runCatching {
+                        android.provider.Settings.Global.getInt(
+                                outerContext.contentResolver,
+                                android.provider.Settings.Global.BOOT_COUNT,
+                                -1
+                        )
+                    }
+                    .getOrDefault(-1)
+
+    /** Save the current acknowledgements, tagged with this boot. */
+    private fun persistDismissals() {
+        val cards = JSONObject()
+        for ((cardId, values) in dismissedCardSnapshots) {
+            if (cardId in dismissedCards) cards.put(cardId, JSONObject(values))
+        }
+        val json =
+                JSONObject()
+                        .put("bootCount", currentBootCount())
+                        .put("elapsedMs", SystemClock.elapsedRealtime())
+                        .put("cards", cards)
+        preferences
+                .edit()
+                .putString(SharedPreferencesKeys.CLUSTER_WARNING_DISMISSED_CARDS.key, json.toString())
+                .apply()
+    }
+
+    /**
+     * Bring back acknowledgements made before the app restarted, once per process.
+     *
+     * Waits until every saved key has a value: right after a restart the car connection may not
+     * be up yet, and judging then would read every key as missing and restore nothing for good.
+     */
+    private fun restoreDismissalsIfDue() {
+        if (dismissalsRestored) return
+        val saved = savedDismissals ?: loadSavedDismissals().also { savedDismissals = it }
+        if (saved.isEmpty() || !savedDismissalsSameBoot) {
+            dismissalsRestored = true
+            if (saved.isNotEmpty()) logDismissalRestore(saved, emptySet())
+            return
+        }
+        if (saved.any { dismissal -> dismissal.values.keys.any { currentWarningValue(it) == null } }) {
+            return
+        }
+        dismissalsRestored = true
+        val restored = ClusterWarningPolicy.dismissalsToRestore(saved, true, ::currentWarningValue)
+        for (dismissal in saved) {
+            if (dismissal.cardId !in restored) continue
+            dismissedCards.add(dismissal.cardId)
+            dismissedCardSnapshots[dismissal.cardId] = dismissal.values
+        }
+        logDismissalRestore(saved, restored)
+        // Rewrite, so a card that did not survive is not offered again.
+        persistDismissals()
+    }
+
+    private fun loadSavedDismissals(): List<ClusterWarningPolicy.SavedDismissal> {
+        val raw =
+                preferences.getString(SharedPreferencesKeys.CLUSTER_WARNING_DISMISSED_CARDS.key, null)
+                        ?: return emptyList()
+        return runCatching {
+                    val json = JSONObject(raw)
+                    savedDismissalsSameBoot =
+                            ClusterWarningPolicy.isSameBoot(
+                                    json.optInt("bootCount", -1),
+                                    json.optLong("elapsedMs", Long.MAX_VALUE),
+                                    currentBootCount(),
+                                    SystemClock.elapsedRealtime()
+                            )
+                    val cards = json.optJSONObject("cards") ?: JSONObject()
+                    cards.keys().asSequence().map { cardId ->
+                        val values = cards.getJSONObject(cardId)
+                        ClusterWarningPolicy.SavedDismissal(
+                                cardId,
+                                values.keys().asSequence().associateWith { values.getString(it) }
+                        )
+                    }.toList()
+                }
+                .getOrElse {
+                    Log.w(TAG, "Saved warning dismissals unreadable; ignoring", it)
+                    emptyList()
+                }
+    }
+
+    private fun logDismissalRestore(
+            saved: List<ClusterWarningPolicy.SavedDismissal>,
+            restored: Set<String>
+    ) {
+        logClusterPerfEvent(
+                "warning_dismissals_restored",
+                mapOf(
+                        "saved" to saved.joinToString("|") { it.cardId },
+                        "restored" to restored.joinToString("|").ifEmpty { "none" },
+                        "sameBoot" to savedDismissalsSameBoot
+                )
+        )
+    }
+
+    /** The lamp is lit now, or was within ClusterWarningPolicy.LAMP_OFF_LATCH_MS. */
+    private fun isLampLit(lamp: String): Boolean =
+            ClusterWarningPolicy.isLampLitWithLatch(
+                    currentWarningValue(lamp),
+                    lampLastLitAt[lamp],
+                    SystemClock.elapsedRealtime()
+            )
+
+    /** Last alarm-list value traced, so the car re-emitting an unchanged list logs nothing. */
+    @Volatile private var lastTracedAlarmList: String? = null
+
+    /**
+     * The car's alarm list for a trace line. Live, not a first-read snapshot: the key is in
+     * ServiceManager.DEFAULT_KEYS, so every change the car pushes refreshes the cache this reads.
+     */
+    private fun alarmListForTrace(): String =
+            ServiceManager.getInstance()
+                    .getData(CarConstants.CAR_IPK_SETTING_ALARM_HIS_INFO_LIST.value)
+                    ?.take(ALARM_LIST_TRACE_MAX_CHARS)
+                    ?: "null"
+
     /** Warnings the driver can currently see and has not acknowledged, newest first. */
     private fun unacknowledgedBadgeWarnings(): List<Pair<String, String>> {
         return monitoredWarningKeys
                 .mapNotNull { key -> currentWarningValue(key)?.let { key to it } }
                 .filter { (key, value) ->
-                    ClusterWarningPolicy.raisesWarningBadge(key, value) &&
+                    ClusterWarningPolicy.raisesWarningBadge(key, value, ::isLampLit) &&
                             ClusterWarningPolicy.cardIdFor(key) !in dismissedCards
                 }
                 .sortedByDescending { (key, _) -> warningOnsetTimes[key] ?: 0L }
@@ -2576,7 +2823,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     /** True while any key behind [cardId] still reports an active value. */
     private fun isCardConditionStanding(cardId: String): Boolean =
             ClusterWarningPolicy.cardKeysFor(cardId).any { key ->
-                ClusterWarningPolicy.raisesWarningBadge(key, currentWarningValue(key))
+                ClusterWarningPolicy.raisesWarningBadge(key, currentWarningValue(key), ::isLampLit)
             }
 
     private fun getClusterFuelDisplayUnit(): String {
@@ -3009,19 +3256,14 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             }
         }
 
-        // AA/CarPlay are intentionally excluded from managed secondary configs (resize/
-        // sync paths), but they still need a native-mask hole on D3 — otherwise the
-        // opaque d3_mask wallpaper stays on top of the projection.
+        // AA/CarPlay projections are intentionally excluded from managed secondary configs
+        // (resize/sync paths), but they still need a native-mask hole on D3 — otherwise the
+        // opaque d3_mask wallpaper stays on top of the projection. The AA cluster map does
+        // not: it is drawn above the masks inside this window (AaClusterVideoHost).
         if (appRectOnDisplay3 == null) {
             val projectionHole = resolveProjectionDisplay3AppRect()
             if (projectionHole != null) {
                 appRectOnDisplay3 = projectionHole
-                isLeftCovered = true
-                isRightCovered = true
-            } else if (isAaClusterInDash()) {
-                val bounds = AaClusterVideoHost.DEFAULT_MAP_BOUNDS
-                appRectOnDisplay3 =
-                        android.graphics.Rect(bounds[0], bounds[1], bounds[2], bounds[3])
                 isLeftCovered = true
                 isRightCovered = true
             }
@@ -3474,8 +3716,10 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
 
     override fun carMainScreenOn() {
         ensureUi {
+            // Not isMainScreenOn: the engine-state event reaches listeners before
+            // ServiceManager caches it (see InstrumentProjector.carMainScreenOn).
             applyProjectorViewVisibility(
-                    shouldShowProjector() && ServiceManager.getInstance().isMainScreenOn,
+                    shouldShowProjector(),
                     projectionOverlayBypassActive == true
             )
         }
@@ -3718,6 +3962,9 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                     mapOf(
                             "card" to cardId,
                             "cardsShowing" to cardsShowing,
+                            // Trace only: [cardId] is inferred from CAN keys; this is the car's own
+                            // list at the moment of the press, so a mismatch is visible.
+                            "alarmList" to alarmListForTrace(),
                             "timeSinceWarningMs" to timeSinceWarning,
                             "keyOnsetAgeMs" to
                                     (keyOnsetMs?.let { System.currentTimeMillis() - it } ?: -1L),
@@ -3725,7 +3972,7 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
                                     (topSinceMs?.let { System.currentTimeMillis() - it } ?: -1L)
                     )
             )
-            if (timeSinceWarning < WARNING_DISMISS_LOCKOUT_MS) {
+            if (ClusterWarningPolicy.isDismissLockedOut(timeSinceWarning)) {
                 Log.w(
                         TAG,
                         "DISMISS_WARNING ignored: card=$cardId timeSinceWarning=${timeSinceWarning}ms < ${WARNING_DISMISS_LOCKOUT_MS}ms lockout"
@@ -3746,6 +3993,11 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             }
 
             dismissedCards.add(cardId)
+            dismissedCardSnapshots[cardId] =
+                    ClusterWarningPolicy.cardKeysFor(cardId).associateWith {
+                        currentWarningValue(it) ?: ""
+                    }
+            persistDismissals()
             Log.d(TAG, "dismissWarnings: acknowledged card=$cardId; ${cardsShowing - 1} card(s) still showing")
             // No hold-off here: that card closes with the same BACK press.
             recomputeWarningState("DISMISS", immediate = true)
@@ -3849,7 +4101,15 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
             visibility = View.GONE
         }
 
+        maskCurtainView = android.widget.ImageView(outerContext).apply {
+            id = View.generateViewId()
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            layoutParams = FrameLayout.LayoutParams(1920, 720)
+            visibility = View.GONE
+        }
+
         container.addView(globalMaskView)
+        container.addView(maskCurtainView)
         container.addView(fuelMaskView)
         container.addView(batteryMaskView)
         container.addView(speedMaskView)
@@ -3933,7 +4193,17 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val base = obtainGlobalMaskBase(folderName, cacheKey, themeMgr)
         if (base != null) {
             val framed = applyDisplay3AppHoleToBase(base)
-            setDisplayedGlobalMask(framed)
+            val hole = display3AppRect?.let { android.graphics.Rect(it) }
+            val previous = displayedGlobalMaskBitmap
+            val canFade = hole != displayedMaskHole &&
+                    previous != null && !previous.isRecycled && previous !== framed &&
+                    globalMaskView?.isShown == true
+            displayedMaskHole = hole
+            if (canFade) {
+                crossfadeGlobalMask(previous!!, framed, closing = hole == null)
+            } else {
+                setDisplayedGlobalMask(framed)
+            }
             globalMaskView?.isVisible = true
 
             fuelMaskView?.isVisible = false
@@ -4074,16 +4344,85 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
     }
 
     private fun setDisplayedGlobalMask(bitmap: android.graphics.Bitmap?) {
+        if (bitmap == null) {
+            cancelMaskCurtain()
+            displayedMaskHole = null
+        }
         val previous = displayedGlobalMaskBitmap
         globalMaskView?.setImageBitmap(bitmap)
         displayedGlobalMaskBitmap = bitmap
-        // Recycle the previous framed copy, but never the cached base.
+        // Recycle the previous framed copy, but never the cached base or what the curtain shows.
         if (previous != null &&
                         previous !== bitmap &&
                         previous !== cachedGlobalMaskBase &&
+                        previous !== maskCurtainBitmap &&
                         !previous.isRecycled
         ) {
             previous.recycle()
+        }
+    }
+
+    /**
+     * Opening (or moving) a hole: [globalMaskView] takes [next] at once and the curtain fades
+     * [old] out over it. Closing: the curtain fades [next] in over the holed mask, which would
+     * otherwise show the full mask inside the hole on the first frame.
+     */
+    private fun crossfadeGlobalMask(
+            old: android.graphics.Bitmap,
+            next: android.graphics.Bitmap,
+            closing: Boolean
+    ) {
+        cancelMaskCurtain()
+        val curtain = maskCurtainView
+        if (curtain == null) {
+            setDisplayedGlobalMask(next)
+            return
+        }
+        if (closing) {
+            maskCurtainBitmap = next
+            maskCurtainPendingSwap = true
+            curtain.setImageBitmap(next)
+            curtain.alpha = 0f
+            curtain.visibility = View.VISIBLE
+            curtain.animate().alpha(1f).setDuration(MASK_FADE_MS).withLayer()
+                    .withEndAction { finishMaskCurtain() }.start()
+        } else {
+            maskCurtainBitmap = old
+            maskCurtainPendingSwap = false
+            curtain.setImageBitmap(old)
+            curtain.alpha = 1f
+            curtain.visibility = View.VISIBLE
+            setDisplayedGlobalMask(next)
+            curtain.animate().alpha(0f).setDuration(MASK_FADE_MS).withLayer()
+                    .withEndAction { finishMaskCurtain() }.start()
+        }
+    }
+
+    /** Stops a running fade at its end state, so the next mask update starts from a settled one. */
+    private fun cancelMaskCurtain() {
+        val curtain = maskCurtainView ?: return
+        if (maskCurtainBitmap == null) return
+        curtain.animate().cancel()
+        finishMaskCurtain()
+    }
+
+    private fun finishMaskCurtain() {
+        val curtain = maskCurtainView
+        val shown = maskCurtainBitmap
+        val swap = maskCurtainPendingSwap
+        maskCurtainBitmap = null
+        maskCurtainPendingSwap = false
+        curtain?.visibility = View.GONE
+        curtain?.setImageBitmap(null)
+        curtain?.alpha = 1f
+        if (shown == null) return
+        if (swap) {
+            setDisplayedGlobalMask(shown)
+        } else if (shown !== displayedGlobalMaskBitmap &&
+                        shown !== cachedGlobalMaskBase &&
+                        !shown.isRecycled
+        ) {
+            shown.recycle()
         }
     }
 
@@ -4091,7 +4430,8 @@ class InstrumentProjector2(private val outerContext: Context, display: Display) 
         val base = cachedGlobalMaskBase
         cachedGlobalMaskBase = null
         cachedGlobalMaskKey = null
-        if (base != null && base !== displayedGlobalMaskBitmap && !base.isRecycled) {
+        if (base != null && base !== displayedGlobalMaskBitmap && base !== maskCurtainBitmap &&
+                !base.isRecycled) {
             base.recycle()
         }
     }

@@ -72,4 +72,88 @@ class AndroidAutoNavigationTelemetryTest {
         assertEquals("TURN_LEFT", AndroidAutoNavigationTelemetry.fromTurnEnum(null, 1))
         assertEquals("", AndroidAutoNavigationTelemetry.fromTurnEnum(null, 99))
     }
+
+    @Test
+    fun roundaboutExitIsPublishedAdditively() {
+        val acc = AndroidAutoNavigationTelemetry.Accumulator()
+        val step = acc.onRouteStep(
+            "Pça. da Sé",
+            AndroidAutoNavigationTelemetry.MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CCW_WITH_ANGLE,
+            hasRoute = true,
+            angle = 90,
+            number = 2
+        )
+        assertEquals(2, step.exitNumber)
+        assertEquals(90, step.turnAngle)
+        val json = step.toJson()
+        assertTrue(json.contains("\"v\":1,"))
+        assertTrue(json.contains("\"exit_number\":2"))
+        assertTrue(json.contains("\"turn_angle\":90"))
+        assertTrue(json.contains("\"roundabout_cw\":false"))
+        // Every field the v1.0 themes already read is still there.
+        assertTrue(json.contains("\"turn\":\"ROUNDABOUT\""))
+        assertTrue(json.contains("\"lanes\":[]"))
+    }
+
+    @Test
+    fun roundaboutExitIsNullOffRoundaboutsAndWhenZero() {
+        val acc = AndroidAutoNavigationTelemetry.Accumulator()
+        val turn = acc.onRouteStep("A", AndroidAutoNavigationTelemetry.MANEUVER_TURN_NORMAL_RIGHT, true, angle = 90, number = 2)
+        assertNull(turn.exitNumber)
+        assertNull(turn.turnAngle)
+        assertTrue(turn.toJson().contains("\"exit_number\":null,\"turn_angle\":null,\"roundabout_cw\":null"))
+        // Fresh roundabout with no prior exit data stays null.
+        val zero = acc.onRouteStep("B", AndroidAutoNavigationTelemetry.MANEUVER_ROUNDABOUT_ENTER_CW, true)
+        assertNull(zero.exitNumber)
+        assertNull(zero.turnAngle)
+        assertEquals(true, zero.roundaboutClockwise)
+        assertEquals(null to null, AndroidAutoNavigationTelemetry.roundaboutExit(
+            AndroidAutoNavigationTelemetry.MANEUVER_ROUNDABOUT_EXIT_CW, 999, 9999))
+        // Code 8 (other builds) carries the same pair.
+        assertEquals(3, acc.onNextTurn("C", AndroidAutoNavigationTelemetry.MANEUVER_ROUNDABOUT_EXIT_CCW, 0, angle = -45, number = 3).exitNumber)
+        acc.reset()
+        assertNull(acc.current().exitNumber)
+    }
+
+    @Test
+    fun roundaboutExitKeepsApproachPairWhenExitStepZerosAngle() {
+        val acc = AndroidAutoNavigationTelemetry.Accumulator()
+        val approach = acc.onRouteStep(
+            "Av. Pref. Silvio Picanço",
+            AndroidAutoNavigationTelemetry.MANEUVER_ROUNDABOUT_ENTER_AND_EXIT_CCW_WITH_ANGLE,
+            hasRoute = true,
+            angle = 315,
+            number = 6
+        )
+        assertEquals(6, approach.exitNumber)
+        assertEquals(315, approach.turnAngle)
+        assertEquals(false, approach.roundaboutClockwise)
+        // Same ring: AA's ROUNDABOUT_EXIT often arrives with turn_number/angle = 0.
+        val onRing = acc.onRouteStep(
+            "Av. Pref. Silvio Picanço",
+            AndroidAutoNavigationTelemetry.MANEUVER_ROUNDABOUT_EXIT_CCW,
+            hasRoute = true,
+            angle = 0,
+            number = 0
+        )
+        assertEquals("ROUNDABOUT_EXIT", onRing.turn)
+        assertEquals(6, onRing.exitNumber)
+        assertEquals(315, onRing.turnAngle)
+        assertEquals(false, onRing.roundaboutClockwise)
+        // Leaving the roundabout clears the pair.
+        val next = acc.onRouteStep("R. Dr. Armando Lopes", AndroidAutoNavigationTelemetry.MANEUVER_TURN_NORMAL_RIGHT, true)
+        assertNull(next.exitNumber)
+        assertNull(next.turnAngle)
+    }
+
+    @Test
+    fun newRoundaboutExitPublishesImmediately() {
+        val publisher = AndroidAutoNavigationTelemetry.Publisher()
+        val first = AndroidAutoNavigationTelemetry.Directions(
+            active = true, street = "A", distance = "300 m", distanceM = 300, turn = "ROUNDABOUT", exitNumber = 1
+        )
+        publisher.onUpdate(first, 0L)
+        val json = publisher.onUpdate(first.copy(exitNumber = 2), 10L)
+        assertTrue(json!!.contains("\"exit_number\":2"))
+    }
 }

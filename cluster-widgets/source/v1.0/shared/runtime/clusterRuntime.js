@@ -232,6 +232,7 @@ if (isBrowser) {
                 "app.display.3.active_app_icon",
                 "app.launcher.apps",
                 "app.navigation.directions",
+                "app.navigation.radar",
                 "app.androidauto.session",
                 "app.media.state",
                 "app.media.title",

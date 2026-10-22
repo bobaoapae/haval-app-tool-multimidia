@@ -111,6 +111,10 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     // ===== Deslocamento do Android Auto no cluster (contorna o crop do menu lateral) =====
     ENABLE_AA_CLUSTER_OFFSET("enableAaClusterOffset", "Habilitar deslocamento do Android Auto no cluster"),
     AA_CLUSTER_LEFT_OFFSET("aaClusterLeftOffset", "Deslocamento horizontal do Android Auto no cluster (px)"),
+    AA_CLUSTER_MAP_CUSTOM_BOUNDS(
+            "aaClusterMapCustomBounds",
+            "Retângulo do mapa do Android Auto no D3 (\"esq,topo,dir,base\"); vazio = padrão do tema"
+    ),
     CAR_MONITOR_PROPERTIES("carMonitorProperties", "Propriedades do monitoramento do carro"),
     // ===== Modo Concessionária =====
     // Ao ENTRAR, o modo grava um retrato (JSON, com os tipos) de TODAS as preferências em
@@ -396,6 +400,49 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
             "Estado interno da suspensao do app de ar-condicionado do carro"
     ),
     AA_PATCH_AUTO_MOUNT("aaPatchAutoMount", "Habilitar montagem automática dos patches do Android Auto ao iniciar"),
+    // The cluster map Service. Mounted with the App patch only while Android Auto is
+    // not running yet (boot), never by restarting it. Off by default.
+    AA_CLUSTER_SERVICE_AUTO_MOUNT(
+            "aaClusterServiceAutoMount",
+            "Montar o Service do mapa do cluster ao ligar"
+    ),
+    // Impulse overlay on the physical HUD (display 4096). Layout "original" (default) draws
+    // nothing; "navigation" = AA turn-by-turn + power/RPM bars, each part switchable below
+    // (all on by default). Read through HudOverlaySettings.
+    HUD_LAYOUT("hudLayout", "Layout do HUD"),
+    HUD_NAV_ENABLED("hudNavEnabled", "HUD: mostrar navegação do Android Auto"),
+    HUD_NAV_SMALL_WHEN_FAR("hudNavSmallWhenFar", "HUD: seta menor até faltar 1 km"),
+    HUD_NAV_TRIP("hudNavTrip", "HUD: mostrar distância e tempo restantes"),
+    HUD_POWER_BAR("hudPowerBar", "HUD: barra de potência/regeneração"),
+    HUD_RPM_BAR("hudRpmBar", "HUD: barra de rotação do motor"),
+    HUD_NAV_ARCS("hudNavArcs", "HUD Navegação: potência/rotação em arcos (senão barras)"),
+    HUD_AR_ARCS("hudArArcs", "HUD Navegação AR: potência/rotação em arcos (senão barras)"),
+    // Replace the two above (read as a fallback): none | bars | arcs, per layout.
+    HUD_NAV_GAUGES("hudNavGauges", "HUD Navegação: indicadores de potência/RPM (none, bars, arcs)"),
+    HUD_AR_GAUGES("hudArGauges", "HUD Navegação AR: indicadores de potência/RPM (none, bars, arcs)"),
+    HUD_AR_CHEVRONS("hudArChevrons", "HUD Navegação AR: setas animadas acima da velocidade perto da curva"),
+    HUD_AR_PLACEMENT("hudArPlacement", "HUD Navegação AR: seta no centro (center) ou entre as linhas de faixa (right)"),
+    HUD_AR_MAP("hudArMap", "HUD Navegação AR: ruas do OpenStreetMap em cinza (beta)"),
+    // Alerta de radar (Recursos). Read through RadarSettings.
+    RADAR_ENABLED("radarEnabled", "Alerta de radar: ativo"),
+    RADAR_SHOW_HUD("radarShowHud", "Alerta de radar: mostrar no HUD"),
+    RADAR_SHOW_THEME("radarShowTheme", "Alerta de radar: mostrar no tema do cluster"),
+    RADAR_APPROACH_M("radarApproachM", "Alerta de radar: distância do aviso de aproximação (m)"),
+    RADAR_NEAR_M("radarNearM", "Alerta de radar: distância do alerta próximo (m)"),
+    RADAR_APPROACH_SOUND("radarApproachSound", "Alerta de radar: som da aproximação"),
+    RADAR_APPROACH_VOLUME("radarApproachVolume", "Alerta de radar: volume da aproximação (0-100)"),
+    RADAR_NEAR_SOUND("radarNearSound", "Alerta de radar: som do alerta próximo"),
+    RADAR_NEAR_VOLUME("radarNearVolume", "Alerta de radar: volume do alerta próximo (0-100)"),
+    RADAR_SOUND_ONLY_OVER_LIMIT("radarSoundOnlyOverLimit", "Alerta de radar: som só acima do limite"),
+    RADAR_LAST_UPDATE_MS("radarLastUpdateMs", "Alerta de radar: última atualização bem-sucedida da base (controle interno)"),
+    RADAR_OSM_LAST_UPDATE_MS("radarOsmLastUpdateMs", "Alerta de radar: último download OSM salvo (controle interno)"),
+    RADAR_ANTT_LAST_CHECK_MS("radarAnttLastCheckMs", "Alerta de radar: última verificação ANTT bem-sucedida (controle interno)"),
+    RADAR_ANTT_LAST_DOWNLOAD_MS("radarAnttLastDownloadMs", "Alerta de radar: último CSV ANTT salvo (controle interno)"),
+    RADAR_ANTT_VERSION("radarAnttVersion", "Alerta de radar: ID, data e URL do CSV salvo (controle interno)"),
+    RADAR_ROADS_GEOMETRY("radarRoadsGeometry", "Alerta de radar: posições usadas nas vias salvas (controle interno)"),
+    RADAR_LAST_ERROR("radarLastError", "Alerta de radar: último erro de atualização (controle interno)"),
+    RADAR_ANTT_RESOURCE("radarAnttResource", "Alerta de radar: recurso ANTT já baixado (controle interno)"),
+    RADAR_ROADS_LAST_UPDATE_MS("radarRoadsLastUpdateMs", "Alerta de radar: última atualização das vias sob os radares (controle interno)"),
     CARPLAY_PATCH_AUTO_MOUNT("carPlayPatchAutoMount", "Habilitar montagem automática dos patches do CarPlay ao iniciar"),
     AMBIENT_LIGHT_BLE_ENABLED("ambientLightBleEnabled", "Ativar Ambient Light BLE"),
     AMBIENT_LIGHT_BLE_DEVICE_MAC("ambientLightBleDeviceMac", "MAC do dispositivo Ambient Light BLE"),
@@ -500,5 +547,9 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ANONYMOUS_TELEMETRY_FALLBACK_ID(
             "anonymousTelemetryFallbackId",
             "Identificador local usado apenas quando o ANDROID_ID não está disponível"
+    ),
+    CLUSTER_WARNING_DISMISSED_CARDS(
+            "clusterWarningDismissedCards",
+            "Avisos do cluster dispensados neste boot, restaurados se o app reiniciar no meio do trajeto"
     )
 }
