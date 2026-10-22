@@ -97,7 +97,8 @@ object AndroidAutoNavigationTelemetry {
      * around the ring from the entry, 1..360, in the direction of travel, so
      * 180 = straight across); this car has never been measured
      * through a roundabout, so both are a confirmar (trace: aa_nav_roundabout).
-     * Off roundabouts, at 0 or out of range, they are null.
+     * Off roundabouts, at 0 or out of range, they are null. The accumulator still holds the
+     * last non-null pair across a zeroed ROUNDABOUT_EXIT (see [Accumulator.setRoundaboutExit]).
      */
     fun roundaboutExit(maneuver: Int, turnNumber: Int, turnAngle: Int): Pair<Int?, Int?> {
         if (!isRoundabout(maneuver)) return null to null
@@ -426,10 +427,20 @@ object AndroidAutoNavigationTelemetry {
         }
 
         private fun setRoundaboutExit(event: Int, number: Int, angle: Int) {
+            if (!isRoundabout(event)) {
+                exitNumber = null
+                turnAngle = null
+                roundaboutClockwise = null
+                return
+            }
             val (exit, exitAngle) = roundaboutExit(event, number, angle)
-            exitNumber = exit
-            turnAngle = exitAngle
-            roundaboutClockwise = if (isRoundabout(event)) isClockwiseRoundabout(event) else null
+            // Drive log 2026-10-22 Silvio Picanço: on the ring AA switches to ROUNDABOUT_EXIT
+            // with turn_number/turn_angle = 0, which would wipe the exit we already had from
+            // the approach (exit 6 / 315°). Keep the last known pair so the HUD can keep the
+            // dynamic ring, exit countdown, and chevrons for the whole lap.
+            if (exit != null) exitNumber = exit
+            if (exitAngle != null) turnAngle = exitAngle
+            roundaboutClockwise = isClockwiseRoundabout(event)
         }
 
         @Synchronized

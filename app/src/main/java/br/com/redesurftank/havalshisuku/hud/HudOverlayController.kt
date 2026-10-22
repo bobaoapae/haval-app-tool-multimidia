@@ -312,17 +312,19 @@ object HudOverlayController {
     private fun roundaboutProgress(): Float {
         val dirs = (demoDirections ?: navDirections)?.takeIf { it.active }
         val travel = dirs?.turnAngle?.takeIf { it in 1..360 }
-        val isRoundabout = dirs != null && travel != null &&
+        val isRoundabout = dirs != null &&
             HudOverlayModel.resolveTurnIcon(dirs.turn) == "ROUNDABOUT"
         val meters = if (isRoundabout && !distanceStale()) {
             arMetersEstimate() ?: HudOverlayModel.distanceMeters(dirs!!.distance, dirs.distanceM)?.toFloat()
         } else null
+        // Prefer AA's exit countdown once the entry jump is known — even if this tick's
+        // turn_angle was briefly zeroed (telemetry normally holds the approach pair).
         if (rbTracker.entered && meters != null) return rbTracker.progress(meters)
-        if (isRoundabout && meters != null && demoDirections == null) {
-            val along = HudArArrow.progressFromExitDistance(meters, travel!!.toFloat())
+        if (isRoundabout && travel != null && meters != null && demoDirections == null) {
+            val along = HudArArrow.progressFromExitDistance(meters, travel.toFloat())
             if (along > 0f) return along
         }
-        val speedFallback = config().layout == HudOverlayModel.Layout.AR && isRoundabout
+        val speedFallback = config().layout == HudOverlayModel.Layout.AR && isRoundabout && travel != null
         if (!speedFallback || meters == null || meters > 3f) {
             roundaboutZeroAtMs = 0L
             return 0f
