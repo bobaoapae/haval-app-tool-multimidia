@@ -638,6 +638,17 @@ object HudOverlayModel {
     /** Exit angle the dynamic icon can draw: 1..360, else null (static icon). */
     fun drawableExitAngle(angle: Int?): Int? = angle?.takeIf { it in 1..360 }
 
+    /**
+     * Identity of one roundabout for [RoundaboutTracker]. The exit number and angle stay put
+     * when the street label changes to the exit road; without either, fall back to the maneuver id.
+     */
+    fun roundaboutIdentity(exitNumber: Int?, turnAngle: Int?, clockwise: Boolean?, turnId: Int?): String =
+        if (exitNumber != null || (turnAngle != null && turnAngle != 0)) {
+            "rb|${exitNumber ?: "-"}|${turnAngle ?: "-"}|${clockwise == true}"
+        } else {
+            "rb|id|$turnId"
+        }
+
     /** Smallest arc the on-ring icon shrinks to: the exit sits just to the right. */
     const val RB_EXIT_ARC = 55f
 
@@ -703,14 +714,6 @@ object HudOverlayModel {
 
     /** Radar alert for the HUD (see RadarManager): metres to the camera, its limit, over it. */
     data class Radar(val distanceM: Int, val limitKmh: Int?, val over: Boolean)
-
-    /**
-     * The measured distance reads long, so the HUD number (and only that) is this much closer.
-     * Otherwise the countdown is still showing metres when the camera is already here.
-     */
-    const val RADAR_DISTANCE_LEAD_M = 20
-
-    fun radarShownMeters(meters: Int): Int = (meters - RADAR_DISTANCE_LEAD_M).coerceAtLeast(0)
 
     // Radar card in the turn-by-turn area: a speed-limit sign (red ring, limit inside, a small
     // camera badge on its lower right) with the distance under it, centred like the big arrow.

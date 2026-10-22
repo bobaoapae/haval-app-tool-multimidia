@@ -51,14 +51,6 @@ class HudRadarTest {
     }
 
     @Test
-    fun `HUD radar distance is 20 m closer, and never below zero`() {
-        assertEquals(20, HudOverlayModel.RADAR_DISTANCE_LEAD_M)
-        assertEquals(320, HudOverlayModel.radarShownMeters(340))
-        assertEquals(0, HudOverlayModel.radarShownMeters(15))
-        assertEquals(0, HudOverlayModel.radarShownMeters(0))
-    }
-
-    @Test
     fun `radar distance reads in 10 m steps, then km`() {
         assertEquals("340" to "m", HudOverlayModel.radarDistance(338))
         assertEquals("0" to "m", HudOverlayModel.radarDistance(-5))

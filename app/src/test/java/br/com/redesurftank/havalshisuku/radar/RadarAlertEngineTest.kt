@@ -76,8 +76,9 @@ class RadarAlertEngineTest {
         val (approachAt, _) = run.events[0]
         val (nearAt, _) = run.events[1]
         // One fix to see it, the next to confirm it is closing in.
-        assertTrue("approach within 500 m, got ${1_000 - approachAt}", 1_000 - approachAt in 470.0..500.0)
-        assertTrue("near within 150 m, got ${1_000 - nearAt}", 1_000 - nearAt in 135.0..150.0)
+        // A 500 m setting fires when the camera is about 520 m ahead (told as 500 m).
+        assertTrue("approach within 520 m, got ${1_000 - approachAt}", 1_000 - approachAt in 490.0..520.0)
+        assertTrue("near within 170 m, got ${1_000 - nearAt}", 1_000 - nearAt in 155.0..170.0)
         assertNull(run.alerts.last().second)
         val near = run.alerts.first { it.first == nearAt }.second
         assertNotNull(near)
@@ -128,8 +129,9 @@ class RadarAlertEngineTest {
         val run = drive(engine, index(listOf(cam), listOf(bend)), 0.0, 120.0)
         val alert = run.alerts.last().second
         assertNotNull(alert)
-        // Car at y = 120: 180 m to the corner + 300 m east = 480 m, not the 350 m straight line.
-        assertEquals(480.0, alert!!.distanceM.toDouble(), 3.0)
+        // Car at y = 120: 180 m to the corner + 300 m east = 480 m along the road.
+        // The driver is told 20 m less than that database distance.
+        assertEquals(460.0, alert!!.distanceM.toDouble(), 3.0)
     }
 
     @Test

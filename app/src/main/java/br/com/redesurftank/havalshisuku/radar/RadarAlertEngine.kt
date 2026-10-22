@@ -98,6 +98,11 @@ class RadarAlertEngine {
         const val PASSED_CLEAR_EXTRA_M = 500.0
         /** Without a GPS course, a heading is derived once the car moved this far. */
         const val MOVE_FOR_HEADING_M = 15.0
+        /**
+         * Subtracted from the database distance before every decision. A camera 220 m ahead
+         * is 200 m for the alert, the near warning, passed, and the number on the sign.
+         */
+        const val POSITION_EARLY_M = 20.0
     }
 
     private var heading: Float? = null
@@ -212,7 +217,7 @@ class RadarAlertEngine {
         }
         if (road.allowed != 0 && road.allowed != travel) return Where.Off
         val ahead = (road.sCamera - p.s) * travel
-        return if (ahead >= 0) Where.Ahead(ahead) else Where.Behind(-ahead)
+        return early(ahead)
     }
 
     /** No road known: the camera must lie (almost) on the car's heading line. */
@@ -221,10 +226,16 @@ class RadarAlertEngine {
         val d = RadarGeo.distanceM(fix.lat, fix.lon, camera.lat, camera.lon)
         val rel = Math.toRadians(RadarGeo.angleDiff(RadarGeo.bearingDeg(fix.lat, fix.lon, camera.lat, camera.lon), h).toDouble())
         val forward = d * cos(rel)
-        if (forward < 0) return Where.Behind(-forward)
+        if (forward < 0) return early(forward)
         val lateral = d * sin(rel)
         if (lateral > LINE_M + forward * tan(Math.toRadians(LINE_SLACK_DEG))) return Where.Off
-        return Where.Ahead(forward)
+        return early(forward)
+    }
+
+    /** Database metres, with [POSITION_EARLY_M] already taken off, before any alert decision. */
+    private fun early(ahead: Double): Where {
+        val at = ahead - POSITION_EARLY_M
+        return if (at >= 0.0) Where.Ahead(at) else Where.Behind(-at)
     }
 
     /** The nearest camera that qualified on this fix and on the last one, closing in. */
@@ -235,8 +246,8 @@ class RadarAlertEngine {
         }
         val now = HashMap<RadarCamera, Double>()
         var best: Triple<RadarCamera, CameraRoad?, Double>? = null
-        // A straight line is never longer than the road, so this radius finds every candidate.
-        index.forEachNear(fix.lat, fix.lon, config.approachM.toDouble()) { i, cam, _ ->
+        // Look far enough to see a camera whose told distance is still inside the approach setting.
+        index.forEachNear(fix.lat, fix.lon, config.approachM + POSITION_EARLY_M) { i, cam, _ ->
             if (passed.containsKey(cam)) return@forEachNear
             val road = index.roadOf(i)
             val w = where(fix, cam, road, hold = false) as? Where.Ahead ?: return@forEachNear

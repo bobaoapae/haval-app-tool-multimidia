@@ -278,7 +278,9 @@ object HudOverlayController {
     /** The current roundabout step's identity, or null on any other maneuver. */
     private fun roundaboutStep(dirs: AndroidAutoNavigationTelemetry.Directions?): String? {
         if (dirs == null || !dirs.active || HudOverlayModel.resolveTurnIcon(dirs.turn) != "ROUNDABOUT") return null
-        return "${dirs.turnId}|${dirs.street}|${dirs.exitNumber}|${dirs.turnAngle}"
+        // Street and maneuver id change when AA names the exit road. The exit number and
+        // angle do not, and the tracker needs the approach minimum to see the jump.
+        return HudOverlayModel.roundaboutIdentity(dirs.exitNumber, dirs.turnAngle, dirs.roundaboutClockwise, dirs.turnId)
     }
 
     private fun trackRoundabout() {

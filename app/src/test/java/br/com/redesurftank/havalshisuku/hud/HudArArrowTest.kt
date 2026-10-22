@@ -457,6 +457,18 @@ class HudArArrowTest {
         assertEquals(0f, t.progress(70f), 0f)
         assertEquals(0.5f, t.progress(35f), 0.001f)
         assertEquals(1f, t.progress(0f), 0f)
+        // The jump often happens before the last 20 m, and AA renames the street on that sample.
+        val early = RoundaboutTracker()
+        assertTrue(!early.onUpdate("approach", 180f))
+        assertTrue(!early.onUpdate("approach", 40f))
+        assertTrue(early.onUpdate("exit-road", 95f))
+        assertEquals(95f, early.startM!!, 0f)
+        assertEquals(0.5f, early.progress(47.5f), 0.02f)
+        // A far next maneuver is not that lap.
+        val next = RoundaboutTracker()
+        assertTrue(!next.onUpdate("first", 30f))
+        assertTrue(!next.onUpdate("second", 300f))
+        assertTrue(!next.entered)
         // A new step starts over; other maneuvers never enter.
         assertTrue(!t.onUpdate("36|Next|0|0", 300f))
         assertTrue(!t.entered)
@@ -467,6 +479,14 @@ class HudArArrowTest {
         val far = RoundaboutTracker()
         for (m in listOf(300f, 250f, 265f)) far.onUpdate(step, m)
         assertTrue(!far.entered)
+        assertEquals(
+            HudOverlayModel.roundaboutIdentity(3, 270, false, 35),
+            HudOverlayModel.roundaboutIdentity(3, 270, false, 36)
+        )
+        assertTrue(
+            HudOverlayModel.roundaboutIdentity(3, 270, false, 35) !=
+                HudOverlayModel.roundaboutIdentity(2, 90, false, 35)
+        )
         // Unknown/stale distances are skipped, not taken as 0.
         val stale = RoundaboutTracker()
         stale.onUpdate(step, null)

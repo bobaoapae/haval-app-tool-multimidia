@@ -54,10 +54,10 @@ RadarUpdater (fontes independentes, vias 7–30 dias) ── Overpass + ANTT ─
 Só alerta radar **na via em que o carro está e do qual está se aproximando** (2026-10-18; antes um cone de 25° pegava ruas paralelas e transversais — ver drive de 18/10: alerta a 5 m e aproximações que nunca chegavam a "perto").
 
 - Rumo: o da GPS acima de 2 m/s; parado, mantém o último; sem rumo da GPS, deriva do deslocamento (≥ 15 m).
-- **Radar com via:** o carro precisa estar a ≤ 20 m da via (além do trecho guardado a via é tomada como reta, com folga de 4°), com rumo a ≤ 35° da direção da via (num sentido ou no outro), num sentido que o radar fiscaliza, e com o radar à frente. A distância é **ao longo da via** (curvas contam).
+- **Radar com via:** o carro precisa estar a ≤ 20 m da via (além do trecho guardado a via é tomada como reta, com folga de 4°), com rumo a ≤ 35° da direção da via (num sentido ou no outro), num sentido que o radar fiscaliza, e com o radar à frente. A distância da base, ao longo da via, entra em toda decisão já com 20 m a menos: aproximação, alerta próximo, passado e o número no HUD/tema. Um ajuste de 200 m dispara com o radar a 220 m e a placa mostra 200 m; "passado" é 15 m além desse ponto antecipado.
 - **Radar sem via** (0,2%): precisa estar quase na linha do rumo (≤ 15 m de lado + 2°).
 - **Aproximando:** a distância tem de cair ≥ 2 m entre duas leituras seguidas antes do primeiro aviso.
-- O alvo fica até ser **passado** (15 m além do radar), a distância crescer 25 m além do mínimo, ou 3 leituras seguidas fora da via (folga maior enquanto é alvo: 35 m / 50°).
+- O alvo fica até ser **passado** (15 m além do ponto 20 m antes da coordenada), a distância crescer 25 m além do mínimo, ou 3 leituras seguidas fora da via (folga maior enquanto é alvo: 35 m / 50°).
 - Radar passado fica mudo por 10 min ou até 500 m além da aproximação.
 - Distâncias (Configurar): longe 200/250/**300**/350/500 m, perto **50**/100/150 m (padrão em negrito).
 - Eventos: `APPROACH` (som da aproximação), `NEAR` (som do alerta próximo), `OVERSPEED` (passou do limite durante o alerta; som do alerta próximo, uma vez por radar). "Som só acima do limite" corta os sons quando não está acima; a placa aparece sempre.
