@@ -24,6 +24,12 @@ object AndroidAutoPatchManager {
     const val VENDOR_SERVICE_OAT = "/vendor/app/AndroidAutoService/oat"
     const val VENDOR_APP_OAT = "/vendor/app/AndroidAutoApp/oat"
 
+    /**
+     * "Mapa no cluster" until the user picks. On: the Service is only ever bound before
+     * Android Auto starts, so the default first takes effect at the next car start.
+     */
+    const val CLUSTER_SERVICE_DEFAULT = true
+
     /** Stock Service on this head unit. A different md5 is not swapped. */
     private const val EXPECTED_STOCK_SERVICE_MD5 = "48ffded64e9b485521e3174dcd70db27"
     private const val MOUNT_RESULT = "/data/local/tmp/aa-cluster-mount.result"
@@ -389,7 +395,7 @@ object AndroidAutoPatchManager {
     fun isClusterServiceEnabled(): Boolean =
         App.getDeviceProtectedContext()
             .getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
-            .getBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.key, false)
+            .getBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.key, CLUSTER_SERVICE_DEFAULT)
 
     /**
      * "Mapa no cluster" turned on. Mounts the Service only if Android Auto is not running

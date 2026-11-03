@@ -135,7 +135,7 @@ fun InstallAppsTab() {
         mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.AA_PATCH_AUTO_MOUNT.key, false))
     }
     var aaClusterServiceAutoMount by remember {
-        mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.AA_CLUSTER_SERVICE_AUTO_MOUNT.key, false))
+        mutableStateOf(AndroidAutoPatchManager.isClusterServiceEnabled())
     }
     var carPlayPatchAutoMount by remember {
         mutableStateOf(

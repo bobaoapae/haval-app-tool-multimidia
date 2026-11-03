@@ -401,7 +401,8 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ),
     AA_PATCH_AUTO_MOUNT("aaPatchAutoMount", "Habilitar montagem automática dos patches do Android Auto ao iniciar"),
     // The cluster map Service. Mounted with the App patch only while Android Auto is
-    // not running yet (boot), never by restarting it. Off by default.
+    // not running yet (boot), never by restarting it. On by default
+    // (AndroidAutoPatchManager.CLUSTER_SERVICE_DEFAULT).
     AA_CLUSTER_SERVICE_AUTO_MOUNT(
             "aaClusterServiceAutoMount",
             "Montar o Service do mapa do cluster ao ligar"
