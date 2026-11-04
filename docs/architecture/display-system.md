@@ -77,9 +77,53 @@ Activity fullscreen pode cobrir/substituir visualmente a projeção nativa do HU
 - Como o HUD nativo não aparece em `screencap`, a coexistência overlay + HUD nativo precisa de
   validação visual/manual no carro.
 
+## HUD 4096: Teste Físico (2026-10-14)
+
+Feito no carro do dono com um APK descartável (`br.com.marcel.hudtest`, uma Activity com
+`Theme.Translucent.NoTitleBar.Fullscreen` e `FLAG_NOT_FOCUSABLE | FLAG_NOT_TOUCHABLE`), aberto por
+`am start --display 4096`. Confirmado visualmente pelo dono:
+
+- **Fundo preto opaco:** a seta e o texto aparecem, mas o HUD nativo (velocidade etc.) some.
+- **Fundo transparente:** a seta e o texto aparecem **por cima** do HUD nativo, que continua
+  visível. É o modo a usar.
+- **Área visível:** só a faixa `y=40..200` dos 480x240 (480x160, centralizada). 40 px de cima e
+  40 px de baixo ficam fora da óptica. Bordas laterais não foram medidas (a confirmar).
+- **Foco:** no primeiro teste o foco continuou no D0, mas depois o foco foi para o 4096 (AA pausado no D0). Ver "Overlay do Impulse no HUD" abaixo.
+- O `pm install` de um pacote novo é barrado pelo Bean (`beantechs disallow apk`), mas
+  `pm install -i com.android.vending -r -t <apk>` pelo shell passou.
+
+### Overlay do Impulse no HUD (`hud/HudOverlay*`)
+
+- Aba Telas > card "HUD": fila horizontal de layouts com prévia (desenhada pelo mesmo
+  `HudOverlayRenderer` do HUD, sobre uma cena de estrada + mock do HUD nativo). "Original" (padrão)
+  não desenha nada; "Navegação" liga o overlay. As prévias alternam 3 cenários por layout
+  (cidade, rodovia, rotatória). A engrenagem do Navegação abre as opções (abas Navegação / Barras,
+  prévia à direita), todas ligadas: navegação, seta menor até faltar 1 km, distância e tempo restantes, barra de
+  potência, barra de rotação (`HudOverlaySettings`, prefs `hudLayout`/`hudNav*`/`hudPowerBar`/
+  `hudRpmBar`; o antigo `hudOverlayEnabled=true` migra para "navigation").
+- TBT do Android Auto (só com guia) no canto livre x 10..168, y 58..170: seta grande + distância
+  pequena; seta pequena + "250 m" numa linha centrada sobre as faixas; ou, sem faixas e a 1 km ou
+  mais, só essa linha (opção). Linha da viagem ("4.8 km · 12 min" restantes até o destino) em y≈184.
+- Barras sem rótulo na linha de baixo da faixa visível (y 193..197), que o HUD nativo deixa
+  livre dos dois lados: potência centrada sob o TBT (x 35..143, centro-zero, 1 segmento por 10 %,
+  tração azul / regen verde) e RPM na borda direita (x 416..470, 1 segmento por 1000 rpm, o de
+  5-6k vermelho; some com o motor desligado, `haval.power.ice`).
+- Layout aprovado no simulador `scripts/hud-simulator/` (port do renderer); mudanças de layout
+  passam por lá antes do Kotlin.
+- **Uma Activity parada no 4096 dá ANR.** Ela vira o app focado com uma janela não-focável, e a
+  próxima tecla espera "no window has focus" por 5 s (dropbox `data_app_anr`, 2026-10-14). Por
+  isso a `HudOverlayActivity` só abre a porta: o controller adiciona uma janela
+  `TYPE_APPLICATION_OVERLAY` no Display dela (o WindowManager aceita janelas do nosso uid num
+  display privado enquanto há uma Activity nossa nele) e a Activity termina na hora. O overlay
+  continua depois que ela sai, e o foco fica no D0 sem precisar devolver.
+- Se o overlay falhar, a Activity hospeda a view e o controller devolve o foco ao topo do D0
+  (`moveTaskToFront`, permissão `REORDER_TASKS`).
+- O HUD congela o último quadro quando a janela some: antes de remover, pinta um quadro vazio.
+- Escalas das barras (100 kW tração, 50 kW regeneração = 100 %): a confirmar no carro.
+
 ## A Confirmar
 
 - Mapeamento completo dos displays em todas as versões da central.
 - Comportamento do display 1 além da camada de refresh descrita no código.
-- Se uma Activity Android translucida no display 4096 realmente compõe por cima do HUD nativo sem
-  apagá-lo no hardware óptico.
+- Limites laterais visíveis do HUD 4096.
+- Se o foco continua no D0 quando o launch acontece com teclado/IME ativo ou durante CarPlay/AA.

@@ -25,6 +25,7 @@ object AndroidAutoHardKeyPolicyBridge {
     private const val EXTRA_KEY_CODE = "keyCode"
     private const val EXTRA_TARGET_DISPLAY = "targetDisplay"
     private const val EXTRA_TOKEN = "token"
+    private const val EXTRA_MEDIA_BUTTON = "mediaButton"
     private const val TOKEN = "impulse-aa-media-v1"
     private const val RESULT_DISPATCHED = 1
     private const val ACK_TIMEOUT_MS = 900L
@@ -114,6 +115,28 @@ object AndroidAutoHardKeyPolicyBridge {
             )
             dispatched
         }
+
+    /**
+     * Gives the steering-wheel media buttons to Android Auto ([claim]) or back to the other apps.
+     * Android picks the media-button session from the app that last played through an Android
+     * player, and AA's audio is not one on this head unit, so after YouTube played the wheel
+     * kept going to YouTube. The AA App patch (v3.4) takes the buttons exclusively on claim.
+     */
+    fun sendMediaButtonOwnership(context: Context, claim: Boolean, reason: String) {
+        val intent =
+            Intent(ACTION_MEDIA_COMMAND).apply {
+                setPackage(ANDROID_AUTO_PACKAGE)
+                putExtra(EXTRA_TOKEN, TOKEN)
+                putExtra(EXTRA_MEDIA_BUTTON, if (claim) "claim" else "release")
+                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES or Intent.FLAG_RECEIVER_FOREGROUND)
+            }
+        try {
+            context.applicationContext.sendBroadcast(intent)
+            Log.w(TAG, "[$reason] Android Auto media button ${if (claim) "claim" else "release"} sent")
+        } catch (e: Exception) {
+            Log.e(TAG, "[$reason] Failed to send Android Auto media button ownership", e)
+        }
+    }
 
     private fun isSupportedHardKey(keyCode: Int): Boolean {
         return keyCode == 1002 || keyCode == 1003 || keyCode == 1004

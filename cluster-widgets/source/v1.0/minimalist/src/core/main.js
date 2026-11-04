@@ -1183,6 +1183,8 @@ async function initMinimalistBridge() {
     bindSetting('showRpmIcon', true);
     bindSetting('showTractionIcon', true);
     bindSetting('navigationDisplayMode', 'Clean');
+    // The turn-by-turn card (owner, 2026-10-25); the app has its own switch for every theme too.
+    bindSetting('showNavigationCard', true);
     bindSetting('appDisplayMode', 'Reduzido');
     bindSetting('display', 'Normal');
 
@@ -1230,17 +1232,21 @@ async function initMinimalistBridge() {
     }
 
     bridge.subscribe(
-        [KEYS.APP_ANDROID_AUTO_SESSION, KEYS.APP_NAVIGATION_DIRECTIONS],
+        [KEYS.APP_ANDROID_AUTO_SESSION, KEYS.APP_NAVIGATION_DIRECTIONS, KEYS.APP_NAVIGATION_RADAR],
         (key, value) => {
             if (key === KEYS.APP_ANDROID_AUTO_SESSION) {
                 handleAndroidAutoSession(value);
             } else if (key === KEYS.APP_NAVIGATION_DIRECTIONS) {
                 setState('navigationDirections', parseNavigationDirections(value));
+            } else if (key === KEYS.APP_NAVIGATION_RADAR) {
+                // Same JSON-or-nothing reading as the directions.
+                setState('radarAlert', parseNavigationDirections(value));
             }
         }
     );
     handleAndroidAutoSession(bridge.getCarData(KEYS.APP_ANDROID_AUTO_SESSION));
     setState('navigationDirections', parseNavigationDirections(bridge.getCarData(KEYS.APP_NAVIGATION_DIRECTIONS)));
+    setState('radarAlert', parseNavigationDirections(bridge.getCarData(KEYS.APP_NAVIGATION_RADAR)));
 
     // Seed One-Pedal / HEV reserve from the live cache so the first paint matches
     // the car even before card-entry control() or a subscribe echo arrives.

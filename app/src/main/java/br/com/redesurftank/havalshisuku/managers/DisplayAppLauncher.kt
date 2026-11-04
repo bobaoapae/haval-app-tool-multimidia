@@ -137,6 +137,8 @@ object DisplayAppLauncher {
     private const val ANDROID_AUTO_MEDIA_PACKAGE = "com.ts.androidauto"
     private const val ANDROID_AUTO_SERVICE_PACKAGE = "com.ts.androidauto.projectionservice"
     private const val ANDROID_AUTO_ACTIVITY = "com.ts.androidauto.app.display.AapActivity"
+    /** LinkCommand$Stub showMirrorHmi (read from the MMI's AndroidAutoService.apk by Impulse Home). */
+    private const val ANDROID_AUTO_LINK_SHOW_MIRROR_HMI = 0x17
     private const val ANDROID_AUTO_SERVICE = "com.ts.androidauto.projectionservice/.AndroidAutoService"
     private const val ANDROID_AUTO_REMOTE_SERVICE = "com.ts.androidauto.app/.AndroidAutoRemoteUiService"
     private const val ANDROID_AUTO_LINK_SERVICE_ACTION = "com.ts.androidauto.action.AndroidAutoService"
@@ -1251,6 +1253,11 @@ object DisplayAppLauncher {
         lastAndroidAutoDcmProjectionActiveAtMs = SystemClock.elapsedRealtime()
     }
 
+    /** A fresh DCM snapshot said no Android Auto projection is active. */
+    private fun clearAndroidAutoDcmProjectionActiveEvidence() {
+        lastAndroidAutoDcmProjectionActiveAtMs = 0L
+    }
+
     private fun hasRecentAndroidAutoDcmProjectionActiveEvidence(
         nowMs: Long = SystemClock.elapsedRealtime()
     ): Boolean {
@@ -1842,6 +1849,14 @@ object DisplayAppLauncher {
         }
     }
 
+    /** Already-read CarPlay link status. Null means unread, not disconnected. */
+    private fun noteCarPlayLinkStatus(status: Int?) {
+        if (status == null) return
+        br.com.redesurftank.havalshisuku.models.BottomBarState.publishCarPlayLinked(
+            status == CARPLAY_LINK_STATUS_ACTIVATED
+        )
+    }
+
     private fun readCarPlayLinkStatus(reason: String): Int? {
         return transactCarPlayServiceInt(
             CARPLAY_SERVICE_GET_LINK_STATUS_TRANSACTION,
@@ -1857,6 +1872,7 @@ object DisplayAppLauncher {
         }
 
         val linkStatus = readCarPlayLinkStatus(reason)
+        noteCarPlayLinkStatus(linkStatus)
         if (linkStatus != CARPLAY_LINK_STATUS_ACTIVATED) {
             Log.w(TAG, "[$reason] Skipping CarPlay requestUi; linkStatus=${linkStatus ?: "UNKNOWN"}")
             return false
@@ -2478,6 +2494,9 @@ object DisplayAppLauncher {
             )
             return
         }
+        if (dcmDevices.isNotEmpty()) {
+            clearAndroidAutoDcmProjectionActiveEvidence()
+        }
 
         val tasks = findAllTasksForPackage(ANDROID_AUTO_PACKAGE)
         if (tasks.isEmpty()) {
@@ -2807,7 +2826,33 @@ object DisplayAppLauncher {
                 return intArrayOf(offset, 0, res.first, res.second)
             }
         }
+        if (displayId == 0) {
+            // End at the bottom bar's top edge, not under it (the bar is 60 dp; the
+            // system overscan is only the 20 dp touch margin). The AA App patch
+            // (v2.7) keeps this window height, so the projection ends here.
+            val bar = br.com.redesurftank.havalshisuku.services.BottomBarService.occupiedHeightPx()
+            if (bar in 1 until res.second) return intArrayOf(0, 0, res.first, res.second - bar)
+        }
         return intArrayOf(0, 0, res.first, res.second)
+    }
+
+    /**
+     * AA usually reaches D0 on phone connect, not through Impulse's launch path, so
+     * its window stays full height under the bottom bar. Resize it to end at the
+     * bar (no-op when it already does, or when the bar is not up).
+     */
+    fun fitAndroidAutoAboveBottomBarAsync(reason: String) {
+        scope.launch {
+            try {
+                val task = findTaskForPackageOnDisplay(ANDROID_AUTO_PACKAGE, 0) ?: return@launch
+                val bounds = getAndroidAutoDisplayBounds(0)
+                if (task.bounds.contentEqualsOrNull(bounds)) return@launch
+                Log.w(TAG, "[$reason] fitting Android Auto above the bottom bar: ${bounds.joinToString(",")}")
+                sh("am stack resize ${task.stackId} ${bounds[0]} ${bounds[1]} ${bounds[2]} ${bounds[3]}")
+            } catch (e: Exception) {
+                Log.e(TAG, "[$reason] fitting Android Auto above the bottom bar failed", e)
+            }
+        }
     }
 
     // Re-aplica os bounds do AA no cluster ao vivo (quando o toggle/slider de offset muda), pra
@@ -3518,6 +3563,7 @@ object DisplayAppLauncher {
         val hasVisualTask = isCarPlayOnDisplay(0) || isCarPlayOnDisplay(3)
         val carPlayAppPid = sh("pidof $CARPLAY_PACKAGE 2>/dev/null || true").trim()
         val linkStatus = readCarPlayLinkStatus("CARPLAY_SYSTEM_UI_ICON_RELEVANCE")
+        noteCarPlayLinkStatus(linkStatus)
         val relevant =
             isCarPlaySystemUiIconRelevantForState(
                 hasVisualTask = hasVisualTask,
@@ -6375,12 +6421,10 @@ object DisplayAppLauncher {
             BottomBarService.markAndroidAutoTrackCommandProgressReset(
                 "Android Auto steering ${androidAutoTrackCommandName(keyCode)}"
             )
-            skipFallbackScheduled = true
-            scheduleAndroidAutoSteeringSkipFallbackIfUnchanged(
-                keyCode = keyCode,
-                initialSignature = androidAutoSteeringMediaSignature(),
-                reason = "AA_STEERING_MEDIA_${keyCode}_ACTION_${action}"
-            )
+            // No delayed LinkCommand fallback: the AA App patch (v3.2 media button bridge)
+            // owns the OS media button while AA plays and sends next/previous to the phone
+            // itself. A second send 0.9 s later skipped AA twice on PREVIOUS and reached
+            // YouTube on NEXT (2026-10-13). skipFallbackScheduled stays false.
         }
         if (shouldSuppressAndroidAutoSteeringMediaInjection(source) && !useAppCommandRoute) {
             val routeDescription =
@@ -7805,6 +7849,27 @@ object DisplayAppLauncher {
         return out
     }
 
+    /**
+     * The active theme's default app rect on the cluster displays (1/3) as
+     * (x, y, width, height), or null when the theme declares none.
+     */
+    fun themeClusterAppBounds(): IntArray? {
+        val dynamicBounds = dynamicThemeBounds
+        if (dynamicBounds != null && dynamicBounds.size == 4) {
+            return dynamicBounds.copyOf()
+        }
+        val themeFolderName = getPrefs().getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Básico") ?: "Básico"
+        if (themeFolderName == "Default" || themeFolderName == "Básico" || themeFolderName == "Light") {
+            return intArrayOf(0, 62, 1920, 596)
+        }
+        val metadata = ThemeManager.getInstance(App.getContext()).getThemeMetadata(themeFolderName) ?: return null
+        val x = metadata.x ?: return null
+        val y = metadata.y ?: return null
+        val width = metadata.width ?: return null
+        val height = metadata.height ?: return null
+        return intArrayOf(x, y, width, height)
+    }
+
     fun getEffectiveBounds(config: DisplayAppConfig): IntArray {
         if (isCarPlayPackage(config.packageName)) {
             return getCarPlayDisplayBounds(config.displayId)
@@ -7828,29 +7893,11 @@ object DisplayAppLauncher {
         // opt-out for users who want their raw configured bounds.
         val onClusterDisplay = config.displayId == 1 || config.displayId == 3
         if (!config.overrideThemeDimensions && virtualClusterEnabled && onClusterDisplay) {
-            val dynamicBounds = dynamicThemeBounds
-            if (dynamicBounds != null && dynamicBounds.size == 4) {
-                x = dynamicBounds[0]
-                y = dynamicBounds[1]
-                width = dynamicBounds[2]
-                height = dynamicBounds[3]
-            } else {
-                val themeFolderName = prefs.getString(SharedPreferencesKeys.VIRTUAL_CLUSTER_THEME.key, "Básico") ?: "Básico"
-                if (themeFolderName == "Default" || themeFolderName == "Básico" || themeFolderName == "Light") {
-                    x = 0
-                    y = 62
-                    width = 1920
-                    height = 596
-                } else {
-                    val themeManager = ThemeManager.getInstance(App.getContext())
-                    val metadata = themeManager.getThemeMetadata(themeFolderName)
-                    if (metadata != null && metadata.x != null && metadata.y != null && metadata.width != null && metadata.height != null) {
-                        x = metadata.x!!
-                        y = metadata.y!!
-                        width = metadata.width!!
-                        height = metadata.height!!
-                    }
-                }
+            themeClusterAppBounds()?.let {
+                x = it[0]
+                y = it[1]
+                width = it[2]
+                height = it[3]
             }
         }
 
@@ -8073,6 +8120,41 @@ object DisplayAppLauncher {
     }
 
     /**
+     * Dock swipe-up close. Normal apps are force-stopped ([killApp]). The Impulse apps are not:
+     * this package hosts the bottom bar, and Impulse Home is the launcher, so a force-stop would
+     * take the bar with it. They only lose their task, and the process keeps running.
+     */
+    suspend fun closeFromDock(context: Context, packageName: String) = withContext(Dispatchers.IO) {
+        try {
+            when (packageName) {
+                context.packageName -> {
+                    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                    am.appTasks.forEach { it.finishAndRemoveTask() }
+                    Log.w(TAG, "Dock: closed own task without killing the process")
+                }
+                IMPULSE_HOME_PACKAGE_NAME -> {
+                    val task = findTaskForPackageOnDisplay(packageName, 0)
+                    if (task == null) {
+                        Log.w(TAG, "Dock: $packageName has no task on display 0 to close")
+                    } else if (countTasksInStack(task.stackId) > 1) {
+                        // A shared stack would take the other apps with it.
+                        Log.w(TAG, "Dock: $packageName shares stack ${task.stackId}; not removing it")
+                    } else {
+                        Log.w(TAG, "Dock: removing stack ${task.stackId} of $packageName (no force-stop)")
+                        sh("am stack remove ${task.stackId}")
+                        notifyBottomBarUpdate()
+                    }
+                }
+                else -> killApp(packageName)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing $packageName from the dock", e)
+        }
+    }
+
+    private const val IMPULSE_HOME_PACKAGE_NAME = "com.havalh6.viewer"
+
+    /**
      * Kills an app via am force-stop.
      */
     suspend fun killApp(packageName: String) = withContext(Dispatchers.IO) {
@@ -8131,8 +8213,46 @@ object DisplayAppLauncher {
     /**
      * More robust launch for the main display using package manager intents.
      */
+    /**
+     * Dock tap on a projection that already has a task on display 0: just raise it. The full
+     * start paths restart or re-focus the session but never reorder it above the app in front,
+     * and CarPlay's returns early as "idempotent D0". Returns false when the projection is not
+     * on display 0 or is already in front, so the caller falls through to the normal start path.
+     */
+    private fun raiseProjectionOnMain(packageName: String): Boolean {
+        val task = findTaskForPackageOnDisplay(packageName, 0)
+        if (task == null) {
+            Log.w(TAG, "Dock: $packageName has no task on display 0; normal start path")
+            return false
+        }
+        // Already in front: keep the existing start/focus behavior for the tap.
+        val top = getTopPackageOnDisplay(0)
+        if (top == packageName) {
+            Log.w(TAG, "Dock: $packageName already top on display 0; normal start path")
+            return false
+        }
+        Log.w(TAG, "Dock: raising $packageName (task ${task.taskId}, top=$top) to front on display 0")
+        sh("am stack move-task-to-front ${task.taskId}")
+        if (getTopPackageOnDisplay(0) != packageName) {
+            // move-task-to-front is not honored on every build; REORDER_TO_FRONT start is the
+            // path launchAnyApp already relies on for a task that exists.
+            val activity = if (isCarPlayPackage(packageName)) CARPLAY_ACTIVITY else ANDROID_AUTO_ACTIVITY
+            sh("am start -n $packageName/${activity.replace("$", "\\$")} --display 0 --windowingMode 1 -f 0x14000000")
+        }
+        val raised = getTopPackageOnDisplay(0) == packageName
+        Log.w(TAG, "Dock: raise $packageName on display 0 raised=$raised")
+        notifyBottomBarUpdate()
+        // Not raised: let the normal start path handle the tap instead of swallowing it.
+        return raised
+    }
+
     suspend fun launchAnyApp(context: Context, packageName: String, activityName: String? = null) = withContext(Dispatchers.IO) {
         try {
+            if ((isCarPlayPackage(packageName) || isAndroidAutoPackage(packageName)) &&
+                raiseProjectionOnMain(packageName)
+            ) {
+                return@withContext
+            }
             if (isCarPlayPackage(packageName)) {
                 CarPlayDisplayOrchestrator.openOnMain(
                     getCarPlayConfigForDisplay(0),
@@ -8141,6 +8261,13 @@ object DisplayAppLauncher {
                 return@withContext
             }
             if (isAndroidAutoPackage(packageName)) {
+                if (findTaskForPackage(ANDROID_AUTO_PACKAGE) == null) {
+                    // Same "show" request Impulse Home sends for its AA icon: AapActivity is owned
+                    // by the projection service, so ask the service to bring its HMI up first.
+                    sh("am broadcast -a ts.car.androidauto.view_state --ei state 1")
+                    transactAndroidAutoLinkCommand(ANDROID_AUTO_LINK_SHOW_MIRROR_HMI, "LAUNCH_MAIN_ICON_SHOW_HMI") {}
+                    Thread.sleep(400)
+                }
                 startAndroidAutoOnDisplay(getAndroidAutoConfigForDisplay(0), "LAUNCH_MAIN_ICON")
                 return@withContext
             }
@@ -8685,6 +8812,36 @@ object DisplayAppLauncher {
         sh("am stack resize $stackId $left $top $right $bottom")
     }
 
+    /**
+     * Every package that owns a task on [displayId] (the dock's "open apps"), top or not. Reads the
+     * same cached `am stack list` as [getTopPackageOnDisplay], so it costs no extra shell command.
+     */
+    fun openPackagesOnDisplay(displayId: Int): Set<String> =
+        try {
+            packagesFromStackList(getStackList(), displayId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error listing open packages for display $displayId", e)
+            emptySet()
+        }
+
+    internal fun packagesFromStackList(stackList: String, displayId: Int): Set<String> {
+        val packages = linkedSetOf<String>()
+        var currentDisplayId: Int? = null
+        val stackRegex = Regex("""Stack id=\d+.*displayId=(\d+)""")
+        val taskRegex = Regex("""taskId=\d+:\s*([a-zA-Z0-9._]+)/""")
+        for (line in stackList.lines()) {
+            val stackMatch = stackRegex.find(line)
+            if (stackMatch != null) {
+                currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
+                continue
+            }
+            if (currentDisplayId == displayId) {
+                taskRegex.find(line)?.let { packages.add(it.groupValues[1]) }
+            }
+        }
+        return packages
+    }
+
     fun getTopPackageOnDisplay(displayId: Int): String? {
         try {
             val fromStacks = topPackageFromStackListForTest(getStackList(), displayId)
@@ -8758,24 +8915,32 @@ object DisplayAppLauncher {
      * Parse [am stack list] for the first task package on [displayId].
      * Only stack-header `displayId=` counts — configuration lines also embed
      * displayId and must be ignored.
+     *
+     * Stacks are listed top to bottom, but the tasks inside one stack are listed bottom to top
+     * (measured on the car 2026-10-09: AA was resumed and focused while a second task listed
+     * before it in the same stack was reported as "top"). So the top task of the first
+     * non-empty stack on the display is the last task line of that stack.
      */
     internal fun topPackageFromStackListForTest(stackList: String, displayId: Int): String? {
         var currentDisplayId: Int? = null
+        var lastInStack: String? = null
         val regex = Regex("""taskId=\d+:\s*([a-zA-Z0-9._]+)/""")
         for (line in stackList.lines()) {
             val stackMatch = Regex("""Stack id=\d+.*displayId=(\d+)""").find(line)
             if (stackMatch != null) {
+                if (currentDisplayId == displayId && lastInStack != null) return lastInStack
                 currentDisplayId = stackMatch.groupValues[1].toIntOrNull()
+                lastInStack = null
                 continue
             }
             if (currentDisplayId == displayId) {
                 val match = regex.find(line)
                 if (match != null) {
-                    return match.groupValues[1]
+                    lastInStack = match.groupValues[1]
                 }
             }
         }
-        return null
+        return if (currentDisplayId == displayId) lastInStack else null
     }
 
     /**

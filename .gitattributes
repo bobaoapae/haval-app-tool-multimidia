@@ -1,0 +1,2 @@
+# Shell scripts run on the head unit; a CRLF checkout (core.autocrlf on Windows) breaks sh.
+*.sh text eol=lf

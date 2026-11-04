@@ -31,6 +31,11 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
 
     private var isAnyAppOnDisplay1 = false
 
+    /** Wallpaper fade when an app arrives on / leaves D1; same length as the D3 mask crossfade. */
+    private val WALLPAPER_FADE_MS = 300L
+    /** The wallpaper is down because an app is on D1, so bringing it back should fade too. */
+    private var hiddenForApp = false
+
     private val sharedPreferences by lazy {
         App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
     }
@@ -109,7 +114,46 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
             isVisible = false
         }
 
-        val wv = WebView(context).apply {
+        rootLayout.addView(imageView)
+        setContentView(rootLayout)
+
+        isAnyAppOnDisplay1 = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAnyAppOnDisplay(1)
+
+        ClusterBackgroundSync.markD1Attached()
+        ClusterBackgroundSync.addListener(backgroundSyncListener)
+        sharedPreferences.registerOnSharedPreferenceChangeListener(prefsListener)
+        ServiceManager.getInstance().addServiceManagerEventListener(eventListener)
+
+        updateBackgroundVisibility()
+        Log.d(TAG, "InstrumentProjector (Display 1 Refresh Layer) created")
+    }
+
+    /**
+     * The WebView is built only for the WEB_URL wallpaper, never in onCreate. This projector is
+     * the first one built at boot, and the first WebView of the process fails there while the
+     * WebView provider is not ready yet (AndroidRuntimeException): the car's logs showed D1 lost
+     * on 6 of 8 boots (2026-10-11..13) while D3 built its WebView a moment later in the same pass.
+     * Returns null when the provider is still unavailable; the next apply retries.
+     */
+    private fun ensureWebView(): WebView? {
+        webView?.let { return it }
+        val wv = try {
+            createWebView()
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "WebView unavailable for the D1 wallpaper", e)
+            ClusterPersistentEventLogger.log(
+                    "d1_webview_unavailable",
+                    mapOf("detail" to "${e.javaClass.name}: ${e.message}")
+            )
+            return null
+        }
+        rootLayout.addView(wv)
+        webView = wv
+        return wv
+    }
+
+    private fun createWebView(): WebView {
+        return WebView(context).apply {
             layoutParams = RelativeLayout.LayoutParams(
                 RelativeLayout.LayoutParams.MATCH_PARENT,
                 RelativeLayout.LayoutParams.MATCH_PARENT
@@ -157,22 +201,6 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
             setBackgroundColor(Color.TRANSPARENT)
             isVisible = false
         }
-
-        webView = wv
-
-        rootLayout.addView(imageView)
-        rootLayout.addView(wv)
-        setContentView(rootLayout)
-
-        isAnyAppOnDisplay1 = br.com.redesurftank.havalshisuku.managers.DisplayAppLauncher.isAnyAppOnDisplay(1)
-
-        ClusterBackgroundSync.markD1Attached()
-        ClusterBackgroundSync.addListener(backgroundSyncListener)
-        sharedPreferences.registerOnSharedPreferenceChangeListener(prefsListener)
-        ServiceManager.getInstance().addServiceManagerEventListener(eventListener)
-
-        updateBackgroundVisibility()
-        Log.d(TAG, "InstrumentProjector (Display 1 Refresh Layer) created")
     }
 
     private fun currentIdentity(): String = ClusterBackgroundSync.identityFromPrefs(sharedPreferences)
@@ -267,7 +295,10 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
             }
             "WEB_URL" -> {
                 imageView.isVisible = false
-                webView?.let { wv ->
+                val wv = ensureWebView()
+                if (wv == null) {
+                    ClusterBackgroundSync.markD1NotReady(identity)
+                } else {
                     wv.isVisible = true
                     if (value.isNotEmpty() && wv.url != value) {
                         ClusterBackgroundSync.markD1NotReady(identity)
@@ -421,9 +452,8 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
         }
     }
 
-    private fun updateBackgroundVisibility() {
+    private fun updateBackgroundVisibility(isScreenOn: Boolean = ServiceManager.getInstance().isMainScreenOn) {
         val isEnabled = sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_BACKGROUND_D1.key, true)
-        val isScreenOn = ServiceManager.getInstance().isMainScreenOn
 
         Log.w(TAG, "Visibility check: isAnyAppOnDisplay1=$isAnyAppOnDisplay1, isScreenOn=$isScreenOn, isEnabled=$isEnabled")
 
@@ -437,7 +467,9 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
         // wallpaper-composited insets while D1 stays hidden (power-on ACC window):
         // ready stayed true after carMainScreenOff, hold opened, page_finished re-showed D3.
         if (isAnyAppOnDisplay1 || !isScreenOn || !isEnabled) {
-            rootLayout.isVisible = false
+            val forApp = isAnyAppOnDisplay1 && isScreenOn && isEnabled
+            setWallpaperShown(false, animate = forApp)
+            hiddenForApp = forApp
             webView?.onPause()
             if (!isEnabled) {
                 clearD1Ready("bg_disabled")
@@ -445,15 +477,43 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
                 clearD1Ready("screen_off")
             }
         } else {
-            rootLayout.isVisible = true
+            setWallpaperShown(true, animate = hiddenForApp)
+            hiddenForApp = false
             webView?.onResume()
             applyCustomBackground()
         }
     }
 
+    /**
+     * Hiding the wallpaper for an app on D1 used to cut in one frame, before the app had drawn;
+     * now it dissolves into the app and back. Screen off / disabled stay instant.
+     */
+    private fun setWallpaperShown(shown: Boolean, animate: Boolean) {
+        rootLayout.animate().cancel()
+        if (shown) {
+            if (!rootLayout.isVisible) {
+                rootLayout.alpha = if (animate) 0f else 1f
+                rootLayout.isVisible = true
+            }
+            if (animate) {
+                rootLayout.animate().alpha(1f).setDuration(WALLPAPER_FADE_MS).withLayer().start()
+            } else {
+                rootLayout.alpha = 1f
+            }
+        } else if (rootLayout.isVisible) {
+            if (animate) {
+                rootLayout.animate().alpha(0f).setDuration(WALLPAPER_FADE_MS).withLayer()
+                        .withEndAction { rootLayout.isVisible = false }.start()
+            } else {
+                rootLayout.isVisible = false
+            }
+        }
+    }
+
     override fun carMainScreenOff() {
         ensureUi {
-            rootLayout.isVisible = false
+            setWallpaperShown(false, animate = false)
+            hiddenForApp = false
             webView?.onPause()
             // Keep ClusterBackgroundSync honest: hidden wallpaper is not "ready" for D3 insets.
             clearD1Ready("car_main_screen_off")
@@ -462,7 +522,10 @@ class InstrumentProjector(outerContext: Context, display: Display) : BaseProject
 
     override fun carMainScreenOn() {
         ensureUi {
-            updateBackgroundVisibility()
+            // The engine-state event that brought us here reaches listeners before
+            // ServiceManager caches it, so isMainScreenOn can still read the old "off" value
+            // and latch the wallpaper hidden for the whole drive (2026-10-17 17:10 boot).
+            updateBackgroundVisibility(isScreenOn = true)
         }
     }
 

@@ -19,8 +19,12 @@ public class TelnetClientWrapper {
     private OutputStream out;
 
     public void connect(String host, int port) throws IOException {
+        connect(host, port, 1000);
+    }
+
+    public void connect(String host, int port, int timeoutMs) throws IOException {
         telnetClient = new TelnetClient();
-        telnetClient.setConnectTimeout(1000);
+        telnetClient.setConnectTimeout(timeoutMs);
         telnetClient.connect(host, port);
         in = telnetClient.getInputStream();
         out = telnetClient.getOutputStream();
@@ -31,6 +35,10 @@ public class TelnetClientWrapper {
     }
 
     public String executeCommand(String command) throws IOException, InterruptedException {
+        return executeCommand(command, 5000);
+    }
+
+    public String executeCommand(String command, long timeoutMs) throws IOException, InterruptedException {
         if (telnetClient == null) {
             throw new IllegalStateException("Connection not established");
         }
@@ -43,7 +51,7 @@ public class TelnetClientWrapper {
         List<String> lines = new ArrayList<>();
         String prompt = ":/ #";
         long startTime = System.currentTimeMillis();
-        long timeout = 5000;
+        long timeout = timeoutMs;
 
         while (System.currentTimeMillis() - startTime < timeout) {
             if (in.available() > 0) {

@@ -93,6 +93,7 @@ object VirtualTelemetryManager {
             "app.launcher.apps" -> getLauncherAppsJson(context)
             "app.androidauto.session" -> br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController.currentSessionValue()
             "app.navigation.directions" -> br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController.snapshotDirectionsJson()
+            "app.navigation.radar" -> br.com.redesurftank.havalshisuku.radar.RadarManager.snapshotJson()
             else -> ""
         }
     }

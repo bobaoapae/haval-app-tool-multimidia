@@ -49,6 +49,8 @@ android {
         targetSdk = 28
         versionCode = appVersionCode.get()
         versionName = appVersionName.get()
+        // HUD renders on an emulator (androidTest/HudRenderTest): the car is not needed to see a frame.
+        testInstrumentationRunner = "br.com.redesurftank.havalshisuku.hud.HudRenderRunner"
         buildConfigField("boolean", "EMBED_FRIDA_TOOLS", "true")
         buildConfigField(
             "String",
@@ -169,10 +171,20 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.coil.compose)
     implementation(libs.material.icons.extended)
+    // TLS 1.3 for the radar data downloads only (RadarUpdater): Android 9 stops at TLS 1.2 and
+    // overpass-api.de refuses it (checked 2026-10-17). Not installed as the global provider.
+    implementation("org.conscrypt:conscrypt-android:2.5.2")
     annotationProcessor(libs.annotation.processor)
     compileOnly(libs.annotation)
     testImplementation(libs.junit)
     testImplementation("org.json:json:20231013")
+    androidTestImplementation(libs.junit)
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    // Older Espresso calls InputManager.getInstance, gone on Android 16 (the emulator image).
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
 }

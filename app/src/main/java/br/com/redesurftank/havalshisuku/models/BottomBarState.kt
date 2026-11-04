@@ -101,6 +101,8 @@ object BottomBarState {
     var isOverrideMenuExpanded by mutableStateOf(false)
     var selectedPackage by mutableStateOf("")
     var currentPackage by mutableStateOf("")
+    /** Packages with a task on display 0 (open, foreground or not); drives the dock's gray underline. */
+    var openPackages by mutableStateOf<Set<String>>(emptySet())
     var activeClusterProjectionPackage by mutableStateOf("")
     var mediaTitle by mutableStateOf<String?>(null)
     var mediaArtist by mutableStateOf<String?>(null)
@@ -132,4 +134,28 @@ object BottomBarState {
     var resourceOverlayCorner by mutableStateOf(3) // 0=sup.esq 1=sup.dir 2=inf.esq 3=inf.dir
     var resourceOverlayX by mutableStateOf(12)
     var resourceOverlayY by mutableStateOf(90)
+
+    /**
+     * A phone is linked. Android Auto follows the session value the cluster monitor
+     * already publishes. CarPlay follows link-status reads that already run for the
+     * system-ui icon. The dock does not poll for either.
+     */
+    var androidAutoLinked by mutableStateOf(false)
+    var carPlayLinked by mutableStateOf(false)
+
+    fun publishAndroidAutoLinked(linked: Boolean) {
+        postOnMain { if (androidAutoLinked != linked) androidAutoLinked = linked }
+    }
+
+    fun publishCarPlayLinked(linked: Boolean) {
+        postOnMain { if (carPlayLinked != linked) carPlayLinked = linked }
+    }
+
+    private fun postOnMain(block: () -> Unit) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            block()
+        } else {
+            android.os.Handler(android.os.Looper.getMainLooper()).post(block)
+        }
+    }
 }

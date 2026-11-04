@@ -1181,6 +1181,14 @@ fun TelasTab() {
                 }
             }
 
+                    // Both switches are only read by the legacy Sport bundles (SportRed /
+                    // SportRedLite); no other theme consumes them, so hide them elsewhere.
+                    val isSportThemeActive = remember(selectedTheme) {
+                        val folder = prefs.getString(SharedPreferencesKeys.ACTIVE_CUSTOM_THEME.key, "") ?: ""
+                        folder.equals("SportRed", ignoreCase = true) ||
+                                folder.equals("SportRedLite", ignoreCase = true)
+                    }
+                    if (isSportThemeActive) {
                     Spacer(Modifier.height(16.dp))
 
                     Row(
@@ -1284,10 +1292,54 @@ fun TelasTab() {
                             )
                         }
                     }
+                    }
 
                     Spacer(Modifier.height(16.dp))
                     HorizontalDivider(color = ImpTokens.TrackOff)
                     Spacer(Modifier.height(16.dp))
+
+                // Navegação do Android Auto no painel (owner, 2026-10-25): the theme's turn-by-turn
+                // card. Off, the theme reads "no navigation"; the radar and the HUD are unaffected.
+                var showNavigationOnTheme by remember {
+                    mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLUSTER_SHOW_NAVIGATION.key, true))
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(72.dp)
+                        .background(ImpTokens.TrackOff, RoundedCornerShape(8.dp))
+                        .clickable(enabled = allClusterFunctionsEnabled) {
+                            val next = !showNavigationOnTheme
+                            showNavigationOnTheme = next
+                            prefs.edit { putBoolean(SharedPreferencesKeys.CLUSTER_SHOW_NAVIGATION.key, next) }
+                            br.com.redesurftank.havalshisuku.managers.AndroidAutoClusterController.republishDirections()
+                        }
+                        .padding(horizontal = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Navegação do Android Auto no painel",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Card de curva a curva no tema do cluster. O HUD e o radar não mudam.",
+                            color = ImpTokens.TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Switch(
+                        checked = showNavigationOnTheme,
+                        enabled = allClusterFunctionsEnabled,
+                        onCheckedChange = null,
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = ImpTokens.Accent),
+                        modifier = Modifier.padding(start = 16.dp, end = 8.dp)
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
 
                 // Odômetro e Aviso de Revisão
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1543,6 +1595,11 @@ fun TelasTab() {
                 }
             }
         }
+
+        // HUD CARD - Impulse overlay on the physical HUD (display 4096); independent of the cluster.
+        br.com.redesurftank.havalshisuku.ui.components.HudLayoutSection(
+                modifier = Modifier.padding(horizontal = 8.dp)
+        )
 
         // APP COORDINATORS SECTION
         val coordinatorsAlpha = if (allClusterFunctionsEnabled) 1f else 0.4f

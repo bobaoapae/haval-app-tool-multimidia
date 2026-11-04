@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import br.com.redesurftank.App
+import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.managers.StartupAppManager
 import br.com.redesurftank.havalshisuku.models.BottomBarState
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
@@ -53,6 +54,17 @@ fun ImpulseHomeSetupDialog(canOpen: Boolean, onDismiss: () -> Unit) {
     }
     val barAlreadyOn = remember {
         prefs.getBoolean(SharedPreferencesKeys.PERSISTENT_BOTTOM_BAR.key, false)
+    }
+
+    // Debloat: a pref ainda nao definida cai no padrao (so a voz vem marcada, e a recomendada).
+    var disableVoice by remember {
+        mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.DISABLE_NATIVE_VOICE.key, true))
+    }
+    var disableWeather by remember {
+        mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.DISABLE_NATIVE_WEATHER.key, false))
+    }
+    var disableNavigation by remember {
+        mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.DISABLE_NATIVE_NAVIGATION.key, false))
     }
 
     var openOnBoot by remember { mutableStateOf(true) }
@@ -89,7 +101,20 @@ fun ImpulseHomeSetupDialog(canOpen: Boolean, onDismiss: () -> Unit) {
                 context.stopService(Intent(context, BottomBarService::class.java))
             }
         }
+        val debloatChanged =
+            disableVoice != prefs.getBoolean(SharedPreferencesKeys.DISABLE_NATIVE_VOICE.key, false) ||
+                disableWeather != prefs.getBoolean(SharedPreferencesKeys.DISABLE_NATIVE_WEATHER.key, false) ||
+                disableNavigation != prefs.getBoolean(SharedPreferencesKeys.DISABLE_NATIVE_NAVIGATION.key, false)
+        prefs.edit {
+            putBoolean(SharedPreferencesKeys.DISABLE_NATIVE_VOICE.key, disableVoice)
+            putBoolean(SharedPreferencesKeys.DISABLE_NATIVE_WEATHER.key, disableWeather)
+            putBoolean(SharedPreferencesKeys.DISABLE_NATIVE_NAVIGATION.key, disableNavigation)
+        }
         scope.launch(Dispatchers.IO) {
+            // Same path as Configuracoes > Performance; pm calls block, hence the IO dispatcher.
+            if (debloatChanged) {
+                runCatching { ServiceManager.getInstance().ensureDebloatedSystemApps() }
+            }
             if (openAfter) ViewerFirstRun.prepare(context, IMPULSE_HOME_PACKAGE)
             withContext(Dispatchers.Main) {
                 if (openAfter) {
@@ -144,6 +169,37 @@ fun ImpulseHomeSetupDialog(canOpen: Boolean, onDismiss: () -> Unit) {
                             "A barra inferior já está ativa. Arraste-a para cima para abrir o Impulse Launcher rapidamente"
                         else
                             "Exibe a barra na base da tela e permite arrastá-la para cima para abrir o app"
+                )
+
+                Text(
+                    "Liberar memória (opcional)",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Apps de fábrica que ficam rodando em segundo plano. Reversível em Configurações > Performance.",
+                    color = ImpTokens.TextSecondary,
+                    fontSize = 12.sp
+                )
+
+                SetupOption(
+                    checked = disableVoice,
+                    onCheckedChange = { disableVoice = it },
+                    title = "Desativar assistente de voz nativo *",
+                    detail = "* Recomendado. Libera RAM/CPU, mas você perde o comando de voz de fábrica (\"Olá Haval\")"
+                )
+                SetupOption(
+                    checked = disableWeather,
+                    onCheckedChange = { disableWeather = it },
+                    title = "Desativar previsão do tempo (OEM)",
+                    detail = "Para o serviço de clima de fábrica em segundo plano"
+                )
+                SetupOption(
+                    checked = disableNavigation,
+                    onCheckedChange = { disableNavigation = it },
+                    title = "Desativar navegador GPS nativo",
+                    detail = "Só se você usa Android Auto, CarPlay ou Waze. Não afeta esses apps"
                 )
             }
         },

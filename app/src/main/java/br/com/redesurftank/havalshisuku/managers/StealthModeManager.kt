@@ -891,7 +891,7 @@ object StealthModeManager {
             // Mesma rotina e mesmo gate por pref que o ForegroundService usa no boot.
             step("remount_android_auto") {
                 if (prefs().getBoolean(SharedPreferencesKeys.AA_PATCH_AUTO_MOUNT.key, false)) {
-                    AndroidAutoPatchManager.ensureMounted()
+                    AndroidAutoPatchManager.ensureMountedWithService()
                 }
             }
             step("remount_carplay") {

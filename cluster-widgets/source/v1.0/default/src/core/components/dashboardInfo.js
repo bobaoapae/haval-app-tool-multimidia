@@ -379,7 +379,11 @@ export function createDashboardInfo() {
     // Turn-by-turn card, shared with minimalist (shared/tbt/tbtCard.js).
     const tbtCard = createTbtCard();
     container.appendChild(tbtCard.element);
-    tbtCard.update(getState('navigationDirections'));
+    // "Exibir Card de Navegação" off: the card reads no navigation (the radar still shows).
+    const shownDirections = () =>
+        getState('showNavigationCard') === false ? { active: false } : getState('navigationDirections');
+    tbtCard.update(shownDirections());
+    tbtCard.setRadar(getState('radarAlert'));
 
     // Subscriptions
     const updateBarSegments = (tracks, percent) => {
@@ -430,7 +434,9 @@ export function createDashboardInfo() {
     };
 
     const subscriptions = [
-        subscribe('navigationDirections', directions => tbtCard.update(directions)),
+        subscribe('navigationDirections', () => tbtCard.update(shownDirections())),
+        subscribe('showNavigationCard', () => tbtCard.update(shownDirections())),
+        subscribe('radarAlert', radar => tbtCard.setRadar(radar)),
         subscribe('clockTime', val => clock.textContent = val),
         subscribe('gearState', val => {
             gear.textContent = val;

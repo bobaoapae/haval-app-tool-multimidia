@@ -168,7 +168,11 @@ fun CardButton(
 
 /** "Auto-montar ao iniciar", compacto o bastante para o card estreito. */
 @Composable
-fun AutoMountRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+fun AutoMountRow(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    label: String = "Auto-montar",
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Switch(
             checked = checked,
@@ -180,7 +184,7 @@ fun AutoMountRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
                     checkedTrackColor = ImpTokens.Accent
                 )
         )
-        Text("Auto-montar", color = ImpTokens.TextSecondary, fontSize = 11.sp)
+        Text(label, color = ImpTokens.TextSecondary, fontSize = 11.sp)
     }
 }
 

@@ -1,10 +1,38 @@
 # Handoff — Android Auto cluster map + TBT events (Impulse)
 
-**Status:** host + Minimalist **1.0.6** implemented 2026-09-11. Theme Lab `n` shows the TBT strip. CLUSTER video **unproven** on the car (`registerInner` still fail-closed). Do not implement the 3D viewer card here.
+**Status:** host + Minimalist **1.0.6** implemented 2026-09-11. Theme Lab `n` shows the TBT strip. CLUSTER video **unproven** on the car (patch generation disabled; see the 2026-10-04 correction below). Do not implement the 3D viewer card here.
 
 **Requester intent:** keep full Android Auto on display 0, put a second official Maps stream on display 3, notify themes and the 3D viewer when the AA session starts/stops, publish turn-by-turn as telemetry, and let the Minimalist theme request that D3 map and show TBT under the menu.
 
 This is **not** a pixel mirror of D0 and **not** a TBT-reconstructed map. D3 shows the phone’s CLUSTER video of the same trip. TBT is a separate structured overlay.
+
+---
+
+## 2026-10-04 correction and current implementation boundary (HAV-24)
+
+This update supersedes the older implementation assumptions below. Repository
+baseline: `preview` at `fac4a56062cf3417a73753bac6f72c0e49176b09`.
+
+- TBT is already supplied by `AndroidAutoNavigationMonitor` through OEM
+  `LinkCallback`, started by `ServiceManager`. Do not reimplement milestone 1.3
+  or make it depend on a new Service NAV patch
+- The old `registerInner` generated only logs. Its `VideoSink.setSurface` check
+  referred to a nonexistent method in historical stock 48ff. Bare patch mode now
+  fails before any mutation; `--check-contract` provides read-only exact API
+  subset checks and always reports `deployment_ready=false`
+- Surface entry points exist on `AapVideoManager`/`VideoPlayer`, not VideoSink.
+  They currently serve MAIN. An independent CLUSTER listener/decoder and Surface
+  handoff have not been implemented or validated. `AaClusterVideoHost` owning a
+  Surface or a mounted patch sentinel is not evidence of received CLUSTER frames
+- The 2026-09-07 vendor APK was inspected, not pulled from a car today. A current
+  installed APK and explicit vehicle access are still needed for physical proof
+- Preserve full AA on D0 and clean map-only D3. Maps and Waze need separate
+  validation; CarPlay TBT remains unproven and outside this AA-only change
+
+See [`DUMPS_V2_6_CLUSTER.md`](../../scripts/aa-patches/DUMPS_V2_6_CLUSTER.md)
+for exact verified signatures, artifact SHA-256, commands, 18 passing synthetic
+regression tests, Android build limitations and the remaining deployment gates.
+No OEM APK or runtime code was changed in this slice.
 
 ---
 
@@ -18,7 +46,7 @@ Read this whole file before editing. After each milestone, say what was verified
 
 ## Prior art (do not copy Frida)
 
-Public AutoPanel APK `leonardovin/shizuku-bottom-bar-releases` v1.10.3 already did the CLUSTER stream on this head unit. Mechanism:
+A third-party Shizuku app already did the CLUSTER stream on this head unit. Mechanism:
 
 - Frida agent in `com.ts.androidauto` wraps `GalIntegration.registerCarService()`, then registers:
   - VideoSink service id **21**, `setDisplayIdAndType(1, CLUSTER)`, 1280×720 @ 160 dpi
@@ -28,7 +56,7 @@ Public AutoPanel APK `leonardovin/shizuku-bottom-bar-releases` v1.10.3 already d
 - Late `nativeRegister` on a live session is accepted by the HU and **ignored by the phone**. Cluster must be advertised **before** the AAP session starts (or the session must be re-handshaked).
 - Bind-mounts a patched `AndroidAutoService.apk` over `/vendor/app/AndroidAutoService/` (same mount pattern as `AndroidAutoPatchManager`).
 - `UiConfig.margins` selects Google’s cluster layout (wide top card + bottom ETA pill). Content insets only slide the compact card. Impulse’s overlay will own TBT, so crop/UiConfig the video toward map-forward and do **not** rely on Google’s ETA chip.
-- `am force-stop` on projectionservice drops AOA; AutoPanel’s mount script therefore does **not** restart AA.
+- `am force-stop` on projectionservice drops AOA; that app's mount script therefore does **not** restart AA.
 
 Impulse already has:
 
@@ -65,17 +93,17 @@ Impulse already has:
 - `AndroidAutoPatchManager.kt` — mount Service APK (it already has the path; today Service is optional)
 - New Impulse-side `AaClusterVideoHost` (name as you like): own a D3 `Surface` / `SurfaceView` under the theme WebView, pass it into the patched service (AIDL or existing LinkCommand if a free transaction exists). Decode **inside AA**, not in Impulse, if the OEM `VideoSink` will take a Surface. If it will not, MediaCodec in Impulse from a BufferQueue — still no Frida.
 
-**Why this shape:** AutoPanel proved the GAL APIs. Impulse should compile the advertise into the Service dex and render to a Surface Impulse owns, so MAIN stays at full rate and CLUSTER is not copied through JS.
+**Why this shape:** That app proved the GAL APIs. Impulse should compile the advertise into the Service dex and render to a Surface Impulse owns, so MAIN stays at full rate and CLUSTER is not copied through JS.
 
 **Implementation notes:**
 
 1. Pull current `/vendor/app/AndroidAutoService/AndroidAutoService.apk` from the car. Do not assume the stock dump in-tree is that build.
 2. Locate `GalIntegration.registerCarService`, `VideoSink`, `InputSource`, `Protos$DisplayType`, `Protos$UiConfig`, and NavigationStatus / NextTurn protocol classes.
 3. After OEM services (ids 1,2,3,7,8,9,10,12,16,17–20) register CLUSTER video on a **free** id (21) and input on 22. Grant cluster `VIDEO_FOCUS_PROJECTED` unsolicited — the phone will not ask.
-4. Advertise only when cluster-output is enabled (preference or last 1.4 command). If AA is already in session, do **not** silently `nativeRegister`; schedule a documented re-handshake (see AutoPanel). Prefer: apply on next session; optional explicit reconnect later.
+4. Advertise only when cluster-output is enabled (preference or last 1.4 command). If AA is already in session, do **not** silently `nativeRegister`; schedule a documented re-handshake (as that app does). Prefer: apply on next session; optional explicit reconnect later.
 5. Hook AAP navigation messages in the same process. Map turn enums to a stable JSON (keep the theme-lab `turn` strings like `TURN_RIGHT` plus numeric `turn_id` if known).
 6. Never `force-stop` projectionservice from the mount path. Mount + empty oat dir + dalvik wipe; load on next AA start. If a live remount is required, recover AOA (DCM 30) and say so in the log.
-7. UiConfig: start from AutoPanel’s measured `margins=0,0,0,0;content=288,30,288,30` only as a baseline, then crop toward map-only. Theme will draw TBT; double ETA is a bug.
+7. UiConfig: start from the measured `margins=0,0,0,0;content=288,30,288,30` only as a baseline, then crop toward map-only. Theme will draw TBT; double ETA is a bug.
 
 **Done when:**
 

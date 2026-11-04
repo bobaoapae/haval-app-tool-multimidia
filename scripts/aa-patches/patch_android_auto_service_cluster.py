@@ -1,239 +1,193 @@
 #!/usr/bin/env python3
-"""Patch AndroidAutoService smali to advertise a CLUSTER VideoSink + InputSource.
+"""Read-only preflight for the experimental second Android Auto CLUSTER stream.
 
-This is v2.6: a **second** official Maps stream. MAIN AapActivity stays on D0.
-It is not the old TODO that lied MAIN was CLUSTER when AA was moved to D3.
+The previous implementation wrote a log-only registerInner stub and required a
+VideoSink.setSurface method that does not exist in the historical 48ff APK.
+Patching is deliberately disabled until registration AND independent rendering
+are implemented and verified. No successful preflight is deployment approval.
 
-Usage (from repo root, after apktool decode of stock 48ff or a fresh car pull):
+    python3 scripts/aa-patches/patch_android_auto_service_cluster.py \
+        scripts/.build/aa-service-cluster --check-contract --json
 
-    java -jar tools/apktool_3.0.2.jar d -f -o scripts/.build/aa-service-cluster \\
-        scripts/.build/aa-service-dumps/AndroidAutoService_vendor.apk
-    py -3 scripts/aa-patches/patch_android_auto_service_cluster.py \\
-        scripts/.build/aa-service-cluster
-    java -jar tools/apktool_3.0.2.jar b -o scripts/.build/AndroidAutoService_cluster_unsigned.apk \\
-        scripts/.build/aa-service-cluster
-
-Do not force-stop com.ts.androidauto.projectionservice after mount.
-Do not copy frames on the GAL reader thread. VideoSink.setSurface exists in DEX.
-
-The helper uses GAL protocol classes already in the Service:
-  Lcom/google/android/projection/protocol/VideoSink;
-  Lcom/google/android/projection/protocol/InputSource;
-  Lcom/google/android/projection/protocol/NavigationStatus;
+Only decoded smali declarations are inspected. No APK or decoded file is changed.
+See DUMPS_V2_6_CLUSTER.md for provenance, limitations and the validation gates.
 """
 
 from __future__ import annotations
 
 import argparse
-import re
+import hashlib
+import json
 from pathlib import Path
+import re
+import sys
 
-GAL = Path("smali/com/ts/androidauto/aap/sink/GalIntegration.smali")
-HELPER_DIR = Path("smali/com/ts/androidauto/impulse")
-SENTINEL = "IMPULSE_CLUSTER_V26 register CLUSTER VideoSink"
+PROTOCOL = "com/google/android/projection/protocol/"
+PROTO = "com/google/android/projection/proto/Protos$"
+AA = "com/ts/androidauto/"
+VIDEO = f"L{PROTOCOL}VideoSink;"
 
-HELPER_SMALI = r"""
-.class public Lcom/ts/androidauto/impulse/ImpulseAaClusterAdvertise;
-.super Ljava/lang/Object;
-
-# CLUSTER video id 21 + input 22. Phone drops the link without the input source.
-# 1280x720 @ 160 dpi matches AutoPanel's measured CLUSTER stream.
-
-.method public static register(Lcom/ts/androidauto/aap/sink/GalIntegration;)V
-    .locals 8
-
-    const-string v0, "ImpulseAaCluster"
-
-    const-string v1, "IMPULSE_CLUSTER_V26 register CLUSTER VideoSink id=21 InputSource id=22"
-
-    invoke-static {v0, v1}, Landroid/util/Log;->w(Ljava/lang/String;Ljava/lang/String;)I
-
-    :try_start_impulse
-    invoke-static {p0}, Lcom/ts/androidauto/impulse/ImpulseAaClusterAdvertise;->registerInner(Lcom/ts/androidauto/aap/sink/GalIntegration;)V
-    :try_end_impulse
-    .catch Ljava/lang/Throwable; {:try_start_impulse .. :try_end_impulse} :catch_impulse
-
-    return-void
-
-    :catch_impulse
-    move-exception v2
-
-    const-string v3, "IMPULSE_CLUSTER_V26 register failed"
-
-    invoke-static {v0, v3, v2}, Landroid/util/Log;->e(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)I
-
-    return-void
-.end method
-
-.method private static registerInner(Lcom/ts/androidauto/aap/sink/GalIntegration;)V
-    .locals 2
-
-    # Filled in by the Python patcher from decoded VideoSink/InputSource smali.
-    # If this placeholder remains, the patcher failed closed.
-
-    const-string v0, "ImpulseAaCluster"
-
-    const-string v1, "IMPULSE_CLUSTER_V26 placeholder — run patcher against decoded smali"
-
-    invoke-static {v0, v1}, Landroid/util/Log;->e(Ljava/lang/String;Ljava/lang/String;)I
-
-    return-void
-.end method
-""".lstrip()
-
-
-def replace_or_keep(text: str, old: str, new: str, label: str) -> str:
-    if new.strip() in text and SENTINEL in text:
-        return text
-    if old not in text:
-        raise SystemExit(f"Expected pattern not found for {label}")
-    return text.replace(old, new, 1)
+# A deliberately bounded API subset observed in the historical stock 48ff DEX.
+# These are declarations, NOT proof of handshake behavior or a usable decoder.
+REQUIRED_METHODS = {
+    VIDEO: (
+        f"<init>(L{PROTOCOL}VideoSink$ProjectionListener;ZI)V",
+        f"setDisplayIdAndType(IL{PROTO}DisplayType;)V",
+        f"addSupportedConfiguration(L{PROTO}VideoConfiguration;)V",
+        "setVideoFocus(IIZ)V",
+        f"updateUiConfig(L{PROTO}UiConfig;)V",
+    ),
+    f"L{PROTOCOL}VideoSink$ProjectionListener;": (
+        "onCodecConfig([B)V",
+        "onCodecSetup(I)V",
+        f"onProjectionUpdate(L{PROTOCOL}VideoFrame;)V",
+    ),
+    f"L{PROTOCOL}InputSource;": (
+        f"<init>(L{PROTOCOL}InputSource$InputInjector;)V",
+        "registerKeyCodes([I)V",
+        "setDisplayId(I)V",
+    ),
+    f"L{PROTOCOL}GalReceiver;": (
+        f"registerCarService(IL{PROTOCOL}CarServiceProvider;)Z",
+    ),
+    f"L{AA}aap/sink/GalIntegration;": ("registerCarService()V",),
+    f"L{AA}aap/video/AapVideoManager;": ("showVideo(Landroid/view/Surface;II)V",),
+    f"L{AA}aap/video/VideoPlayer;": ("updateSurface(Landroid/view/Surface;II)V",),
+    f"L{AA}sdk/aidl/LinkCallback;": (
+        f"onNotifyNextTurn(L{AA}sdk/aidl/data/IfNavigationData;)V",
+        "onNotifyNextTurnDistance(IIII)V",
+        f"onNavigationState(L{AA}sdk/aidl/data/IfNavigationStateData;)V",
+    ),
+}
+REQUIRED_FIELDS = {
+    f"L{PROTO}DisplayType;": (f"DISPLAY_TYPE_CLUSTER:L{PROTO}DisplayType;",),
+}
+BLOCKERS = (
+    "Verify the APK currently installed on the target head unit; 48ff is historical evidence only.",
+    "Implement and review pre-session CLUSTER registration with free service IDs and paired input.",
+    "Implement an independent decoder/Surface route, frame ownership and cleanup; do not reuse MAIN's renderer.",
+    "Verify next-session enable, disconnect/reconnect and Surface recreation without a black D3.",
+    "Measure two settled on-car runs: CLUSTER fps, unchanged MAIN fps/D0 behavior and fresh TBT.",
+)
+PATCH_DISABLED = (
+    "CLUSTER patching is disabled: registration/rendering is not implemented. "
+    "Use --check-contract for a read-only API preflight. "
+    "Do not rebuild, bundle or install a CLUSTER Service APK from this tool."
+)
 
 
-def find_method(text: str, name: str) -> tuple[int, int]:
-    start = text.find(f".method {name}")
-    if start < 0:
-        start = text.find(f".method public {name}")
-    if start < 0:
-        start = text.find(f".method public final {name}")
-    if start < 0:
-        raise SystemExit(f"Method not found: {name}")
-    end = text.find(".end method", start)
-    if end < 0:
-        raise SystemExit(f"Method end not found: {name}")
-    return start, end + len(".end method")
+def declarations(text: str, directive: str) -> list[list[str]]:
+    """Read declaration lines only, never method calls, strings or comments."""
+    result = []
+    for line in text.splitlines():
+        tokens = line.split("#", 1)[0].split()
+        if tokens and tokens[0] == directive:
+            result.append(tokens[1:])
+    return result
 
 
-def inject_register_call(gal_text: str) -> str:
-    if SENTINEL in gal_text and "ImpulseAaClusterAdvertise;->register" in gal_text:
-        return gal_text
+def inspect_contract(decoded: Path) -> dict:
+    """Inspect an apktool-style tree without writing to it or following guesses."""
+    if not decoded.is_dir():
+        raise ValueError(f"Decoded directory missing: {decoded}")
+    roots = sorted(
+        p for p in decoded.iterdir()
+        if p.is_dir() and re.fullmatch(r"smali(?:_classes[2-9][0-9]*|_classes1[0-9]+)?", p.name)
+    )
+    if not roots:
+        raise ValueError("No smali or smali_classesN directory found")
 
-    method_match = None
-    for candidate in (
-        "public registerCarService",
-        "public final registerCarService",
-        "registerCarService",
-    ):
-        idx = gal_text.find(f".method {candidate}")
-        if idx >= 0:
-            method_match = idx
-            break
-    if method_match is None:
-        # Some builds split the name across the signature only.
-        m = re.search(r"\.method[^\n]*registerCarService[^\n]*\n", gal_text)
-        if not m:
-            raise SystemExit("GalIntegration.registerCarService not found")
-        method_match = m.start()
+    checks = []
+    errors = []
+    video_surface_methods = []
+    for descriptor in sorted(REQUIRED_METHODS.keys() | REQUIRED_FIELDS.keys()):
+        relative = descriptor[1:-1] + ".smali"
+        matches = [root / relative for root in roots if (root / relative).is_file()]
+        check = {"class": descriptor, "files": [p.relative_to(decoded).as_posix() for p in matches]}
+        checks.append(check)
+        if len(matches) != 1:
+            errors.append(f"{descriptor}: expected one class file, found {len(matches)}")
+            continue
+        path = matches[0]
+        raw = path.read_bytes()
+        check["sha256"] = hashlib.sha256(raw).hexdigest()
+        text = raw.decode("utf-8")
+        classes = declarations(text, ".class")
+        if len(classes) != 1 or not classes[0] or classes[0][-1] != descriptor:
+            errors.append(f"{descriptor}: class descriptor mismatch")
+            continue
+        if "public" not in classes[0][:-1]:
+            errors.append(f"{descriptor}: expected public class")
+        methods = declarations(text, ".method")
+        fields = declarations(text, ".field")
+        if descriptor == VIDEO:
+            video_surface_methods = [
+                m[-1] for m in methods if m and m[-1].startswith("setSurface(")
+            ]
+        check["required_methods"] = list(REQUIRED_METHODS.get(descriptor, ()))
+        for signature in REQUIRED_METHODS.get(descriptor, ()):
+            found = [m for m in methods if m and m[-1] == signature]
+            if len(found) != 1:
+                errors.append(f"{descriptor}->{signature}: expected one declaration, found {len(found)}")
+            elif "public" not in found[0][:-1] or "static" in found[0][:-1]:
+                errors.append(f"{descriptor}->{signature}: expected public instance method")
+        check["required_fields"] = list(REQUIRED_FIELDS.get(descriptor, ()))
+        for signature in REQUIRED_FIELDS.get(descriptor, ()):
+            # An enum declaration can optionally end in '= value'.
+            declared_fields = [f[:f.index("=")] if "=" in f else f for f in fields]
+            found = [f for f in declared_fields if f and f[-1] == signature]
+            if len(found) != 1:
+                errors.append(f"{descriptor}->{signature}: expected one field, found {len(found)}")
+            elif not {"public", "static"}.issubset(found[0][:-1]):
+                errors.append(f"{descriptor}->{signature}: expected public static field")
 
-    end = gal_text.find(".end method", method_match)
-    if end < 0:
-        raise SystemExit("registerCarService has no .end method")
-    body = gal_text[method_match:end]
-    if "ImpulseAaClusterAdvertise;->register" in body:
-        return gal_text
-
-    ret = body.rfind("    return-void\n")
-    if ret < 0:
-        raise SystemExit("registerCarService has no return-void to hook")
-
-    inject = """    invoke-static {p0}, Lcom/ts/androidauto/impulse/ImpulseAaClusterAdvertise;->register(Lcom/ts/androidauto/aap/sink/GalIntegration;)V
-
-"""
-    new_body = body[:ret] + inject + body[ret:]
-    return gal_text[:method_match] + new_body + gal_text[end:]
-
-
-def first_smali(decoded: Path, name: str) -> Path:
-    matches = list(decoded.rglob(name))
-    if not matches:
-        raise SystemExit(f"{name} not found under {decoded}")
-    return matches[0]
-
-
-def extract_class_descriptor(smali_path: Path) -> str:
-    first = smali_path.read_text(encoding="utf-8", errors="replace").splitlines()[0]
-    if not first.startswith(".class"):
-        raise SystemExit(f"No .class line in {smali_path}")
-    return first.split()[-1]
-
-
-def build_register_inner(decoded: Path) -> str:
-    video = first_smali(decoded, "VideoSink.smali")
-    inp = first_smali(decoded, "InputSource.smali")
-    video_desc = extract_class_descriptor(video)
-    input_desc = extract_class_descriptor(inp)
-    video_text = video.read_text(encoding="utf-8", errors="replace")
-
-    if "setDisplayIdAndType" not in video_text:
-        raise SystemExit("VideoSink.setDisplayIdAndType not in smali — refuse to guess")
-    if "setSurface" not in video_text:
-        raise SystemExit(
-            "VideoSink.setSurface not in smali. Stop: do not copy frames on the GAL reader thread."
-        )
-
-    # Keep the inner method as an explicit log + reflective attempt so a missed
-    # constructor does not brick MAIN. Full constructor wiring is filled after a
-    # car decode session lists the exact <init> signature.
-    return f"""
-.method private static registerInner(Lcom/ts/androidauto/aap/sink/GalIntegration;)V
-    .locals 6
-
-    const-string v0, "ImpulseAaCluster"
-
-    const-string v1, "{SENTINEL}"
-
-    invoke-static {{v0, v1}}, Landroid/util/Log;->w(Ljava/lang/String;Ljava/lang/String;)I
-
-    const-string v1, "videoSink={{video_desc}} inputSource={{input_desc}} CLUSTER=21 INPUT=22 1280x720@160"
-
-    invoke-static {{v0, v1}}, Landroid/util/Log;->w(Ljava/lang/String;Ljava/lang/String;)I
-
-    # UiConfig baseline from AutoPanel: margins=0,0,0,0 content=288,30,288,30
-    # then crop toward map-forward. Theme owns TBT; Google ETA on CLUSTER is a bug.
-
-    const-string v1, "IMPULSE_CLUSTER_V26 VideoSink.setSurface is present — attach Impulse Surface on next session. Do not nativeRegister on a live session."
-
-    invoke-static {{v0, v1}}, Landroid/util/Log;->w(Ljava/lang/String;Ljava/lang/String;)I
-
-    return-void
-.end method
-""".replace("{video_desc}", video_desc).replace("{input_desc}", input_desc)
+    return {
+        "schema_version": 1,
+        "mode": "read_only_api_preflight",
+        "profile": "historical_stock48ff_api_subset",
+        "known_api_subset_matches": not errors,
+        "cluster_implemented": False,
+        "deployment_ready": False,
+        "checks": checks,
+        "errors": errors,
+        "video_sink_surface_declarations": video_surface_methods,
+        "limitations": [
+            "Declaration-only inspection does not validate smali assembly, native libraries, APK identity or runtime behavior.",
+            "Surface endpoints belong to the existing OEM renderer; their presence does not establish a second-stream route.",
+            "No VideoSink.setSurface is required. A method with that name must never be inferred from another class or a string.",
+            "The existing LinkCallback TBT path is separate; these checks do not establish CarPlay navigation support.",
+        ],
+        "remaining_blockers": list(BLOCKERS),
+    }
 
 
-def patch_helper(decoded: Path) -> None:
-    helper_dir = decoded / HELPER_DIR
-    helper_dir.mkdir(parents=True, exist_ok=True)
-    helper_path = helper_dir / "ImpulseAaClusterAdvertise.smali"
-    inner = build_register_inner(decoded)
-    text = HELPER_SMALI
-    start = text.find(".method private static registerInner")
-    end = text.find(".end method", start)
-    if start < 0 or end < 0:
-        raise SystemExit("Helper template missing registerInner")
-    text = text[:start] + inner.strip() + "\n" + text[end + len(".end method") :]
-    helper_path.write_text(text, encoding="utf-8")
-
-
-def patch_gal(decoded: Path) -> None:
-    path = decoded / GAL
-    if not path.exists():
-        path = first_smali(decoded, "GalIntegration.smali")
-    text = path.read_text(encoding="utf-8", errors="replace")
-    path.write_text(inject_register_call(text), encoding="utf-8")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("decoded_dir", type=Path, help="apktool output directory")
-    args = parser.parse_args()
-    decoded = args.decoded_dir
-    if not decoded.exists():
-        raise SystemExit(f"Decoded dir missing: {decoded}")
-    patch_helper(decoded)
-    patch_gal(decoded)
-    print("Patched CLUSTER advertise helper into", decoded)
-    print("Rebuild, sign, stage as aa_patches/AndroidAutoService.apk, mount without force-stop.")
+    parser.add_argument("--check-contract", action="store_true", help="read-only declaration checks; does not enable patching")
+    parser.add_argument("--json", action="store_true", help="emit machine-readable preflight report")
+    args = parser.parse_args(argv)
+    # Refuse before creating helpers, directories or injecting a hook. A previous
+    # run that left a helper is not treated as success and is not altered either.
+    if not args.check_contract:
+        print(PATCH_DISABLED, file=sys.stderr)
+        return 2
+    try:
+        report = inspect_contract(args.decoded_dir)
+    except (OSError, ValueError) as exc:
+        print(f"Preflight failed: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        outcome = "MATCH" if report["known_api_subset_matches"] else "MISMATCH"
+        print(f"Historical API subset: {outcome}. CLUSTER not implemented; deployment not ready.")
+        for error in report["errors"]:
+            print(f"  - {error}")
+        for blocker in report["remaining_blockers"]:
+            print(f"  - {blocker}")
+    return 0 if report["known_api_subset_matches"] else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
