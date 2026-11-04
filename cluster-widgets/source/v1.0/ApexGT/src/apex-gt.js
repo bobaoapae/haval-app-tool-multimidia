@@ -14,6 +14,10 @@
     var clockTimer = null;
     var heartbeatTimer = null;
     var subscribedKeys = [];
+    // Pede ao host o mapa do Android Auto no cluster enquanto a sessão está ativa; o host
+    // responde com aaClusterInDash quando a Surface do mapa está anexada.
+    var AA_SESSION_KEY = "app.androidauto.session";
+    var lastAaSession = null;
     var receivedKeys = Object.create(null);
     var canonicalFields = Object.create(null);
     var lastGaugeReading = null;
@@ -176,6 +180,11 @@
             window.ApexShared.applyClusterVisibility(value);
             return;
         }
+        if (key === AA_SESSION_KEY) {
+            receivedKeys[key] = true;
+            requestAaClusterMap(value);
+            return;
+        }
         if (display) display.update(key, value, allowAliases);
         if (menus) {
             if (menus.keys.indexOf(key) !== -1) receivedKeys[key] = true;
@@ -217,6 +226,15 @@
         scheduleRender();
     }
 
+    function requestAaClusterMap(value) {
+        var session = String(value == null ? "" : value).trim().toLowerCase();
+        if (session === lastAaSession) return;
+        lastAaSession = session;
+        if (window.Android && typeof window.Android.setAaClusterMapEnabled === "function") {
+            try { window.Android.setAaClusterMapEnabled(session === "active"); } catch (error) {}
+        }
+    }
+
     function subscribe() {
         var bridge = window.Android;
         if (!bridge || typeof bridge.subscribe !== "function") return;
@@ -227,7 +245,7 @@
         if (!Array.isArray(available)) return;
         var preferenceKeys = (display ? display.keys : [])
             .concat(speedCalibration ? speedCalibration.preferenceKeys : [], projection ? projection.preferenceKeys : []);
-        var requestedKeys = Object.keys(keys).concat(menus ? menus.keys : [], preferenceKeys);
+        var requestedKeys = Object.keys(keys).concat([AA_SESSION_KEY], menus ? menus.keys : [], preferenceKeys);
         subscribedKeys = requestedKeys.filter(function (key, index) {
             return requestedKeys.indexOf(key) === index && (available.indexOf(key) !== -1 || preferenceKeys.indexOf(key) !== -1);
         });

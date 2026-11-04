@@ -37,6 +37,7 @@ const screenCache = {};
 function isProjectionMapDisplayActive() {
     return get('projectionMirrorInDash') === true ||
         get('carPlayInDash') === true ||
+        get('aaClusterInDash') === true ||
         get('projectionPreparingD3') === true;
 }
 
@@ -466,6 +467,7 @@ subscribe('clusterBackground', render);
 subscribe('appInDash', render);
 subscribe('carPlayInDash', render);
 subscribe('projectionMirrorInDash', render);
+subscribe('aaClusterInDash', render);
 subscribe('projectionPreparingD3', render);
 subscribe('projectionCardOverlayAllowed', render);
 render();
@@ -793,6 +795,7 @@ async function initDecentralizedBridge() {
         "app.launcher.apps",
         "app.navigation.directions",
         "app.navigation.radar",
+        "app.androidauto.session",
 
         "app.media.state",
         "app.media.title",
@@ -825,6 +828,19 @@ async function initDecentralizedBridge() {
     setState('navigationDirections', parseNavigationDirections(bridge.getCarData(KEYS.APP_NAVIGATION_DIRECTIONS)));
     setState('radarAlert', parseRadarAlert(bridge.getCarData(KEYS.APP_NAVIGATION_RADAR)));
 
+    // Ask the host for the Android Auto cluster map while a session is up. The host
+    // answers with control('aaClusterInDash', ...) once the map surface is attached.
+    let lastAaSession = null;
+    function handleAndroidAutoSession(value) {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (normalized === lastAaSession) return;
+        lastAaSession = normalized;
+        if (window.Android && typeof window.Android.setAaClusterMapEnabled === 'function') {
+            window.Android.setAaClusterMapEnabled(normalized === 'active');
+        }
+    }
+    handleAndroidAutoSession(bridge.getCarData(KEYS.APP_ANDROID_AUTO_SESSION));
+
     bridge.subscribe(keysToSubscribe, (key, value) => {
         if (handleGraphTelemetry(key, value)) return;
 
@@ -839,6 +855,9 @@ async function initDecentralizedBridge() {
                 break;
             case "app.navigation.radar":
                 setState('radarAlert', parseRadarAlert(value));
+                break;
+            case "app.androidauto.session":
+                handleAndroidAutoSession(value);
                 break;
             case "car.basic.total_odometer":
                 setState('odometer', val);
@@ -1067,6 +1086,7 @@ window.__havalProjectionDebug = function () {
     return {
         carPlayInDash: get('carPlayInDash'),
         projectionMirrorInDash: get('projectionMirrorInDash'),
+        aaClusterInDash: get('aaClusterInDash'),
         projectionPreparingD3: get('projectionPreparingD3'),
         cardId: get('cardId'),
         screen: get('screen'),
