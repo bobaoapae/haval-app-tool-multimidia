@@ -10,6 +10,11 @@
     //
     // "Janela" mantém o recorte próprio do tema (520..1400 × 120..650).
     //
+    // Cada modo tem o seu retângulo de app no cluster (<DisplayModes> do theme.xml): é onde o host
+    // desenha o mapa do Android Auto e põe apps do D1/D3. Lido uma vez com getThemeDisplayModes() e
+    // aplicado com setAppDefaultDimensions() a cada troca de modo. O CarPlay e o espelho do AA usam o
+    // tamanho do display, não este retângulo.
+    //
     // É preferência do tema (`apexProjectionMode` no theme.xml), trocada em Telas. Quem liga e desliga
     // o estado de projeção é o apex-gt.js, pela classe `projection-active` no root.
     var preferenceKey = "apexProjectionMode";
@@ -28,12 +33,36 @@
         var mode = "Ampla";
         var disposed = false;
         var canonicalSeen = false;
+        var modeRects = readModeRects();
+
+        function readModeRects() {
+            var rects = {};
+            try {
+                if (!window.Android || typeof window.Android.getThemeDisplayModes !== "function") return rects;
+                var list = JSON.parse(window.Android.getThemeDisplayModes() || "[]");
+                if (!Array.isArray(list)) return rects;
+                list.forEach(function (entry) {
+                    var name = entry && validMode(entry.name);
+                    if (name) rects[name] = [entry.x, entry.y, entry.width, entry.height].map(Number);
+                });
+            } catch (error) {}
+            return rects;
+        }
+
+        function applyRect() {
+            var rect = modeRects[mode];
+            if (!rect || !rect.every(isFinite)) return;
+            if (window.Android && typeof window.Android.setAppDefaultDimensions === "function") {
+                try { window.Android.setAppDefaultDimensions(rect[0], rect[1], rect[2], rect[3]); } catch (error) {}
+            }
+        }
 
         function apply(next) {
             if (disposed) return;
             mode = next;
             root.classList.toggle("projection-wide", mode === "Ampla");
             root.setAttribute("data-projection-mode", mode);
+            applyRect();
         }
 
         function update(key, value, allowAliases) {

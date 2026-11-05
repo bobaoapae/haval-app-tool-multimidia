@@ -13,10 +13,18 @@ import path from 'node:path';
 const SOURCES = [
     { file: '../shared/car/carDerivations.js', only: ['getAdjustedSpeed'] },
     { file: '../shared/runtime/clusterVisibility.js', only: ['applyClusterVisibility'] },
+    // Turn-by-turn card, the same one Default and Minimalist show (tbtCard.css goes in via index.html).
+    { file: '../shared/utils/createElement.js' },
+    { file: '../shared/tbt/tbtTurnIcons.js' },
+    { file: '../shared/tbt/tbtLanes.js' },
+    { file: '../shared/tbt/tbtCard.js' },
 ];
 const EXPORTS = [
     'getAdjustedSpeed',
     'applyClusterVisibility',
+    'createTbtCard',
+    'parseNavigationDirections',
+    'parseRadarAlert',
 ];
 
 function stripModuleSyntax(source) {

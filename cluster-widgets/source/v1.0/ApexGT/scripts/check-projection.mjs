@@ -65,6 +65,33 @@ test('canonical preference wins over aliases; control alias needs allowAliases',
     assert.equal(e.projection.getMode(), 'Janela');
 });
 
+test('each mode applies its theme.xml rect through setAppDefaultDimensions', () => {
+    const rects = [];
+    const modes = JSON.stringify([
+        { name: 'Ampla', x: 0, y: 0, width: 1920, height: 720 },
+        { name: 'Janela', x: 520, y: 120, width: 880, height: 530 },
+    ]);
+    const e = create({ getThemeDisplayModes: () => modes, setAppDefaultDimensions: (x, y, w, h) => rects.push([x, y, w, h]) });
+    assert.deepEqual(rects, [[0, 0, 1920, 720]]);
+    e.projection.update('app.preferences.apexProjectionMode', 'Janela', false);
+    assert.deepEqual(rects.at(-1), [520, 120, 880, 530]);
+    e.projection.update('app.preferences.apexProjectionMode', 'Ampla', false);
+    assert.deepEqual(rects.at(-1), [0, 0, 1920, 720]);
+    assert.equal(rects.length, 3, 'only mode changes push a rect');
+    const manifest = fs.readFileSync(path.join(root, 'theme.xml'), 'utf8');
+    assert.match(manifest, /<DisplayMode name="Ampla" x="0" y="0" width="1920" height="720"\/>/);
+    assert.match(manifest, /<DisplayMode name="Janela" x="520" y="120" width="880" height="530"\/>/);
+});
+
+test('no declared rect or a failing bridge leaves the host default alone', () => {
+    const rects = [];
+    create({ getThemeDisplayModes: () => '[]', setAppDefaultDimensions: (...a) => rects.push(a) });
+    create({ getThemeDisplayModes: () => 'not json', setAppDefaultDimensions: (...a) => rects.push(a) });
+    assert.equal(rects.length, 0);
+    const f = create({ getThemeDisplayModes: () => '[{"name":"Ampla","x":0,"y":0,"width":1920,"height":720}]', setAppDefaultDimensions: () => { throw new Error('down'); } });
+    assert.equal(f.projection.getMode(), 'Ampla');
+});
+
 test('cleanup freezes the mode', () => {
     const e = create();
     e.projection.cleanup();

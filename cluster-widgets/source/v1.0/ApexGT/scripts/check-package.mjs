@@ -17,7 +17,7 @@ assert.match(html, /data:image\/webp;base64,/);
 assert.match(html, /data:font\/woff/);
 assert.doesNotMatch(html, /\b(?:src|href)=["']\.\//);
 assert.doesNotMatch(html, /url\(["']?(?:https?:|\.\.)/);
-assert.doesNotMatch(html, /theme-lab|evPowerKw|setAppDefaultDimensions|setNativeMask|setClusterBackground/);
+assert.doesNotMatch(html, /theme-lab|evPowerKw|setNativeMask|setClusterBackground/);
 assert.match(html, /ApexMenus/);
 assert.match(html, /ApexSpeed/);
 assert.match(html, /ApexProjection/);
