@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -29,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -136,7 +138,13 @@ fun ImpulseHomeSetupDialog(canOpen: Boolean, onDismiss: () -> Unit) {
         },
         text = {
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
+                // The car panel is short (720px high) and the 60dp bottom bar draws over the
+                // dialog. The dialog is centred, so keep the whole dialog near 80% of the screen:
+                // the body gets 80% minus the ~180dp that the title, padding and buttons take.
+                // The body scrolls inside that cap, so Cancelar/Salvar stay above the bar.
+                modifier = Modifier
+                    .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.8f - 180f).dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Demonstração visual dinâmica da Barra Inferior com gesto de arrastar
