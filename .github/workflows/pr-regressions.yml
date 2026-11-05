@@ -1,0 +1,60 @@
+name: PR regression tests
+
+on:
+  push:
+    branches:
+      - 'fix/steering-oem-preservation'
+      - 'fix/cluster-ac-focus-persistence'
+  pull_request:
+    branches: [preview]
+    paths:
+      - '.github/workflows/pr-regressions.yml'
+      - 'app/**'
+      - 'cluster-widgets/**'
+      - 'gradle/**'
+      - 'gradle.properties'
+      - '*.gradle'
+      - '*.gradle.kts'
+      - 'gradlew'
+      - 'gradlew.bat'
+  # Manual execution becomes available only after this file exists on the
+  # repository's default branch. No default-branch change is made by these PRs.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-regressions-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  themes:
+    name: Theme regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Repository theme regression suite
+        working-directory: cluster-widgets
+        run: npm run check
+
+  android:
+    name: Android debug build and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Build and test without release signing
+        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon

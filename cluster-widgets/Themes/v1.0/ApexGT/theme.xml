@@ -1,12 +1,22 @@
 <theme>
     <name>Apex GT</name>
     <description>Contour e Vector: dois displays Apex GT com instrumentos dinâmicos, menus do veículo, centro transparente para o ADAS nativo, velocidade calibrada como o HUD e projeção integrada ao mapa.</description>
-    <version>1.0.15</version>
+    <version>1.0.18</version>
     <thumbnail>thumbnail.png</thumbnail>
     <mainFile>app.html</mainFile>
     <decentralized>true</decentralized>
-    <minBridgeVersion>1.0.1</minBridgeVersion>
+    <minBridgeVersion>1.0.2</minBridgeVersion>
     <contractVersion>v1.0</contractVersion>
+    <!--
+      App rect on the cluster (the Android Auto map window and apps sent to D1/D3), one per
+      "Projeção no painel" mode. apex-projection.js reads these with getThemeDisplayModes() and
+      applies the active one with setAppDefaultDimensions().
+      Ampla: full panel, so the map reaches every edge. Janela: the transparent #adas-viewport.
+    -->
+    <DisplayModes>
+        <DisplayMode name="Ampla" x="0" y="0" width="1920" height="720"/>
+        <DisplayMode name="Janela" x="520" y="120" width="880" height="530"/>
+    </DisplayModes>
     <configurations>
         <configuration>
             <id>apex_display_mode</id>

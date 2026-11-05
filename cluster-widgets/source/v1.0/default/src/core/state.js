@@ -53,6 +53,7 @@ var stateManager = new StateManager({
     appInDash: false,
     carPlayInDash: false,
     projectionMirrorInDash: false,
+    aaClusterInDash: false,
     projectionPreparingD3: false,
     projectionCardOverlayAllowed: false,
     clusterEnabled: true,

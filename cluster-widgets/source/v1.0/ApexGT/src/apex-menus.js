@@ -113,7 +113,28 @@
         var graphIndex = 0;
         var settingIndex = 0;
         var tripIndex = 0;
-        var acFocus = "fan";
+        var acPreference = window.ApexShared.createAcFocusPreference(function () { return window.Android; });
+        var acFocus = acPreference.restore(); // native bridge exists before component creation
+        var acInteracted = false;
+        var acMockRehydrated = false;
+
+        function restoreLateMockFocus() {
+            var bridge = window.Android;
+            if (disposed || acMockRehydrated || !bridge || bridge.__themeLabMock !== "ApexGT" ||
+                typeof bridge.getClusterAcFocus !== "function" || typeof bridge.saveClusterAcFocus !== "function") return;
+            acMockRehydrated = true;
+            window.removeEventListener("cluster-ac-focus-bridge-ready", restoreLateMockFocus);
+            if (acInteracted) return;
+            acFocus = acPreference.restore();
+            schedule();
+        }
+
+        function selectAcFocus(next) {
+            if (next !== "fan" && next !== "temp") return;
+            acInteracted = true;
+            acFocus = next;
+            acPreference.save(next);
+        }
         var lastKeyAt = -Infinity;
         var seen = Object.create(null);
         var state = Object.create(null);
@@ -350,7 +371,8 @@
         }
 
         function acKey(key) {
-            if (key === "ENTER") { acFocus = acFocus === "fan" ? "temp" : "fan"; schedule(); return; }
+            acInteracted = true;
+            if (key === "ENTER") { selectAcFocus(acFocus === "fan" ? "temp" : "fan"); schedule(); return; }
             if (key === "BACK_LONG") {
                 if (known(["acRecycle"])) {
                     var recycle = state.acRecycle === 1 ? 0 : 1;
@@ -482,7 +504,7 @@
                     if (name === "trip") tripIndex = index;
                 });
             }
-            if (card === 3 && button.hasAttribute("data-apex-ac")) acFocus = button.getAttribute("data-apex-ac");
+            if (card === 3 && button.hasAttribute("data-apex-ac")) selectAcFocus(button.getAttribute("data-apex-ac"));
             schedule();
         }
 
@@ -498,12 +520,14 @@
             history.power.length = 0;
             mount.removeEventListener("click", onClick);
             window.removeEventListener("apex-display-change", schedule);
+            window.removeEventListener("cluster-ac-focus-bridge-ready", restoreLateMockFocus);
             mount.hidden = true;
             root.classList.remove("menu-open", "card-main", "card-ac");
         }
 
         mount.addEventListener("click", onClick);
         window.addEventListener("apex-display-change", schedule);
+        window.addEventListener("cluster-ac-focus-bridge-ready", restoreLateMockFocus);
         onCardChanged(0);
         return { keys: Object.keys(keyFields), update: update, onCardChanged: onCardChanged, onKeyEvent: onKeyEvent, cleanup: cleanup };
     }

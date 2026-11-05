@@ -539,3 +539,21 @@ foi repetida e aprovada. Essa falha de harness não é evidência de falha do co
 READY/TSR/ESP reais, estados CarPlay D3, custo de renderização e continuidade do lifecycle na WebView
 embarcada. A prova de alpha no navegador não valida o compositor Android; hash do pacote, runtime
 instalado e prova visual no veículo devem ser registrados separadamente.
+
+### Global A/C focus (1.0.16)
+
+Requires bridge 1.0.2, contract v1.0 unchanged. The same global fan/temperature
+selection is restored before menu mount through the shared `clusterAcFocus` helper.
+Telemetry (including off/unknown states), navigation and cleanup never replace or
+save that selection and issue no HVAC commands. ENTER and explicit focus clicks
+update local focus then request persistence; a failed save retains local focus.
+The first UP/DOWN continues to use the existing guarded HVAC path for that focus.
+
+Theme Lab's late mock emits `cluster-ac-focus-bridge-ready`; a one-shot listener
+rehydrates only the marked Apex mock and only before user A/C interaction. Cleanup
+removes this listener. Native startup does not depend on the event.
+
+`npm run build` regenerates shared-runtime and packaged assets. `npm run check`
+includes a dependency-free actual-menu harness for restored values, first-arrow
+targets, unknown/off telemetry, selection/no-HVAC, rejected saves, late mock ordering
+and cleanup. These tests do not establish browser paint or physical-vehicle behavior.

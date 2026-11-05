@@ -132,7 +132,7 @@ The metadata file tells the launcher how to identify and validate your theme:
 </theme>
 ```
 
-* **`<minBridgeVersion>`**: Required. Specifies the minimum Android JavaScript Bridge API version required (`1.0.0` for the baseline standardized bridge, `1.0.1` for per-wheel pressure telemetry and accumulated-trip reset, `0.1.0` for the legacy bridge).
+* **`<minBridgeVersion>`**: Required. Specifies the minimum Android JavaScript Bridge API version required (`1.0.0` for the baseline standardized bridge, `1.0.1` for per-wheel pressure telemetry and accumulated-trip reset, `1.0.2` for global AC focus, `0.1.0` for the legacy bridge).
 * **`<contractVersion>`**: Required. Specifies the telemetry schema and layout contract (`v1.0`).
 
 ### 2. User Settings (`<configurations>`)
@@ -254,7 +254,7 @@ System overview: [`docs/architecture/themes-contract-v1.md`](../../docs/architec
 
 ## Architectural Separation: Bridge Version vs. Contract Version
 
-* **Bridge Version (`minBridgeVersion` / `CURRENT_BRIDGE_VERSION = "1.0.1"`)**:
+* **Bridge Version (`minBridgeVersion` / `CURRENT_BRIDGE_VERSION = "1.0.2"`)**:
   - Defines the **native Java/Kotlin API capabilities** exposed to WebView JS via `window.Android`.
   - Controls whether methods like `window.Android.subscribe()`, `setClusterBackground()`, or `launchApp()` exist.
   - Backward compatibility is maintained dynamically via JS polyfills in `CompatTranslationLayer.kt`.
@@ -268,7 +268,7 @@ System overview: [`docs/architecture/themes-contract-v1.md`](../../docs/architec
 
 Theme interactions occur via the global `window.Android` namespace and standard reactive hooks.
 
-### Complete Bridge Function Reference (`v1.0` / host `1.0.1`)
+### Complete Bridge Function Reference (`v1.0` / host `1.0.2`)
 
 | Category | Function | Direction | Description |
 | :--- | :--- | :--- | :--- |
@@ -287,6 +287,8 @@ Theme interactions occur via the global `window.Android` namespace and standard 
 | **Wallpaper** | `setThemeBackground(relativePath)` | JS → Host | Registers theme package wallpaper asset (e.g. `car-bg.png`). |
 | **Preferences** | `savePreference(key, val)` | JS → Host | Persists theme-scoped user configuration. |
 | **Preferences** | `getPreference(key, defaultVal): String` | JS → Host | Reads theme-scoped user configuration. |
+| **AC focus** | `getClusterAcFocus(): String` | JS → Host | Reads the global fan/temperature selection (`fan` or `temp`), independently of the active theme. |
+| **AC focus** | `saveClusterAcFocus(focus): Boolean` | JS → Host | Accepts exactly `fan`/`temp`; persists selection only, never writes HVAC settings. |
 | **Preferences** | `saveSetting(key, val)` | JS → Host | Saves cluster display setting. |
 | **System Actions** | `triggerSystemAction(action, payload)` | JS → Host | Triggers only the documented host allowlist (`CANCEL_MAX_AC`, `TRIGGER_AVM_CAMERA`, `DISMISS_WARNINGS`, `RESET_DRIVE_INFO`). |
 | **Multi-Display** | `launchApp(packageName, displayId)` | JS → Host | Reserved compatibility surface; direct theme requests are blocked. |
@@ -565,3 +567,25 @@ Add a key handler block inside the steering wheel listener in `main.js`:
 The routing engine automatically maps focus transitions, carousel scroll positions, keyboard selection triggers, and subscription states cleanly.
 
 
+
+### Global AC focus (`1.0.2`)
+
+Default, Minimalist and ApexGT share one selection through the existing global
+`lastClusterAcConfig` preference. `TEMPERATURE` maps to `temp`; other/missing/wrong-type
+stored values read as `fan`, without repair writes. Save accepts only `fan`/`temp`, maps
+to `FAN_SPEED`/`TEMPERATURE`, and returns true once `SharedPreferences.apply()` is
+requested (not a synchronous durable-disk acknowledgement). Invalid/null input returns
+false and writes nothing. Generic `getPreference`/`savePreference` scoping is unchanged.
+
+Declare `<minBridgeVersion>1.0.2</minBridgeVersion>` when using this API and feature-detect
+both methods before calling them. Restore before first component rendering/telemetry;
+missing/invalid/throwing bridges fall back to in-memory `fan` without writing. Explicit
+focus selection updates memory, then saves; a failed save retains the current selection.
+Restoration, navigation, telemetry (including off/unknown power) and cleanup must not
+change the selected target or send HVAC commands. Existing arrow/long-key handlers
+remain responsible for deliberate HVAC input.
+
+The browser mock shares `haval_mock_cluster_ac_focus` storage. Themes with late Theme Lab
+injection use a marked, one-shot ready event, removed during cleanup; any earlier AC
+interaction prevents rehydration from changing the next arrow target. This mock is not
+proof of Android disk persistence or behavior on the head unit.

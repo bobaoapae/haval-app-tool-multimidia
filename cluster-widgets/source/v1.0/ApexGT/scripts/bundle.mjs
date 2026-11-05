@@ -8,6 +8,8 @@ const stylesheets = [
     'src/vector-display.css',
     'src/apex-projection.css',
     '../shared/runtime/clusterVisibility.css',
+    '../shared/tbt/tbtCard.css',
+    'src/apex-tbt.css',
 ];
 
 const images = [
@@ -26,6 +28,7 @@ const scripts = [
     'src/shared-runtime.js',
     'src/apex-speed.js',
     'src/apex-projection.js',
+    'src/apex-tbt.js',
     'src/apex-gt.js',
 ];
 

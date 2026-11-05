@@ -1345,27 +1345,14 @@ public class ServiceManager {
             }
             return;
         }
-        if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false)) {
-            // habilita o botao se QUALQUER toque (curto/duplo/longo) tiver acao configurada
-            boolean button1Used = steeringActionConfigured(1, "SHORT") || steeringActionConfigured(1, "DOUBLE") || steeringActionConfigured(1, "LONG");
-            boolean button2Used = steeringActionConfigured(2, "SHORT") || steeringActionConfigured(2, "DOUBLE") || steeringActionConfigured(2, "LONG");
-            Log.w(TAG, "Ensuring steering wheel button integration. Button 1 used: " + button1Used + ", Button 2 used: " + button2Used);
-            if (button1Used) {
-                enableSteeringWheelButton1Integration();
-            } else {
-                disableNativeSteeringWheelButton1();
-            }
-            if (button2Used) {
-                enableSteeringWheelButton2Integration();
-            } else {
-                disableNativeSteeringWheelButton2();
-            }
-        } else {
-            Log.w(TAG, "Steering wheel button integration disabled, restoring native functions");
-            disableNativeSteeringWheelButton1();
-            disableNativeSteeringWheelButton2();
-        }
-
+        boolean enabled = sharedPreferences.getBoolean(
+                SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.getKey(), false);
+        // DEFAULT curto pertence ao OEM, mesmo com duplo/longo customizado. O duplo
+        // continua não exclusivo: ambos os toques nativos podem ocorrer junto da ação do app.
+        reconcileSteeringWheelNativeSetting(1, SteeringWheelNativeConfigPolicy.shouldCapture(
+                enabled, steeringActionConfigured(1, "SHORT")));
+        reconcileSteeringWheelNativeSetting(2, SteeringWheelNativeConfigPolicy.shouldCapture(
+                enabled, steeringActionConfigured(2, "SHORT")));
     }
 
     // ===== Toques nos botoes personalizados do volante: curto / duplo / longo =====
@@ -1840,108 +1827,61 @@ public class ServiceManager {
     }
 
     public void enableSteeringWheelButton1Integration() {
-        try {
-            String currentConfig = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "system", "bean_sw_custom_key1_config"}).trim();
-            Log.w(TAG, "Current steering wheel button 1 config: " + currentConfig);
-            saveOriginalSteeringWheelButtonConfig(
-                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL,
-                    currentConfig,
-                    "1"
-            );
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key1_config", "99"});
-        } catch (Exception e) {
-            Log.e(TAG, "Error disabling native steering wheel custom buttons", e);
-        }
+        reconcileSteeringWheelNativeSetting(1, true);
     }
 
     public void enableSteeringWheelButton2Integration() {
-        try {
-            String currentConfig = ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "get", "system", "bean_sw_custom_key2_config"}).trim();
-            Log.w(TAG, "Current steering wheel button 2 config: " + currentConfig);
-            saveOriginalSteeringWheelButtonConfig(
-                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL,
-                    currentConfig,
-                    "2"
-            );
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key2_config", "99"});
-        } catch (Exception e) {
-            Log.e(TAG, "Error disabling native steering wheel custom buttons", e);
-        }
+        reconcileSteeringWheelNativeSetting(2, true);
     }
 
     public void disableNativeSteeringWheelButton1() {
-        try {
-            String originalConfig = getOriginalSteeringWheelButtonConfig(
-                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL,
-                    "1"
-            );
-            if (originalConfig == null)
-                return;
-            Log.w(TAG, "Restoring steering wheel button 1 config to: " + originalConfig);
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key1_config", originalConfig});
-        } catch (Exception e) {
-            Log.e(TAG, "Error restoring native steering wheel custom button 1", e);
-        }
+        reconcileSteeringWheelNativeSetting(1, false);
     }
 
     public void disableNativeSteeringWheelButton2() {
+        reconcileSteeringWheelNativeSetting(2, false);
+    }
+
+    private synchronized void reconcileSteeringWheelNativeSetting(int button, boolean capture) {
+        String setting = button == 1 ? "bean_sw_custom_key1_config" : "bean_sw_custom_key2_config";
+        SharedPreferencesKeys backupKey = button == 1
+                ? SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_1_ACTION_ORIGINAL
+                : SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL;
         try {
-            String originalConfig = getOriginalSteeringWheelButtonConfig(
-                    SharedPreferencesKeys.STEERING_WHEEL_CUSTOM_BUTON_2_ACTION_ORIGINAL,
-                    "2"
-            );
-            if (originalConfig == null)
-                return;
-            Log.w(TAG, "Restoring steering wheel button 2 config to: " + originalConfig);
-            ShizukuUtils.runCommandAndGetOutput(new String[]{"settings", "put", "system", "bean_sw_custom_key2_config", originalConfig});
+            SteeringWheelNativeConfigPolicy.Result result = SteeringWheelNativeConfigPolicy.reconcile(
+                    new SteeringWheelNativeConfigPolicy.Store() {
+                        @Override public String readCurrent() throws Exception {
+                            return ShizukuUtils.runCommandAndGetOutput(
+                                    new String[]{"settings", "get", "system", setting}).trim();
+                        }
+                        @Override public String readBackup() {
+                            return sharedPreferences.getString(backupKey.getKey(), null);
+                        }
+                        @Override public void saveBackup(String value) throws Exception {
+                            // commit() can update memory even when persistence fails.
+                            // Cached equality must never authorize replacing the OEM choice.
+                            // A successful synchronous retry is required before capture.
+                            if (!sharedPreferences.edit().putString(backupKey.getKey(), value).commit()) {
+                                throw new IllegalStateException("Could not persist native steering choice");
+                            }
+                        }
+                        @Override public void writeCurrent(String value) throws Exception {
+                            ShizukuUtils.runCommandAndGetOutput(
+                                    new String[]{"settings", "put", "system", setting, value});
+                            if (!value.equals(readCurrent())) {
+                                throw new IllegalStateException("Native steering setting write not confirmed");
+                            }
+                        }
+                    }, capture);
+            Log.w(TAG, "Steering button " + button + " native choice: " + result);
+            if (result == SteeringWheelNativeConfigPolicy.Result.UNKNOWN) {
+                Log.w(TAG, "Choose the native button function in multimedia settings; no trusted choice restored");
+            }
         } catch (Exception e) {
-            Log.e(TAG, "Error restoring native steering wheel custom button 2", e);
+            Log.e(TAG, "Could not reconcile native steering button " + button, e);
         }
     }
 
-    private void saveOriginalSteeringWheelButtonConfig(
-            SharedPreferencesKeys key,
-            String currentConfig,
-            String buttonLabel
-    ) {
-        if (!isNativeSteeringWheelButtonConfig(currentConfig)) {
-            Log.w(TAG, "Skipping original steering wheel button " + buttonLabel + " capture for integration config: " + currentConfig);
-            return;
-        }
-
-        sharedPreferences.edit().putString(key.getKey(), currentConfig).apply();
-        Log.w(TAG, "Saved original steering wheel button " + buttonLabel + " config: " + currentConfig);
-    }
-
-    private String getOriginalSteeringWheelButtonConfig(SharedPreferencesKeys key, String buttonLabel) {
-        if (!sharedPreferences.contains(key.getKey())) {
-            Log.w(TAG, "No original steering wheel button " + buttonLabel + " config saved; keeping current native setting");
-            return null;
-        }
-
-        String originalConfig = sharedPreferences.getString(key.getKey(), null);
-        if (!isNativeSteeringWheelButtonConfig(originalConfig)) {
-            Log.w(TAG, "Ignoring invalid original steering wheel button " + buttonLabel + " config: " + originalConfig);
-            return null;
-        }
-
-        return originalConfig;
-    }
-
-    private boolean isNativeSteeringWheelButtonConfig(String config) {
-        if (config == null) return false;
-
-        String normalized = config.trim();
-        if (normalized.isEmpty() || normalized.equals("99")) return false;
-        if (normalized.equalsIgnoreCase("null") || normalized.equalsIgnoreCase("undefined")) return false;
-
-        try {
-            int value = Integer.parseInt(normalized);
-            return value >= 0 && value < 99;
-        } catch (NumberFormatException e) {
-            return false;
-        }
-    }
 
     private void sendClusterIntMsg(int type, int value) {
         if (clusterService == null) {

@@ -18,7 +18,7 @@ Cluster UI is **theme-owned**. The Android host loads a self-contained `app.html
 
 ### Bridge version vs contract version
 
-1. **Bridge** (`minBridgeVersion` / host `CURRENT_BRIDGE_VERSION = "1.0.1"`)
+1. **Bridge** (`minBridgeVersion` / host `CURRENT_BRIDGE_VERSION = "1.0.2"`)
    - Native `@JavascriptInterface` surface on `window.Android` (`subscribe`, `setClusterBackground`, …).
    - Back-compat polyfills: `CompatTranslationLayer.kt`.
 
@@ -58,6 +58,20 @@ payloads or method signatures, expand generic vehicle writes, or alter layout an
 contracts. Default, Minimalist and legacy Sport keep their prior behavior because they do not
 subscribe to the new keys. Themes using pressure telemetry or reset must declare
 `<minBridgeVersion>1.0.1</minBridgeVersion>`.
+
+### Bridge 1.0.2: global AC focus
+
+Adds optional global focus read/save methods; see the canonical
+[API reference](../../cluster-widgets/Themes/THEME_GUIDE.md#global-ac-focus-102).
+No prior method, telemetry key, scoped preference, layout or v1.0 event contract changes.
+Older themes remain supported; no compatibility polyfill pretends to persist a global
+selection on hosts that lack the API.
+
+Updated packages are Default1.4.44, Minimalist1.0.4 and ApexGT1.0.16, each requiring
+bridge1.0.2. Default's regenerated HTML/manifest are bundled in the APK. Minimalist and
+ApexGT remain separate OTA packages under `Themes/v1.0/`; updating the APK alone does
+not update their installed theme files. No ThemeManager/download/install mechanism is
+changed by this feature.
 
 ## On-disk layout
 
