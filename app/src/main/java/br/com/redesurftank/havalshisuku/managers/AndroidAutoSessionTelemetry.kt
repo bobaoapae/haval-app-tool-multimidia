@@ -8,7 +8,13 @@ package br.com.redesurftank.havalshisuku.managers
  */
 object AndroidAutoSessionTelemetry {
     const val DEBOUNCE_STOPPED_MS = 400L
-    const val NAVIGATION_EVIDENCE_MAX_AGE_MS = 5_000L
+    /**
+     * How long one guidance update keeps the session up. Parked on a route, Maps repeats the
+     * same step only every 7–10 s (measured 2026-11-04), and this head unit can report link
+     * status 0 while the phone is linked and guiding, so a shorter window drops the session
+     * between updates. A real disconnect still wins once guidance stops for this long.
+     */
+    const val NAVIGATION_EVIDENCE_MAX_AGE_MS = 30_000L
 
     /** GET_LINK_STATUS value for ACTIVATED, the plain "a phone is linked" state. */
     const val LINK_STATUS_ACTIVATED = 3
@@ -38,6 +44,15 @@ object AndroidAutoSessionTelemetry {
         } else {
             linkStatus
         }
+    }
+
+    /**
+     * Guidance arrived while the published session is stopped. Nothing else re-reads the link
+     * then: the poll leaves an unreadable link alone outside a session, so without this the
+     * session stays stopped for the whole route and themes never ask for the map.
+     */
+    fun shouldReviveSessionFromNavigation(navigationActive: Boolean, sessionActive: Boolean): Boolean {
+        return navigationActive && !sessionActive
     }
 
     fun hasRecentNavigationEvidence(lastActiveAtMs: Long, nowMs: Long): Boolean {

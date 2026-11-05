@@ -68,6 +68,57 @@ class AndroidAutoSessionTelemetryTest {
     }
 
     @Test
+    fun parkedGuidanceGapKeepsNavigationEvidence() {
+        // Parked on a route, Maps repeats the step only every 7–10 s.
+        assertTrue(
+            AndroidAutoSessionTelemetry.hasRecentNavigationEvidence(
+                lastActiveAtMs = 1_000L,
+                nowMs = 11_000L
+            )
+        )
+    }
+
+    @Test
+    fun guidanceRevivesOnlyAStoppedSession() {
+        assertTrue(
+            AndroidAutoSessionTelemetry.shouldReviveSessionFromNavigation(
+                navigationActive = true,
+                sessionActive = false
+            )
+        )
+        assertFalse(
+            AndroidAutoSessionTelemetry.shouldReviveSessionFromNavigation(
+                navigationActive = true,
+                sessionActive = true
+            )
+        )
+        assertFalse(
+            AndroidAutoSessionTelemetry.shouldReviveSessionFromNavigation(
+                navigationActive = false,
+                sessionActive = false
+            )
+        )
+    }
+
+    @Test
+    fun routeAfterStoppedSessionPublishesActive() {
+        // Car 2026-11-04: session stopped when a route ended, link unreadable, then a new
+        // route started. The revive feeds the unreadable link with fresh guidance.
+        val debouncer = AndroidAutoSessionTelemetry.Debouncer()
+        assertEquals("active", debouncer.onStatus(3, 0L))
+        assertNull(debouncer.onStatus(0, 100L))
+        assertEquals("stopped", debouncer.onStatus(0, 100L + AndroidAutoSessionTelemetry.DEBOUNCE_STOPPED_MS))
+        val revived = AndroidAutoSessionTelemetry.statusWithNavigationEvidence(
+            linkStatus = null,
+            navigationEvidenceRecent = AndroidAutoSessionTelemetry.hasRecentNavigationEvidence(
+                lastActiveAtMs = 22_000L,
+                nowMs = 22_000L
+            )
+        )
+        assertEquals("active", debouncer.onStatus(revived, 22_000L))
+    }
+
+    @Test
     fun pollKeepsWirelessSessionWhileDcmEvidenceIsRecent() {
         assertEquals(
             AndroidAutoSessionTelemetry.LINK_STATUS_ACTIVATED,

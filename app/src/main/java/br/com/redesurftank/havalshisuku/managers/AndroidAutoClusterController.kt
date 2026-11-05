@@ -205,6 +205,17 @@ object AndroidAutoClusterController {
                 Log.w(TAG, "CLUSTER navigation started")
                 if (clusterRequested.get()) attachIfSessionAllows("navigation_started")
             }
+            if (AndroidAutoSessionTelemetry.shouldReviveSessionFromNavigation(
+                    navigationActive = true,
+                    sessionActive = isSessionActive()
+                )
+            ) {
+                // Guidance only comes from a linked phone. The fresh evidence just recorded
+                // makes onLinkStatus publish active; main thread, like the session poll.
+                mainHandler.post {
+                    if (!isSessionActive()) onLinkStatus(null)
+                }
+            }
         } else if (navigationActive.get()) {
             mainHandler.removeCallbacks(navigationEndedRunnable)
             mainHandler.postDelayed(navigationEndedRunnable, NAVIGATION_HIDE_DEBOUNCE_MS)
