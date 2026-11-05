@@ -21,12 +21,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
+import br.com.redesurftank.havalshisuku.R
 import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.ambientlight.AmbientLightService
 import br.com.redesurftank.havalshisuku.managers.AutoBrightnessManager
@@ -131,6 +133,34 @@ private fun applyLeftNavPaneVisibility(hidden: Boolean) {
                         }
                 }
                 .start()
+}
+
+private fun isSteeringNativeDefault(action: String): Boolean =
+        action == SteeringWheelCustomActionType.DEFAULT.key ||
+                action == SteeringWheelCustomActionType.DEFAULT.name
+
+/** Native DEFAULT stays native; custom double/long actions are not exclusive. */
+@Composable
+private fun SteeringNativePreservationWarning(
+        shortAction: String,
+        doubleAction: String,
+        longAction: String
+) {
+        if (!isSteeringNativeDefault(shortAction)) return
+        val customDouble = !isSteeringNativeDefault(doubleAction)
+        val customLong = !isSteeringNativeDefault(longAction)
+        val message = when {
+                customDouble && customLong -> R.string.steering_native_preservation_double_long_warning
+                customDouble -> R.string.steering_native_preservation_double_warning
+                customLong -> R.string.steering_native_preservation_long_warning
+                else -> return
+        }
+        Text(
+                text = stringResource(message),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.fillMaxWidth()
+        )
 }
 
 // Seletor reutilizavel de acao do volante (usado p/ toque curto / duplo / longo de cada botao).
@@ -3037,6 +3067,11 @@ fun BasicSettingsTab() {
                                                                         color = Color.White,
                                                                         fontSize = 16.sp
                                                                 )
+                                                                SteeringNativePreservationWarning(
+                                                                        shortAction = steeringWheelButton1Action,
+                                                                        doubleAction = steeringWheelButton1ActionDouble,
+                                                                        longAction = steeringWheelButton1ActionLong
+                                                                )
                                                                 SteeringActionPicker(
                                                                         label = "Toque curto",
                                                                         actionKey = steeringWheelButton1Action,
@@ -3169,6 +3204,11 @@ fun BasicSettingsTab() {
                                                                         "Botão 2",
                                                                         color = Color.White,
                                                                         fontSize = 16.sp
+                                                                )
+                                                                SteeringNativePreservationWarning(
+                                                                        shortAction = steeringWheelButton2Action,
+                                                                        doubleAction = steeringWheelButton2ActionDouble,
+                                                                        longAction = steeringWheelButton2ActionLong
                                                                 )
                                                                 SteeringActionPicker(
                                                                         label = "Toque curto",

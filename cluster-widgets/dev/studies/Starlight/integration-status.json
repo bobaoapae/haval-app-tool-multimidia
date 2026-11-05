@@ -1,0 +1,18 @@
+{
+  "name": "Starlight",
+  "developmentOnly": true,
+  "hardwareReady": false,
+  "installable": false,
+  "referencePreviewCommit": "681bf61f052f746ccd792d5186d88a9e20a28cfc",
+  "designRevision": 10,
+  "entry": "index.html",
+  "contractFixtureEntry": "contract-lab.html",
+  "telemetry": "synthetic fixtures only",
+  "commands": "local simulation only",
+  "knownCompositionIntersections": [
+    "ADAS center",
+    "TSR safe zone",
+    "ESP safe zone"
+  ],
+  "obsidian": "Handled in a separate PR; excluded from this Starlight change"
+}

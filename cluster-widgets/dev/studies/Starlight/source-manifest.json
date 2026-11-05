@@ -1,0 +1,18 @@
+{
+  "revision": 10,
+  "scope": "Alignment only; v9 effects and menu/readout typography preserved",
+  "runtime": {
+    "index.html": "f39d3c9579b3b5d69478b7c96061b9a464ca2d80c62e6db07d7418412ee951cc",
+    "apex-data.js": "200884b05d5a33eaffcf265d35e22547ce6b2ffe56e64ec9e8bcb76eada2045f",
+    "scales.js": "bc27403460da1b41e6a6e37ee8f586d0f01c9a8a9fbf9f5b5be48dca141d1c4d",
+    "galaxy-stars.js": "a165bb69e889bbf63ad59e0eb361f591b92a060158448e4ee8ca136034bee0e0",
+    "glass-smoke.js": "91811e709f49d3737ab3bdafa80425e24502b714c05b24bb6ed6620c8ec115df",
+    "menu-state.js": "99995a4581cf77afde724ee1a23267bc47c5b565566e05d960f526be9abe8aab",
+    "renderer.js": "cee7d1453c49db2771182b21e653ea4e3a2afd6cd719febffff52839a58e1596",
+    "theme-menus.js": "5174d04c4ede10215327188ccf6cad91f15071c6e99884700b767bcebb74edc3",
+    "preview-controller.js": "be04c626d8d6d829a1f95abfd54a8499986713ada856615704584c9552db4c5b"
+  },
+  "noTrailSetting": true,
+  "browserValidated": false,
+  "vehicleValidated": false
+}

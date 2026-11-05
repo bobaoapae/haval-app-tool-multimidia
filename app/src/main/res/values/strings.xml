@@ -9,4 +9,7 @@
     <string name="android_settings_shortcut_label">Config. Android</string>
     <string name="open_android_settings">Abrir Configurações do Android</string>
     <string name="accessibility_description">Serviço de Acessibilidade Haval</string>
+    <string name="steering_native_preservation_double_warning">Combinação não exclusiva: com o toque curto em Padrão da multimídia, a escolha do carro é preservada. O toque duplo também pode executar duas vezes a ação nativa, além da ação do Impulse.</string>
+    <string name="steering_native_preservation_long_warning">Combinação não exclusiva: com o toque curto em Padrão da multimídia, a escolha do carro é preservada. O toque longo também pode abrir o menu original do carro, além da ação do Impulse.</string>
+    <string name="steering_native_preservation_double_long_warning">Combinação não exclusiva: com o toque curto em Padrão da multimídia, a escolha do carro é preservada. O toque duplo também pode executar duas vezes a ação nativa; o toque longo também pode abrir o menu original do carro, além das ações do Impulse.</string>
 </resources>

@@ -1,0 +1,19 @@
+{
+  "name": "haval-starlight-development-study",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Development-only Starlight study. Not an installable vehicle theme.",
+  "scripts": {
+    "test": "npm run test:design && npm run test:contract && npm run test:integration",
+    "test:contract": "node test-contract-adapter.cjs && node test-contract-renderer.cjs",
+    "test:integration": "node test-integration-boundary.cjs",
+    "test:browser": "node test-browser.cjs",
+    "test:design": "node test.cjs && node test-apex-data.cjs && node test-galaxy-stars.cjs && node test-material.cjs && node test-glass-smoke.cjs && node test-battery-flow.cjs && node test-menu-state.cjs && node test-menu-renderer.cjs && node test-preview-controller.cjs && node test-annotated-refinement.cjs && node test-speed-battery-scale.cjs && node test-menu-transparency.cjs && node test-perspective-scale.cjs"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "0.1.100"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
