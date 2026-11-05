@@ -6,6 +6,8 @@ function createFrame(androidDescriptor) {
   const calls = [];
   const listeners = new Map();
   const frame = {
+    Event: class { constructor(type) { this.type = type; } },
+    dispatchEvent(event) { for (const handler of listeners.get(event.type) || []) handler(event); },
     document: { getElementById: (id) => id === 'apex-gt' ? {} : null },
     control(key, value) { calls.push([key, value]); },
     addEventListener(name, handler) {
@@ -30,6 +32,13 @@ const originalControl = frame.control;
 const adapter = installApexGtSimulator(frame);
 const bridge = frame.Android;
 assert.equal(bridge.__themeLabMock, 'ApexGT');
+assert.equal(bridge.getClusterAcFocus(), 'fan');
+const callsBeforeFocus = calls.length;
+assert.equal(bridge.saveClusterAcFocus('temp'), true);
+assert.equal(bridge.getClusterAcFocus(), 'temp');
+assert.equal(bridge.saveClusterAcFocus('invalid'), false);
+assert.equal(bridge.getClusterAcFocus(), 'temp');
+assert.equal(calls.length, callsBeforeFocus, 'focus selection never emits vehicle telemetry');
 assert.equal(bridge.subscribe, undefined, 'o mock não altera assinaturas nem inicialização do tema');
 assert.equal(fixture.listenerCount('apex-cleanup'), 1);
 const beforeReady = calls.length;

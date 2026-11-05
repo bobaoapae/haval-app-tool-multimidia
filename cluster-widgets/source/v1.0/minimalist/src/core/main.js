@@ -1,3 +1,4 @@
+import { createAcFocusPreference } from '../../../shared/utils/clusterAcFocus.js';
 import { applyClusterVisibility } from '../../../shared/runtime/clusterVisibility.js';
 import { getState as get, setState, subscribe } from './state.js';
 import { createDashboardInfo } from './components/dashboardInfo.js';
@@ -17,6 +18,18 @@ import { loadPrefIn, savePref } from '../../../shared/utils/preferences.js';
 import { bridge } from '../../../shared/bridge/ThemeBridgeAdapter.js';
 import { translateFriendlyValue, FRIENDLY_KEY_TO_CAN_KEY, KEYS, getLabel } from '../../../shared/car/carConstants.js';
 import { createGraphTelemetryHandler, getAdjustedSpeed } from '../../../shared/car/carDerivations.js';
+
+const acFocusPreference = createAcFocusPreference(() => window.Android);
+let acFocusTouched = false;
+const needsMockAcFocus = !acFocusPreference.available();
+setState('focusArea', acFocusPreference.restore());
+// Only late development mock injection rehydrates. Native bridge is ready pre-page.
+const rehydrateMockAcFocus = () => {
+    window.removeEventListener('cluster-ac-focus-bridge-ready', rehydrateMockAcFocus);
+    if (!acFocusTouched && window.Android?.__themeLabMock && acFocusPreference.available())
+        setState('focusArea', acFocusPreference.restore());
+};
+if (needsMockAcFocus) window.addEventListener('cluster-ac-focus-bridge-ready', rehydrateMockAcFocus);
 
 initializeConstants();
 initWarningHandler();
@@ -672,6 +685,7 @@ window.focus = function (item) {
                 setState('focusedMenuItem', item);
             }
         } else if (screen === 'aircon') {
+            acFocusTouched = true;
             setState('focusArea', item);
         } else if (screen === 'display_selection') {
             setState('displayFocus', item);
@@ -914,17 +928,17 @@ function handleMainMenuKey(keyName) {
 }
 
 function handleAirconKey(keyName) {
+    // A late development mock must not change the target after any valid AC input.
+    if (['ENTER', 'UP', 'DOWN', 'ENTER_LONG', 'BACK_LONG'].includes(keyName))
+        acFocusTouched = true;
     const focusArea = get('focusArea') || 'fan';
-    const isAcPowerOn = Number(get('power')) > 0;
 
     // LEFT/RIGHT are reserved for backend-driven card navigation and are not
     // forwarded to the theme, so ENTER toggles the fan/temp focus here.
     if (keyName === 'ENTER') {
-        if (!isAcPowerOn) {
-            setState('focusArea', 'fan');
-            return;
-        }
-        setState('focusArea', focusArea === 'fan' ? 'temp' : 'fan');
+        const nextFocus = focusArea === 'fan' ? 'temp' : 'fan';
+        setState('focusArea', nextFocus);
+        acFocusPreference.save(nextFocus);
         return;
     }
     if (keyName === 'BACK_LONG') {
@@ -1127,7 +1141,7 @@ function handleSettingsTelemetry(key, value) {
         case KEYS.HVAC_POWER: {
             const p = Number(value);
             setState('power', p);
-            if (p === 0) setState('focusArea', 'fan');
+            // Telemetry updates power only; preserve the restored/user-selected focus.
             break;
         }
         case KEYS.HVAC_FAN_SPEED:
@@ -1258,6 +1272,7 @@ async function initMinimalistBridge() {
 initMinimalistBridge().catch((e) => console.error('[Bridge] init failed:', e));
 
 window.cleanup = function () {
+    window.removeEventListener('cluster-ac-focus-bridge-ready', rehydrateMockAcFocus);
     try {
         logger.enter('window.cleanup');
         if (currentComponent && currentComponent.cleanup) {

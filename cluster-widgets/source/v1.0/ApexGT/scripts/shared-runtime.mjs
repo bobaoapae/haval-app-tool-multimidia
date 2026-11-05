@@ -11,6 +11,7 @@ import path from 'node:path';
 // `only` recorta funções específicas: carDerivations.js traz também o redutor de gráficos com chaves
 // legadas (evPowerKw etc.) que o pacote do Apex GT não admite; só a calibração de velocidade entra.
 const SOURCES = [
+    { file: '../shared/utils/clusterAcFocus.js', only: ['createAcFocusPreference'] },
     { file: '../shared/car/carDerivations.js', only: ['getAdjustedSpeed'] },
     { file: '../shared/runtime/clusterVisibility.js', only: ['applyClusterVisibility'] },
     // Turn-by-turn card, the same one Default and Minimalist show (tbtCard.css goes in via index.html).
@@ -20,6 +21,7 @@ const SOURCES = [
     { file: '../shared/tbt/tbtCard.js' },
 ];
 const EXPORTS = [
+    'createAcFocusPreference',
     'getAdjustedSpeed',
     'applyClusterVisibility',
     'createTbtCard',

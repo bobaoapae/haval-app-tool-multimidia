@@ -1,3 +1,4 @@
+import { createAcFocusPreference } from '../../../shared/utils/clusterAcFocus.js';
 import { applyClusterVisibility } from '../../../shared/runtime/clusterVisibility.js';
 import { getState as get, setState, subscribe, stateManager } from './state.js';
 import { createDashboardInfo } from './components/dashboardInfo.js';
@@ -18,6 +19,10 @@ import { parseNavigationDirections, parseRadarAlert } from '../../../shared/tbt/
 import { createGraphTelemetryHandler, getAdjustedSpeed } from '../../../shared/car/carDerivations.js';
 import { initSimulationHarness } from '../../../shared/runtime/testing-utils.js';
 import { applyAccent, applyIconColor, DEFAULT_ACCENT, DEFAULT_ICON_COLOR } from './accent.js';
+
+const acFocusPreference = createAcFocusPreference(() => window.Android);
+// Host bridge (or imported browser mock) exists before component setup.
+setState('focusArea', acFocusPreference.restore());
 
 initializeConstants();
 initWarningHandler();
@@ -559,7 +564,9 @@ function handleSteeringWheelKey(keyName) {
         // ENTER only: LEFT/RIGHT are reserved for cluster card navigation and are never
         // delivered to themes, so keying fan/temp focus off them silently did nothing.
         if (keyName === 'ENTER') {
-            setState('focusArea', focusArea === 'fan' ? 'temp' : 'fan');
+            const nextFocus = focusArea === 'fan' ? 'temp' : 'fan';
+            setState('focusArea', nextFocus);
+            acFocusPreference.save(nextFocus);
         } else if (keyName === 'UP' || keyName === 'DOWN') {
             if (focusArea === 'fan') {
                 const currentFan = Number(get('fan')) || 0;

@@ -1,3 +1,4 @@
+import { createClusterAcFocusMock } from '../source/v1.0/shared/runtime/clusterAcFocusMock.js';
 // Theme Lab only. These mock values never enter the standalone theme package.
 const MOCK_BATTERY_VOLTAGE = 400;
 const DISPLAY_STORAGE_KEY = 'haval.ApexGT.apexDisplayMode';
@@ -169,6 +170,7 @@ export function installApexGtSimulator(frameWindow) {
     };
     mockBridge = Object.freeze({
       __themeLabMock: 'ApexGT',
+      ...createClusterAcFocusMock(() => frameWindow.localStorage),
       getPreference(key, defaultValue) {
         assertActive();
         return DISPLAY_PREFERENCE_KEYS.has(key) ? displayPreference : defaultValue;
@@ -228,6 +230,7 @@ export function installApexGtSimulator(frameWindow) {
       },
     });
     frameWindow.Android = mockBridge;
+    frameWindow.dispatchEvent(new frameWindow.Event('cluster-ac-focus-bridge-ready'));
   }
   frameWindow.addEventListener?.('apex-cleanup', adapter.cleanup);
   installedAdapters.set(frameWindow, adapter);

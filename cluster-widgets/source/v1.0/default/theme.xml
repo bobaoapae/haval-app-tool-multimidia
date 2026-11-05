@@ -1,11 +1,11 @@
 <theme>
     <name>Default</name>
     <description>Tema principal com o novo design Sport e suporte completo a telemetria descentralizada.</description>
-    <version>1.4.48</version>
+    <version>1.4.49</version>
     <thumbnail>thumbnail.png</thumbnail>
     <mainFile>index.html</mainFile>
     <decentralized>true</decentralized>
-    <minBridgeVersion>1.0.0</minBridgeVersion>
+    <minBridgeVersion>1.0.2</minBridgeVersion>
     <contractVersion>v1.0</contractVersion>
     <AppDefaultPosition>
         <x>0</x>

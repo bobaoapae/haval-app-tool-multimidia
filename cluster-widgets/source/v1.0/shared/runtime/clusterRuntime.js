@@ -1,3 +1,4 @@
+import { createClusterAcFocusMock } from './clusterAcFocusMock.js';
 /**
  * Shisuku Cluster Theme Shared Runtime (clusterRuntime.js)
  * Implements the V1 bridge contract, raw steering wheel event routers,
@@ -183,6 +184,8 @@ if (isBrowser) {
     window.__MOCK_CAR_STATE__ = mockState;
 
     window.Android = {
+        __themeLabMock: 'shared',
+        ...createClusterAcFocusMock(() => window.localStorage),
         // Must mirror ThemeBridgeImpl.getAvailableKeys() in the app. hasKey() rejects
         // anything absent from this list, so a mock that under-reports does not merely
         // look different from the car -- it makes the dev harness suppress real
@@ -371,6 +374,7 @@ if (isBrowser) {
             console.log(`[Mock Bridge] setUseDecentralizedScreens: ${enabled}`);
         }
     };
+    window.dispatchEvent(new Event('cluster-ac-focus-bridge-ready'));
 
     // Auto-map browser arrow keys to physical steering wheel button events (Idempotent guard for HMR)
     if (!window.__KEYBOARD_LISTENER_BOUND__) {

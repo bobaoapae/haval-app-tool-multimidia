@@ -184,20 +184,12 @@ export function createAcControlScreen() {
         tempValue.textContent = formatTempDisplay(stateManager.get('temp'), unit);
     }));
 
-    const isPowerOn = () => {
-        const p = stateManager.get('power');
-        return p === 1 || p === '1';
-    };
-
     const applyPowerUi = (v) => {
         const on = v === 1 || v === '1';
         powerPill.textContent = on ? 'AC ON' : 'AC OFF';
         powerPill.classList.toggle('is-on', on);
         panel.classList.toggle('ac-power-off', !on);
-        // When AC is off: gray selector stays available, force focus on fan
-        if (!on) {
-            setState('focusArea', 'fan');
-        }
+        // Power changes only presentation; never overwrite the global focus choice.
     };
 
     unsubs.push(subscribe('power', applyPowerUi));
@@ -223,7 +215,7 @@ export function createAcControlScreen() {
     }
 
     const onMount = () => {
-        if (!stateManager.get('focusArea') || !isPowerOn()) {
+        if (!['fan', 'temp'].includes(stateManager.get('focusArea'))) {
             setState('focusArea', 'fan');
         }
     };

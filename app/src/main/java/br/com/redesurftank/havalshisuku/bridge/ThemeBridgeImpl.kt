@@ -358,6 +358,23 @@ class ThemeBridgeImpl(private val context: IBridgeContext) {
         }
     }
 
+    /** Optional additive bridge API: persisted UI focus only, never HVAC commands. */
+    @JavascriptInterface
+    fun getClusterAcFocus(): String = ClusterAcFocusPreference.read {
+        context.preferences.getString(
+            br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.LAST_CLUSTER_AC_CONFIG.key,
+            null
+        )
+    }
+
+    @JavascriptInterface
+    fun saveClusterAcFocus(focus: String?): Boolean = ClusterAcFocusPreference.save(focus) { stored ->
+        context.preferences.edit().putString(
+            br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys.LAST_CLUSTER_AC_CONFIG.key,
+            stored
+        ).apply()
+    }
+
     @JavascriptInterface
     fun getPreference(key: String, defaultValue: String): String {
         // Must match the identifier ThemeSettingsDialog scopes its saves with

@@ -50,3 +50,75 @@ falhas antes da correção, zero depois. git diff --check passou. A execução d
 da distribuição Gradle 9.3.1 (Network is unreachable), antes dos testes/build.
 Os 596 testes históricos acima não foram reexecutados para esta revisão.
 Não houve teste na central nem instalação; CI Android do novo head continua necessário.
+# Global AC focus handoff — 2026-10-25
+
+## Local review scope
+
+Based on preview `2d4e32e6be039d6e741c5f764bf72ab34b92ede4`, branch `review/ac-focus`.
+Bridge1.0.2 adds only global UI-focus read/save over the existing preference; v1.0
+contract, generic scoped preferences and HVAC handlers stay compatible. Default1.4.44,
+Minimalist1.0.4 and ApexGT1.0.16 use the API; older theme requirements remain supported.
+Do not add a compatibility polyfill that falsely promises global persistence.
+
+Changed groups: bridge/helper/tests; shared helper/browser mock; three-theme source,
+versions and generated assets; Theme Lab checks; API/system docs. No bootstrap/Telnet,
+firewall, steering integration, UID, signing or migration files belong to this change.
+
+## Validation
+
+Executed on this worktree using existing approved pinned dependencies:
+- `npm run build --prefix cluster-widgets/source/v1.0/default`: PASS.
+- `npm run build --prefix cluster-widgets/source/v1.0/minimalist`: PASS.
+- `npm run build --prefix cluster-widgets/source/v1.0/ApexGT`: PASS.
+- `npm run check --prefix cluster-widgets`: PASS (includes six helper/Default tests
+  and ten global-focus scenarios, including actual arrow-before-late-mock interaction).
+- `npm run check --prefix cluster-widgets/source/v1.0/ApexGT`: PASS (actual-menu AC
+  focus, runtime, display/motion/speed/projection and package checks).
+- Generated package byte-parity and `git diff --check`: PASS.
+
+On this isolated preview-based tree, `:app:testDebugUnitTest :app:assembleDebug`
+passed with 570 tests (71 suites), no failures/errors/skips, including the added
+native Sport compatibility contract. Debug assembly used an external unsigned init
+script; no key generation. No visual browser or isolated-commit hardware result is claimed.
+
+## Distribution and next review
+
+Default is embedded via APK raw HTML + manifest; Minimalist and ApexGT remain separate
+OTA theme files and are NOT installed by an APK-only update. No ThemeManager or install
+mechanism changed. Source plus generated artifacts must be reviewed together.
+
+No push, PR, issue or release-branch mutation performed. Open PR162 overlaps shared
+runtime/Default/Minimalist files; check merge interactions before any later publication,
+without importing its unrelated changes. Parked head-unit checks still need both focus
+values across updated themes/restart, first-arrow targets and unchanged long-key behavior.
+
+### Native Sport compatibility evidence
+
+SportRed/SportRedLite packages and native AcControlScreen are unchanged. The new
+bridge persists the same LAST_CLUSTER_AC_CONFIG enum names already read/written by
+the native screen; a focused source-contract/enum test checks this compatibility.
+`sh cluster-widgets/Themes/validate_sport_themes.sh` passes for both immutable
+0.16.44 packages. Starlight remains a development-only study, not an OTA consumer.
+
+## PR166 follow-up — 2026-10-25
+
+The telemetry handler still contained a legacy reset after the initial focus
+restoration. This follow-up removes that reset and covers the actual seed and
+subscription callback paths before the first arrow, not only the visual component.
+Minimalist source/OTA version is now 1.0.5; contract v1.0 and bridge 1.0.2 are unchanged.
+
+Changed: Minimalist main.js, source/OTA theme.xml, generated OTA app.html,
+check-ac-focus-themes.mjs and these handoff/changelog notes. Default/ApexGT packages,
+Android source and CI workflows are unchanged.
+
+Validation: new regression demonstrably failed before fix, then all 46 focus
+scenarios passed; aggregate npm check and normal Minimalist npm build passed;
+source/dist/OTA parity verified. Host Python suite passed 6 tests including 15
+inner Java lifecycle cases. Android test/build was attempted but Gradle download
+failed with Network is unreachable, so those tasks did not execute. No physical
+vehicle or rendered-browser test was performed for this follow-up.
+
+Next: publish this scoped update to the existing PR166 after parent QA, then
+verify the exact remote SHA and upstream CI. CI execution may require maintainer
+approval. No standalone installer/APK or change to the installed vehicle is part
+of this follow-up.
