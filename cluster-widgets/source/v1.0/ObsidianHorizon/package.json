@@ -1,0 +1,11 @@
+{
+  "name": "haval-obsidian-horizon",
+  "private": true,
+  "version": "1.0.18",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check.mjs",
+    "prerelease": "npm run build && npm run check"
+  }
+}

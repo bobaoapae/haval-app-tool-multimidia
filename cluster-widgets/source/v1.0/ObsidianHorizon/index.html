@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Obsidian Horizon</title>
+    <link rel="stylesheet" href="./src/obsidian-horizon.css">
+</head>
+<body>
+    <main id="obsidian-horizon" class="obsidian-horizon card-main" aria-label="Painel de instrumentos Obsidian Horizon">
+        <div class="raster-frame" aria-hidden="true"></div>
+        <div class="top-chassis" aria-hidden="true">
+            <span class="top-line top-line-left"></span>
+            <span class="top-line top-line-center"></span>
+            <span class="top-line top-line-right"></span>
+        </div>
+
+        <div class="side-shell side-shell-left" aria-hidden="true">
+            <span class="shell-plane shell-plane-primary"></span>
+            <span class="shell-plane shell-plane-secondary"></span>
+            <span class="shell-edge"></span>
+        </div>
+        <div class="side-shell side-shell-right" aria-hidden="true">
+            <span class="shell-plane shell-plane-primary"></span>
+            <span class="shell-plane shell-plane-secondary"></span>
+            <span class="shell-edge"></span>
+        </div>
+
+        <header class="top-readouts" aria-label="Informações gerais">
+            <div class="top-item top-time">
+                <span class="micro-label">HORA</span>
+                <strong id="clock-time" class="top-value">--</strong>
+            </div>
+            <div class="top-item top-outside">
+                <strong id="outside-temperature" class="top-value">--</strong>
+                <span class="micro-label">EXTERNA</span>
+            </div>
+
+            <div class="drive-signature">
+                <div class="drive-cell">
+                    <span class="micro-label">CONDUÇÃO</span>
+                    <strong id="drive-mode" class="drive-mode">--</strong>
+                </div>
+                <span class="signature-divider" aria-hidden="true"></span>
+                <div class="gear-cell">
+                    <span class="micro-label">CÂMBIO</span>
+                    <strong id="gear-state" class="gear-state">--</strong>
+                </div>
+                <span class="signature-divider" aria-hidden="true"></span>
+                <div class="drive-cell">
+                    <span class="micro-label">PROPULSÃO</span>
+                    <strong id="propulsion-mode" class="propulsion-mode">--</strong>
+                </div>
+            </div>
+
+            <div class="top-item top-inside">
+                <strong id="inside-temperature" class="top-value">--</strong>
+                <span class="micro-label">INTERNA</span>
+            </div>
+            <div class="top-item top-odometer">
+                <span class="micro-label">ODÔMETRO</span>
+                <strong id="odometer" class="top-value">--</strong>
+            </div>
+        </header>
+
+        <section class="instrument instrument-speed" aria-label="Velocidade">
+            <span class="instrument-index">01</span>
+            <span class="instrument-kicker">VELOCIDADE</span>
+            <div class="instrument-value-line">
+                <strong id="vehicle-speed" class="instrument-number">--</strong>
+                <span class="instrument-unit">KM/H</span>
+            </div>
+            <div class="instrument-baseline" aria-hidden="true"><span></span></div>
+        </section>
+
+        <section id="power-instrument" class="instrument instrument-power" aria-label="Potência elétrica e regeneração">
+            <span class="instrument-index">02</span>
+            <span id="power-direction" class="instrument-kicker">POTÊNCIA</span>
+            <div class="instrument-value-line">
+                <strong id="power-kw" class="instrument-number">
+                    <span id="power-whole" class="power-whole">--</span>
+                </strong>
+                <span class="instrument-unit">KW</span>
+            </div>
+            <div class="instrument-baseline" aria-hidden="true"><span></span></div>
+        </section>
+
+        <section id="rpm-readout" class="rpm-readout" aria-label="Rotação do motor a combustão" hidden>
+            <span class="micro-label">MOTOR TÉRMICO</span>
+            <strong><span id="engine-rpm">--</span> <small>RPM</small></strong>
+            <div class="rpm-track" aria-hidden="true"><span id="rpm-fill"></span></div>
+        </section>
+
+        <nav id="context-card-nav" class="context-card-nav" aria-label="Card ativo">
+            <span class="card-nav-item" data-card-nav="0" aria-label="Card principal">
+                <span class="card-nav-symbol card-nav-home" aria-hidden="true"><i></i></span>
+                <small>PRINCIPAL</small>
+            </span>
+            <span class="card-nav-item is-active" data-card-nav="1" aria-current="true" aria-label="Menu de informações e ajustes">
+                <span class="card-nav-symbol card-nav-menu" aria-hidden="true"><i></i></span>
+                <small>MENU</small>
+            </span>
+            <span class="card-nav-item" data-card-nav="3" aria-label="Card de climatização">
+                <span class="card-nav-symbol card-nav-climate" aria-hidden="true">✣</span>
+                <small>CLIMA</small>
+            </span>
+        </nav>
+
+        <section id="context-card" class="context-card" aria-label="Card contextual do veículo" aria-live="polite">
+            <header class="context-card-header">
+                <span id="context-back-hint" class="context-back-hint" aria-label="Pressione Voltar no volante" hidden><i></i></span>
+
+                <strong id="context-card-title" class="context-card-title">ENERGIA</strong>
+            </header>
+
+            <div id="context-panel-menu" class="context-panel context-panel-menu">
+                <div class="context-menu-option is-focused" data-context-menu-option="0">
+                    <span class="context-menu-index">01</span>
+                    <div>
+                        <strong>INFORMAÇÕES</strong>
+                        <small>Dados gerais do veículo</small>
+                    </div>
+                </div>
+                <div class="context-menu-option" data-context-menu-option="1">
+                    <span class="context-menu-index">02</span>
+                    <div>
+                        <strong>GRÁFICOS</strong>
+                        <small>Potência e velocidade</small>
+                    </div>
+                </div>
+                <div class="context-menu-option" data-context-menu-option="2">
+                    <span class="context-menu-index">03</span>
+                    <div>
+                        <strong>AJUSTES</strong>
+                        <small>Configurações de condução</small>
+                    </div>
+                </div>
+                <div class="context-menu-option" data-context-menu-option="3">
+                    <span class="context-menu-index">04</span>
+                    <div>
+                        <strong>TRIP A / TRIP B</strong>
+                        <small>Distâncias e médias de viagem</small>
+                    </div>
+                </div>
+            </div>
+
+            <div id="context-panel-settings" class="context-panel context-panel-settings" hidden>
+                <div class="context-setting-row is-focused" data-context-setting="0">
+                    <span>CONDUÇÃO</span>
+                    <strong id="context-setting-drive">--</strong>
+                </div>
+                <div class="context-setting-row" data-context-setting="1">
+                    <span>PROPULSÃO</span>
+                    <strong id="context-setting-propulsion">--</strong>
+                </div>
+                <div class="context-setting-row" data-context-setting="2">
+                    <span>DIREÇÃO</span>
+                    <strong id="context-setting-steer">--</strong>
+                </div>
+                <div class="context-setting-row" data-context-setting="3">
+                    <span>REGENERAÇÃO</span>
+                    <strong id="context-setting-regen">--</strong>
+                </div>
+                <div class="context-setting-row" data-context-setting="4">
+                    <span>ESTABILIDADE</span>
+                    <strong id="context-setting-esp">--</strong>
+                </div>
+            </div>
+
+            <div id="context-panel-graphs" class="context-panel context-panel-graphs" hidden>
+                <div class="context-graph-heading">
+                    <span id="context-graph-label">POTÊNCIA EV</span>
+                    <strong id="context-graph-value">--</strong>
+                    <i class="context-wheel-vertical-hint" role="img" aria-label="Use os botões para cima ou para baixo do volante"></i>
+                </div>
+                <div id="context-graph-bars" class="context-graph-bars" aria-label="Histórico recente">
+                    <span></span><span></span><span></span><span></span><span></span><span></span>
+                    <span></span><span></span><span></span><span></span><span></span><span></span>
+                    <span></span><span></span><span></span><span></span><span></span><span></span>
+                </div>
+                <div class="context-graph-scale">
+                    <span id="context-graph-min">−50</span>
+                    <span>AGORA</span>
+                    <span id="context-graph-max">140 KW</span>
+                </div>
+            </div>
+
+            <div id="context-panel-info" class="context-panel context-panel-info" hidden>
+                <nav class="context-info-tabs" aria-label="Página de informações">
+                    <span class="is-active" data-context-info-tab="0">GERAL</span>
+                    <span data-context-info-tab="1">PNEUS</span>
+                    <i class="context-wheel-vertical-hint" role="img" aria-label="Use os botões para cima ou para baixo do volante"></i>
+                </nav>
+                <div id="context-info-general" class="context-info-page">
+                    <div class="context-info-summary">
+                        <div class="context-info-stat">
+                            <span>ODÔMETRO</span>
+                            <strong id="context-info-odometer">--</strong>
+                        </div>
+                        <div class="context-info-stat">
+                            <span>TEMP. INT. · EXT.</span>
+                            <strong id="context-info-temperatures">--</strong>
+                        </div>
+                    </div>
+                    <div class="context-info-energy">
+                        <span>ENERGIA DISPONÍVEL</span>
+                        <strong id="context-info-energy">--</strong>
+                    </div>
+                </div>
+                <section id="context-info-tires" class="context-info-page context-tire-pressure" aria-label="Pressão dos quatro pneus" hidden>
+                    <header><span>PRESSÃO DOS PNEUS</span><small>PSI</small></header>
+                    <div class="context-tire-grid">
+                        <div id="context-tire-cell-front-left" class="context-tire-cell" aria-label="Pneu dianteiro esquerdo">
+                            <i class="context-tire-icon" aria-hidden="true"></i>
+                            <span><small>D.E.</small><strong id="context-tire-front-left">--</strong><em id="context-tire-status-front-left">--</em></span>
+                        </div>
+                        <div id="context-tire-cell-front-right" class="context-tire-cell" aria-label="Pneu dianteiro direito">
+                            <span><small>D.D.</small><strong id="context-tire-front-right">--</strong><em id="context-tire-status-front-right">--</em></span>
+                            <i class="context-tire-icon" aria-hidden="true"></i>
+                        </div>
+                        <div id="context-tire-cell-rear-left" class="context-tire-cell" aria-label="Pneu traseiro esquerdo">
+                            <i class="context-tire-icon" aria-hidden="true"></i>
+                            <span><small>T.E.</small><strong id="context-tire-rear-left">--</strong><em id="context-tire-status-rear-left">--</em></span>
+                        </div>
+                        <div id="context-tire-cell-rear-right" class="context-tire-cell" aria-label="Pneu traseiro direito">
+                            <span><small>T.D.</small><strong id="context-tire-rear-right">--</strong><em id="context-tire-status-rear-right">--</em></span>
+                            <i class="context-tire-icon" aria-hidden="true"></i>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <div id="context-panel-trips" class="context-panel context-panel-trips" hidden>
+                <section class="context-trip-block context-trip-a is-focused" data-context-trip="0" aria-label="Trip A">
+                    <header>
+                        <span>TRIP A <small>REINÍCIO AUTOMÁTICO</small></span>
+                        <strong id="context-trip-a-distance">--</strong>
+                    </header>
+                    <div class="context-trip-metrics">
+                        <span><small>TEMPO</small><strong id="context-trip-a-time">--</strong></span>
+                        <span><small>VELOC. MÉDIA</small><strong id="context-trip-a-speed">--</strong></span>
+                        <span><small>CONSUMO</small><strong id="context-trip-a-consumption">--</strong></span>
+                    </div>
+                </section>
+                <section class="context-trip-block context-trip-b" data-context-trip="1" aria-label="Trip B">
+                    <header>
+                        <span>TRIP B <small id="context-trip-b-reset-status">SEGURE OK PARA ZERAR</small></span>
+                        <strong id="context-trip-b-distance">--</strong>
+                    </header>
+                    <div class="context-trip-metrics">
+                        <span><small>TEMPO</small><strong id="context-trip-b-time">--</strong></span>
+                        <span><small>VELOC. MÉDIA</small><strong id="context-trip-b-speed">--</strong></span>
+                        <span><small>CONSUMO</small><strong id="context-trip-b-consumption">--</strong></span>
+                    </div>
+                </section>
+            </div>
+
+            <div id="context-panel-ac" class="context-panel context-panel-ac" hidden>
+                <div id="context-ac-temp-row" class="context-ac-control">
+                    <div class="context-ac-control-copy">
+                        <span class="context-ac-label">TEMPERATURA</span>
+                        <div class="context-ac-temp-rail" aria-hidden="true">
+                            <span id="context-ac-temp-fill" class="context-ac-temp-fill"></span>
+                            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                        </div>
+                    </div>
+                    <strong id="context-ac-temp">--</strong>
+                </div>
+                <div id="context-ac-fan-row" class="context-ac-control is-focused">
+                    <div class="context-ac-control-copy">
+                        <span class="context-ac-label">VENTILAÇÃO</span>
+                        <div id="context-ac-fan-level" class="context-ac-fan-level" aria-hidden="true">
+                            <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                        </div>
+                    </div>
+                    <strong id="context-ac-fan">--</strong>
+                </div>
+                <div class="context-ac-status">
+                    <div class="context-ac-state">
+                        <i aria-hidden="true"></i>
+                        <span><small>SISTEMA</small><strong id="context-ac-power">LIGADO</strong></span>
+                    </div>
+                    <div class="context-ac-state">
+                        <i aria-hidden="true"></i>
+                        <span><small>MODO</small><strong id="context-ac-auto">AUTO OFF</strong></span>
+                    </div>
+                    <div class="context-ac-state">
+                        <i aria-hidden="true"></i>
+                        <span><small>ENTRADA</small><strong id="context-ac-recycle">AR EXTERNO</strong></span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="energy-panel energy-fuel" aria-label="Nível de combustível">
+            <div class="energy-header">
+                <span class="energy-name">COMBUSTÍVEL</span>
+                <strong id="fuel-percent">--</strong>
+            </div>
+            <div class="energy-track fuel-track" aria-hidden="true"><span id="fuel-fill"></span><i></i></div>
+            <div class="energy-footer">
+                <strong id="fuel-range" class="energy-range">--</strong>
+                <div class="fuel-volume" aria-label="Nível de combustível em litros">
+                    <strong id="fuel-liters">--</strong><span>L</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="energy-panel energy-battery" aria-label="Nível da bateria">
+            <div class="energy-header">
+                <span class="energy-name">BATERIA</span>
+                <strong id="battery-percent">--</strong>
+            </div>
+            <div class="energy-track battery-track" aria-hidden="true"><span id="battery-fill"></span><i></i></div>
+            <div class="energy-footer">
+                <strong id="battery-range" class="energy-range">--</strong>
+            </div>
+        </section>
+
+        <section id="adas-viewport" class="adas-viewport" aria-label="Área transparente para ADAS ou mapa"></section>
+    </main>
+    <script src="./src/obsidian-horizon.js" defer></script>
+</body>
+</html>
