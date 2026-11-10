@@ -77,3 +77,9 @@ provided an AR override and did not exercise the controller's Navigation path.
   bridge, theme or vehicle changes. The commit uses [skip ci] intentionally.
 - Historical source trace: introduced in 4cc5798898e0862c03e5559bce64ebf7c3a664ef
   (2026-10-20), first merged to preview by PR162 / 2e45dfaa (2026-11-04).
+
+## 10/11/2026 — validação da correção HUD na preview
+
+- Autorizada execução da CI do PR168 sobre a árvore pública da preview.
+- Novo commit documental sem [skip ci]; implementação e regressões mantidas.
+- Resultados pendentes, sem assinatura, release, integração ou acesso ao veículo.

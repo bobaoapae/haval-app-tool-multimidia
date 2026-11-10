@@ -143,3 +143,14 @@ Commands used: git log/show/diff, source reads, branch/commit/push and draft PR 
 Next: maintainer review, then authorized CI/unit/build validation on the exact PR
 head and separate physical HUD acceptance. Do not infer passing tests or installed
 behavior from this static review. The PR must remain a draft until validation.
+
+## Validação na preview oficial — 10/11/2026
+
+Autorizada execução de testes e compilação sobre a árvore pública da preview mais
+esta correção. Este novo commit não contém [skip ci], para acionar o workflow de
+regressões do PR168. O código e os testes do HUD permanecem idênticos ao commit
+7c565f2a. Nenhum workflow de release ou assinatura será disparado; sem veículo.
+
+Resultados desta execução ainda pendentes. Usar somente o SHA e os relatórios da
+CI desta árvore ao atualizar a validação pública. PR continua como rascunho.
+Comandos: git diff/check/commit/push; consulta de runs/jobs da CI pelo GitHub.
