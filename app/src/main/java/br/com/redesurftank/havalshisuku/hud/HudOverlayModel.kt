@@ -1460,7 +1460,13 @@ object HudOverlayModel {
                     else -> tbt.arMeters
                 }
                 // On the ring the arrow is drawn here (0 m). Chevrons keep AA's distance to the exit.
-                val guide = if (onRing) tbt.guideMeters else arrowMeters
+                // Navigation has no AR distance: keep AA's guide distance for its chevrons.
+                val guide = when {
+                    onRing -> tbt.guideMeters
+                    tbt.style == TbtStyle.AR -> arrowMeters
+                    !arDistanceKnown -> null
+                    else -> arMetersOverride ?: tbt.guideMeters
+                }
                 val adjusted = tbt.copy(
                     guideMeters = guide,
                     rbProgress = if (tbt.icon == "ROUNDABOUT") arProgress.coerceIn(0f, 1f) else 0f

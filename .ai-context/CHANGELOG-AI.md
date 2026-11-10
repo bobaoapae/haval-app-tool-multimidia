@@ -59,3 +59,21 @@ Baseline has no tracked `.ai-context` directory or `.agents/skills` packages. Ex
 - Android assemble/unit tasks were attempted but the Gradle wrapper download was
   blocked by unavailable network (SocketException: Network is unreachable). No
   Android build/unit result or new vehicle/browser validation is claimed.
+
+## 2026-11-10 - Navigation chevron distance (draft PR)
+
+On preview 16a5bef612171ed144f73e0dba7bf786e91c32ce, frameFor replaced
+Navigation's guideMeters with the AR-only arMeters (null without an override).
+Consequently the always-visible chevron used Float.MAX_VALUE and stayed upright
+near turns, while near-only chevrons disappeared. The existing both-layout test
+provided an AR override and did not exercise the controller's Navigation path.
+
+- Preserve reported guide distance for HERO/COMPACT/FAR when valid; retain explicit
+  overrides, AR interpolation and roundabout exit handling.
+- Add three regression tests without an AR override: both turn sides/always modes,
+  distance thresholds, compact/far styles, hidden/stopped/disabled/stale cases.
+- Static inspection and git diff --check only. Tests, Gradle tasks and APK builds
+  were not executed at the requester's direction. No workflow, renderer, layout,
+  bridge, theme or vehicle changes. The commit uses [skip ci] intentionally.
+- Historical source trace: introduced in 4cc5798898e0862c03e5559bce64ebf7c3a664ef
+  (2026-10-20), first merged to preview by PR162 / 2e45dfaa (2026-11-04).
