@@ -364,6 +364,70 @@ class HudArArrowTest {
     }
 
     @Test
+    fun `navigation chevrons use AA distance without an AR override in both always modes`() {
+        for (evenHidden in listOf(false, true)) for ((turn, side) in listOf("TURN_LEFT" to -1, "TURN_RIGHT" to 1)) {
+            val config = HudOverlayModel.Config(layout = HudOverlayModel.Layout.NAVIGATION,
+                chevronsAlways = true, chevronsEvenHidden = evenHidden)
+            fun at(meters: Int) = HudOverlayModel.frameFor(config,
+                Directions(active = true, distance = "$meters m", distanceM = meters, turn = turn), 0, null)
+            val leaning = at(115)
+            assertEquals(HudOverlayModel.TbtStyle.HERO, leaning.tbt!!.style)
+            assertEquals(115f, leaning.tbt!!.guideMeters!!, 0f)
+            assertEquals(side, leaning.chevrons!!.side)
+            assertEquals(0.5f, leaning.chevrons!!.lean, 0.001f)
+            assertTrue(!leaning.chevrons!!.animate)
+            val held = at(80).chevrons!!
+            assertEquals(side, held.side)
+            assertEquals(1f, held.lean, 0f)
+            assertTrue(!held.animate)
+            val near = at(40).chevrons!!
+            assertEquals(side, near.side)
+            assertTrue(near.animate)
+            assertEquals(0.2f, near.intensity, 0.01f)
+        }
+    }
+
+    @Test
+    fun `navigation chevrons retain distance in compact and far styles`() {
+        val config = HudOverlayModel.Config(layout = HudOverlayModel.Layout.NAVIGATION,
+            chevronsAlways = true, chevronsEvenHidden = true)
+        val right = Directions(active = true, distance = "40 m", distanceM = 40, turn = "TURN_RIGHT")
+        val compact = HudOverlayModel.frameFor(config,
+            right.copy(lanes = listOf(listOf(LaneDirection(5, true)))), 0, null)
+        assertEquals(HudOverlayModel.TbtStyle.COMPACT, compact.tbt!!.style)
+        assertEquals(40f, compact.tbt!!.guideMeters!!, 0f)
+        assertEquals(1, compact.chevrons!!.side)
+        assertTrue(compact.chevrons!!.animate)
+        val far = HudOverlayModel.frameFor(config, right.copy(distance = "2 km", distanceM = 2000), 0, null)
+        assertEquals(HudOverlayModel.TbtStyle.FAR, far.tbt!!.style)
+        assertEquals(2000f, far.tbt!!.guideMeters!!, 0f)
+        assertEquals(0f, far.chevrons!!.lean, 0f)
+        assertTrue(!far.chevrons!!.animate)
+        assertTrue(far.tbt!!.turnHidden)
+        assertNull(HudOverlayModel.frameFor(config.copy(chevronsEvenHidden = false),
+            right.copy(distance = "2 km", distanceM = 2000), 0, null).chevrons)
+    }
+
+    @Test
+    fun `navigation distance recovery preserves near-only stopped and stale behavior`() {
+        val config = HudOverlayModel.Config(layout = HudOverlayModel.Layout.NAVIGATION)
+        val right = Directions(active = true, distance = "40 m", distanceM = 40, turn = "TURN_RIGHT")
+        // No override, as in the navigation controller's real frame path.
+        assertTrue(HudOverlayModel.frameFor(config, right, 0, null).chevrons!!.animate)
+        assertNull(HudOverlayModel.frameFor(config, right.copy(distance = "300 m", distanceM = 300), 0, null).chevrons)
+        assertNull(HudOverlayModel.frameFor(config, right, 0, null, speedKmh = 0.0).chevrons)
+        assertNull(HudOverlayModel.frameFor(config.copy(chevrons = false), right, 0, null).chevrons)
+        val stale = HudOverlayModel.frameFor(config, right, 0, null, arDistanceKnown = false)
+        assertNull(stale.tbt!!.guideMeters)
+        assertEquals("", stale.tbt!!.distanceValue)
+        assertNull(stale.chevrons)
+        val alwaysStale = HudOverlayModel.frameFor(config.copy(chevronsAlways = true),
+            right, 0, null, arDistanceKnown = false).chevrons!!
+        assertEquals(0f, alwaysStale.lean, 0f)
+        assertTrue(!alwaysStale.animate)
+    }
+
+    @Test
     fun `chevrons - the lead travels alone, then a trail grows behind it, four in a row by 10 m`() {
         fun at(m: Float, sharp: Boolean = true, side: Int = 1) =
             HudOverlayModel.chevronStrip(side, sharp, 1f - m / HudOverlayModel.CHEVRON_ANIM_M)
