@@ -1,0 +1,16 @@
+<theme>
+    <name>Obsidian Horizon</name>
+    <description>Painel panoramico em grafite com instrumentacao lateral e area central nativa para ADAS ou mapa.</description>
+    <version>1.0.18</version>
+    <thumbnail>thumbnail.png</thumbnail>
+    <mainFile>app.html</mainFile>
+    <decentralized>true</decentralized>
+    <minBridgeVersion>1.0.1</minBridgeVersion>
+    <contractVersion>v1.0</contractVersion>
+    <AppDefaultPosition>
+        <x>500</x>
+        <y>100</y>
+        <width>910</width>
+        <height>620</height>
+    </AppDefaultPosition>
+</theme>
