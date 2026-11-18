@@ -154,3 +154,20 @@ regressões do PR168. O código e os testes do HUD permanecem idênticos ao comm
 Resultados desta execução ainda pendentes. Usar somente o SHA e os relatórios da
 CI desta árvore ao atualizar a validação pública. PR continua como rascunho.
 Comandos: git diff/check/commit/push; consulta de runs/jobs da CI pelo GitHub.
+
+## Cortina do teto na partida a frio — 18/11/2026
+
+Base: preview `c93373e9`. Alterados `ServiceManager.java` (só o gatilho da automação de boot da
+cortina e comentários), novo `SunroofCurtainStartupPolicy.java` e o teste dele. Evento, fallback,
+novas tentativas de temperatura, 2 s antes do comando, fechamento e "a cada ignição" sem mudança.
+
+Risco: se o READY ligar com o evento ainda em trânsito no exato instante do poll (arm + 30 s), o
+poll consome o armamento com settle 0 e o comando sai uns 2 s depois do READY, como no caminho "a
+cada ignição". Não observado nos logs.
+
+Validação: teste focado (2 falhas antes, zero depois), `:app:testDebugUnitTest :app:assembleDebug`
+com 817 testes e zero falhas. Pendente: partida a frio na central com os traces `sunroof_curtain_*`;
+esperado `sunroof_curtain_trigger trigger=driving_ready_poll settleMs=0` e a cortina se movendo
+uns 32 s depois de `sunroof_curtain_armed`, em vez de 52 s.
+Comandos: `./gradlew :app:testDebugUnitTest --tests '*SunroofCurtainStartupPolicyTest'`,
+`./gradlew :app:compileDebugJavaWithJavac`, `./gradlew :app:testDebugUnitTest :app:assembleDebug`.

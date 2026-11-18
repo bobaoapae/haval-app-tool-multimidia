@@ -83,3 +83,15 @@ provided an AR override and did not exercise the controller's Navigation path.
 - Autorizada execução da CI do PR168 sobre a árvore pública da preview.
 - Novo commit documental sem [skip ci]; implementação e regressões mantidas.
 - Resultados pendentes, sem assinatura, release, integração ou acesso ao veículo.
+
+## 18/11/2026 — Cortina do teto: sem settle repetido na leitura tardia
+
+- Partida a frio: o app registra o listener uns 10 s depois do READY, perde a transição e o
+  armamento é consumido pelo `driving_ready_poll` (arm + 30 s), que ainda esperava o settle de
+  20 s. A cortina abria 52 s depois do init (logcat de 10/11: READY 09:37:29.9, listener
+  09:37:40.1, cortina 09:38:33.3).
+- Nova `SunroofCurtainStartupPolicy`: settle = max(0, 20 s − tempo mínimo com READY ligado).
+  Evento e fallback: 20 s; poll: 0 s. O invariante do 04a3c126 continua; o poll segue em arm + 30 s.
+- 6 testes JUnit novos: 2 falhas com o settle antigo, zero com a correção.
+- `:app:testDebugUnitTest :app:assembleDebug`: 817 testes (88 suítes), zero falhas, 1 ignorado;
+  build debug passou. JDK 17, macOS. Sem teste na central nem instalação.
