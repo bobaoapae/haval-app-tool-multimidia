@@ -375,13 +375,14 @@ public class ServiceManager {
     // Comandar a cortina aos ~25-45s do boot não funciona: o módulo do teto ainda não executa o
     // comando (visto em 20/08 20:10 e 21/08 06:28 — set_100 com levelBefore=0 e a cortina fechada).
     // Espera driving_ready + settle antes de mandar. Tudo é event-driven/timer: nenhum polling,
-    // nada roda durante a janela de boot.
-    private static final long CURTAIN_SETTLE_AFTER_READY_MS = 20000L;
+    // nada roda durante a janela de boot. Os tempos moram em SunroofCurtainStartupPolicy.
+    private static final long CURTAIN_SETTLE_AFTER_READY_MS = SunroofCurtainStartupPolicy.SETTLE_AFTER_READY_MS;
     // Cobre o caso "app subiu com o carro já ligado": a transição de driving_ready não vem mais,
     // então uma única leitura ao vivo (bem depois do boot) resolve. O cache não serve: é defasado.
-    private static final long CURTAIN_READY_CHECK_DELAY_MS = 30000L;
+    // Se essa leitura dá READY, o READY já está ligado há >= 30s, então ela pula o settle.
+    private static final long CURTAIN_READY_CHECK_DELAY_MS = SunroofCurtainStartupPolicy.READY_CHECK_DELAY_MS;
     // Rede de segurança: se nem evento nem leitura confirmarem, tenta assim mesmo.
-    private static final long CURTAIN_ARM_FALLBACK_MS = 120000L;
+    private static final long CURTAIN_ARM_FALLBACK_MS = SunroofCurtainStartupPolicy.ARM_FALLBACK_MS;
     private static final long RADIO_RESTORE_RETRY_MS = 4000L;
     // 8 tentativas x 4s ≈ 28s: o tether (hotspot) pode demorar a subir no boot deste OEM.
     // O loop para assim que o rádio liga, então tentativas extras são de graça p/ o BT (rápido).
@@ -2772,7 +2773,7 @@ public class ServiceManager {
                     // Carro pronto: é aqui que a cortina pode ser comandada com o módulo do teto acordado.
                     // Os dois convivem: o trigger consome (uma vez só) o armamento do boot; a partir
                     // daí ele é no-op e quem atua nas partidas seguintes é o "a cada ignição".
-                    triggerStartupCurtainAutomation("driving_ready_event");
+                    triggerStartupCurtainAutomation(SunroofCurtainStartupPolicy.Trigger.DRIVING_READY_EVENT);
                     evaluateCurtainOnIgnition();
                 }
             } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
@@ -3271,29 +3272,33 @@ public class ServiceManager {
                 "readyCheckMs", CURTAIN_READY_CHECK_DELAY_MS, "fallbackMs", CURTAIN_ARM_FALLBACK_MS);
 
         // Carro já ligado quando o app subiu: a transição não vem, então confere ao vivo mais tarde.
+        // Se ainda está armado aqui, nenhum evento de READY chegou desde o armamento: o READY já
+        // está ligado há >= CURTAIN_READY_CHECK_DELAY_MS e o poll não espera o settle de novo.
         backgroundHandler.postDelayed(() -> {
             if (!curtainAutomationArmed.get()) return;
             String readyState = getUpdatedData(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue());
             if (isVehicleReadyStateOn(readyState)) {
-                triggerStartupCurtainAutomation("driving_ready_poll");
+                triggerStartupCurtainAutomation(SunroofCurtainStartupPolicy.Trigger.DRIVING_READY_POLL);
             } else {
                 traceCurtain("sunroof_curtain_wait", "readyState", readyState);
             }
         }, CURTAIN_READY_CHECK_DELAY_MS);
 
-        backgroundHandler.postDelayed(() -> triggerStartupCurtainAutomation("fallback_timeout"), CURTAIN_ARM_FALLBACK_MS);
+        backgroundHandler.postDelayed(() -> triggerStartupCurtainAutomation(SunroofCurtainStartupPolicy.Trigger.FALLBACK_TIMEOUT), CURTAIN_ARM_FALLBACK_MS);
     }
 
     /**
-     * Consome o armamento (uma vez só) e, após o settle, faz a primeira avaliação da agenda de
-     * abrir/fechar (evaluateCurtainSchedule), que então se reagenda sozinha.
+     * Consome o armamento (uma vez só) e, após o settle do gatilho, faz a primeira avaliação da
+     * agenda de abrir/fechar (evaluateCurtainSchedule), que então se reagenda sozinha. Evento e
+     * fallback esperam o settle inteiro; o poll pula, porque o READY já está ligado há >= 30s.
      */
-    private void triggerStartupCurtainAutomation(String trigger) {
+    private void triggerStartupCurtainAutomation(SunroofCurtainStartupPolicy.Trigger trigger) {
         if (!curtainAutomationArmed.compareAndSet(true, false)) return;
         hasRunStartupCurtainAutomation = true;
-        traceCurtain("sunroof_curtain_trigger", "trigger", trigger, "settleMs", CURTAIN_SETTLE_AFTER_READY_MS);
+        long settleMs = SunroofCurtainStartupPolicy.settleMsFor(trigger);
+        traceCurtain("sunroof_curtain_trigger", "trigger", trigger.traceName, "settleMs", settleMs);
         backgroundHandler.removeCallbacks(curtainScheduleRunnable);
-        backgroundHandler.postDelayed(curtainScheduleRunnable, CURTAIN_SETTLE_AFTER_READY_MS);
+        backgroundHandler.postDelayed(curtainScheduleRunnable, settleMs);
     }
 
     private void autoOpenSunroofCurtain(int attempt) {
