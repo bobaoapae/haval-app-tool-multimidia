@@ -162,7 +162,7 @@ cortina e comentários), novo `SunroofCurtainStartupPolicy.java` e o teste dele.
 novas tentativas de temperatura, 2 s antes do comando, fechamento e "a cada ignição" sem mudança.
 
 Risco: se o READY ligar com o evento ainda em trânsito no exato instante do poll (arm + 30 s), o
-poll consome o armamento com settle 0 e o comando sai uns 2 s depois do READY, como no caminho "a
+poll consome o armamento com settle 0 e o comando sai uns 2 s depois do READY, perto dos 4 s do caminho "a
 cada ignição". Não observado nos logs.
 
 Validação: teste focado (2 falhas antes, zero depois), `:app:testDebugUnitTest :app:assembleDebug`
